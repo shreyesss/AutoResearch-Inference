@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScenarioManifest v0.2",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "0.2"
+    },
+    "readiness": {
+      "enum": [
+        "example_only",
+        "prepared",
+        "validated"
+      ]
+    },
+    "scenario_id": {
+      "type": "string"
+    },
+    "workload_group_id": {
+      "type": "string"
+    },
+    "workload_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_tokens_total": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "output_tokens_fixed": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 2
+    },
+    "prefix_fraction": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "prefix_pool_size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cache_protocol": {
+      "enum": [
+        "cold_stream",
+        "prefix_prewarmed",
+        "representative_burn_in"
+      ]
+    },
+    "model_id": {
+      "type": "string"
+    },
+    "model_revision": {
+      "type": "string"
+    },
+    "tokenizer_revision": {
+      "type": "string"
+    },
+    "template_hash": {
+      "type": "string"
+    },
+    "content_kind": {
+      "enum": [
+        "mechanical",
+        "semantic",
+        "mock"
+      ]
+    },
+    "payload_path": {
+      "type": "string"
+    },
+    "payload_sha256": {
+      "type": "string"
+    },
+    "schedule_path": {
+      "type": "string"
+    },
+    "schedule_sha256": {
+      "type": "string"
+    },
+    "offered_rps": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "exclusiveMinimum": 0
+    },
+    "load_multiplier": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "dispatch_duration_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "n_planned": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "seeds": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "prefix": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "arrivals": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "content",
+        "prefix",
+        "arrivals"
+      ],
+      "additionalProperties": false
+    },
+    "protocol_id": {
+      "type": "string"
+    },
+    "counting_policy": {
+      "const": "total_server_prompt_including_template"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "suite_role": {
+      "enum": [
+        "diagnostic",
+        "representative",
+        "stress"
+      ]
+    },
+    "output_policy": {
+      "enum": [
+        "forced_length",
+        "natural_eos"
+      ]
+    },
+    "traffic_mode": {
+      "enum": [
+        "independent_open_loop",
+        "recorded_timing",
+        "dependent_sessions"
+      ]
+    },
+    "history_mode": {
+      "enum": [
+        "single_turn",
+        "recorded",
+        "live"
+      ]
+    },
+    "offered_load": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "load_unit": {
+      "enum": [
+        "requests_per_s",
+        "session_starts_per_s",
+        "active_users"
+      ]
+    },
+    "workload_card_path": {
+      "type": "string"
+    },
+    "workload_card_sha256": {
+      "type": "string"
+    },
+    "source_manifest": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string"
+        },
+        "revision_or_hash": {
+          "type": "string"
+        },
+        "split": {
+          "enum": [
+            "diagnostic",
+            "search",
+            "heldout"
+          ]
+        },
+        "characterization_status": {
+          "enum": [
+            "not_applicable",
+            "pending",
+            "complete",
+            "blocked",
+            "mock"
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "source_id",
+        "revision_or_hash",
+        "split",
+        "characterization_status",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "preparation_policy_path": {
+      "type": "string"
+    },
+    "dependency_policy_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "readiness",
+    "scenario_id",
+    "workload_group_id",
+    "workload_name",
+    "input_tokens_total",
+    "output_tokens_fixed",
+    "prefix_fraction",
+    "prefix_pool_size",
+    "cache_protocol",
+    "model_id",
+    "model_revision",
+    "tokenizer_revision",
+    "template_hash",
+    "content_kind",
+    "payload_path",
+    "payload_sha256",
+    "schedule_path",
+    "schedule_sha256",
+    "offered_rps",
+    "load_multiplier",
+    "dispatch_duration_s",
+    "n_planned",
+    "seeds",
+    "protocol_id",
+    "counting_policy",
+    "notes",
+    "suite_role",
+    "output_policy",
+    "traffic_mode",
+    "history_mode",
+    "offered_load",
+    "load_unit",
+    "workload_card_path",
+    "workload_card_sha256",
+    "source_manifest",
+    "preparation_policy_path",
+    "dependency_policy_path"
+  ],
+  "additionalProperties": false
+}

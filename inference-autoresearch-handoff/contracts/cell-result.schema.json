@@ -1,0 +1,376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CellResult v0.2",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "0.2"
+    },
+    "example_only": {
+      "type": "boolean"
+    },
+    "backend": {
+      "enum": [
+        "mock",
+        "real"
+      ]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "configuration_id": {
+      "type": "string"
+    },
+    "scenario_id": {
+      "type": "string"
+    },
+    "workload_group_id": {
+      "type": "string"
+    },
+    "protocol_id": {
+      "type": "string"
+    },
+    "stage": {
+      "enum": [
+        "pilot",
+        "screen",
+        "expanded",
+        "confirm"
+      ]
+    },
+    "replicate": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "valid",
+        "functional_failed",
+        "measurement_failed",
+        "incomplete",
+        "canceled"
+      ]
+    },
+    "behavior": {
+      "enum": [
+        "normal",
+        "overload",
+        "unknown"
+      ]
+    },
+    "evidence_grade": {
+      "enum": [
+        "provisional",
+        "confirmed",
+        "ineligible"
+      ]
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "output_tokens_per_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "ttft_p50_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "ttft_p99_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tpot_p50_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tpot_p99_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "scheduled_ttft_p99_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "dispatch_lag_p99_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "output_tokens_per_s",
+        "ttft_p50_ms",
+        "ttft_p99_ms",
+        "tpot_p50_ms",
+        "tpot_p99_ms",
+        "scheduled_ttft_p99_ms",
+        "dispatch_lag_p99_ms"
+      ],
+      "additionalProperties": false
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "planned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dispatched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "not_dispatched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timed_out": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "canceled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "censored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tpot_eligible": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successful_completion_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "planned",
+        "dispatched",
+        "not_dispatched",
+        "completed",
+        "failed",
+        "timed_out",
+        "canceled",
+        "censored",
+        "tpot_eligible",
+        "successful_completion_tokens"
+      ],
+      "additionalProperties": false
+    },
+    "windows": {
+      "type": "object",
+      "properties": {
+        "dispatch_duration_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "drain_duration_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "effective_duration_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dispatch_duration_s",
+        "drain_duration_s",
+        "effective_duration_s"
+      ],
+      "additionalProperties": false
+    },
+    "diagnostics": {
+      "type": "object",
+      "properties": {
+        "achieved_cache_hit_fraction": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "graph_fallback": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "mtp_acceptance_fraction": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sustainable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "token_counting_mode": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "achieved_cache_hit_fraction",
+        "graph_fallback",
+        "mtp_acceptance_fraction",
+        "sustainable",
+        "token_counting_mode"
+      ],
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "raw_requests": {
+          "type": "string"
+        },
+        "server_log": {
+          "type": "string"
+        },
+        "aiperf_export": {
+          "type": "string"
+        },
+        "telemetry": {
+          "type": "string"
+        },
+        "workload_class_summaries": {
+          "type": "string"
+        },
+        "realized_stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "raw_requests",
+        "server_log",
+        "aiperf_export",
+        "telemetry",
+        "workload_class_summaries",
+        "realized_stream"
+      ],
+      "additionalProperties": false
+    },
+    "notes": {
+      "type": "string"
+    },
+    "mechanism_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "observation": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "number",
+              "string",
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "availability": {
+            "enum": [
+              "measured",
+              "unsupported",
+              "not_collected"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "observation",
+          "value",
+          "unit",
+          "availability",
+          "reason",
+          "artifact_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "example_only",
+    "backend",
+    "run_id",
+    "configuration_id",
+    "scenario_id",
+    "workload_group_id",
+    "protocol_id",
+    "stage",
+    "replicate",
+    "status",
+    "behavior",
+    "evidence_grade",
+    "reason_codes",
+    "metrics",
+    "counts",
+    "windows",
+    "diagnostics",
+    "artifacts",
+    "notes",
+    "mechanism_evidence"
+  ],
+  "additionalProperties": false
+}

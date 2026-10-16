@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.2",
+  "proposal_id": "p001",
+  "parent_configuration_ids": [
+    "baseline-b0"
+  ],
+  "parameters": {
+    "max_num_batched_tokens": 2048
+  },
+  "hypothesis": "Reducing a binding prefill token budget may reduce ongoing decode stalls in mixed traffic.",
+  "expected_tradeoff": "Potentially better TPOT tail with worse prefill TTFT or capacity; no gain is assumed.",
+  "evidence_ids": [
+    "EXAMPLE_ONLY-not-real-baseline-evidence"
+  ],
+  "experiment_kind": "hypothesis",
+  "predictions": [
+    {
+      "observation": "tpot_p99_ms",
+      "expected_change": "May decrease if prefill work per step is delaying decode",
+      "scope": "qualified mixed contention pack at fixed load"
+    },
+    {
+      "observation": "prefill_tokens_per_step",
+      "expected_change": "Should reach the lower configured budget during contention",
+      "scope": "same cell; only if the counter is supported"
+    }
+  ],
+  "falsification_condition": "Budget does not bind, or repeated evidence shows no reduction in decode delay; absent counters leave the mechanism unresolved.",
+  "requested_observations": [
+    "resolved_config",
+    "token_budget_summary"
+  ]
+}

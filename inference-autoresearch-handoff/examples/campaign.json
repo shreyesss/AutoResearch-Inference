@@ -1,0 +1,177 @@
+{
+  "schema_version": "0.2",
+  "campaign_id": "qwen38-27b-single-gpu-v02",
+  "output_dir": "runs/qwen38-27b-single-gpu-v02",
+  "runtime": {
+    "image_digest": "UNRESOLVED",
+    "vllm_commit": "UNRESOLVED",
+    "aiperf_version_or_commit": "UNRESOLVED",
+    "model_id": "Qwen/Qwen3.8-27B",
+    "model_revision": "UNRESOLVED",
+    "tokenizer_revision": "UNRESOLVED",
+    "codex_binary": "codex",
+    "codex_version": "UNRESOLVED"
+  },
+  "fixed_task": {
+    "tensor_parallel_size": 1,
+    "weight_precision": "bf16",
+    "kv_precision": "baseline_resolved_fixed",
+    "max_model_len": 40960,
+    "language_model_only": true,
+    "reasoning_parser": "qwen3",
+    "tool_call_parser": "qwen3_coder",
+    "enable_auto_tool_choice": true,
+    "mechanical_enable_thinking": false,
+    "temperature": 0,
+    "streaming": true
+  },
+  "workloads": {
+    "prefix_fractions": [
+      0,
+      0.5,
+      0.75
+    ],
+    "prefix_pool_size": 64,
+    "cache_protocol": "prefix_prewarmed",
+    "seeds": {
+      "content": 17,
+      "prefix": 23,
+      "arrivals": 31
+    },
+    "sentinels": [
+      "TO_BE_QUALIFIED-mixed",
+      "TO_BE_QUALIFIED-session",
+      "chat-f0"
+    ],
+    "diagnostic_shapes": {
+      "chat": [
+        512,
+        256
+      ],
+      "code": [
+        2048,
+        1024
+      ],
+      "agent": [
+        8192,
+        1024
+      ],
+      "document": [
+        32768,
+        512
+      ]
+    },
+    "suite_status": "draft_requires_trace_characterization_and_realization",
+    "representative_families": [
+      "mixed_prefill_decode",
+      "session_growth_reuse",
+      "semantic_generation"
+    ],
+    "workload_card_registry": "TO_BE_PREPARED/cards.json"
+  },
+  "traffic": {
+    "arrival_family": "poisson",
+    "calibration_backend": "baseline_only_open_loop",
+    "calibration_start_rps": 0.1,
+    "calibration_max_steps": 12,
+    "calibration_max_seconds": 3600,
+    "calibration_min_completion_fraction": 1,
+    "calibration_max_failure_fraction": 0,
+    "calibration_max_queue_slope_requests_per_s": 0.01,
+    "calibration_window_s": 120,
+    "calibration_confirmation_repeats": 3,
+    "calibration_note": "Thresholds are provisional policy inputs. Verify queue units, stochastic variance, client lag and sufficiency before treating the boundary as sustainable.",
+    "screen_multiplier": 0.8,
+    "final_common_load_multipliers": [
+      0.6,
+      0.8,
+      1,
+      1.2
+    ]
+  },
+  "search": {
+    "domain_file": "examples/search-space.json",
+    "proposer": "codex",
+    "max_proposals": 12,
+    "max_expanded_candidates": 3,
+    "objectives": {
+      "output_tokens_per_s": "maximize",
+      "ttft_p99_ms": "minimize",
+      "tpot_p99_ms": "minimize"
+    },
+    "reported_metrics": [
+      "ttft_p50_ms",
+      "tpot_p50_ms"
+    ],
+    "hard_slos": null
+  },
+  "evaluation": {
+    "screen_dispatch_s": 120,
+    "expanded_dispatch_s": 180,
+    "confirm_min_eligible_requests": 1000,
+    "confirm_max_dispatch_s": 1800,
+    "confirm_repeats": 3,
+    "request_deadline_s": 300,
+    "drain_max_s": 300,
+    "max_client_lag_p99_ms": 20,
+    "min_completion_fraction": 1,
+    "max_failed_fraction": 0,
+    "notes": "These are starting policies, not measured-safe limits. Hardware qualification may version the contract before searching. Respect both tail evidence and wall-clock ceiling; never silently shorten or censor.",
+    "confirm_uncertainty_policy": "TO_BE_DEFINED_BEFORE_REAL_CONFIRMATION"
+  },
+  "budgets": {
+    "campaign_wall_seconds": 21600,
+    "server_start_timeout_s": 1200,
+    "proposal_timeout_s": 180
+  },
+  "notes": "Specification only. Real mode requires exact pins, source/card registry, realized traffic, a fixed pilot and matching qualification. Budget may not cover all stages; partial/inconclusive reporting is required.",
+  "sources": {
+    "local_inputs": [],
+    "required_audit_fields": [
+      "release_hash",
+      "license",
+      "coverage",
+      "schema",
+      "missingness",
+      "selection",
+      "split"
+    ],
+    "characterization_status": "pending",
+    "notes": "Supply accessible local trace slices or an audited download recipe; do not treat published summaries as completed mining."
+  },
+  "qualification": {
+    "required_for_real_search": true,
+    "report_path": "TO_BE_PREPARED/qualification-report.json",
+    "require_validated_representative_traffic": true,
+    "require_baseline_repeats": true,
+    "require_reproducible_parameter_effect": true,
+    "require_beating_baseline": false,
+    "on_flat_or_inconclusive": "report_and_version_redesign_without_auto_changing_inputs"
+  },
+  "pilot": {
+    "plan_path": "TO_BE_PREPARED/pilot-plan.json",
+    "axis_classifications": [
+      "sensitive",
+      "inactive_under_tested_conditions",
+      "unsupported",
+      "inconclusive"
+    ],
+    "include_negative_controls": true,
+    "max_interaction_contrasts": 2,
+    "notes": "Freeze exact supported contrasts/load/repeats/cost before the pilot; no invented significance threshold."
+  },
+  "knowledge": {
+    "procedural_packet_version": "0.2",
+    "same_run_memory": true,
+    "external_insight_cards": "frozen_small_reference_packet",
+    "cross_run_memory": false,
+    "require_evidence_scoped_lessons": true,
+    "holdout_outcomes_visible_to_proposer": false
+  },
+  "observations": {
+    "read_only_artifact_retrieval": true,
+    "targeted_profile_enabled": false,
+    "diagnostic_wall_seconds": 600,
+    "notes": "Enable only a verified optional profiler in a versioned policy; summaries may use existing evidence."
+  }
+}

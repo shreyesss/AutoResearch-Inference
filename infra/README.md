@@ -4,6 +4,8 @@ The pinned AIPerf input, replay, reporting and MTP capability check is documente
 
 The next source-selection and live-input checkpoint is documented in [DATASET_QUALIFICATION.md](DATASET_QUALIFICATION.md). `qualify-datasets.py` freezes SpecBench and TraceLab search/evaluation selections from pinned local source files; `replay-qualification.sh` and `validate-qualification.py` check a small native AIPerf replay against actual Qwen requests. The selected source extracts and raw outputs stay under `.artifacts/dataset-qualification/`; the source audit and code are tracked here.
 
+The workload control checkpoint is documented in [WORKLOAD_CONTROL_MATRIX.md](WORKLOAD_CONTROL_MATRIX.md). It freezes a four-turn TraceLab session, a six-session Mooncake burst and the previously validated five SpecBench prompts. `prepare-workload-controls.py`, `replay-workload-controls.sh` and `validate-workload-controls.py` produce and inspect the native AIPerf requests; the tracked manifest and validation JSON record source hashes and actual replay findings. This checkpoint stops before B0 load calibration.
+
 This is a small, manual infrastructure check before the full `iar` campaign CLI exists. It measures a diagnostic synthetic chat workload on the target GPU. It does not establish a representative workload or a confirmed p99/SLA result.
 
 Pinned inputs:

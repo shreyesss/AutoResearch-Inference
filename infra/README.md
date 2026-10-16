@@ -1,5 +1,7 @@
 # First real measurement
 
+The pinned AIPerf input, replay, reporting and MTP capability check is documented in [CAPABILITY_SPIKE.md](CAPABILITY_SPIKE.md). Its small generator config and TraceLab sample selector are in this directory; raw evidence stays in `.artifacts/capability-spike/`.
+
 This is a small, manual infrastructure check before the full `iar` campaign CLI exists. It measures a diagnostic synthetic chat workload on the target GPU. It does not establish a representative workload or a confirmed p99/SLA result.
 
 Pinned inputs:

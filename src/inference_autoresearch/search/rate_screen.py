@@ -207,11 +207,16 @@ def run_rate_screen(engine: Any, candidate: CandidateProposal, scenario: Any,
                 "output_tokens_per_s", "ttft_p50_ms", "ttft_p90_ms", "ttft_p99_ms",
                 "tpot_p50_ms", "tpot_p90_ms", "tpot_p99_ms")):
             reasons.append("missing_primary_metric")
-        status = "valid" if not reasons else "measurement_failed"
-        if status == "valid":
+        records = None
+        if not reasons:
             manifest = scenario.metadata["manifest"]
             checked = verify_scenario(manifest, root=Path(scenario.metadata["registry_root"]))
             records = _native_sla_records(native_raw, native_measured, checked["planned"])
+            if any(row["terminal_state"] != "completed" or row["ttft_ms"] is None
+                   or row["tpot_ms"] is None for row in records):
+                reasons.append("missing_per_request_latency_metric")
+        status = "valid" if not reasons else "measurement_failed"
+        if status == "valid" and records is not None:
             with (aiperf_dir / "normalized-requests.jsonl").open("w") as stream:
                 for record in records:
                     stream.write(json.dumps(record, sort_keys=True) + "\n")
@@ -233,6 +238,7 @@ def run_rate_screen(engine: Any, candidate: CandidateProposal, scenario: Any,
                 "diagnostics": {"rate_screen_lock": rate_lock,
                                 "realized_rate_rps": trial["realized_rate_rps"],
                                 "class_metrics": trial["class_metrics"],
+                                "behavior_scope": "transport_validity_only_no_queue_classification",
                                 "claim": rate_lock["claim"]},
                 "reason_codes": reasons}
         (cell_dir / "cell-result.json").write_text(json.dumps(cell, indent=2, sort_keys=True) + "\n")

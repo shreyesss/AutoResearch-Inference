@@ -388,7 +388,8 @@ def run(root: Path, out: Path) -> dict[str, Any]:
                 ledger.append(CAMPAIGN_ID, "pilot_screen_decision", proposal.proposal_id,
                               {"attempt": attempt, "cell_id": cells[0]["cell_id"],
                                "baseline_cell_id": b0_cell["cell_id"], **decision})
-                rows.append({"proposal": proposal, "cell": cells[0], "decision": decision})
+                rows.append({"attempt": attempt, "proposal": proposal,
+                             "cell": cells[0], "decision": decision})
                 export_screen_points(out, b0_cell, rows)
                 state.update({"attempts_completed": attempt, "completed_candidate_screens": len(rows),
                               "active_proposal_id": None})
@@ -396,7 +397,28 @@ def run(root: Path, out: Path) -> dict[str, Any]:
             selection = select_screen_finalists(
                 [row["cell"] | {"screen_promoted": row["decision"]["promote_to_shortlist"]}
                  for row in rows], MAX_FINALISTS)
+            selected_proposals = []
+            for row in rows:
+                if row["cell"]["cell_id"] not in selection["selected_cell_ids"]:
+                    continue
+                proposal_path = out / "proposals" / f"attempt-{row['attempt']:04d}" / "proposal.normalized.json"
+                if not proposal_path.is_file() or read(proposal_path).get("parameters") != row["proposal"].parameters:
+                    raise FastPilotError("selected normalized proposal is absent or changed")
+                export_path = Path(row["cell"]["artifacts"]["aiperf_export"])
+                cell_path = export_path.parent.parent / "cell-result.json"
+                if not cell_path.is_file() or read(cell_path).get("cell_id") != row["cell"]["cell_id"]:
+                    raise FastPilotError("selected screen CellResult is absent or changed")
+                selected_proposals.append({
+                    "proposal_id": row["proposal"].proposal_id,
+                    "config_id": row["cell"]["config_id"],
+                    "parameters": row["proposal"].parameters,
+                    "cell_id": row["cell"]["cell_id"],
+                    "proposal_path": str(proposal_path.relative_to(root)),
+                    "proposal_sha256": sha256_file(proposal_path),
+                    "cell_result_path": str(cell_path.relative_to(root)),
+                    "cell_result_sha256": sha256_file(cell_path)})
             write(out / "provisional-finalists.json", selection | {
+                "selected_proposals": selected_proposals,
                 "claim": "operator_shortlist_from_noisy_fixed_rate_screens_only",
                 "capacity_confirmed": False, "further_evaluation_required": True})
             ledger.append(CAMPAIGN_ID, "pilot_shortlist", CAMPAIGN_ID, selection)

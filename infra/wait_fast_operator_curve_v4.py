@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start the matched 144-request development gate after the pilot succeeds."""
+"""Start the fast operator-curve follow-up after the pilot succeeds."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PILOT = ROOT / ".artifacts/fast-pilot-v4"
 STATUS = PILOT / "finalist-waiter-status.json"
 PILOT_STATUS = PILOT / "run-status.json"
-FOLLOWUP = PILOT / "dev-144"
+FOLLOWUP = PILOT / "operator-curve-32x3"
 
 
 def record(stage: str, **details: object) -> None:
@@ -44,7 +44,7 @@ def main() -> int:
         record("blocked", reason="pilot completion timeout")
         return 1
     check = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), str(ROOT / "infra/run_fast_finalists_v4.py"), "check"],
+        [str(ROOT / ".venv/bin/python"), str(ROOT / "infra/run_fast_operator_curve_v4.py"), "check"],
         cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
         capture_output=True, text=True, check=False)
     if check.returncode != 0:
@@ -53,7 +53,7 @@ def main() -> int:
     record("running", preflight=json.loads(check.stdout))
     result = subprocess.run(
         ["docker", "exec", "-w", str(ROOT), "deploy-controller-1", "python",
-         str(ROOT / "infra/run_fast_finalists_v4.py"), "run"],
+         str(ROOT / "infra/run_fast_operator_curve_v4.py"), "run"],
         cwd=ROOT, check=False)
     record("complete" if result.returncode == 0 else "blocked",
            exit_code=result.returncode, output_dir=str(FOLLOWUP))

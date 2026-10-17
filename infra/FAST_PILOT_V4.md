@@ -29,11 +29,15 @@ as a qualified independent window.
   and identifies configurations worth longer independent comparisons. The
   approved p90 TTFT/TPOT limits remain research targets, not product SLOs.
 
-After the pilot, a separate gate repeats B0 and up to two finalists on the
-same **144-request development subset** of the frozen 1042 input: 54 chat and
-30 each of agent, code and document. The 30-request floor follows the approved
-per-class p90 policy. It is a same-source development comparison, so the p90
-estimates and operator plot remain provisional. The full 240-request 1042
+After the pilot, a separate operator study repeats B0 and up to two finalists
+at **0.2, 0.4 and 0.8 requests/s**, with 32 fixed requests at each rate (eight
+each of chat, agent, code and document). It reuses the same loaded server
+across rates for each configuration, so each configuration gets 96 measured
+requests and only one startup. It records native throughput, TTFT and TPOT
+p50/p90, dispatch lag, failures, and full per-request records. No
+30-per-class gate applies to this exploratory comparison. These small per-class
+p90 values are descriptive and noisy; they do not establish SLA feasibility.
+The 32 bodies come from the 1042 development source. The full 240-request 1042
 source is **not** a held-out test after this subset is used.
 
 An independent 240-request test input is still required for a declared

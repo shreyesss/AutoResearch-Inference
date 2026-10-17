@@ -55,6 +55,14 @@ def gate(checkpoint: dict | None, *, tmux_alive: bool) -> tuple[str, str]:
     return "ready", "qualified development inputs and completed B0 shutdown"
 
 
+def absent_source_since(previous: float | None, *, decision: str,
+                        tmux_alive: bool, clock: float) -> float | None:
+    """Allow a brief checkpoint write race, then treat a vanished source as fatal."""
+    if decision != "waiting" or tmux_alive:
+        return None
+    return clock if previous is None else previous
+
+
 def child(action: str, log: Path, *, timeout_s: int) -> int:
     argv = [str(ROOT / ".venv/bin/python"), "infra/run_v3_matched_b0.py", action]
     with log.open("w") as stream:
@@ -82,14 +90,21 @@ def main() -> int:
         try:
             deadline = time.monotonic() + args.wait_timeout_s
             last_reason = ""
+            missing_source_since: float | None = None
             while time.monotonic() < deadline:
                 checkpoint = json.loads(CHECKPOINT.read_text()) if CHECKPOINT.is_file() else None
-                decision, reason = gate(checkpoint, tmux_alive=source_alive())
+                alive = source_alive()
+                decision, reason = gate(checkpoint, tmux_alive=alive)
                 if decision == "blocked":
                     raise RuntimeError(reason)
                 if decision == "ready":
                     state["input_checkpoint_status"] = checkpoint["status"]
                     break
+                clock = time.monotonic()
+                missing_source_since = absent_source_since(
+                    missing_source_since, decision=decision, tmux_alive=alive, clock=clock)
+                if missing_source_since is not None and clock - missing_source_since > 45:
+                    raise RuntimeError("development tmux exited before a qualified and stopped checkpoint")
                 if reason != last_reason:
                     state["waiting_for"] = reason
                     save(state)

@@ -29,6 +29,21 @@ PYTHONPATH=src .venv/bin/python infra/run_v3_matched_b0.py run \
   > .artifacts/v3-independent-capture/matched-evaluator-b0-launch.log 2>&1
 ```
 
+If the development input qualifier is already running in tmux and the
+operator will be away, start the separate fail-closed waiter now. It waits for
+the input checkpoint to qualify, its B0 shutdown exit code to be zero, and
+the development tmux session to exit before calling the same preflight/run
+commands. It stops on a blocked checkpoint or after a bounded 10-hour wait:
+
+```bash
+tmux new-session -d -s iar-v3-b0-waiter \
+  'PYTHONPATH=src .venv/bin/python infra/wait_and_run_v3_matched_b0.py > .artifacts/v3-independent-capture/matched-evaluator-b0-waiter.log 2>&1'
+```
+
+Inspect `.artifacts/v3-independent-capture/matched-evaluator-b0-waiter-status.json`
+and the named preflight/run logs. The waiter refuses a duplicate status file;
+do not start the direct B0 command while it is active.
+
 The runner checks that the GPU is idle, refuses an existing campaign output,
 and invokes `iar baseline --backend real --stage screen` for exactly the two
 qualified development scenarios. It saves the exact command, console log,

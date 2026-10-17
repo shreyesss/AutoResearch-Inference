@@ -1,9 +1,9 @@
 """Bounded Codex proposal loop for the approved v3 research SLA.
 
-The first stage is a cheap 36-request regression screen. Every candidate
-passing that gross-regression screen receives matched independent 240-request
-development cells and class-aware observations. No sealed data is loaded and
-no observed rate is called confirmed SLA capacity.
+Each proposal gets a 36-request gross-regression screen. Only the provisional
+finalists selected after exploration receive matched independent development
+cells and a class-aware profile. No sealed data is loaded and no observed rate
+is called confirmed SLA capacity.
 """
 
 from __future__ import annotations
@@ -89,17 +89,49 @@ def select_screen_finalists(rows: list[dict[str, Any]], max_finalists: int) -> d
                                             row["metrics"]["ttft_p90_ms"],
                                             row["metrics"]["tpot_p90_ms"],
                                             row["cell_id"]))
-    # A 36-request percentile is too noisy to eliminate an otherwise viable
-    # candidate through point Pareto dominance. Keep that frontier diagnostic,
-    # but promote every candidate that passes the predeclared gross screen.
-    selected = sorted(candidates, key=lambda row: (-row["metrics"]["output_tokens_per_s"],
-                                                  row["cell_id"]))[:max_finalists]
+    # The screen is too small to establish Pareto dominance. Sample opposing
+    # throughput and latency directions so the expensive gate does not simply
+    # select the highest observed throughput from a noisy 36-request run.
+    selected: list[dict[str, Any]] = []
+    rationale: list[dict[str, str]] = []
+    if candidates:
+        throughput = min(candidates, key=lambda row: (
+            -row["metrics"]["output_tokens_per_s"], row["cell_id"]))
+        selected.append(throughput)
+        rationale.append({"cell_id": throughput["cell_id"], "reason": "highest_screen_output_tokens_per_s"})
+    if len(selected) < max_finalists and len(candidates) > 1:
+        remaining = [row for row in candidates if row not in selected]
+        latency_fields = ("ttft_p50_ms", "ttft_p90_ms", "tpot_p50_ms", "tpot_p90_ms")
+        if not all(all(isinstance(row["metrics"].get(name), (int, float))
+                       and math.isfinite(row["metrics"][name]) and row["metrics"][name] > 0
+                       for name in latency_fields) for row in candidates):
+            raise SLASearchError("viable screen is missing positive p50/p90 latency diagnostics")
+        minima = {name: min(row["metrics"][name] for row in candidates)
+                  for name in latency_fields}
+        latency = min(remaining, key=lambda row: (
+            max(row["metrics"][name] / minima[name] for name in latency_fields),
+            sum(row["metrics"][name] / minima[name] for name in latency_fields),
+            row["cell_id"]))
+        selected.append(latency)
+        rationale.append({"cell_id": latency["cell_id"],
+                          "reason": "lowest_balanced_relative_screen_p50_p90_latency_among_remaining"})
+    # The current campaign admits at most two finalists. Retain a deterministic
+    # fallback if this pure selector is used independently with a larger limit.
+    if len(selected) < max_finalists:
+        for row in sorted(candidates, key=lambda item: (
+                -item["metrics"]["output_tokens_per_s"], item["cell_id"])):
+            if row not in selected:
+                selected.append(row)
+                rationale.append({"cell_id": row["cell_id"], "reason": "remaining_screen_throughput_order"})
+            if len(selected) == max_finalists:
+                break
     return {"selected_cell_ids": [row["cell_id"] for row in selected],
+            "selection_rationale": rationale,
             "nondominated_cell_ids": [row["cell_id"] for row in ordered],
             "all_viable_cell_ids": [row["cell_id"] for row in candidates],
-            "rule": "all_valid_complete_screen_candidates_with_point_pareto_diagnostic_only",
+            "rule": "provisional_throughput_and_latency_extremes_after_all_screens",
             "evidence_grade": "provisional_36_request_screen",
-            "limitation": "Point dominance and ranking may change with independent 240-request windows."}
+            "limitation": "These noisy screens cannot establish an optimum or eliminate unselected viable candidates."}
 
 
 class SLAServingController:
@@ -120,7 +152,7 @@ class SLAServingController:
     def preflight(self) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
         campaign = self.campaign
         study_path = (self.root / campaign["sla_study_path"]).resolve()
-        if (campaign.get("campaign_id") != "qwen38-27b-sla-serving-v3b"
+        if (campaign.get("campaign_id") != "qwen38-27b-sla-serving-v3c"
                 or not isinstance(self.proposer, CodexProposer)
                 or self.proposer.sla_study_path is None
                 or self.proposer.sla_study_path.resolve() != study_path
@@ -138,7 +170,8 @@ class SLAServingController:
                     "min_throughput_fraction_of_b0": 0.5,
                     "max_ttft_p90_multiplier_of_b0": 2.0,
                     "max_tpot_p90_multiplier_of_b0": 2.0}
-                or search.get("max_finalists") != campaign.get("search_budget", {}).get("max_distinct_proposals")
+                or search.get("max_finalists") not in (1, 2)
+                or search.get("max_finalists") != campaign.get("search_budget", {}).get("max_expanded_finalists")
                 or search.get("profile_max_qualified_points") not in range(1, 7)
                 or search.get("sealed_test") != "out_of_registry_and_not_run"):
             raise SLASearchError("v3 coarse screen, shortlist or sealed-test policy differs")
@@ -309,8 +342,6 @@ class SLAServingController:
         self.ledger.append(campaign_id, "sla_screen_baseline", screen_b0[0]["cell_id"],
                            {"cell_id": screen_b0[0]["cell_id"], "claim": "regression_screen_only"})
         screened: list[dict[str, Any]] = []
-        feedback_cells: list[dict[str, Any]] = []
-        profile_refs: list[dict[str, Any]] = []
         finalized: list[dict[str, Any]] = []
         profiles: list[dict[str, Any]] = []
         split = load_split_plan(self.root / study["capacity_confirmation"]["split_plan_path"], root=self.root)
@@ -321,12 +352,13 @@ class SLAServingController:
             require_frozen_study()
             if time.monotonic() - started >= budget["wall_seconds"]:
                 break
-            visible = [screen_b0[0], *[row["cell"] for row in screened], *feedback_cells]
+            visible = [screen_b0[0], *[row["cell"] | {"sla_screen_decision": row["decision"]}
+                                      for row in screened]]
             context = ProposalContext(
                 campaign_id=campaign_id,
-                mission="Propose serving settings that may improve independently confirmed class-aware SLA-feasible rate",
+                mission="Explore serving settings using noisy short screens; seek better class-aware SLA-feasible rate after finalist validation",
                 domain=self.domain.raw, baseline=self.campaign["baseline"], frontier=[],
-                recent_results=visible, evidence_refs=[*self.evidence_refs, *profile_refs],
+                recent_results=visible, evidence_refs=self.evidence_refs,
                 remaining_budget={"distinct_proposals": max_proposals-attempt,
                                   "wall_seconds": max(0, budget["wall_seconds"]-(time.monotonic()-started))},
                 qualification={"search_allowed": True, "qualification_grade": "v3_research_sla",
@@ -356,9 +388,19 @@ class SLAServingController:
                                 "cell_id": cells[0]["cell_id"], "baseline_cell_id": screen_b0[0]["cell_id"],
                                 **decision})
             screened.append({"proposal": proposal, "cell": cells[0], "decision": decision})
-            if not decision["promote_to_shortlist"]:
+        # Select only after all proposals have had a short screen. The full
+        # screen table remains in the ledger and on disk, including rejected
+        # and unselected viable configurations.
+        rows = [row["cell"] | {"screen_promoted": row["decision"]["promote_to_shortlist"]}
+                for row in screened]
+        selection = select_screen_finalists(rows, self.campaign["sla_search"]["max_finalists"])
+        self.ledger.append(campaign_id, "sla_screen_shortlist", campaign_id, selection)
+        _write(self.artifact_root / "screen-shortlist.json", selection)
+        selected = set(selection["selected_cell_ids"])
+        for row in screened:
+            if row["cell"]["cell_id"] not in selected:
                 continue
-            # The next proposal sees this candidate's development evidence.
+            proposal = row["proposal"]
             require_frozen_study()
             development = self.evaluator.evaluate(proposal, dev_ids, "expanded")
             require_frozen_study()
@@ -386,18 +428,10 @@ class SLAServingController:
             self.ledger.append(campaign_id, "sla_development_report", proposal.proposal_id,
                                {"path": str(report_path), **report})
             finalized.append(report)
-            feedback_cells.extend(cell | {"sla_development_assessment": assessment}
-                                  for cell, assessment in zip(development_cells, assessments))
             if report["both_windows_observed_feasible"]:
                 require_frozen_study()
                 packet = self._profile_finalist(proposal, study_path)
                 profiles.append(packet)
-                feedback_cells[-1]["sla_profile_observation"] = {
-                    "process_exit_code": packet["process_exit_code"],
-                    "timed_out": packet["timed_out"],
-                    "result_status": (packet.get("result") or {}).get("status"),
-                    "claim": "observed_development_points_no_confirmed_capacity",
-                }
                 result = packet.get("result") or {}
                 source_name = (result.get("artifacts") or {}).get("all_points")
                 if packet["process_exit_code"] == 0 and isinstance(source_name, str):
@@ -405,17 +439,10 @@ class SLAServingController:
                     allowed_root = (self.root / ".artifacts/autoresearch-codebase").resolve()
                     if not source.is_file() or not source.is_relative_to(allowed_root):
                         raise SLASearchError("candidate SLA profile source is outside research artifacts")
-                    profile_refs.append({"evidence_id": f"candidate-profile-{attempt + 1}",
-                                         "snapshot_path": str(source),
-                                         "sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
-        rows = [row["cell"] | {"screen_promoted": row["decision"]["promote_to_shortlist"]}
-                for row in screened]
-        selection = select_screen_finalists(rows, self.campaign["sla_search"]["max_finalists"])
-        self.ledger.append(campaign_id, "sla_screen_shortlist", campaign_id, selection)
-        _write(self.artifact_root / "screen-shortlist.json", selection)
-        selected = set(selection["selected_cell_ids"])
         summary = {"campaign_id": campaign_id, "status": "sequential_development_search_complete",
                    "proposal_count": len(screened), "shortlisted": len(selected),
+                   "all_viable_screen_cell_ids": selection["all_viable_cell_ids"],
+                   "selection_evidence_grade": selection["evidence_grade"],
                    "development_reports": finalized, "finalist_profiles": profiles,
                    "capacity_confirmed": False,
                    "next_gate": "independently confirm a frozen fixed-rate boundary and then sealed test"}

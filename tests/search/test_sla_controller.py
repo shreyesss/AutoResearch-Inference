@@ -24,7 +24,8 @@ def _screen(cell_id, throughput, ttft, tpot, *, status="valid"):
             "counts": {"planned": 36, "dispatched": 36, "completed": 36,
                        "not_dispatched": 0, "failed": 0, "timed_out": 0,
                        "canceled": 0, "censored": 0},
-            "metrics": {"output_tokens_per_s": throughput, "ttft_p90_ms": ttft,
+            "metrics": {"output_tokens_per_s": throughput, "ttft_p50_ms": ttft * .6,
+                        "ttft_p90_ms": ttft, "tpot_p50_ms": tpot * .8,
                         "tpot_p90_ms": tpot, "ttft_p99_ms": ttft * 1.1,
                         "tpot_p99_ms": tpot * 1.1}}
 
@@ -43,25 +44,28 @@ def test_v3_screen_rejects_only_invalid_or_predeclared_large_regressions():
     assert invalid["reason_codes"] == ["screen_invalid_or_incomplete"]
 
 
-def test_v3_shortlist_promotes_all_viable_and_reports_provisional_pareto():
+def test_v3_shortlist_keeps_all_viable_but_selects_complementary_provisional_finalists():
     rows = [_screen("a", 100, 1000, 50) | {"screen_promoted": True},
             _screen("b", 120, 1100, 45) | {"screen_promoted": True},
             _screen("dominated", 80, 1500, 60) | {"screen_promoted": True},
             _screen("rejected", 200, 800, 30) | {"screen_promoted": False}]
-    shortlist = select_screen_finalists(rows, 4)
-    assert shortlist["selected_cell_ids"] == ["b", "a", "dominated"]
+    shortlist = select_screen_finalists(rows, 2)
+    assert shortlist["selected_cell_ids"] == ["b", "a"]
     assert shortlist["nondominated_cell_ids"] == ["b", "a"]
     assert shortlist["all_viable_cell_ids"] == ["a", "b", "dominated"]
     assert shortlist["evidence_grade"] == "provisional_36_request_screen"
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
-    assert campaign["sla_search"]["max_finalists"] == campaign["search_budget"]["max_distinct_proposals"]
-    assert campaign["search_budget"]["max_expanded_finalists"] == campaign["search_budget"]["max_distinct_proposals"]
+    assert "optimum" in shortlist["limitation"]
+    assert [item["reason"] for item in shortlist["selection_rationale"]] == [
+        "highest_screen_output_tokens_per_s", "lowest_balanced_relative_screen_p50_p90_latency_among_remaining"]
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3c.json").read_text())
+    assert campaign["sla_search"]["max_finalists"] == campaign["search_budget"]["max_expanded_finalists"] == 2
+    assert campaign["search_budget"]["max_distinct_proposals"] == 8
 
 
 def test_v3_preflight_refuses_missing_approved_study_before_evaluator(tmp_path):
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3c.json").read_text())
     campaign["sla_study_path"] = "missing-study.json"
-    campaign_path = tmp_path / "configs/campaign-sla-serving-v3b.json"
+    campaign_path = tmp_path / "configs/campaign-sla-serving-v3c.json"
     campaign_path.parent.mkdir()
     campaign_path.write_text(json.dumps(campaign))
     domain = Domain.load(ROOT / "configs/search-domain-v2.json")
@@ -86,13 +90,13 @@ def test_v3_cli_has_explicit_gpu_free_preflight_and_real_codex_command():
     from inference_autoresearch.cli import build_parser
 
     args = build_parser().parse_args(["sla-search", "--backend", "real",
-                                "--campaign", "configs/campaign-sla-serving-v3b.json", "--check"])
+                                "--campaign", "configs/campaign-sla-serving-v3c.json", "--check"])
     assert args.command == "sla-search" and args.check is True
     assert args.backend == "real"
 
 
 def test_v3_search_refuses_concurrent_process_before_gpu_or_agent(tmp_path):
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3c.json").read_text())
     domain = Domain.load(ROOT / "configs/search-domain-v2.json")
     campaign_path = tmp_path / "configs/campaign.json"
     campaign_path.parent.mkdir()
@@ -108,10 +112,10 @@ def test_v3_search_refuses_concurrent_process_before_gpu_or_agent(tmp_path):
             controller.run()
 
 
-def test_next_proposal_receives_previous_development_cells(tmp_path, monkeypatch):
+def test_all_proposals_receive_only_prior_short_screen_feedback_before_finalist_evaluations(tmp_path, monkeypatch):
     import inference_autoresearch.search.sla_controller as module
 
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3c.json").read_text())
     campaign["search_budget"]["max_distinct_proposals"] = 2
     campaign["sla_search"]["max_finalists"] = 2
     campaign["sla_study_path"] = ".artifacts/v3-independent-capture/active.json"
@@ -183,9 +187,10 @@ def test_next_proposal_receives_previous_development_cells(tmp_path, monkeypatch
 
     assert calls == [
         ("B0-sla-screen", "triage"),
-        ("candidate-1", "triage"), ("candidate-1", "expanded"),
-        ("candidate-2", "triage"), ("candidate-2", "expanded")]
+        ("candidate-1", "triage"), ("candidate-2", "triage"),
+        ("candidate-1", "expanded"), ("candidate-2", "expanded")]
     assert len(contexts) == 2
-    assert {cell["scenario_id"] for cell in contexts[1].recent_results
-            if cell.get("stage") == "expanded"} == set(campaign["development_scenario_ids"])
-    assert contexts[1].evidence_refs[0]["evidence_id"] == "candidate-profile-1"
+    assert not [cell for cell in contexts[1].recent_results if cell.get("stage") == "expanded"]
+    assert {cell["cell_id"] for cell in contexts[1].recent_results} == {
+        "b0-screen", "candidate-1-qwen-ops-mixed-reference-v1"}
+    assert contexts[1].recent_results[-1]["sla_screen_decision"]["promote_to_shortlist"] is True

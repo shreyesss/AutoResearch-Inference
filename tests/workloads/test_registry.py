@@ -81,6 +81,33 @@ class RegistryTest(unittest.TestCase):
             manifest.update({"readiness": "validated", "workload_card_sha256": digest(card)})
             manifest_path.write_text(json.dumps(manifest))
             self.assertEqual(registry.load(scenario_id).metadata["schedule_duration_s"], 121.23)
+            sidecar = folder / f"{scenario_id}.classes.json"
+            labels = {rows[0]["session_id"]: "chat", rows[1]["session_id"]: "agent",
+                      rows[2]["session_id"]: "document"}
+            sidecar.write_text(json.dumps({"schema_version": "ops-request-classes-v1",
+                                           "scenario_id": scenario_id,
+                                           "classes_by_session_id": labels}))
+            shape_counts = {"chat": 1, "agent": 1, "document": 1}
+            card.write_text(json.dumps({"suite_role": "diagnostic", "readiness": "validated",
+                                        "shape_counts": shape_counts}))
+            manifest.update({"request_class_path": str(sidecar.relative_to(root)),
+                             "request_class_sha256": digest(sidecar),
+                             "shape_counts": shape_counts,
+                             "workload_card_sha256": digest(card)})
+            manifest_path.write_text(json.dumps(manifest))
+            loaded = registry.load(scenario_id)
+            self.assertEqual(loaded.metadata["request_classes"], labels)
+            self.assertEqual(loaded.metadata["request_class_path"], str(sidecar))
+            sidecar.write_text(sidecar.read_text() + "\n")
+            with self.assertRaisesRegex(WorkloadError, "sidecar missing or changed"):
+                registry.load(scenario_id)
+            bad = json.loads(sidecar.read_text())
+            bad["classes_by_session_id"]["unknown-request"] = "code"
+            sidecar.write_text(json.dumps(bad))
+            manifest["request_class_sha256"] = digest(sidecar)
+            manifest_path.write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(WorkloadError, "IDs or labels"):
+                registry.load(scenario_id)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ IDS = ("qwen-ops-chat-low-v1", "qwen-ops-agent-low-v1",
 ASSETS = ROOT / "configs/workloads/ops-frozen"
 OUT = ROOT / ".artifacts/ops4-frozen-validation"
 REPORT = ROOT / "infra/ops4-frozen-validation.json"
+SCHEMA_VERSION = "ops4-frozen-validation-v1"
 MODEL = "Qwen/Qwen3.8-27B"
 REVISION = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
 
@@ -37,7 +38,7 @@ def rows(path: Path) -> list[dict]:
 
 def asset_paths(scenario_id: str) -> tuple[Path, Path, Path]:
     if scenario_id not in IDS:
-        raise ValueError(f"not in the four-task suite: {scenario_id}")
+        raise ValueError(f"not in the selected frozen suite: {scenario_id}")
     return (ASSETS / f"{scenario_id}.jsonl", ASSETS / f"{scenario_id}.card.json",
             ASSETS / f"{scenario_id}.json")
 
@@ -105,8 +106,8 @@ def replay() -> None:
                         "TRANSFORMERS_OFFLINE": "1"}
     OUT.mkdir(parents=True, exist_ok=True)
     result = (json.loads(REPORT.read_text()) if REPORT.exists() else
-              {"schema_version": "ops4-frozen-validation-v1", "scenarios": {}})
-    if result.get("schema_version") != "ops4-frozen-validation-v1":
+              {"schema_version": SCHEMA_VERSION, "scenarios": {}})
+    if result.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("existing validation report has an unexpected schema")
     for scenario_id in IDS:
         asset, _, manifest_path = asset_paths(scenario_id)
@@ -149,8 +150,8 @@ def replay() -> None:
 
 def promote() -> None:
     report = json.loads(REPORT.read_text())
-    if report.get("schema_version") != "ops4-frozen-validation-v1" or set(report["scenarios"]) != set(IDS):
-        raise ValueError("incomplete four-task validation report")
+    if report.get("schema_version") != SCHEMA_VERSION or set(report["scenarios"]) != set(IDS):
+        raise ValueError("incomplete frozen validation report")
     for scenario_id in IDS:
         asset, card_path, manifest_path = asset_paths(scenario_id)
         entry = report["scenarios"][scenario_id]
@@ -182,5 +183,20 @@ def promote() -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("replay", "promote"))
+    parser.add_argument("--split-plan", type=Path,
+                        help="Use predeclared v2 independent windows instead of historical OPS4")
+    parser.add_argument("--split-stage", choices=("development_replication", "sealed_test"),
+                        help="Required with --split-plan; validate only this independent stage")
     args = parser.parse_args()
+    if args.split_plan:
+        if not args.split_stage:
+            parser.error("--split-stage is required with --split-plan")
+        from inference_autoresearch.evaluation.split_v2 import load_split_plan
+        split_plan = load_split_plan(args.split_plan, root=ROOT)
+        IDS = tuple(row["scenario_id"] for row in split_plan["stages"][args.split_stage]["windows"])
+        OUT = ROOT / ".artifacts/v2-independent-validation" / args.split_stage
+        REPORT = OUT / "validation-report.json"
+        SCHEMA_VERSION = "v2-independent-validation-v1"
+    elif args.split_stage:
+        parser.error("--split-stage requires --split-plan")
     replay() if args.action == "replay" else promote()

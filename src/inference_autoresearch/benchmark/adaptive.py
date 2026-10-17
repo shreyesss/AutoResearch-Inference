@@ -7,6 +7,7 @@ The ordinary matched server comparison still uses fixed-schedule replay.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import subprocess
 from collections import Counter
@@ -16,6 +17,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from inference_autoresearch.contracts import ScenarioManifest, ServerHandle
+from inference_autoresearch.evaluation.sla import SLAContractError, assess_observed_point, validate_policy
 from inference_autoresearch.workloads.registry import WorkloadError, sha256_file, verify_scenario
 from .aiperf import AIPerfAdapter, _jsonl, _percentile, _scenario_root
 
@@ -128,9 +130,14 @@ def _shape(row: dict[str, Any]) -> str:
 
 
 def _classify_trial(raw: list[dict[str, Any]], measured: list[dict[str, Any]],
-                    planned: list[dict[str, Any]]) -> tuple[bool, dict[str, Any]]:
+                    planned: list[dict[str, Any]],
+                    request_classes: dict[str, str] | None = None) -> tuple[bool, dict[str, Any]]:
     expected = Counter(_request_key(row["text"], row["output_length"]) for row in planned)
-    labels = {_request_key(row["text"], row["output_length"]): _shape(row) for row in planned}
+    if request_classes is not None and set(request_classes) != {row["session_id"] for row in planned}:
+        raise WorkloadError("Verified request classes do not cover the frozen corpus")
+    labels = {_request_key(row["text"], row["output_length"]):
+              request_classes[row["session_id"]] if request_classes is not None else _shape(row)
+              for row in planned}
     actual = Counter()
     by_request_id = {row.get("metadata", {}).get("x_request_id"): row
                      for row in measured}
@@ -186,10 +193,12 @@ def normalize_search_history(output_dir: Path, *, config_id: str, scenario_id: s
     if (native_config.get("max_iterations") != spec.iterations or not expected_space):
         raise WorkloadError("Native adaptive search space/budget differs from protocol")
     planned = None
+    request_classes = None
     if scenario is not None:
         manifest = scenario.metadata.get("manifest") or json.loads(Path(scenario.path).read_text())
-        planned = verify_scenario(manifest, root=_scenario_root(scenario),
-                                  require_validated=True)["planned"]
+        verified = verify_scenario(manifest, root=_scenario_root(scenario), require_validated=True)
+        planned = verified["planned"]
+        request_classes = verified.get("request_classes")
     points: list[dict[str, Any]] = []
     for iteration in history.get("iterations", []):
         index = iteration["iteration_idx"]
@@ -204,7 +213,8 @@ def normalize_search_history(output_dir: Path, *, config_id: str, scenario_id: s
             summary = json.loads(summary_path.read_text()) if summary_path.is_file() else {}
             raw = _jsonl(raw_path)
             metric_records = _jsonl(records_path)
-            input_match, class_metrics = (_classify_trial(raw, metric_records, planned)
+            input_match, class_metrics = (_classify_trial(raw, metric_records, planned,
+                                                           request_classes=request_classes)
                                           if planned is not None else (None, {}))
             starts = sorted(row["start_perf_ns"] for row in raw
                             if isinstance(row.get("start_perf_ns"), (int, float)))
@@ -284,7 +294,8 @@ def normalize_search_history(output_dir: Path, *, config_id: str, scenario_id: s
                            "tpot_eligible": int(_stat(summary, "inter_token_latency", "count") or 0)},
                 "metrics": metrics,
                 "class_metrics": class_metrics,
-                "class_label_policy": "engineered_ops36_shape_v1" if planned is not None else None,
+                "class_label_policy": ("frozen_class_sidecar_v1" if request_classes is not None else
+                                       "engineered_ops36_shape_v1" if planned is not None else None),
                 "artifacts": {"summary": str(summary_path), "raw": str(raw_path),
                               "records": str(records_path)},
                 "sample_count_policy": "constant_within_sweep",
@@ -343,3 +354,147 @@ def run_adaptive(server: ServerHandle, scenario: ScenarioManifest, spec: Adaptiv
     from inference_autoresearch.search.report import export_adaptive_points
     result["report_artifacts"] = export_adaptive_points(result["points"], output_dir / "report")
     return result
+
+
+def _native_sla_records(raw: list[dict[str, Any]], measured: list[dict[str, Any]],
+                        planned: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Join AIPerf's generated IDs to frozen workload IDs by exact request body.
+
+    The frozen OPS corpus has unique (text, output cap) pairs. Refuse any
+    ambiguous, unknown, or duplicate body instead of assigning a class from
+    token length or a possibly incomplete AIPerf summary.
+    """
+    expected = {_request_key(row["text"], row["output_length"]): row["session_id"]
+                for row in planned}
+    if len(expected) != len(planned):
+        raise SLAContractError("frozen workload has ambiguous request bodies")
+    by_native_id: dict[str, dict[str, Any]] = {}
+    for row in measured:
+        native_id = row.get("metadata", {}).get("x_request_id")
+        if not isinstance(native_id, str) or not native_id or native_id in by_native_id:
+            raise SLAContractError("native metrics need unique request IDs")
+        by_native_id[native_id] = row
+    joined = {row["session_id"]: {"request_id": row["session_id"],
+                                  "terminal_state": "missing"} for row in planned}
+    seen_native: set[str] = set()
+    seen_frozen: set[str] = set()
+    for row in raw:
+        payload = row.get("payload") or {}
+        messages = payload.get("messages") or []
+        if (len(messages) != 1 or messages[0].get("role") != "user"
+                or not isinstance(messages[0].get("content"), str)
+                or type(payload.get("max_completion_tokens")) is not int):
+            raise SLAContractError("native request body does not match single-turn corpus")
+        key = _request_key(messages[0]["content"], payload["max_completion_tokens"])
+        frozen_id = expected.get(key)
+        native_id = row.get("metadata", {}).get("x_request_id")
+        if frozen_id is None or frozen_id in seen_frozen:
+            raise SLAContractError("native request body is unknown or duplicated")
+        if not isinstance(native_id, str) or not native_id or native_id in seen_native:
+            raise SLAContractError("native request ID is absent or duplicated")
+        seen_frozen.add(frozen_id)
+        seen_native.add(native_id)
+        metrics = by_native_id.get(native_id, {}).get("metrics", {})
+        def metric(name: str) -> float | None:
+            item = metrics.get(name, {})
+            value = item.get("value") if isinstance(item, dict) and item.get("unit") == "ms" else None
+            return float(value) if type(value) in (int, float) and math.isfinite(value) else None
+        joined[frozen_id] = {"request_id": frozen_id,
+                             "terminal_state": "completed" if row.get("status") == 200
+                             and not row.get("metadata", {}).get("was_cancelled") else "failed",
+                             "ttft_ms": metric("time_to_first_token"),
+                             "tpot_ms": metric("inter_token_latency")}
+    if set(by_native_id) != seen_native:
+        raise SLAContractError("native metric records do not exactly match dispatched requests")
+    return list(joined.values())
+
+
+def assess_adaptive_sla(output_dir: Path, scenario: ScenarioManifest,
+                        policy: dict[str, Any]) -> dict[str, Any]:
+    """Assess every existing adaptive trial offline; never select a capacity rate."""
+    validate_policy(policy)
+    output_dir = Path(output_dir)
+    normalized_path = output_dir / "normalized-search-points.json"
+    history = json.loads(normalized_path.read_text())
+    if (history.get("scenario_id") != scenario.scenario_id
+            or history.get("claim") != "exploratory_load_curve_only"
+            or not isinstance(history.get("points"), list)):
+        raise SLAContractError("adaptive history identity or claim differs from frozen scenario")
+    manifest = scenario.metadata.get("manifest") or json.loads(Path(scenario.path).read_text())
+    verified = verify_scenario(manifest, root=_scenario_root(scenario), require_validated=True)
+    planned = verified["planned"]
+    if manifest.get("request_class_path") and verified.get("request_classes") is None:
+        raise SLAContractError("frozen class sidecar was not verified")
+    explicit_classes = verified.get("request_classes")
+    if explicit_classes is not None:
+        if (not isinstance(explicit_classes, dict)
+                or set(explicit_classes) != {row["session_id"] for row in planned}):
+            raise SLAContractError("class sidecar does not exactly cover frozen workload IDs")
+        class_by_id = explicit_classes
+        class_label_policy = "frozen_class_sidecar_v1"
+        class_label_source = str(scenario.metadata.get("request_class_path")
+                                 or manifest.get("request_class_path"))
+    elif scenario.scenario_id == "qwen-ops-mixed-reference-v1":
+        class_by_id = {row["session_id"]: _shape(row).removesuffix("_shape") for row in planned}
+        class_label_policy = "engineered_ops36_shape_v1"
+        class_label_source = "frozen exact request body/output cap; OPS36 shape rule"
+    else:
+        raise SLAContractError("SLA assessment requires a frozen request-class sidecar")
+    if set(class_by_id.values()) != set(policy["classes"]):
+        raise SLAContractError("SLA classes do not match frozen workload class labels")
+    results = []
+    seen_trials: set[tuple[int, int]] = set()
+    for point in history["points"]:
+        assessed = {"point_id": point.get("point_id"),
+                    "configured_rate": point.get("configured_rate"),
+                    "realized_rate": point.get("realized_rate"),
+                    "native_status": point.get("status"),
+                    "observed_feasible": False, "reason_codes": [],
+                    "assessment": None}
+        index, repeat = point.get("iteration_idx"), point.get("trial_index")
+        if type(index) is not int or type(repeat) is not int or index < 0 or repeat < 1:
+            assessed["reason_codes"].append("missing_trial_identity")
+        elif (index, repeat) in seen_trials:
+            assessed["reason_codes"].append("duplicate_trial_identity")
+        else:
+            seen_trials.add((index, repeat))
+            trial = output_dir / f"search_iter_{index:04d}" / "profile_runs" / f"run_{repeat:04d}"
+            raw_path = trial / "profile_export_raw.jsonl"
+            records_path = trial / "profile_export.jsonl"
+            assessed["native_artifacts"] = {
+                "raw": {"path": str(raw_path), "sha256": sha256_file(raw_path)}
+                if raw_path.is_file() else None,
+                "metrics": {"path": str(records_path), "sha256": sha256_file(records_path)}
+                if records_path.is_file() else None,
+            }
+            try:
+                if not raw_path.is_file() or not records_path.is_file():
+                    raise SLAContractError("native raw or metric export is missing")
+                native = _native_sla_records(_jsonl(raw_path), _jsonl(records_path), planned)
+                assessment = assess_observed_point(native, policy, class_by_id)
+                assessed["assessment"] = assessment
+                assessed["observed_feasible"] = assessment["observed_feasible"]
+                assessed["reason_codes"] = sorted({reason for row in assessment["classes"].values()
+                                                   for reason in row["reason_codes"]})
+            except (OSError, ValueError, SLAContractError) as exc:
+                assessed["reason_codes"].append("native_class_records_unassessable")
+                assessed["detail"] = str(exc)
+        if point.get("status") != "valid":
+            assessed["observed_feasible"] = False
+            assessed["reason_codes"].append("adaptive_trial_invalid")
+        assessed["reason_codes"] = sorted(set(assessed["reason_codes"]))
+        results.append(assessed)
+    return {"schema_version": "adaptive-sla-assessment-v1",
+            "policy_id": policy["policy_id"],
+            "policy_sha256": hashlib.sha256(json.dumps(policy, sort_keys=True,
+                                                         separators=(",", ":")).encode()).hexdigest(),
+            "scenario_id": scenario.scenario_id,
+            "config_id": history.get("config_id"),
+            "class_label_policy": class_label_policy,
+            "class_label_source": class_label_source,
+            "source": str(normalized_path), "source_sha256": sha256_file(normalized_path),
+            "claim": "observed_adaptive_points_only_no_confirmed_capacity",
+            "capacity_confirmed": False,
+            "point_count": len(results), "observed_feasible_point_count": sum(
+                item["observed_feasible"] for item in results),
+            "points": results}

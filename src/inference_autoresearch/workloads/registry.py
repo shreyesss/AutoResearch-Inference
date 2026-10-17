@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +105,35 @@ def verify_scenario(manifest: dict[str, Any], *, root: Path | None = None,
     ids = [row.get("session_id") for row in rows]
     if any(not isinstance(value, str) or not value for value in ids):
         raise WorkloadError("Planned session IDs are missing")
+    request_classes: dict[str, str] | None = None
+    class_path: Path | None = None
+    has_class_path = "request_class_path" in manifest
+    has_class_hash = "request_class_sha256" in manifest
+    if has_class_path != has_class_hash:
+        raise WorkloadError("Request-class sidecar path/hash must be declared together")
+    if has_class_path:
+        if traffic_mode != "independent_open_loop":
+            raise WorkloadError("Request-class sidecar requires independent request IDs")
+        class_path = _asset_path(root, manifest["request_class_path"])
+        if not class_path.is_file() or sha256_file(class_path) != manifest["request_class_sha256"]:
+            raise WorkloadError("Frozen request-class sidecar missing or changed")
+        sidecar = _read_json(class_path)
+        request_classes = sidecar.get("classes_by_session_id")
+        if (sidecar.get("schema_version") != "ops-request-classes-v1"
+                or sidecar.get("scenario_id") != manifest.get("scenario_id")
+                or not isinstance(request_classes, dict)
+                or set(request_classes) != set(ids)
+                or any(label not in ("chat", "agent", "code", "document")
+                       for label in request_classes.values())):
+            raise WorkloadError("Request-class sidecar IDs or labels differ from frozen payload")
+        counts = dict(Counter(request_classes.values()))
+        if counts != manifest.get("shape_counts") or counts != card_data.get("shape_counts"):
+            raise WorkloadError("Request-class sidecar counts differ from manifest/card")
+        # The class label is evaluator metadata, never an AIPerf payload field.
+        output_caps = {"chat": 256, "agent": 1024, "code": 1024, "document": 512}
+        if any(row.get("output_length") != output_caps[request_classes[row["session_id"]]]
+               for row in rows):
+            raise WorkloadError("Request-class sidecar conflicts with frozen output caps")
     if traffic_mode == "independent_open_loop":
         times = [row.get("timestamp") for row in rows]
         if len(times) < 2:
@@ -141,7 +171,8 @@ def verify_scenario(manifest: dict[str, Any], *, root: Path | None = None,
             raise WorkloadError("Dependent turns must be complete and ordered within session")
     return {"payload_path": payload, "schedule_path": schedule,
             "card_path": card, "preparation_path": preparation, "planned": rows,
-            "card": card_data,
+            "card": card_data, "request_classes": request_classes,
+            "request_class_path": class_path,
             "schedule_duration_s": times[-1] / 1000 if traffic_mode == "independent_open_loop" else None}
 
 
@@ -183,5 +214,8 @@ class ScenarioRegistry:
             cache_protocol=data["cache_protocol"],
             metadata={"manifest": data, "asset": str(checked["payload_path"]),
                       "registry_root": str(self.root),
+                      "request_classes": checked["request_classes"],
+                      "request_class_path": (str(checked["request_class_path"])
+                                             if checked["request_class_path"] else None),
                       "schedule_duration_s": checked["schedule_duration_s"]},
         )

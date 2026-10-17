@@ -25,6 +25,7 @@ def command(args: argparse.Namespace, artifact_dir: Path) -> dict:
     planner = [str(PYTHON), str(ROOT / "infra/prepare-ops-synthetic-inputs.py"),
                "--workload", args.workload, "--request-rate", str(args.rate),
                "--request-count", str(args.count), "--duration", str(args.duration),
+               "--random-seed", str(args.random_seed),
                "--artifact-root", str(artifact_dir.parent)]
     if args.dataset_entries is not None:
         planner += ["--dataset-entries", str(args.dataset_entries)]
@@ -41,6 +42,8 @@ def main() -> int:
     parser.add_argument("--dataset-entries", type=int,
                         help="Calibration-only generated pool override; recorded in plan")
     parser.add_argument("--duration", type=float, required=True)
+    parser.add_argument("--random-seed", type=int, default=42,
+                        help="Independent content and arrival seed; default preserves historical B0")
     parser.add_argument("--timeout", type=float, default=900,
                         help="Wall-clock safety limit for one AIPerf process")
     parser.add_argument("--cell", required=True, help="Unique output cell name")

@@ -5,7 +5,7 @@
 - `../context.json`: active campaign, domain, B0 settings, recent cells, frontier, qualification and remaining budget.
 - `../research-index.json`: paths and prior attempt snapshots.
 - `../measurements-index.json`: staged run files with checksums and explicit size omissions.
-- `../evaluation-index.json`, when present: gate, configuration, matched B0, evidence grade, all visible adaptive points, validity and raw-file links. Verify each linked digest before relying on it.
+- `../evaluation-index.json`, when present: gate, configuration, matched B0, evidence grade, validity and raw-file links. Its `adaptive_studies` list contains every visible B0/finalist sampled load trial, including invalid points, with configured/realized rates, counts, metrics and source SHA-256. Matching offline SLA assessment files appear in each study's `sla_assessments`; they identify the policy and observed per-class checks but do not certify capacity. Verify each linked digest before relying on it.
 - `../evidence/`: versioned protocol/domain/workload cards and prior measured background. Respect each file's source and protocol.
 - `../history/`: previous proposal, receipt and notes. `notes.md` in the current workspace is the only writable research memory.
 

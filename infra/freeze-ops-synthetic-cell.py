@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 
 from aiperf.dataset.loader.models import SingleTurn
@@ -29,7 +30,22 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def freeze(cell: Path, scenario_id: str, output_dir: Path) -> dict:
+def _shape(prompt_tokens: int, output_cap: int) -> str:
+    if output_cap == 256 and 256 <= prompt_tokens < 4096:
+        return "chat"
+    if output_cap == 512 and prompt_tokens >= 16384:
+        return "document"
+    if output_cap == 1024 and 4096 <= prompt_tokens < 16384:
+        return "agent"
+    if output_cap == 1024 and 1024 <= prompt_tokens < 4096:
+        return "code"
+    raise ValueError(f"Unrecognized OPS mixed shape: prompt={prompt_tokens}, output={output_cap}")
+
+
+def freeze(cell: Path, scenario_id: str, output_dir: Path,
+           split: str = "diagnostic") -> dict:
+    if split not in ("diagnostic", "development", "sealed_test"):
+        raise ValueError(f"Unknown evaluation split: {split}")
     cell = cell.resolve()
     output_dir = output_dir.resolve()
     if not output_dir.is_relative_to(ROOT):
@@ -54,6 +70,8 @@ def freeze(cell: Path, scenario_id: str, output_dir: Path) -> dict:
     first = raws[0]["metadata"]["credit_issued_ns"]
     rows = []
     caps = set()
+    shape_counts: Counter[str] = Counter()
+    classes_by_session_id: dict[str, str] = {}
     for index, raw in enumerate(raws):
         payload = raw["payload"]
         messages = payload.get("messages")
@@ -69,11 +87,19 @@ def freeze(cell: Path, scenario_id: str, output_dir: Path) -> dict:
         metric = observed[raw["metadata"]["x_request_id"]]["metrics"]
         if metric.get("usage_completion_tokens", {}).get("value") != cap:
             raise ValueError(f"Output cap was not realized at row {index}")
+        session_id = f"{scenario_id}-{index:05d}"
+        if workload == "mixed":
+            prompt_tokens = metric.get("usage_prompt_tokens", {}).get("value")
+            if type(prompt_tokens) is not int:
+                raise ValueError(f"Prompt token count missing at row {index}")
+            request_class = _shape(prompt_tokens, cap)
+            classes_by_session_id[session_id] = request_class
+            shape_counts[request_class] += 1
         caps.add(cap)
         extras = {key: payload[key] for key in ("chat_template_kwargs", "temperature",
                                                "ignore_eos", "min_tokens") if key in payload}
         row = {
-            "session_id": f"{scenario_id}-{index:05d}",
+            "session_id": session_id,
             "timestamp": round((raw["metadata"]["credit_issued_ns"] - first) / 1e6, 6),
             "text": messages[0]["content"],
             "output_length": cap,
@@ -85,23 +111,31 @@ def freeze(cell: Path, scenario_id: str, output_dir: Path) -> dict:
         raise ValueError("Cannot infer offered load from a zero-duration schedule")
     measured_rate = (len(rows) - 1) * 1000 / rows[-1]["timestamp"]
     asset = output_dir / f"{scenario_id}.jsonl"
+    class_sidecar = output_dir / f"{scenario_id}.classes.json"
     card = output_dir / f"{scenario_id}.card.json"
     manifest = output_dir / f"{scenario_id}.json"
-    for path in (asset, card, manifest):
+    for path in (asset, class_sidecar, card, manifest):
         if path.exists():
             raise ValueError(f"Refusing to overwrite frozen asset: {path}")
     output_dir.mkdir(parents=True, exist_ok=True)
     with asset.open("w") as stream:
         for row in rows:
             stream.write(json.dumps(row, separators=(",", ":")) + "\n")
+    if workload == "mixed":
+        class_sidecar.write_text(json.dumps({
+            "schema_version": "ops-request-classes-v1",
+            "scenario_id": scenario_id,
+            "classes_by_session_id": classes_by_session_id,
+        }, indent=2, sort_keys=True) + "\n")
     card_data = {
-        "card_id": scenario_id, "readiness": "prepared", "suite_role": "diagnostic",
+        "card_id": scenario_id, "readiness": "prepared", "suite_role": split,
         "source": plan["source_path"], "source_sha256": plan["source_sha256"],
         "source_raw_export": relative(raw_path), "source_raw_sha256": sha(raw_path),
         "workload": workload, "configured_average_rps": plan["offered_rps"],
         "frozen_schedule_average_rps": measured_rate,
         "input_scope": "ops_aiperf synthetic source, Qwen request adapter; exact captured bodies and credits",
         "effective_dataset_entries": plan["effective_dataset_entries"],
+        "shape_counts": dict(shape_counts),
         "dataset_entry_override": plan["dataset_entry_override"],
         "cache_protocol": "cold_stream", "traffic_mode": "independent_open_loop",
         "output_policy": "forced_length", "source_arrival": plan["arrival"],
@@ -115,7 +149,7 @@ def freeze(cell: Path, scenario_id: str, output_dir: Path) -> dict:
         "schema_version": "0.2", "scenario_id": scenario_id,
         "workload_name": f"ops-aiperf-{workload}",
         "workload_group_id": f"ops-aiperf-{workload}-qwen-cold-v1",
-        "suite_role": "diagnostic", "readiness": "prepared",
+        "suite_role": split, "readiness": "prepared",
         "model_id": MODEL, "model_revision": REVISION, "tokenizer_revision": REVISION,
         "template_hash": TEMPLATE_HASH, "protocol_id": "ops-aiperf013-qwen-fresh-warm3-fixed-v1",
         "traffic_mode": "independent_open_loop", "history_mode": "single_turn",
@@ -123,6 +157,7 @@ def freeze(cell: Path, scenario_id: str, output_dir: Path) -> dict:
         "offered_rps": measured_rate, "load_multiplier": 1.0,
         "dispatch_duration_s": rows[-1]["timestamp"] / 1000,
         "n_planned": len(rows), "content_kind": "mechanical",
+        "shape_counts": dict(shape_counts),
         "counting_policy": "total_server_prompt_including_template",
         "output_policy": "forced_length",
         "output_tokens_fixed": next(iter(caps)) if len(caps) == 1 else None,
@@ -133,17 +168,22 @@ def freeze(cell: Path, scenario_id: str, output_dir: Path) -> dict:
         "schedule_path": relative(asset), "schedule_sha256": sha(asset),
         "workload_card_path": relative(card), "workload_card_sha256": sha(card),
         "preparation_policy_path": "configs/workloads/ops-preparation.json",
-        "seeds": {"arrivals": 42, "content": 42, "prefix": 0},
+        "seeds": {"arrivals": plan.get("random_seed", 42),
+                  "content": plan.get("random_seed", 42), "prefix": 0},
         "source_manifest": {"source_id": f"ops_aiperf/{workload}",
                             "revision_or_hash": plan["source_sha256"],
-                            "split": "diagnostic", "characterization_status": "not_applicable",
+                            "split": split, "characterization_status": "not_applicable",
                             "limitations": ["Synthetic source, not a measured deployment distribution."]},
         "notes": "Frozen from a real B0 source cell; requires independent native replay validation.",
     }
+    if workload == "mixed":
+        manifest_data["request_class_path"] = relative(class_sidecar)
+        manifest_data["request_class_sha256"] = sha(class_sidecar)
     manifest.write_text(json.dumps(manifest_data, indent=2, sort_keys=True) + "\n")
     return {"scenario_id": scenario_id, "rows": len(rows), "asset_sha256": sha(asset),
             "source_raw_sha256": sha(raw_path), "frozen_average_rps": measured_rate,
-            "paths": [relative(path) for path in (asset, card, manifest)]}
+            "paths": [relative(path) for path in (asset, class_sidecar, card, manifest)
+                      if path.exists()]}
 
 
 def main() -> None:
@@ -152,8 +192,10 @@ def main() -> None:
     parser.add_argument("--scenario-id", required=True)
     parser.add_argument("--output-dir", type=Path,
                         default=ROOT / "configs/workloads/ops-frozen")
+    parser.add_argument("--split", choices=("diagnostic", "development", "sealed_test"),
+                        default="diagnostic")
     args = parser.parse_args()
-    print(json.dumps(freeze(args.cell, args.scenario_id, args.output_dir), indent=2))
+    print(json.dumps(freeze(args.cell, args.scenario_id, args.output_dir, args.split), indent=2))
 
 
 if __name__ == "__main__":

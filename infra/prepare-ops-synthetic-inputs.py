@@ -60,7 +60,8 @@ def sequence_distribution(dataset: dict) -> str:
 
 
 def plan(name: str, *, rate: float, count: int, duration: float,
-         artifact_dir: Path, dataset_entries: int | None = None) -> dict:
+         artifact_dir: Path, dataset_entries: int | None = None,
+         random_seed: int = 42) -> dict:
     if rate <= 0 or count <= 0 or duration <= 0:
         raise ValueError("rate, count, and duration must be positive")
     path = source_file(name)
@@ -84,7 +85,7 @@ def plan(name: str, *, rate: float, count: int, duration: float,
         "--tokenizer-revision", REVISION, "--apply-chat-template",
         "--use-server-token-count", "--per-chunk-usage",
         "--extra-inputs", json.dumps(extra, separators=(",", ":")),
-        "--random-seed", "42", "--request-rate", str(rate),
+        "--random-seed", str(random_seed), "--request-rate", str(rate),
         "--request-count", str(count), "--benchmark-duration", str(duration),
         "--benchmark-grace-period", "300", "--export-level", "raw",
         "--export-http-trace", "--output-artifact-dir", str(artifact_dir),
@@ -114,6 +115,7 @@ def plan(name: str, *, rate: float, count: int, duration: float,
         "qwen_adapter_note": "Source thinking:true/high maps to Qwen true/xhigh; absent thinking maps to Qwen false. Source token shapes, weights, and arrival law are unchanged.",
         "nominal_dataset": dataset,
         "effective_dataset_entries": effective_entries,
+        "random_seed": random_seed,
         "dataset_entry_override": dataset_entries is not None,
         "arrival": {"pattern": pattern, "smoothness": timing.get("arrival_smoothness"), "rate_rps": rate},
         "aiperf_args": args,
@@ -129,13 +131,16 @@ def main() -> None:
     parser.add_argument("--duration", type=float, required=True)
     parser.add_argument("--dataset-entries", type=int,
                         help="Calibration-only pool size override; source YAML remains pinned")
+    parser.add_argument("--random-seed", type=int, default=42,
+                        help="Independent content and arrival seed; default preserves B0")
     parser.add_argument("--artifact-root", type=Path, required=True)
     args = parser.parse_args()
     names = HASHES if args.workload == "all" else (args.workload,)
     print(json.dumps({name: plan(name, rate=args.request_rate,
                                  count=args.request_count, duration=args.duration,
                                  artifact_dir=args.artifact_root / name,
-                                 dataset_entries=args.dataset_entries)
+                                 dataset_entries=args.dataset_entries,
+                                 random_seed=args.random_seed)
                       for name in names}, indent=2))
 
 

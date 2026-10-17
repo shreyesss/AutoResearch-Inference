@@ -125,3 +125,32 @@ def test_adaptive_cli_cleanup_failure_is_recorded(monkeypatch, tmp_path):
                                 campaign_path, domain, registry, artifact_root, ledger)
     final = ledger.events(campaign["campaign_id"], "adaptive_transition")[-1]["payload"]
     assert final["state"] == "cleanup_failed" and final["cleanup_error"] == "stop failed"
+
+
+def test_offline_sla_assessment_is_separate_from_adaptive_gpu_run(monkeypatch, tmp_path):
+    run_dir = tmp_path / "adaptive-run"
+    (run_dir / "aiperf").mkdir(parents=True)
+    seen = []
+
+    def fake_assess(aiperf_dir, scenario, policy):
+        seen.append((aiperf_dir, scenario.scenario_id, policy["policy_id"]))
+        return {"schema_version": "adaptive-sla-assessment-v1",
+                "policy_id": policy["policy_id"], "policy_sha256": "a" * 64,
+                "claim": "observed_adaptive_points_only_no_confirmed_capacity",
+                "capacity_confirmed": False, "point_count": 2,
+                "observed_feasible_point_count": 0, "points": []}
+
+    monkeypatch.setattr("inference_autoresearch.benchmark.adaptive.assess_adaptive_sla", fake_assess)
+    args = cli.build_parser().parse_args([
+        "assess-adaptive-sla", "--campaign", "configs/campaign-v2.json",
+        "--backend", "real", "--output-dir", str(tmp_path / "campaign-artifacts"),
+        "--policy", "configs/sla-policy-proposed.json", "--adaptive-run", str(run_dir),
+        "--scenario", "qwen-ops-mixed-reference-v1"])
+    result = cli.run(args)
+    assert result["capacity_confirmed"] is False and result["observed_feasible_point_count"] == 0
+    assert seen[0][0] == run_dir / "aiperf"
+    assessment_path = Path(result["assessment_path"])
+    assert assessment_path.is_file()
+    assert json.loads(assessment_path.read_text())["policy_file_sha256"]
+    assert cli.run(args)["assessment_path"] == str(assessment_path)
+    assert not (tmp_path / "campaign-artifacts").exists()

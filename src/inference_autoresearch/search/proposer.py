@@ -68,7 +68,98 @@ _CELL_RESEARCH_FILES = (
 _EVALUATION_RESEARCH_FILES = (
     "resolved-config.json", "evaluation-result.json", "proposal.json", "evaluation-policy.json",
 )
-_ADAPTIVE_RESEARCH_BASENAMES = {"normalized-search-points.json", "search_history.json"}
+_ADAPTIVE_RESEARCH_BASENAMES = {
+    "normalized-search-points.json", "search_history.json",
+    "adaptive-points.json", "adaptive-points.csv",
+}
+
+
+def _adaptive_point_index(record: dict[str, Any], run_dir: Path) -> dict[str, Any] | None:
+    """Make staged exploratory trials discoverable without claiming SLA capacity."""
+    if record["stage"] != "capacity":
+        return None
+    source = next((item for item in record["files"]
+                   if Path(item["path"]).name == "normalized-search-points.json"), None)
+    if source is None:
+        return None
+    try:
+        payload = json.loads((run_dir / source["path"]).read_text())
+    except (OSError, ValueError):
+        record["omitted"].append({"artifact": "normalized_search_points",
+                                  "reason": "unreadable_adaptive_history"})
+        return None
+    if (not isinstance(payload, dict) or not isinstance(payload.get("points"), list)
+            or payload.get("claim") != "exploratory_load_curve_only"
+            or payload.get("config_id") != record["config_id"]
+            or payload.get("scenario_id") != record["scenario_id"]):
+        record["omitted"].append({"artifact": "normalized_search_points",
+                                  "reason": "adaptive_history_identity_or_claim_mismatch"})
+        return None
+    points = []
+    for point in payload["points"]:
+        if not isinstance(point, dict):
+            continue
+        points.append({key: point.get(key) for key in (
+            "point_id", "iteration_idx", "trial_index", "configured_rate", "realized_rate",
+            "status", "reason_codes", "counts", "metrics", "planner_feasible",
+            "objective_values", "sample_count_policy")})
+    return {"cell_id": record["cell_id"], "config_id": record["config_id"],
+            "scenario_id": record["scenario_id"], "claim": "exploratory_load_curve_only",
+            "capacity_confirmed": False, "source": source, "point_count": len(points),
+            "sla_assessments": record.get("sla_assessments", []),
+            "points": points}
+
+
+def _stage_adaptive_sla_reports(source: Path, record: dict[str, Any], run_dir: Path,
+                                destination: Path, budget: int) -> int:
+    """Stage only reports tied to this visible ledger cell and adaptive source."""
+    if (source.name != "normalized-search-points.json" or source.parent.name != "aiperf"
+            or not source.is_file()):
+        return budget
+    source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    folders = (source.parent.parent / "sla-assessments", source.parent / "sla-assessments")
+    assessments = []
+    for folder in folders:
+        if not folder.is_dir() or folder.is_symlink():
+            continue
+        for report_path in sorted(folder.glob("policy-*.json"))[:16]:
+            if not report_path.is_file() or report_path.is_symlink():
+                continue
+            if report_path.stat().st_size > 16 * 1024 * 1024:
+                record["omitted"].append({"artifact": report_path.name,
+                                          "reason": "file_over_16_mib"})
+                continue
+            try:
+                report = json.loads(report_path.read_text())
+            except (OSError, ValueError):
+                record["omitted"].append({"artifact": report_path.name,
+                                          "reason": "unreadable_sla_assessment"})
+                continue
+            if (not isinstance(report, dict)
+                    or report.get("schema_version") != "adaptive-sla-assessment-v1"
+                    or report.get("claim") != "observed_adaptive_points_only_no_confirmed_capacity"
+                    or report.get("capacity_confirmed") is not False
+                    or report.get("config_id") != record["config_id"]
+                    or report.get("scenario_id") != record["scenario_id"]
+                    or report.get("source_sha256") != source_digest
+                    or Path(str(report.get("source", ""))).resolve() != source.resolve()):
+                record["omitted"].append({"artifact": report_path.name,
+                                          "reason": "sla_assessment_provenance_mismatch"})
+                continue
+            before = len(record["files"])
+            budget = _copy_research_file(report_path, destination / "sla-assessments" / report_path.name,
+                                         run_dir, record, budget)
+            if len(record["files"]) == before:
+                continue
+            assessments.append({"policy_id": report.get("policy_id"),
+                                "policy_sha256": report.get("policy_sha256"),
+                                "claim": report["claim"], "capacity_confirmed": False,
+                                "point_count": report.get("point_count"),
+                                "observed_feasible_point_count": report.get("observed_feasible_point_count"),
+                                "source": record["files"][-1]})
+    if assessments:
+        record["sla_assessments"] = assessments
+    return budget
 
 
 def _stage_measurements(context: ProposalContext, artifact_root: Path,
@@ -81,6 +172,7 @@ def _stage_measurements(context: ProposalContext, artifact_root: Path,
             rows.extend(row for row in scope.get("cells", []) if isinstance(row, dict))
     seen: set[str] = set()
     records: list[dict[str, Any]] = []
+    adaptive_studies: list[dict[str, Any]] = []
     budget = 128 * 1024 * 1024
     for row in rows:
         cell_id = str(row.get("cell_id", ""))
@@ -112,6 +204,13 @@ def _stage_measurements(context: ProposalContext, artifact_root: Path,
             budget = _copy_research_file(adaptive_source,
                                          run_dir / "measurements" / "adaptive" / f"record-{len(records):04d}"
                                          / adaptive_source.name, run_dir, record, budget)
+            if adaptive_source.name == "normalized-search-points.json":
+                budget = _stage_adaptive_sla_reports(
+                    adaptive_source, record, run_dir,
+                    run_dir / "measurements" / "adaptive" / f"record-{len(records):04d}", budget)
+        adaptive_index = _adaptive_point_index(record, run_dir)
+        if adaptive_index is not None:
+            adaptive_studies.append(adaptive_index)
         reference = artifacts.get("raw_requests") or artifacts.get("aiperf_export")
         if not isinstance(reference, str):
             record["omitted"].append({"reason": "no_raw_artifact_reference"})
@@ -140,14 +239,16 @@ def _stage_measurements(context: ProposalContext, artifact_root: Path,
                                          run_dir / "measurements" / evaluation_dir.name / relative,
                                          run_dir, record, budget)
         records.append(record)
-    result = {"cells": records, "file_size_limit_bytes": 16 * 1024 * 1024,
+    result = {"cells": records, "adaptive_studies": adaptive_studies,
+              "file_size_limit_bytes": 16 * 1024 * 1024,
               "total_size_limit_bytes": 128 * 1024 * 1024,
               "scope": "controller-provided visible development cells; heldout/test excluded",
               "excluded": "Unlisted native raw exports, model weights and unrelated artifacts"}
     _write_snapshot(run_dir / "measurements-index.json", (json.dumps(result, indent=2) + "\n").encode())
     _write_snapshot(run_dir / "evaluation-index.json", (json.dumps({
         "schema_version": "evaluation-index-v1", "campaign_id": context.campaign_id,
-        "cells": records, "visible_cell_count": len(records),
+        "cells": records, "adaptive_studies": adaptive_studies,
+        "visible_cell_count": len(records),
         "note": "Controller-provided development evidence only; source files listed with SHA-256 in files."
     }, indent=2) + "\n").encode())
     return result
@@ -314,6 +415,8 @@ class CodexProposer:
                         "evaluation": "../evaluation-index.json"},
             "previous_attempts": history,
             "measurement_cells": len(measurements["cells"]),
+            "adaptive_studies": len(measurements["adaptive_studies"]),
+            "adaptive_points": sum(item["point_count"] for item in measurements["adaptive_studies"]),
             "writable_notes": "notes.md",
             "authority": "Only parameter proposals; the controller owns traffic and evaluation.",
         }
@@ -352,6 +455,8 @@ class CodexProposer:
                    "staged_evidence_count": len(staged_refs),
                    "staged_measurement_cells": len(measurements["cells"]),
                    "staged_measurement_files": sum(len(cell["files"]) for cell in measurements["cells"]),
+                   "staged_adaptive_studies": len(measurements["adaptive_studies"]),
+                   "staged_adaptive_points": sum(item["point_count"] for item in measurements["adaptive_studies"]),
                    "previous_attempts": len(history),
                    "status": "started"}
         receipt_file.write_text(json.dumps(receipt, indent=2) + "\n")

@@ -159,6 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="iar", description="Pinned Qwen serving experiments")
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("doctor", "characterize", "prepare", "baseline", "pilot", "evaluate", "adaptive",
+                    "assess-adaptive-sla",
                     "qualify", "search", "report", "inspect"):
         item = sub.add_parser(command)
         item.add_argument("--campaign", default="configs/campaign.json")
@@ -168,6 +169,12 @@ def build_parser() -> argparse.ArgumentParser:
             item.add_argument("--candidate")
         if command == "adaptive":
             item.add_argument("--candidate", help="Optional typed v2 serving override; omitted uses B0.")
+        if command == "assess-adaptive-sla":
+            item.add_argument("--policy", required=True, help="Explicit versioned application SLA policy JSON.")
+            item.add_argument("--adaptive-run", required=True,
+                              help="Existing adaptive run directory (or its aiperf subdirectory).")
+            item.add_argument("--scenario", required=True, help="Frozen registry scenario ID.")
+            item.add_argument("--assessment-output", help="Optional output JSON path.")
         if command in ("baseline", "pilot", "evaluate"):
             item.add_argument("--scenario", action="append", dest="scenarios",
                               help="Evaluator registry ID; may be repeated. Defaults to campaign screens.")
@@ -190,6 +197,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     project_root = campaign_path.parent.parent if campaign_path.parent.name == "configs" else campaign_path.parent
     domain = Domain.load(_file(campaign["search_domain_path"], campaign_path))
     registry = ScenarioRegistry(_file(campaign["workload_registry"], campaign_path), root=project_root)
+    if args.command == "assess-adaptive-sla":
+        return _run_adaptive_sla_assessment(args, registry)
     artifact_root = Path(args.output_dir).resolve() / campaign["campaign_id"] / args.backend
     if args.command == "inspect" and not (artifact_root / "ledger.sqlite3").is_file():
         raise ValueError(f"no campaign ledger to inspect: {artifact_root / 'ledger.sqlite3'}")
@@ -451,6 +460,36 @@ def _run_adaptive_pilot(args: argparse.Namespace, campaign: dict[str, Any],
             raise cleanup_error
     assert answer is not None
     return answer
+
+
+def _run_adaptive_sla_assessment(args: argparse.Namespace,
+                                 registry: ScenarioRegistry) -> dict[str, Any]:
+    """Assess saved adaptive native trials offline; never launch a server."""
+    from inference_autoresearch.benchmark.adaptive import assess_adaptive_sla
+    from inference_autoresearch.evaluation.sla import validate_policy
+    from inference_autoresearch.workloads.registry import sha256_file
+
+    policy_path = Path(args.policy).resolve()
+    policy = json.loads(policy_path.read_text())
+    validate_policy(policy)
+    scenario = registry.load(args.scenario)
+    run_path = Path(args.adaptive_run).resolve()
+    aiperf_dir = run_path if (run_path / "normalized-search-points.json").is_file() else run_path / "aiperf"
+    assessment = assess_adaptive_sla(aiperf_dir, scenario, policy)
+    assessment["policy_source"] = str(policy_path)
+    assessment["policy_file_sha256"] = sha256_file(policy_path)
+    default_path = run_path / "sla-assessments" / f"policy-{assessment['policy_sha256'][:12]}.json"
+    output_path = Path(args.assessment_output).resolve() if args.assessment_output else default_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(assessment, indent=2, sort_keys=True) + "\n"
+    if output_path.exists() and output_path.read_text() != serialized:
+        raise ValueError(f"refusing to overwrite changed SLA assessment: {output_path}")
+    if not output_path.exists():
+        output_path.write_text(serialized)
+    return {"status": "assessed", "assessment_path": str(output_path),
+            "policy_id": policy["policy_id"], "point_count": assessment["point_count"],
+            "observed_feasible_point_count": assessment["observed_feasible_point_count"],
+            "claim": assessment["claim"], "capacity_confirmed": False}
 
 
 def main(argv: list[str] | None = None) -> int:

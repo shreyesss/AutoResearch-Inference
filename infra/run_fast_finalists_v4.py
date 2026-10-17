@@ -14,6 +14,7 @@ import fcntl
 import json
 import math
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -56,6 +57,17 @@ def write(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True, default=str) + "\n")
     temporary.replace(path)
+
+
+def controller_aiperf_executable() -> Path:
+    """Use the AIPerf installed in the executing controller environment."""
+    found = shutil.which("aiperf")
+    if not found:
+        raise FollowupError("AIPerf is absent from the controller PATH")
+    path = Path(found).resolve()
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise FollowupError(f"Controller AIPerf is not executable: {path}")
+    return path
 
 
 def pinned_ref(root: Path, entry: dict[str, Any], *, label: str) -> Path:
@@ -324,7 +336,7 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
                      "claim": "one_matched_development_rate_no_capacity", "capacity_confirmed": False})
         write(output / "run-lock.json", lock)
         scenario = staged_scenario(root, output, prepared)
-        adapter = AIPerfAdapter(aiperf_executable=root / ".venv/bin/aiperf",
+        adapter = AIPerfAdapter(aiperf_executable=controller_aiperf_executable(),
                                 tokenizer_path=prepared["pinned"].model_dir,
                                 tokenizer_cache_dir=root / ".artifacts/aiperf-hf-cache")
         adapter.preflight_tokenizer(scenario)

@@ -58,6 +58,17 @@ def test_selected_config_must_match_pinned_proposal_cell_and_ledger(tmp_path: Pa
         MODULE.selected_cases(tmp_path, shortlist, ledger, pinned, domain)
 
 
+def test_uses_controller_aiperf_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    executable = tmp_path / "aiperf"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o755)
+    monkeypatch.setattr(MODULE.shutil, "which", lambda name: str(executable))
+    assert MODULE.controller_aiperf_executable() == executable.resolve()
+    monkeypatch.setattr(MODULE.shutil, "which", lambda name: None)
+    with pytest.raises(MODULE.FollowupError, match="absent from the controller PATH"):
+        MODULE.controller_aiperf_executable()
+
+
 def test_matched_comparison_retains_class_p90_direction(tmp_path: Path) -> None:
     def point(label: str, p90: float, throughput: float) -> dict:
         classes = {"chat": {"planned": 40, "ttft_deadline_breaches": 0,

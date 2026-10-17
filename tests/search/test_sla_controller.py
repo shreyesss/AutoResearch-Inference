@@ -166,6 +166,9 @@ def test_all_proposals_receive_only_prior_short_screen_feedback_before_finalist_
 
     monkeypatch.setattr(module, "load_split_plan", lambda *args, **kwargs: {})
     monkeypatch.setattr(module, "audit_confirmation_pairs", lambda *args, **kwargs: {})
+    curve_calls = []
+    monkeypatch.setattr(module, "export_sla_curves", lambda sources, output: (
+        curve_calls.append((sources, output)) or {"point_count": 2}))
     controller = SLAServingController(campaign, campaign_path, domain, None,
         Proposer(), Evaluator(), Ledger(), tmp_path / "artifacts")
     controller.preflight = lambda: (
@@ -194,3 +197,5 @@ def test_all_proposals_receive_only_prior_short_screen_feedback_before_finalist_
     assert {cell["cell_id"] for cell in contexts[1].recent_results} == {
         "b0-screen", "candidate-1-qwen-ops-mixed-reference-v1"}
     assert contexts[1].recent_results[-1]["sla_screen_decision"]["promote_to_shortlist"] is True
+    assert len(curve_calls) == 1
+    assert curve_calls[0][0] == [profile_source, profile_source]

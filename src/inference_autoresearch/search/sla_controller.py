@@ -28,6 +28,7 @@ from inference_autoresearch.evaluation.split_v2 import SplitError, audit_confirm
 from inference_autoresearch.search.domain import Domain, config_identity
 from inference_autoresearch.search.proposer import CodexProposer, _stage_sla_study
 from inference_autoresearch.search.report import eligible
+from inference_autoresearch.search.sla_curve_report import export_sla_curves
 
 
 class SLASearchError(RuntimeError):
@@ -439,11 +440,21 @@ class SLAServingController:
                     allowed_root = (self.root / ".artifacts/autoresearch-codebase").resolve()
                     if not source.is_file() or not source.is_relative_to(allowed_root):
                         raise SLASearchError("candidate SLA profile source is outside research artifacts")
+        curve_sources = [self.root / source["source_path"]
+                         for source in study["baseline_adaptive_run_paths"]]
+        for packet in profiles:
+            if packet["process_exit_code"] != 0 or packet["timed_out"]:
+                continue
+            source_path = (packet.get("result") or {}).get("artifacts", {}).get("all_points")
+            if isinstance(source_path, str):
+                curve_sources.append(Path(source_path))
+        curves = export_sla_curves(curve_sources, self.artifact_root / "sla-curves")
         summary = {"campaign_id": campaign_id, "status": "sequential_development_search_complete",
                    "proposal_count": len(screened), "shortlisted": len(selected),
                    "all_viable_screen_cell_ids": selection["all_viable_cell_ids"],
                    "selection_evidence_grade": selection["evidence_grade"],
                    "development_reports": finalized, "finalist_profiles": profiles,
+                   "descriptive_sla_curves": curves,
                    "capacity_confirmed": False,
                    "next_gate": "independently confirm a frozen fixed-rate boundary and then sealed test"}
         _write(self.artifact_root / "sla-search-summary.json", summary)

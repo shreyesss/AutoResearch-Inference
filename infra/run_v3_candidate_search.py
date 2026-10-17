@@ -345,7 +345,7 @@ def run_waiter(timeout_s: int) -> dict[str, Any]:
             result = json.loads(stdout)
             if (result.get("capacity_confirmed") is not False
                     or result.get("campaign_id") != CAMPAIGN_ID
-                    or result.get("status") != "development_screen_complete"):
+                    or result.get("status") != "sequential_development_search_complete"):
                 raise RuntimeError("candidate search result identity or claim is invalid")
             state["status"] = "development_search_observed"
             stamp(state, "complete", result=result)

@@ -123,7 +123,7 @@ def test_controller_preflight_and_search_share_docker_runtime(tmp_path, monkeypa
             return 0, json.dumps({"status": "ready", "study_sha256": "study",
                                   "policy_sha256": "policy", "capacity_confirmed": False}), False
         return 0, json.dumps({"campaign_id": watcher.CAMPAIGN_ID,
-                              "status": "development_screen_complete",
+                              "status": "sequential_development_search_complete",
                               "capacity_confirmed": False}), False
 
     monkeypatch.setattr(watcher, "run_command", fake_run)

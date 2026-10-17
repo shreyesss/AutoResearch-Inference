@@ -53,15 +53,15 @@ def test_v3_shortlist_promotes_all_viable_and_reports_provisional_pareto():
     assert shortlist["nondominated_cell_ids"] == ["b", "a"]
     assert shortlist["all_viable_cell_ids"] == ["a", "b", "dominated"]
     assert shortlist["evidence_grade"] == "provisional_36_request_screen"
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3.json").read_text())
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
     assert campaign["sla_search"]["max_finalists"] == campaign["search_budget"]["max_distinct_proposals"]
     assert campaign["search_budget"]["max_expanded_finalists"] == campaign["search_budget"]["max_distinct_proposals"]
 
 
 def test_v3_preflight_refuses_missing_approved_study_before_evaluator(tmp_path):
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3.json").read_text())
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
     campaign["sla_study_path"] = "missing-study.json"
-    campaign_path = tmp_path / "configs/campaign-sla-serving-v3.json"
+    campaign_path = tmp_path / "configs/campaign-sla-serving-v3b.json"
     campaign_path.parent.mkdir()
     campaign_path.write_text(json.dumps(campaign))
     domain = Domain.load(ROOT / "configs/search-domain-v2.json")
@@ -86,13 +86,13 @@ def test_v3_cli_has_explicit_gpu_free_preflight_and_real_codex_command():
     from inference_autoresearch.cli import build_parser
 
     args = build_parser().parse_args(["sla-search", "--backend", "real",
-                                "--campaign", "configs/campaign-sla-serving-v3.json", "--check"])
+                                "--campaign", "configs/campaign-sla-serving-v3b.json", "--check"])
     assert args.command == "sla-search" and args.check is True
     assert args.backend == "real"
 
 
 def test_v3_search_refuses_concurrent_process_before_gpu_or_agent(tmp_path):
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3.json").read_text())
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
     domain = Domain.load(ROOT / "configs/search-domain-v2.json")
     campaign_path = tmp_path / "configs/campaign.json"
     campaign_path.parent.mkdir()
@@ -111,7 +111,7 @@ def test_v3_search_refuses_concurrent_process_before_gpu_or_agent(tmp_path):
 def test_next_proposal_receives_previous_development_cells(tmp_path, monkeypatch):
     import inference_autoresearch.search.sla_controller as module
 
-    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3.json").read_text())
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3b.json").read_text())
     campaign["search_budget"]["max_distinct_proposals"] = 2
     campaign["sla_search"]["max_finalists"] = 2
     campaign["sla_study_path"] = ".artifacts/v3-independent-capture/active.json"

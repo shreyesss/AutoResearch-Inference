@@ -120,7 +120,7 @@ class SLAServingController:
     def preflight(self) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
         campaign = self.campaign
         study_path = (self.root / campaign["sla_study_path"]).resolve()
-        if (campaign.get("campaign_id") != "qwen38-27b-sla-serving-v3"
+        if (campaign.get("campaign_id") != "qwen38-27b-sla-serving-v3b"
                 or not isinstance(self.proposer, CodexProposer)
                 or self.proposer.sla_study_path is None
                 or self.proposer.sla_study_path.resolve() != study_path

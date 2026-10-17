@@ -25,18 +25,22 @@ Optuna campaign is not the v3 SLA search.
 
 ## New serving campaign
 
-`configs/campaign-sla-serving-v3.json` is the separate bounded Codex search
+`configs/campaign-sla-serving-v3b.json` is the separate bounded Codex search
 campaign. It points at the activated study artifact, uses only the 36-request
 screen and the two development windows in its registry, and pins four agent
 proposals. Every proposal passing the gross-regression screen gets both
 development windows. Run it only after inspecting
 the B0 SLA profile:
 
+The earlier `qwen38-27b-sla-serving-v3` artifact directory contains only a
+GPU-free preflight lock from before the sequential feedback change. The v3b
+campaign uses a new ID and artifact directory so that lock remains auditable.
+
 The two frozen windows use independent development seeds 1042 and 1043. Both
 are development data. Neither is the sealed test set.
 
 ```bash
-.venv/bin/iar sla-search --backend real --campaign configs/campaign-sla-serving-v3.json
+docker exec deploy-controller-1 iar sla-search --backend real --campaign configs/campaign-sla-serving-v3b.json
 ```
 
 The controller checks the active study, approved policy hash, both matched B0
@@ -105,5 +109,5 @@ after the profiler finishes:
 
 ```bash
 PYTHONPATH=src .venv/bin/python infra/run_v3_candidate_search.py check
-.venv/bin/iar sla-search --backend real --campaign configs/campaign-sla-serving-v3.json --check
+docker exec deploy-controller-1 iar sla-search --backend real --campaign configs/campaign-sla-serving-v3b.json --check
 ```

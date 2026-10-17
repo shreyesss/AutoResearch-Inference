@@ -1,0 +1,53 @@
+{
+  "version": "manual-serving-search-v1",
+  "status": "bounded investigator probe; not autonomous-search qualification",
+  "baseline": {
+    "source": "infra/sequence-cap-pilot-results.json",
+    "server_max_num_seqs": 512,
+    "max_num_batched_tokens_resolved": 8192,
+    "gpu_memory_utilization_resolved": 0.92,
+    "prefix_cache_enabled": true,
+    "mtp_depth": 0
+  },
+  "common_workload": {
+    "manifest": "infra/b0-frozen-inputs-manifest.json",
+    "cells": ["r256", "r32"],
+    "rates_rps": [2.56, 3.2],
+    "fixed_schedule": true,
+    "input_tokens_realized": "511–514",
+    "output_tokens_forced": 256,
+    "role": "short-chat mechanical diagnostic"
+  },
+  "planned_order": ["mtp1a", "cap128a", "mtp3a_if_mtp1_promising", "b0check_and_repeat_promising"],
+  "candidates": {
+    "mtp1a": {
+      "change": "--speculative-config {\"method\":\"mtp\",\"num_speculative_tokens\":1}",
+      "other_server_settings": "identical to B0",
+      "hypothesis": "accepted draft progress reduces TPOT enough to offset MTP overhead without increasing TTFT or reducing completed throughput",
+      "mechanism_evidence": "server aggregate draft/accepted token counters, plus batch and queue metrics",
+      "falsification": "low acceptance, slower TPOT, queue growth, or throughput loss at matched load"
+    },
+    "cap128a": {
+      "change": "--max-num-seqs 128",
+      "other_server_settings": "identical to B0",
+      "hypothesis": "cap 128 stays above observed peak concurrent work (53), avoiding the known cap-32 queue; smaller capture/scheduler envelope might alter cost",
+      "mechanism_evidence": "server running/waiting request gauges, graph capture logs, latency and throughput",
+      "falsification": "capacity waiting or material latency/throughput regression"
+    },
+    "mtp3a_if_mtp1_promising": {
+      "change": "--speculative-config {\"method\":\"mtp\",\"num_speculative_tokens\":3}",
+      "other_server_settings": "identical to B0",
+      "hypothesis": "higher acceptance length may improve decode more than depth 1, at the cost of extra draft work",
+      "mechanism_evidence": "aggregate acceptance length, TTFT, TPOT, throughput, queue",
+      "falsification": "draft overhead or falling acceptance erases depth-1 benefit"
+    }
+  },
+  "comparison_rules": {
+    "require_complete_http_200_and_schedule_match": true,
+    "reject_sustained_backlog_or_capacity_queue_as_success": true,
+    "metrics": ["output_tokens_per_s", "ttft_p50_p99_ms", "tpot_p50_p99_ms_per_token", "waiting_requests", "outstanding_by_10s"],
+    "interpretation": "short screens show direction/mechanism only; p99 and production value remain provisional",
+    "maximum_new_configs": 3,
+    "single_gpu_serial_execution": true
+  }
+}

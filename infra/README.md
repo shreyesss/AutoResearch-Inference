@@ -10,6 +10,8 @@ The first bounded B0 load curve and a compact mixed-input probe are documented i
 
 The first real serving-parameter sensitivity contrast is documented in [SEQUENCE_CAP_SENSITIVITY_PILOT.md](SEQUENCE_CAP_SENSITIVITY_PILOT.md). `run-sequence-cap-pilot.sh` repeats B0 and a 32-sequence candidate against the same two frozen chat schedules; `analyze-sequence-cap-pilot.py` validates every request and summarizes queueing, latency, throughput, and backlog in `sequence-cap-pilot-results.json`. This diagnostic establishes a reproducible parameter effect and overload at the candidate's tested rates; it does not qualify autonomous search.
 
+A bounded manual serving comparison is documented in [MANUAL_SERVING_SEARCH.md](MANUAL_SERVING_SEARCH.md). `manual-search-plan.json` freezes candidate hypotheses; `run-manual-serving-probe.sh` and `analyze-manual-serving-search.py` compare B0, cap 128 and MTP depths 1/3 on the same two chat assets, with repeats of the MTP tradeoffs and a fresh B0 guard. The tracked `manual-serving-search-results.json` preserves all cell results and acceptance counters; raw exports stay under `.artifacts/manual-serving-search-v1/`.
+
 This is a small, manual infrastructure check before the full `iar` campaign CLI exists. It measures a diagnostic synthetic chat workload on the target GPU. It does not establish a representative workload or a confirmed p99/SLA result.
 
 Pinned inputs:

@@ -2,7 +2,9 @@
 
 This command is gated by `configs/sla-study-v3.template.json`. It refuses to
 start a GPU unless the approved policy hash, validated 240-request development
-manifest and class sidecar, and complete matched B0 replay are present. It
+manifest and class sidecar, and a complete matched B0 evaluator CellResult
+with raw request evidence are present. Input replay validation alone does not
+meet that gate. It
 reads the development manifest directly from the study, since the v2 workload
 registry contains only the 36-request screen.
 

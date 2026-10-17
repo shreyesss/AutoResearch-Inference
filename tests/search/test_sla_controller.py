@@ -1,10 +1,12 @@
 import json
 import fcntl
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from inference_autoresearch.search.domain import Domain
+from inference_autoresearch.contracts import CandidateProposal
 from inference_autoresearch.search.proposer import CodexProposer
 from inference_autoresearch.search.sla_controller import (
     SLASearchError, SLAServingController, screen_viability, select_screen_finalists,
@@ -53,6 +55,7 @@ def test_v3_shortlist_promotes_all_viable_and_reports_provisional_pareto():
     assert shortlist["evidence_grade"] == "provisional_36_request_screen"
     campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3.json").read_text())
     assert campaign["sla_search"]["max_finalists"] == campaign["search_budget"]["max_distinct_proposals"]
+    assert campaign["search_budget"]["max_expanded_finalists"] == campaign["search_budget"]["max_distinct_proposals"]
 
 
 def test_v3_preflight_refuses_missing_approved_study_before_evaluator(tmp_path):
@@ -103,3 +106,86 @@ def test_v3_search_refuses_concurrent_process_before_gpu_or_agent(tmp_path):
         fcntl.flock(lock, fcntl.LOCK_EX)
         with pytest.raises(SLASearchError, match="another v3 SLA search process"):
             controller.run()
+
+
+def test_next_proposal_receives_previous_development_cells(tmp_path, monkeypatch):
+    import inference_autoresearch.search.sla_controller as module
+
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3.json").read_text())
+    campaign["search_budget"]["max_distinct_proposals"] = 2
+    campaign["sla_search"]["max_finalists"] = 2
+    campaign["sla_study_path"] = ".artifacts/v3-independent-capture/active.json"
+    campaign_path = tmp_path / "configs/campaign.json"
+    campaign_path.parent.mkdir()
+    campaign_path.write_text(json.dumps(campaign))
+    study_path = tmp_path / campaign["sla_study_path"]
+    study_path.parent.mkdir(parents=True)
+    study_path.write_text("{}")
+    audit = tmp_path / ".artifacts/v3-independent-capture/development-input-audit.json"
+    audit.write_text("{}")
+    domain = Domain.load(ROOT / "configs/search-domain-v2.json")
+    calls = []
+    contexts = []
+    cells = {}
+    baseline = _screen("b0-screen", 100, 1000, 50)
+    cells[baseline["cell_id"]] = baseline
+
+    class Proposer:
+        def propose(self, context):
+            contexts.append(context)
+            number = len(contexts)
+            return CandidateProposal(proposal_id=f"candidate-{number}",
+                parameters={"max_num_batched_tokens": (4096 if number == 1 else 16384)},
+                experiment_kind="exploration", hypothesis="Test scheduler token budget")
+
+    class Evaluator:
+        def evaluate(self, proposal, scenarios, stage):
+            calls.append((proposal.proposal_id, stage))
+            if proposal.proposal_id == "B0-sla-screen":
+                return SimpleNamespace(cell_ids=[baseline["cell_id"]], status="valid")
+            produced = []
+            for scenario in scenarios:
+                cell_id = f"{proposal.proposal_id}-{scenario}"
+                cell = _screen(cell_id, 90, 1100, 55) | {
+                    "scenario_id": scenario, "config_id": proposal.proposal_id, "stage": stage}
+                cells[cell_id] = cell
+                produced.append(cell_id)
+            return SimpleNamespace(cell_ids=produced, status="valid")
+
+    class Ledger:
+        def claim(self, *args):
+            pass
+        def events(self, *args):
+            return []
+        def append(self, *args):
+            pass
+
+    monkeypatch.setattr(module, "load_split_plan", lambda *args, **kwargs: {})
+    monkeypatch.setattr(module, "audit_confirmation_pairs", lambda *args, **kwargs: {})
+    controller = SLAServingController(campaign, campaign_path, domain, None,
+        Proposer(), Evaluator(), Ledger(), tmp_path / "artifacts")
+    controller.preflight = lambda: (
+        {"policy": {"sha256": "p"}, "baseline_adaptive_run_paths": [],
+         "adaptive_development": {"baseline_cell_sha256_by_path": {}},
+         "capacity_confirmation": {"split_plan_path": "split.json"}},
+        {}, [{"cell_id": "b0-dev-1042"}, {"cell_id": "b0-dev-1043"}])
+    controller._cells = lambda ids: [cells[cell_id] for cell_id in ids]
+    controller._assess_cell = lambda cell, policy: {
+        "cell_id": cell["cell_id"], "observed_feasible": True}
+    profile_source = tmp_path / ".artifacts/autoresearch-codebase/profile/sla-profile-points.json"
+    profile_source.parent.mkdir(parents=True)
+    profile_source.write_text("{}")
+    controller._profile_finalist = lambda proposal, study_path: {
+        "process_exit_code": 0, "timed_out": False,
+        "result": {"status": "observed", "artifacts": {"all_points": str(profile_source)}}}
+
+    controller.run()
+
+    assert calls == [
+        ("B0-sla-screen", "triage"),
+        ("candidate-1", "triage"), ("candidate-1", "expanded"),
+        ("candidate-2", "triage"), ("candidate-2", "expanded")]
+    assert len(contexts) == 2
+    assert {cell["scenario_id"] for cell in contexts[1].recent_results
+            if cell.get("stage") == "expanded"} == set(campaign["development_scenario_ids"])
+    assert contexts[1].evidence_refs[0]["evidence_id"] == "candidate-profile-1"

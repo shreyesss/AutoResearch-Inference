@@ -1,5 +1,6 @@
 import json
 import subprocess
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,11 @@ def test_independent_windows_are_predeclared_and_not_pretended_ready():
     assert [window["seed"] for stage in plan["stages"].values()
             for window in stage["windows"]] == [1042, 1043, 2042, 2043]
     assert plan["stages"]["sealed_test"]["proposer_visible"] is False
+    uncaptured_fixture = deepcopy(plan)
+    uncaptured_fixture["stages"]["development_replication"]["windows"][0]["scenario_id"] = (
+        "uncaptured-fixture-window")
     with pytest.raises(SplitError, match="not captured"):
-        audit_frozen_splits(plan, root=ROOT)
+        audit_frozen_splits(uncaptured_fixture, root=ROOT)
 
 
 def test_seed_reuse_and_test_visibility_fail_closed(tmp_path):

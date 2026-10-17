@@ -60,10 +60,14 @@ Sealed-test scenarios are absent from this campaign registry.
 
 The proposer gets a read-only `sla-study-index.json`, approved policy, two
 matched B0 windows, all B0 profile points, and bounded copies of native
-request exports. It may research and propose serving settings only. The
-controller owns server deployment, traffic, evaluation and promotion. The
-adaptive points remain development observations. A later frozen-rate repeat
-and sealed-test protocol are required before claiming an SLA-capacity frontier.
+request exports. Search is sequential: each candidate that passes the 36-request
+screen gets both development cells and, if observed feasible in both, an adaptive
+profile **before** the next proposal. The next proposal sees those development
+cells, per-class assessments and the candidate profile points. It may research
+and propose serving settings only. The controller owns server deployment,
+traffic, evaluation and promotion. The adaptive points remain development
+observations. A later frozen-rate repeat and sealed-test protocol are required
+before claiming an SLA-capacity frontier.
 
 ## One-shot overnight candidate watcher
 

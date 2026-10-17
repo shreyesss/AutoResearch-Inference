@@ -309,18 +309,24 @@ class SLAServingController:
         self.ledger.append(campaign_id, "sla_screen_baseline", screen_b0[0]["cell_id"],
                            {"cell_id": screen_b0[0]["cell_id"], "claim": "regression_screen_only"})
         screened: list[dict[str, Any]] = []
+        feedback_cells: list[dict[str, Any]] = []
+        profile_refs: list[dict[str, Any]] = []
+        finalized: list[dict[str, Any]] = []
+        profiles: list[dict[str, Any]] = []
+        split = load_split_plan(self.root / study["capacity_confirmation"]["split_plan_path"], root=self.root)
+        input_audit = _read(self.root / ".artifacts/v3-independent-capture/development-input-audit.json")
         proposed_ids: set[str] = {config_identity(self.campaign, self.campaign["baseline"])}
         started = time.monotonic()
         for attempt in range(max_proposals):
             require_frozen_study()
             if time.monotonic() - started >= budget["wall_seconds"]:
                 break
-            visible = [screen_b0[0], *[row["cell"] for row in screened]]
+            visible = [screen_b0[0], *[row["cell"] for row in screened], *feedback_cells]
             context = ProposalContext(
                 campaign_id=campaign_id,
                 mission="Propose serving settings that may improve independently confirmed class-aware SLA-feasible rate",
                 domain=self.domain.raw, baseline=self.campaign["baseline"], frontier=[],
-                recent_results=visible, evidence_refs=self.evidence_refs,
+                recent_results=visible, evidence_refs=[*self.evidence_refs, *profile_refs],
                 remaining_budget={"distinct_proposals": max_proposals-attempt,
                                   "wall_seconds": max(0, budget["wall_seconds"]-(time.monotonic()-started))},
                 qualification={"search_allowed": True, "qualification_grade": "v3_research_sla",
@@ -350,36 +356,25 @@ class SLAServingController:
                                 "cell_id": cells[0]["cell_id"], "baseline_cell_id": screen_b0[0]["cell_id"],
                                 **decision})
             screened.append({"proposal": proposal, "cell": cells[0], "decision": decision})
-        rows = [row["cell"] | {"screen_promoted": row["decision"]["promote_to_shortlist"]}
-                for row in screened]
-        selection = select_screen_finalists(rows, self.campaign["sla_search"]["max_finalists"])
-        self.ledger.append(campaign_id, "sla_screen_shortlist", campaign_id, selection)
-        _write(self.artifact_root / "screen-shortlist.json", selection)
-        finalized = []
-        selected = set(selection["selected_cell_ids"])
-        split = load_split_plan(self.root / study["capacity_confirmation"]["split_plan_path"], root=self.root)
-        input_audit = _read(self.root / ".artifacts/v3-independent-capture/development-input-audit.json")
-        profiles = []
-        for row in screened:
-            if row["cell"]["cell_id"] not in selected:
+            if not decision["promote_to_shortlist"]:
                 continue
+            # The next proposal sees this candidate's development evidence.
             require_frozen_study()
-            proposal = row["proposal"]
-            result = self.evaluator.evaluate(proposal, dev_ids, "expanded")
+            development = self.evaluator.evaluate(proposal, dev_ids, "expanded")
             require_frozen_study()
-            cells = self._cells(result.cell_ids)
-            if len(cells) != len(dev_ids):
+            development_cells = self._cells(development.cell_ids)
+            if len(development_cells) != len(dev_ids):
                 raise SLASearchError("development evaluation lacks both independent CellResults")
-            assessments = [self._assess_cell(cell, policy) for cell in cells]
+            assessments = [self._assess_cell(cell, policy) for cell in development_cells]
             try:
                 pair = audit_confirmation_pairs(split, input_audit, "development_replication",
-                                                baseline_cells, cells)
+                                                baseline_cells, development_cells)
                 pairing_error = None
             except SplitError as exc:
                 pair = None
                 pairing_error = str(exc)
             report = {"proposal_id": proposal.proposal_id,
-                      "configuration_id": cells[0]["config_id"],
+                      "configuration_id": development_cells[0]["config_id"],
                       "claim": "independent_development_observations_only_no_confirmed_capacity",
                       "capacity_confirmed": False, "matched_pairs": pair,
                       "pairing_error": pairing_error,
@@ -391,11 +386,35 @@ class SLAServingController:
             self.ledger.append(campaign_id, "sla_development_report", proposal.proposal_id,
                                {"path": str(report_path), **report})
             finalized.append(report)
+            feedback_cells.extend(cell | {"sla_development_assessment": assessment}
+                                  for cell, assessment in zip(development_cells, assessments))
             if report["both_windows_observed_feasible"]:
                 require_frozen_study()
-                profiles.append(self._profile_finalist(
-                    proposal, (self.root / self.campaign["sla_study_path"]).resolve()))
-        summary = {"campaign_id": campaign_id, "status": "development_screen_complete",
+                packet = self._profile_finalist(proposal, study_path)
+                profiles.append(packet)
+                feedback_cells[-1]["sla_profile_observation"] = {
+                    "process_exit_code": packet["process_exit_code"],
+                    "timed_out": packet["timed_out"],
+                    "result_status": (packet.get("result") or {}).get("status"),
+                    "claim": "observed_development_points_no_confirmed_capacity",
+                }
+                result = packet.get("result") or {}
+                source_name = (result.get("artifacts") or {}).get("all_points")
+                if packet["process_exit_code"] == 0 and isinstance(source_name, str):
+                    source = Path(source_name).resolve()
+                    allowed_root = (self.root / ".artifacts/autoresearch-codebase").resolve()
+                    if not source.is_file() or not source.is_relative_to(allowed_root):
+                        raise SLASearchError("candidate SLA profile source is outside research artifacts")
+                    profile_refs.append({"evidence_id": f"candidate-profile-{attempt + 1}",
+                                         "snapshot_path": str(source),
+                                         "sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
+        rows = [row["cell"] | {"screen_promoted": row["decision"]["promote_to_shortlist"]}
+                for row in screened]
+        selection = select_screen_finalists(rows, self.campaign["sla_search"]["max_finalists"])
+        self.ledger.append(campaign_id, "sla_screen_shortlist", campaign_id, selection)
+        _write(self.artifact_root / "screen-shortlist.json", selection)
+        selected = set(selection["selected_cell_ids"])
+        summary = {"campaign_id": campaign_id, "status": "sequential_development_search_complete",
                    "proposal_count": len(screened), "shortlisted": len(selected),
                    "development_reports": finalized, "finalist_profiles": profiles,
                    "capacity_confirmed": False,

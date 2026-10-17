@@ -1,0 +1,22 @@
+{
+  "card_id": "qwen-mixed-prefill-diagnostic-v1",
+  "readiness": "prepared",
+  "suite_role": "diagnostic",
+  "deployment_question": "Do batching and prefill settings change latency when short decode requests collide with medium and long prompts?",
+  "source": "Thirty exact prompt bodies captured from the prior Qwen AIPerf mixed-prefill control and rescheduled at fixed 0.5 requests/s",
+  "source_policy": "infra/mixed-prefill-control.json",
+  "content_provenance": "Mechanical generated text; 60/25/15 nominal weights were engineered and are not production proportions",
+  "history_mode": "single_turn",
+  "traffic_mode": "independent_open_loop",
+  "output_policy": "forced_length",
+  "cache_protocol": "cold_stream",
+  "realization_evidence": "Prior unfrozen 30-request Qwen probe only; the new fixed asset needs B0 replay validation and load calibration",
+  "observed_arms_in_prior_probe": {"short_512_256": 20, "medium_2048_512": 6, "long_8192_512": 4},
+  "expected_mechanisms": ["prefill/decode contention", "chunked prefill", "token-budget batching"],
+  "limitations": [
+    "Prepared diagnostic, not a representative production mix.",
+    "0.5 requests/s is only a prior probe rate, not a calibrated B0 ordinary or busy load.",
+    "The fixed-schedule asset has not yet been live replayed.",
+    "Search and confirmed frontier entry are blocked until this card is validated and B0-calibrated."
+  ]
+}

@@ -1,0 +1,39 @@
+from pathlib import Path
+
+import pytest
+
+from inference_autoresearch.runtime.config import BASELINE, ConfigError, PinnedEnvironment, resolve_config
+from inference_autoresearch.runtime.docker import DockerRuntimeManager
+
+
+def test_baseline_identity_and_authority():
+    pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
+    b0 = resolve_config({}, pin)
+    assert b0.effective_settings == BASELINE
+    assert resolve_config(dict(BASELINE), pin).config_id == b0.config_id
+    assert "--max-num-seqs" in b0.argv and b0.argv[b0.argv.index("--max-num-seqs") + 1] == "512"
+    with pytest.raises(ConfigError):
+        resolve_config({"model": "another/model"}, pin)
+    with pytest.raises(ConfigError):
+        resolve_config({"max_num_seqs": 32}, pin, {"max_num_seqs": [128, 512]})
+
+
+def test_conditional_serve_controls():
+    pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
+    with pytest.raises(ConfigError):
+        resolve_config({"enable_chunked_prefill": False, "long_prefill_token_threshold": 2048}, pin)
+    mtp = resolve_config({"mtp_draft_tokens": 3}, pin)
+    assert "--speculative-config" in mtp.argv
+    assert mtp.config_id != resolve_config({}, pin).config_id
+
+
+def test_canonical_config_reaches_lease_check_without_docker(tmp_path, monkeypatch):
+    pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
+    manager = DockerRuntimeManager(pin, tmp_path / "gpu.lock")
+    class LeaseReached(Exception):
+        pass
+    def stop_before_external_effect():
+        raise LeaseReached()
+    monkeypatch.setattr(manager, "_acquire", stop_before_external_effect)
+    with pytest.raises(LeaseReached):
+        manager.start(resolve_config({}, pin), tmp_path / "server")

@@ -1,0 +1,38 @@
+#!/bin/bash
+# Called by the trusted controller. `codex exec ... -` reads the proposal prompt
+# from stdin. The candidate process can write only its bounded artifact area.
+set -eu
+: "${IAR_REPO_ROOT:?Set absolute repository root}"
+: "${IAR_CODEX_HOME:?Set absolute Codex auth path}"
+: "${IAR_PROPOSER_IMAGE:=iar-proposer:0.1}"
+case "$IAR_REPO_ROOT" in /*) ;; *) echo "IAR_REPO_ROOT must be absolute" >&2; exit 2;; esac
+case "$IAR_CODEX_HOME" in /*) ;; *) echo "IAR_CODEX_HOME must be absolute" >&2; exit 2;; esac
+[[ -f "$IAR_CODEX_HOME/auth.json" ]] || { echo "Codex auth.json missing" >&2; exit 2; }
+proposal_dir=""
+previous=""
+for argument in "$@"; do
+  if [[ "$previous" == "--cd" ]]; then
+    proposal_dir="$argument"
+    break
+  fi
+  previous="$argument"
+done
+write_mount=()
+if [[ -n "$proposal_dir" ]]; then
+  case "$proposal_dir" in
+    "$IAR_REPO_ROOT"/.artifacts/*) ;;
+    *) echo "Codex output directory must be under .artifacts" >&2; exit 2 ;;
+  esac
+  [[ -d "$proposal_dir" ]] || { echo "Codex output directory missing" >&2; exit 2; }
+  write_mount=(-v "$proposal_dir:$proposal_dir:rw")
+fi
+exec docker run --rm -i --pull never \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --pids-limit 128 --memory 2g --cpus 2 \
+  --network bridge --user 1000:1000 \
+  --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+  --tmpfs /home/node/.cache:rw,nosuid,nodev,size=128m,uid=1000,gid=1000 \
+  "${write_mount[@]}" \
+  -v "$IAR_CODEX_HOME/auth.json:/auth.json:ro" \
+  -w "${proposal_dir:-/tmp}" \
+  "$IAR_PROPOSER_IMAGE" "$@"

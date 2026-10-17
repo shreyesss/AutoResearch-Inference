@@ -1,0 +1,31 @@
+services:
+  controller:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: controller
+    image: iar-controller:0.1
+    init: true
+    network_mode: host
+    gpus: all
+    environment:
+      IAR_REPO_ROOT: ${IAR_REPO_ROOT:?Set absolute repository path}
+      IAR_CODEX_HOME: ${IAR_CODEX_HOME:?Set absolute Codex auth directory path}
+      IAR_PROPOSER_IMAGE: iar-proposer:0.1
+      IAR_GPU_LOCK_PATH: ${IAR_REPO_ROOT}/.artifacts/gpu-9bb5b2a6-b234-55f6-6462-e030fcadfa83.lock
+    volumes:
+      - ${IAR_REPO_ROOT}:${IAR_REPO_ROOT}:ro
+      - ${IAR_REPO_ROOT}/.artifacts:${IAR_REPO_ROOT}/.artifacts:rw
+      - ${IAR_REPO_ROOT}/.artifacts/models/Qwen3.8-27B:${IAR_REPO_ROOT}/.artifacts/models/Qwen3.8-27B:ro
+      - ${IAR_CODEX_HOME}/auth.json:${IAR_CODEX_HOME}/auth.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: ${IAR_REPO_ROOT}
+    command: ["sleep", "infinity"]
+
+  proposer:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: proposer
+    image: iar-proposer:0.1
+    profiles: ["build-only"]

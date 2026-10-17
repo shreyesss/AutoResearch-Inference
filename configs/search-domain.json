@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "status": "provisional_requires_pinned_runtime_smoke_and_workload_gate",
+  "baseline_is_always_admissible": true,
+  "parameters": {
+    "max_num_seqs": {
+      "values": [64, 128, 256, 512],
+      "baseline": 512,
+      "condition": "reject or label any cap below observed workload concurrency before performance comparison"
+    },
+    "max_num_batched_tokens": {
+      "values": [2048, 4096, 8192, 16384],
+      "baseline": 8192,
+      "condition": "validate context, chunking and actual scheduler binding on each workload"
+    },
+    "gpu_memory_utilization": {
+      "values": [0.85, 0.9, 0.92, 0.95],
+      "baseline": 0.92,
+      "condition": "boot feasibility and actual KV capacity; no assumed benefit without pressure"
+    },
+    "enable_prefix_caching": {
+      "values": [false, true],
+      "baseline": true,
+      "condition": "compare on identical cache preparation; require observed reuse for cache claims"
+    },
+    "mtp_draft_tokens": {
+      "values": [0, 1, 2, 3, 5],
+      "baseline": 0,
+      "condition": "each nonzero depth requires supported boot, acceptance telemetry and semantic check"
+    },
+    "enable_chunked_prefill": {
+      "values": [false, true],
+      "baseline": true,
+      "active": false,
+      "condition": "admit after exact pinned vLLM flag/default verification and mixed contention realization"
+    },
+    "long_prefill_token_threshold": {
+      "values": [0, 2048, 8192],
+      "baseline": 0,
+      "active": false,
+      "condition": "only when chunked prefill is active and long prefills occur; verify pinned runtime semantics"
+    }
+  },
+  "deferred_branches": [
+    "CUDA graph capture controls after coverage and memory diagnostics",
+    "KV offload after measured reuse beyond GPU residency",
+    "precision or quantization under a separate answer-quality contract",
+    "kernel or scheduler source changes under a separate correctness contract"
+  ],
+  "rules": [
+    "Never enumerate this as an assumed-feasible Cartesian product.",
+    "Normalize omitted flags to resolved B0 defaults before deduplication.",
+    "Version this file and campaign identity whenever a value or condition changes.",
+    "The proposer may request a domain amendment but cannot execute an unapproved value."
+  ]
+}

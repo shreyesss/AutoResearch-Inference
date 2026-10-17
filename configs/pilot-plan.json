@@ -1,0 +1,38 @@
+{
+  "schema_version": "pilot-plan-v1",
+  "campaign_id": "qwen38-27b-v1-diagnostic",
+  "domain_hash": "f2996eb8e1220285f27bc905e6e35436b49e06179c443f86ff5e850a81270509",
+  "protocol_id": "fresh-server-cell-v1",
+  "stage": "pilot",
+  "min_matched_repeats": 2,
+  "baseline_repeated_per_scenario": true,
+  "contrasts": [
+    {
+      "contrast_id": "mtp-one-vs-b0",
+      "axis": "mtp_draft_tokens",
+      "candidate_overrides": {"mtp_draft_tokens": 1},
+      "scenario_ids": ["qwen-short-chat-r256-v1", "qwen-short-chat-r32-v1"],
+      "role": "mechanism",
+      "required_binding_observation": "mtp_acceptance_fraction"
+    },
+    {
+      "contrast_id": "seq-cap-64-vs-b0",
+      "axis": "max_num_seqs",
+      "candidate_overrides": {"max_num_seqs": 64},
+      "scenario_ids": ["qwen-short-chat-r256-v1", "qwen-short-chat-r32-v1"],
+      "role": "negative_control",
+      "expected_flat": true,
+      "expected_observation": {"name": "queue_max", "equals": 0}
+    }
+  ],
+  "uncertainty": {
+    "method": "paired_repeat_range",
+    "require_nonoverlap": true,
+    "metrics": ["output_tokens_per_s", "ttft_p99_ms", "tpot_p99_ms"]
+  },
+  "budget": {
+    "max_pilot_cells": 12,
+    "wall_seconds": 21600
+  },
+  "interpretation": "MTP1 must show measured acceptance and an effect beyond B0 repeat variation; gain is not required. Cap64 is an inactive-axis control because observed B0 in-flight peaks were 37 and 53; it must have no queue and stay within B0 repeat variation. Any control failure blocks qualification and requires reinspection."
+}

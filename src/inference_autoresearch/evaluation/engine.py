@@ -1,0 +1,235 @@
+"""Deterministic authority boundary for one frozen vLLM/AIPerf evaluation."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+import uuid
+from dataclasses import asdict, replace
+from pathlib import Path
+from typing import Any
+
+from inference_autoresearch.contracts import (CandidateProposal, CellResult, EvaluationResult,
+                                               MeasurementPolicy, ScenarioManifest)
+from inference_autoresearch.contracts_wire import export_cell_result
+from inference_autoresearch.runtime.config import BASELINE, PinnedEnvironment, resolve_config
+
+
+class EvaluationError(RuntimeError):
+    pass
+
+
+def _save(path: Path, payload: Any) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n")
+    tmp.replace(path)
+
+
+def _validate_cell(cell: CellResult, expected: int, config_id: str, scenario_id: str) -> list[str]:
+    reasons: list[str] = []
+    if cell.config_id != config_id or cell.scenario_id != scenario_id:
+        reasons.append("identity_mismatch")
+    counts = cell.counts
+    required = ("planned", "dispatched", "not_dispatched", "completed", "failed", "timed_out",
+                "canceled", "censored", "tpot_eligible", "successful_completion_tokens")
+    if any(key not in counts or type(counts[key]) is not int or counts[key] < 0 for key in required):
+        return reasons + ["request_accounting"]
+    if counts["planned"] != expected or counts["planned"] != counts["dispatched"] + counts["not_dispatched"]:
+        reasons.append("request_accounting")
+    if counts["dispatched"] != sum(counts[k] for k in ("completed", "failed", "timed_out", "canceled")):
+        reasons.append("request_accounting")
+    if counts["censored"] or counts["failed"] or counts["timed_out"] or counts["canceled"] or counts["not_dispatched"]:
+        reasons.append("incomplete_or_failed_requests")
+    if cell.status == "valid" and any(cell.metrics.get(k) is None for k in
+                                       ("output_tokens_per_s", "ttft_p50_ms", "ttft_p99_ms", "tpot_p50_ms", "tpot_p99_ms")):
+        reasons.append("missing_primary_metric")
+    if cell.behavior == "overload":
+        reasons.append("overload")
+    return sorted(set(reasons))
+
+
+def classify_behavior(cell: CellResult) -> CellResult:
+    """Assign only defensible finite-run behavior; unknown stays ineligible.
+
+    Zero observed server queue, clean completion, and low dispatch lag establish
+    an ordinary operating observation. Growing queue plus large drain establishes
+    overload. Neither proves sustainable capacity beyond this measured window.
+    """
+    gauges = cell.diagnostics.get("server_gauges", {})
+    queue = gauges.get("queue_max")
+    lag = cell.metrics.get("dispatch_lag_p99_ms")
+    windows = cell.diagnostics.get("windows", {})
+    drain = windows.get("drain_duration_s")
+    dispatch = windows.get("dispatch_duration_s")
+    if queue == 0 and cell.status == "valid" and lag is not None and lag <= 20:
+        return replace(cell, behavior="normal")
+    if isinstance(queue, (int, float)) and queue > 0 and isinstance(drain, (int, float)) and isinstance(dispatch, (int, float)) and drain > max(30, dispatch / 3):
+        return replace(cell, behavior="overload")
+    return replace(cell, behavior="unknown")
+
+
+class EvaluationEngine:
+    """Proposal settings are the only caller-controlled variable.
+
+    Registry, policy, model, image, schedule, server process, and GPU lock are
+    evaluator-owned. Each cold_stream cell gets a fresh server, then its own
+    disjoint preparation traffic. This is protocol `fresh-server-cell-v1` and
+    is not pooled with the historical shared-server manual runs.
+    """
+
+    def __init__(self, campaign: dict[str, Any], registry: Any, runtime: Any, benchmark: Any,
+                 artifact_root: Path, ledger: Any):
+        self.campaign = campaign
+        self.registry = registry
+        self.runtime = runtime
+        self.benchmark = benchmark
+        self.artifact_root = Path(artifact_root)
+        self.ledger = ledger
+        self.campaign_id = campaign["campaign_id"]
+
+    def _scenario(self, scenario_id: str) -> ScenarioManifest:
+        if hasattr(self.registry, "load"):
+            scenario = self.registry.load(scenario_id)
+        else:
+            scenario = self.registry[scenario_id]
+        if not isinstance(scenario, ScenarioManifest):
+            raise EvaluationError("registry must return validated ScenarioManifest objects")
+        if scenario.cache_protocol != "cold_stream":
+            raise EvaluationError("cache preparation protocol is not implemented for this scenario")
+        if scenario.traffic_mode != "independent_open_loop" or scenario.history_mode != "single_turn":
+            raise EvaluationError("this evaluator only supports frozen independent replay")
+        return scenario
+
+    def _domain(self) -> dict[str, list[object]]:
+        raw = self.campaign.get("domain")
+        if raw is not None:
+            return {key: list(value) for key, value in raw.items()}
+        path = self.campaign.get("search_domain_path")
+        if not path:
+            raise EvaluationError("frozen search domain missing")
+        source = Path(path)
+        if not source.is_absolute():
+            source = Path(self.campaign.get("project_root", Path.cwd())) / source
+        values = json.loads(source.read_text())["parameters"]
+        return {key: list(spec["values"]) for key, spec in values.items()}
+
+    def _pinned(self) -> PinnedEnvironment:
+        model = self.campaign["model"]
+        runtime = self.campaign["runtime"]
+        baseline = self.campaign["baseline"]
+        if {key: baseline.get(key) for key in BASELINE} != BASELINE or baseline.get("reasoning_parser") != "qwen3":
+            raise EvaluationError("campaign B0 does not match the measured resolved baseline")
+        local = Path(self.campaign.get("model_dir", model["local_path"]))
+        if not local.is_absolute():
+            local = Path(self.campaign.get("project_root", Path.cwd())) / local
+        return PinnedEnvironment(local, image=runtime["image"], model_name=model["id"],
+                                 model_revision=model["revision"], max_model_len=model["max_model_len"],
+                                 tensor_parallel_size=model["tensor_parallel_size"], dtype=model["dtype"],
+                                 gpu_uuid=runtime["gpu_uuid"])
+
+    def _append(self, kind: str, entity_id: str, data: dict[str, Any]) -> None:
+        if self.ledger is not None:
+            self.ledger.append(self.campaign_id, kind, entity_id, data)
+
+    def evaluate(self, candidate: CandidateProposal, scenario_ids: list[str], stage: str) -> EvaluationResult:
+        if stage not in ("pilot", "screen", "expanded", "confirm"):
+            raise EvaluationError("unknown evaluation stage")
+        if not scenario_ids or len(set(scenario_ids)) != len(scenario_ids):
+            raise EvaluationError("provide distinct frozen scenario IDs")
+        # Resolve all read-only inputs before touching the GPU.
+        scenarios = [self._scenario(identifier) for identifier in scenario_ids]
+        resolved = resolve_config(candidate.parameters, self._pinned(), self._domain())
+        if self.campaign.get("backend", "real") == "real":
+            preflight = getattr(self.benchmark, "preflight_tokenizer", None)
+            if preflight is None:
+                raise EvaluationError("real adapter must preflight the exact offline tokenizer loader")
+            for scenario in scenarios:
+                preflight(scenario)
+        evaluation_id = "eval-" + uuid.uuid4().hex
+        output_dir = self.artifact_root / self.campaign_id / evaluation_id
+        output_dir.mkdir(parents=True, exist_ok=False)
+        _save(output_dir / "proposal.json", asdict(candidate))
+        _save(output_dir / "resolved-config.json", asdict(resolved))
+        _save(output_dir / "evaluation-policy.json", {
+            "protocol_id": "fresh-server-cell-v1", "stage": stage,
+            "scenario_ids": scenario_ids, "cache_policy": "fresh vLLM process per measured cell; disjoint warmup",
+            "benchmark_duration_s": 70, "benchmark_grace_period_s": 60,
+        })
+        self._append("evaluation_transition", evaluation_id, {"state": "validated", "config_id": resolved.config_id})
+        self._append("resolved_config", resolved.config_id, asdict(resolved) | {
+            "proposal_id": candidate.proposal_id, "overrides": candidate.parameters,
+            "is_baseline": not candidate.parameters,
+        })
+        cell_ids: list[str] = []
+        failures: list[str] = []
+        total_start = time.monotonic()
+        for ordinal, scenario in enumerate(scenarios, 1):
+            cell_dir = output_dir / f"cell-{ordinal:02d}-{scenario.scenario_id}"
+            cell_dir.mkdir()
+            handle = None
+            self._append("evaluation_transition", evaluation_id,
+                         {"state": "starting", "scenario_id": scenario.scenario_id, "ordinal": ordinal})
+            try:
+                handle = self.runtime.start(resolved, cell_dir / "server")
+                self._append("evaluation_transition", evaluation_id,
+                             {"state": "warming", "scenario_id": scenario.scenario_id})
+                receipt = self.benchmark.prepare(handle, scenario, cell_dir / "warmup")
+                receipt_path = cell_dir / "warmup" / "preparation-receipt.json"
+                if not isinstance(receipt, dict) or not receipt_path.is_file():
+                    raise EvaluationError("benchmark preparation did not produce a receipt")
+                policy = MeasurementPolicy(stage=stage, replicate=1, window_s=60.0, deadline_s=180.0,
+                                           min_eligible=0, cache_protocol=scenario.cache_protocol,
+                                           metadata={"run_id": evaluation_id,
+                                                     "preparation_receipt": str(receipt_path),
+                                                     "benchmark_duration_s": 70,
+                                                     "benchmark_grace_period_s": 60,
+                                                     "protocol_id": "fresh-server-cell-v1"})
+                self._append("evaluation_transition", evaluation_id,
+                             {"state": "measuring", "scenario_id": scenario.scenario_id})
+                cell = self.benchmark.run_cell(handle, scenario, policy, cell_dir / "aiperf")
+                if not isinstance(cell, CellResult):
+                    raise EvaluationError("benchmark adapter returned an invalid CellResult")
+                cell = classify_behavior(cell)
+                _save(cell_dir / "cell-result.json", asdict(cell))
+                if self.campaign.get("backend", "real") == "real":
+                    export_cell_result(cell, scenario, policy, cell_dir / "server",
+                                       cell_dir / "cell-result-v02.json")
+                reasons = _validate_cell(cell, scenario.expected_count, resolved.config_id, scenario.scenario_id)
+                _save(cell_dir / "controller-validation.json", {"reason_codes": reasons,
+                       "frontier_eligible": cell.status == "valid" and cell.behavior == "normal" and not reasons})
+                if reasons or cell.status != "valid":
+                    failures.extend(f"{scenario.scenario_id}:{reason}" for reason in (reasons or cell.reason_codes or [cell.status]))
+                cell_ids.append(cell.cell_id)
+                self._append("cell", cell.cell_id, asdict(cell) | {
+                    "controller_validation": reasons, "stage": stage,
+                    "offered_load": scenario.offered_load, "load_unit": scenario.load_unit,
+                    "cache_protocol": scenario.cache_protocol,
+                    "measurement_protocol": "fresh-server-cell-v1",
+                    "workload_group_id": scenario.group_id,
+                    "is_baseline": not candidate.parameters,
+                })
+            except Exception as exc:
+                reason = f"{scenario.scenario_id}:{type(exc).__name__}:{exc}"
+                failures.append(reason)
+                _save(cell_dir / "failure.json", {"reason": reason, "state": "functional_or_measurement_failed"})
+                self._append("evaluation_transition", evaluation_id,
+                             {"state": "failed", "scenario_id": scenario.scenario_id, "reason": reason})
+            finally:
+                if handle is not None:
+                    self._append("evaluation_transition", evaluation_id,
+                                 {"state": "draining", "scenario_id": scenario.scenario_id})
+                    try:
+                        self.runtime.stop(handle)
+                    except Exception as exc:
+                        failures.append(f"{scenario.scenario_id}:cleanup:{exc}")
+            if failures:
+                break
+        status = "valid" if len(cell_ids) == len(scenarios) and not failures else "failed"
+        result = EvaluationResult(evaluation_id, resolved.config_id, stage, cell_ids,
+                                  status, failures, {"directory": str(output_dir),
+                                                     "protocol_id": "fresh-server-cell-v1",
+                                                     "elapsed_s": f"{time.monotonic() - total_start:.3f}"})
+        _save(output_dir / "evaluation-result.json", asdict(result))
+        self._append("evaluation", evaluation_id, asdict(result))
+        return result

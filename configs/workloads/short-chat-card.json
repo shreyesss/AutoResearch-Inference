@@ -1,0 +1,21 @@
+{
+  "card_id": "qwen-short-chat-mechanical-v1",
+  "readiness": "validated",
+  "suite_role": "diagnostic",
+  "deployment_question": "How do serving settings affect independent short-chat prefill and 256-token decode at the fixed B0 ordinary and busy loads?",
+  "source": "AIPerf synthetic native single-turn replay frozen from B0 raw requests",
+  "source_manifest": "infra/b0-frozen-inputs-manifest.json",
+  "content_provenance": "Mechanical AIPerf text, not a production or semantic conversation sample",
+  "history_mode": "single_turn",
+  "traffic_mode": "independent_open_loop",
+  "output_policy": "forced_length",
+  "cache_protocol": "cold_stream",
+  "realization_evidence": "infra/b0-frozen-replay-validation.json",
+  "expected_mechanisms": ["decode scheduling", "MTP decode acceleration", "sequence cap queueing"],
+  "limitations": [
+    "Only a 60-second diagnostic send window; observed p99 is a sample quantile, not a certified SLA tail.",
+    "No production traffic proportions or semantic answer quality are established.",
+    "New campaign measurements require a fresh server and the disjoint warmup per cell; historical manual cells used a shared server and form a separate comparison protocol.",
+    "No exact input text is reused within cells, but template prefixes can reuse cache."
+  ]
+}

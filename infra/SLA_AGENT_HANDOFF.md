@@ -25,19 +25,37 @@ Optuna campaign is not the v3 SLA search.
 
 ## New serving campaign
 
-Create a distinct versioned campaign after the evidence above is pinned. It
-must include `sla_study_path: "configs/sla-study-v3.template.json"`, a distinct
-campaign ID and output directory, the pinned runtime and model, and a qualified
-registry/protocol covering its development screens. Run its qualification
-command before `iar search --backend real`. The CLI requires the Codex proposer
-for any campaign with `sla_study_path`; Optuna or mock cannot silently replace
-the agent. The proposer fails before producing a proposal if the study has no
-hash-checked approved policy or class-assessed B0 adaptive profile.
+`configs/campaign-sla-serving-v3.json` is the separate bounded Codex search
+campaign. It points at the activated study artifact, uses only the 36-request
+screen and the two development windows in its registry, and pins four agent
+proposals with at most two development finalists. Run it only after inspecting
+the B0 SLA profile:
 
-The proposer gets a read-only `sla-study-index.json`, approved policy, all B0
-profile points, and bounded copies of native request exports. It may research
-and propose serving settings only. The controller owns server deployment,
-traffic, evaluation, promotion and sealed-test access. A separate evaluator
-integration and independent confirmation protocol are still needed to score
-candidate SLA capacity; the current search controller's fast screen is only a
-regression gate. Do not label its result an SLA frontier or confirmed capacity.
+```bash
+.venv/bin/iar sla-search --backend real --campaign configs/campaign-sla-serving-v3.json
+```
+
+The controller checks the active study, approved policy hash, both matched B0
+CellResults and their raw records, and at least one class-assessed B0 profile
+before starting a server. It locks the active study SHA in the ledger and
+rejects changes during search. The CLI requires real Codex; Optuna and mock
+cannot silently replace the agent. The search batch refuses a second run after
+proposals exist, so inspect the ledger before launching another campaign.
+
+Each proposal gets a fresh 36-request screen. The screen rejects incomplete or
+non-normal cells and predeclared, conspicuous regressions: throughput below
+half of B0, or aggregate p90 TTFT/TPOT over twice B0. This is a coarse cost
+guard, not a confidence statement. At most two nondominated screen candidates
+then receive both independent 240-request development evaluations. Their
+native request exports are scored against the approved four-class policy and
+paired with the matched B0 cells. Only candidates observed feasible on both
+development windows enter the class-aware adaptive rate profiler. All screen,
+development and profile outputs go to the append-only ledger and run folders.
+Sealed-test scenarios are absent from this campaign registry.
+
+The proposer gets a read-only `sla-study-index.json`, approved policy, two
+matched B0 windows, all B0 profile points, and bounded copies of native
+request exports. It may research and propose serving settings only. The
+controller owns server deployment, traffic, evaluation and promotion. The
+adaptive points remain development observations. A later frozen-rate repeat
+and sealed-test protocol are required before claiming an SLA-capacity frontier.

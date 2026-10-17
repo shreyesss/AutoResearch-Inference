@@ -159,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="iar", description="Pinned Qwen serving experiments")
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("doctor", "characterize", "prepare", "baseline", "pilot", "evaluate", "adaptive",
-                    "sla-profile",
+                    "sla-profile", "sla-search",
                     "assess-adaptive-sla",
                     "qualify", "search", "report", "inspect"):
         item = sub.add_parser(command)
@@ -191,11 +191,14 @@ def build_parser() -> argparse.ArgumentParser:
                               help="Use screen for a matched search baseline; defaults to screen in fixed-four-v1.")
         if command == "evaluate":
             item.add_argument("--stage", choices=("pilot", "screen", "expanded", "confirm"), default="pilot")
-        if command == "search":
+        if command in ("search", "sla-search"):
             item.add_argument("--max-proposals", type=int)
             item.add_argument("--resume", action="store_true")
             item.add_argument("--proposer", choices=("codex", "mock", "optuna"))
             item.add_argument("--skill", default="agent/SKILL.md")
+        if command == "sla-search":
+            item.add_argument("--check", action="store_true",
+                              help="Stage and verify approved SLA/B0 evidence without GPU work")
     return parser
 
 
@@ -297,6 +300,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         path.write_text(json.dumps(qualification, indent=2, sort_keys=True) + "\n")
         return qualification | {"artifact_path": str(path), "sensitivity_path": str(sensitivity_path)}
     _lock(campaign, domain, artifact_root)
+    if command == "sla-search":
+        if args.backend != "real" or args.proposer not in (None, "codex") or args.resume:
+            raise ValueError("v3 SLA search requires real Codex proposer and a fresh batch")
+        if args.max_proposals is not None and args.max_proposals != campaign["search_budget"]["max_distinct_proposals"]:
+            raise ValueError("v3 SLA proposal budget is pinned by the campaign")
+        from inference_autoresearch.search.sla_controller import SLAServingController
+        proposer_config = campaign.get("proposer", {})
+        proposer = CodexProposer(
+            domain, artifact_root,
+            timeout_s=int(campaign["search_budget"].get("proposal_timeout_seconds", 300)),
+            skill_path=_file(args.skill, campaign_path),
+            expected_version=campaign["runtime"].get("codex_cli_version_observed"),
+            model=proposer_config.get("model"),
+            reasoning_effort=proposer_config.get("reasoning_effort"),
+            web_search=proposer_config.get("web_search", "disabled"),
+            sla_study_path=_file(campaign["sla_study_path"], campaign_path))
+        engine = _engine("real", campaign, domain, registry, artifact_root, ledger, campaign_path)
+        evidence = EvidenceStore(project_root, artifact_root / "evidence",
+                                 sources=campaign.get("evidence_sources")).snapshot()
+        controller = SLAServingController(campaign, campaign_path, domain, registry,
+                                          proposer, engine, ledger, artifact_root, evidence)
+        if args.check:
+            controller.preflight()
+            return json.loads((artifact_root / "preflight-result.json").read_text())
+        return controller.run()
     if command == "search":
         qualification_ok(campaign, domain, campaign_path, args.backend,
                          ledger, registry, artifact_root)

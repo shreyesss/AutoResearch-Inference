@@ -708,6 +708,17 @@ class CodexProposer:
         measurements = _stage_measurements(context, self.artifact_root, run_dir)
         sla_evidence = (_stage_sla_study(self.sla_study_path, run_dir)
                         if self.sla_study_path is not None else None)
+        baseline_assessment_staged = False
+        if sla_evidence is not None:
+            preflight = self.artifact_root / "preflight-result.json"
+            if preflight.is_file():
+                report = json.loads(preflight.read_text())
+                if (report.get("study_sha256") != sla_evidence["study_sha256"]
+                        or report.get("policy_sha256") != sla_evidence["policy_sha256"]
+                        or report.get("capacity_confirmed") is not False):
+                    raise ProposerError("B0 class assessment differs from the frozen SLA study")
+                _write_snapshot(run_dir / "sla-baseline-assessment.json", preflight.read_bytes())
+                baseline_assessment_staged = True
         research_index = {
             "current": {"skill": "../SKILL.md", "reference": "../reference.md",
                         "context": "../context.json", "evidence": "../evidence/",
@@ -727,6 +738,8 @@ class CodexProposer:
             research_index["sla_policy_sha256"] = sla_evidence["policy_sha256"]
             research_index["baseline_adaptive_studies"] = len(sla_evidence["baseline_adaptive_studies"])
             research_index["matched_b0_cells"] = len(sla_evidence["matched_b0_cells"])
+            if baseline_assessment_staged:
+                research_index["sla_baseline_assessment"] = "../sla-baseline-assessment.json"
         _write_snapshot(run_dir / "research-index.json", (json.dumps(research_index, indent=2) + "\n").encode())
         # The isolated proposer runs as uid 1000 while the controller may run as
         # root. Codex writes its last message itself, so pre-create only that
@@ -738,7 +751,8 @@ class CodexProposer:
                   "the staged evidence under ../evidence/, prior notes under ../history/, "
                   "and scoped real-run files listed by ../evaluation-index.json and ../measurements-index.json. "
                   + ("Before proposing, read ../sla-study-index.json, its hash-checked approved research policy, "
-                     "and B0 adaptive trial assessments. Treat all sampled rates as observations, not confirmed capacity. "
+                     "two matched B0 cells, ../sla-baseline-assessment.json when indexed, and B0 adaptive trial assessments. "
+                     "Treat all sampled rates as observations, not confirmed capacity. "
                      if sla_evidence is not None else "") +
                   "Use shell/file reads freely inside this isolated research container. "
                   "Write any durable reasoning for the next attempt to notes.md here. "

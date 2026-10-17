@@ -1,0 +1,44 @@
+# Fast serving pilot (v4)
+
+## Why this run exists
+
+The v3c gate would repeat two 240-request baseline runs and then search the
+load curve before the first serving proposal. At 0.1 requests/s, dispatching
+those two windows alone takes at least 80 minutes. The completed 1042 capture
+and exact-input replay already show provisional B0 latency misses at that load.
+The incomplete 1043 capture is preserved as partial evidence and is not used
+as a qualified independent window.
+
+## Active exploratory protocol
+
+- **Agent:** isolated Codex `gpt-6-sol`, medium reasoning, live web access,
+  at most eight proposal attempts. It reads the skill, domain, provisional B0
+  report, native AIPerf summaries, per-request metrics, and prior screens.
+- **Search domain:** the seven typed v3c serving controls in
+  `configs/search-domain-v3c.json`. The model, hardware, workload and SLA
+  research targets stay fixed.
+- **Screen:** one fresh B0 and one fresh server run per valid proposal, each
+  using the frozen 36-request OPS mixed reference at 0.4 offered requests/s.
+  The request bodies and Poisson seed match. Actual arrivals are stochastic,
+  so this is a diagnostic comparison rather than an exact arrival replay.
+- **Artifacts:** `.artifacts/fast-pilot-v4/run-status.json`, `console.log`,
+  `ledger.sqlite`, proposal files, every CellResult and native AIPerf export,
+  `all-screen-points.csv`, the provisional plot, and a hash-pinned shortlist.
+- **Interpretation:** 36 requests cannot establish per-class p90, p99, SLA
+  capacity, or a robust Pareto frontier. The screen rejects obvious failures
+  and identifies configurations worth longer independent comparisons. The
+  approved p90 TTFT/TPOT limits remain research targets, not product SLOs.
+
+The first full evaluation after the pilot should repeat B0 and shortlisted
+configurations on the same larger development input, then profile only
+promising configurations over load. A sealed test is reserved for a declared
+finalist. The initial run does not claim to have performed these stages.
+
+## Inspect or check
+
+```bash
+PYTHONPATH=src .venv/bin/python infra/run_fast_pilot_v4.py check
+tmux has-session -t iar-v4-fast-pilot
+cat .artifacts/fast-pilot-v4/run-status.json
+tail -40 .artifacts/fast-pilot-v4/console.log
+```

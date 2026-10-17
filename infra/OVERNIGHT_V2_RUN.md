@@ -18,8 +18,9 @@ not application SLOs or confirmed capacity.
    workload provenance.
 3. `iar qualify` writes `qualification-report.json` with
    `search_allowed: true`.
-4. One Optuna proposal is evaluated and its trial, ledger cell, raw AIPerf
-   exports, and result paths are inspected.
+4. One Codex research proposal is evaluated and its ledger cell, raw AIPerf
+   exports, and result paths are inspected. The remaining proposals use the
+   persistent Optuna TPE study.
 
 Start the persistent session after those gates:
 
@@ -35,7 +36,12 @@ tail -f .artifacts/autoresearch-codebase/qwen38-27b-eval-v2/real/overnight-conso
 .venv/bin/iar inspect --campaign configs/campaign-v2.json --backend real
 ```
 
-`overnight-started-utc.txt`, `overnight-pid.txt`,
+After the serving search releases the GPU, the same session runs one
+exploratory B0 AIPerf adaptive-rate pilot. Its output is
+`adaptive-pilot-console.log`; it is not an SLA-capacity result.
+
+`overnight-started-utc.txt`, `overnight-pid.txt`, `search-exit-code.txt`,
+`adaptive-exit-code.txt`,
 `overnight-finished-utc.txt`, and `overnight-exit-code.txt` record process
 state. The SQLite ledger, Optuna study, per-cell Docker/vLLM/AIPerf logs,
 raw requests, and report files sit under
@@ -46,8 +52,8 @@ raw requests, and report files sit under
 The 36-request gate is a fast regression filter. A single run per setting
 does not establish a reliable production Pareto frontier. AIPerf adaptive
 rate exploration is implemented separately with fixed samples per rate,
-repeats, input and dispatch verification, and all-point exports. Its pilot
-command, after the overnight GPU lease is free, is:
+repeats, input and dispatch verification, and all-point exports. To rerun the
+pilot manually after the overnight session has exited:
 
 ```bash
 .venv/bin/iar adaptive --campaign configs/campaign-v2.json --backend real

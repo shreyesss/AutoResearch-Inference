@@ -69,6 +69,19 @@ def test_uses_controller_aiperf_on_path(tmp_path: Path, monkeypatch: pytest.Monk
         MODULE.controller_aiperf_executable()
 
 
+def test_versioned_curve_spec_exposes_rates_and_rejects_sla_gate(tmp_path: Path) -> None:
+    folder = tmp_path / "configs"
+    folder.mkdir()
+    spec = json.loads(MODULE.CURVE_SPEC_PATH.read_text())
+    (folder / "operator-curve-v4.json").write_text(json.dumps(spec))
+    assert MODULE.load_curve_spec(tmp_path)["rates_rps"] == [0.2, 0.4, 0.8]
+    assert MODULE.load_curve_spec(tmp_path)["min_eligible_requests_gate"] is False
+    spec["min_eligible_requests_gate"] = True
+    (folder / "operator-curve-v4.json").write_text(json.dumps(spec))
+    with pytest.raises(ValueError, match="differs from approved diagnostic protocol"):
+        MODULE.load_curve_spec(tmp_path)
+
+
 def test_curve32_selection_is_deterministic_and_without_replacement() -> None:
     counts = {"chat": 101, "agent": 42, "code": 57, "document": 40}
     planned = []

@@ -34,14 +34,42 @@ from inference_autoresearch.search.rate_screen import _output_caps_realized
 from inference_autoresearch.workloads.registry import sha256_file, verify_scenario
 
 
-CAMPAIGN_ID = "qwen38-27b-fast-pilot-v4"
-SCENARIO_ID = "qwen-ops-mixed-development-1042-v1"
-CURVE_SCENARIO_ID = "qwen-ops-mixed-development-1042-curve32-v4"
-RATES_RPS = (0.2, 0.4, 0.8)
-SEED = 41042
-SAMPLING_SEED = 321042
-CLASS_QUOTAS = {"chat": 8, "agent": 8, "code": 8, "document": 8}
 ROOT = Path(__file__).resolve().parents[1]
+CURVE_SPEC_PATH = ROOT / "configs/operator-curve-v4.json"
+
+
+def load_curve_spec(root: Path) -> dict[str, Any]:
+    path = root / "configs/operator-curve-v4.json"
+    spec = json.loads(path.read_text())
+    if (spec.get("schema_version") != "operator-curve-v4"
+            or spec.get("source_scenario_id") != "qwen-ops-mixed-development-1042-v1"
+            or spec.get("derived_scenario_id") != "qwen-ops-mixed-development-1042-curve32-v4"
+            or spec.get("rates_rps") != [0.2, 0.4, 0.8]
+            or spec.get("requests_per_rate") != 32
+            or spec.get("class_quotas") != {"chat": 8, "agent": 8, "code": 8, "document": 8}
+            or type(spec.get("sampling_seed")) is not int
+            or type(spec.get("arrival_seed_base")) is not int
+            or spec.get("arrival_pattern") != "poisson"
+            or any(spec.get(key) is not expected for key, expected in (
+                ("same_bodies_and_rate_seed_per_config", True),
+                ("fresh_server_per_config", True),
+                ("min_eligible_requests_gate", False),
+                ("sla_qualification", False),
+                ("capacity_claim", False), ("independent_test", False)))
+            or spec.get("claim") != "same_source_exploratory_operator_curves_only"):
+        raise ValueError("v4 operator curve specification differs from approved diagnostic protocol")
+    return spec
+
+
+CURVE_SPEC = load_curve_spec(ROOT)
+CAMPAIGN_ID = "qwen38-27b-fast-pilot-v4"
+SCENARIO_ID = CURVE_SPEC["source_scenario_id"]
+CURVE_SCENARIO_ID = CURVE_SPEC["derived_scenario_id"]
+RATES_RPS = tuple(CURVE_SPEC["rates_rps"])
+REQUESTS_PER_RATE = CURVE_SPEC["requests_per_rate"]
+SEED = CURVE_SPEC["arrival_seed_base"]
+SAMPLING_SEED = CURVE_SPEC["sampling_seed"]
+CLASS_QUOTAS = CURVE_SPEC["class_quotas"]
 PILOT = ROOT / ".artifacts/fast-pilot-v4"
 OUTPUT = PILOT / "operator-curve-32x3"
 
@@ -147,6 +175,9 @@ def selected_cases(root: Path, shortlist: dict[str, Any], ledger_path: Path,
 def preflight(root: Path = ROOT, pilot: Path = PILOT) -> dict[str, Any]:
     """Validate pinned pilot selection and replay receipt without GPU or writes."""
     root, pilot = root.resolve(), pilot.resolve()
+    if load_curve_spec(root) != CURVE_SPEC:
+        raise FollowupError("Versioned operator curve specification changed")
+    curve_spec_path = root / "configs/operator-curve-v4.json"
     shortlist_path, lock_path = pilot / "provisional-finalists.json", pilot / "pilot-campaign-lock.json"
     b0_path, status_path = pilot / "b0-observed.json", pilot / "run-status.json"
     campaign_path, domain_path, policy_path = (root / "configs/campaign-sla-serving-v3c.json",
@@ -208,6 +239,7 @@ def preflight(root: Path = ROOT, pilot: Path = PILOT) -> dict[str, Any]:
     selection = stratified_rows(checked["planned"], checked["request_classes"])
     return {"status": "ready_for_exploratory_operator_curve", "capacity_confirmed": False,
             "rates_rps": RATES_RPS, "seed": SEED,
+            "curve_spec_sha256": sha256_file(curve_spec_path),
             "class_quotas": CLASS_QUOTAS, "sampling_seed": SAMPLING_SEED,
             "selected_ids_sha256": selection["ids_sha256"],
             "shortlist_sha256": sha256_file(shortlist_path),
@@ -235,7 +267,7 @@ def stratified_rows(planned: list[dict[str, Any]],
             raise FollowupError(f"Source lacks {quota} {name} requests")
         chosen.update(rng.sample(pools[name], quota))
     rows = [dict(row) for row in planned if row["session_id"] in chosen]
-    if len(rows) != 32 or len({row["session_id"] for row in rows}) != 32:
+    if len(rows) != REQUESTS_PER_RATE or len({row["session_id"] for row in rows}) != REQUESTS_PER_RATE:
         raise FollowupError("Stratified selection is incomplete or duplicated")
     origin = rows[0]["timestamp"]
     for row in rows:
@@ -264,7 +296,7 @@ def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> Scena
                        "classes_by_session_id": {key: source["request_classes"][key]
                                                  for key in chosen["ids"]}})
     source_card = read(root / original["workload_card_path"])
-    source_schedule_rps = 31000 / chosen["rows"][-1]["timestamp"]
+    source_schedule_rps = (REQUESTS_PER_RATE - 1) * 1000 / chosen["rows"][-1]["timestamp"]
     card = source_card | {"card_id": CURVE_SCENARIO_ID, "readiness": "validated",
                           "shape_counts": CLASS_QUOTAS,
                           "configured_average_rps": None,
@@ -278,7 +310,7 @@ def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> Scena
     card_path = input_dir / "1042.card.json"
     write(card_path, card)
     manifest = original | {"scenario_id": CURVE_SCENARIO_ID,
-                           "readiness": "validated", "n_planned": 32,
+                           "readiness": "validated", "n_planned": REQUESTS_PER_RATE,
                            "payload_path": str(payload_path.relative_to(root)),
                            "schedule_path": str(payload_path.relative_to(root)),
                            "payload_sha256": sha256_file(payload_path),
@@ -296,7 +328,7 @@ def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> Scena
     manifest_path = input_dir / "1042.manifest.json"
     write(manifest_path, manifest)
     checked = verify_scenario(manifest, root=root, require_validated=True)
-    if len(checked["planned"]) != 32 or {name: list(checked["request_classes"].values()).count(name)
+    if len(checked["planned"]) != REQUESTS_PER_RATE or {name: list(checked["request_classes"].values()).count(name)
                                           for name in CLASS_QUOTAS} != CLASS_QUOTAS:
         raise FollowupError("Derived 32 manifest did not retain class quotas")
     write(input_dir / "selection-receipt.json", {
@@ -313,7 +345,7 @@ def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> Scena
     return ScenarioManifest(scenario_id=CURVE_SCENARIO_ID, workload_id=manifest["workload_name"],
                             path=manifest_path, group_id=manifest["workload_group_id"],
                             offered_load=source_schedule_rps, load_unit="requests_per_s",
-                            expected_count=32, output_policy="forced_length",
+                            expected_count=REQUESTS_PER_RATE, output_policy="forced_length",
                             traffic_mode="independent_open_loop", history_mode="single_turn",
                             cache_protocol="cold_stream",
                             metadata={"manifest": manifest, "asset": str(checked["payload_path"]),
@@ -385,7 +417,8 @@ def compare_points(points: list[dict[str, Any]]) -> dict[str, Any]:
                                 if numerator is not None and denominator else None})
     return {"claim": "same_source_32_request_operator_curves_only",
             "capacity_confirmed": False, "independent_test": False, "sla_assessed": False,
-            "rates_rps": RATES_RPS, "requests_per_rate": 32, "class_quotas": CLASS_QUOTAS,
+            "rates_rps": RATES_RPS, "requests_per_rate": REQUESTS_PER_RATE,
+            "class_quotas": CLASS_QUOTAS,
             "points": points, "comparisons": comparisons}
 
 
@@ -473,10 +506,11 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
         output.mkdir(parents=True, exist_ok=False)
         lock = {key: prepared[key] for key in ("shortlist_sha256", "pilot_lock_sha256",
                                                "b0_sha256", "policy_sha256",
+                                               "curve_spec_sha256",
                                                "source_manifest_sha256", "source_card_sha256",
                                                "source_payload_sha256")}
         lock.update({"schema_version": "fast-operator-curve-32x3-v1",
-                     "rates_rps": RATES_RPS, "requests_per_rate": 32,
+                     "rates_rps": RATES_RPS, "requests_per_rate": REQUESTS_PER_RATE,
                      "arrival_pattern": "poisson", "base_seed": SEED,
                      "claim": "same_source_32_request_operator_curves_no_sla_or_capacity",
                      "selected_ids_sha256": prepared["selected_ids_sha256"],
@@ -519,6 +553,8 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
                     handle = runtime.start(config, cell / "server")
                     adapter.prepare(handle, scenario, cell / "warmup")
                     for rate in RATES_RPS:
+                        state["active_rate_rps"] = rate
+                        write(output / "run-status.json", state)
                         native = cell / f"rate-{rate:g}" / "aiperf"
                         native.mkdir(parents=True)
                         argv = build_rate_argv(adapter, handle, scenario, rate=rate,
@@ -556,8 +592,6 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
                         write(output / "all-points.json", {"capacity_confirmed": False,
                                                            "sla_assessed": False,
                                                            "rates_rps": RATES_RPS, "points": points})
-                        state["active_rate_rps"] = rate
-                        write(output / "run-status.json", state)
                         if trial["status"] != "valid":
                             raise FollowupError(f"Invalid traffic/accounting for {case['label']} "
                                                 f"at {rate} req/s: {trial['reason_codes']}")
@@ -626,7 +660,7 @@ def main() -> int:
     if args.action == "check":
         result = preflight()
         print(json.dumps({"status": result["status"], "rates_rps": RATES_RPS,
-                          "requests_per_rate": 32,
+                          "requests_per_rate": REQUESTS_PER_RATE,
                           "cases": [row["label"] for row in result["cases"]],
                           "capacity_confirmed": False}, indent=2))
         return 0

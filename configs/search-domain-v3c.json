@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "status": "v3c_exploratory_mixed_with_sequence_and_kv_diagnostics",
+  "baseline_is_always_admissible": true,
+  "parameters": {
+    "max_num_batched_tokens": {
+      "values": [2048, 4096, 8192, 16384],
+      "baseline": 8192,
+      "condition": "measure long-prefill and short-decode interference on matched mixed traffic"
+    },
+    "long_prefill_token_threshold": {
+      "values": [0, 2048, 8192],
+      "baseline": 0,
+      "condition": "chunked prefill stays enabled; interpret only when long-prefill contention is observed"
+    },
+    "enforce_eager": {
+      "values": [false, true],
+      "baseline": false,
+      "condition": "report startup and steady-state separately; eager mode must be verified in pinned vLLM logs"
+    },
+    "max_num_seqs": {
+      "values": [64, 128, 256, 512],
+      "baseline": 512,
+      "condition": "diagnostic axis: verify actual active-sequence demand and queueing at the measured rate; lower caps can induce artificial queueing and are not presumed beneficial"
+    },
+    "gpu_memory_utilization": {
+      "values": [0.85, 0.9, 0.92, 0.95],
+      "baseline": 0.92,
+      "condition": "diagnostic axis: verify startup, allocated KV capacity, occupancy and preemption; no latency or capacity benefit is presumed without KV pressure"
+    },
+    "enable_prefix_caching": {
+      "values": [true],
+      "baseline": true,
+      "active": false,
+      "condition": "requires token-exact repeated-prefix workload and measured cache hits"
+    },
+    "mtp_draft_tokens": {
+      "values": [0],
+      "baseline": 0,
+      "active": false,
+      "condition": "requires accepted-token telemetry and semantic answer-quality checks"
+    },
+    "enable_chunked_prefill": {
+      "values": [true],
+      "baseline": true,
+      "active": false,
+      "condition": "held at baseline in this campaign"
+    }
+  },
+  "rules": [
+    "Every candidate uses the same frozen mixed screen and matched B0 protocol.",
+    "The fast screen gives exploratory throughput and latency observations, not tail-SLA evidence.",
+    "Sequence-cap and memory-fraction changes are diagnostic unless measured queue or KV pressure establishes a mechanism.",
+    "Prefix caching and MTP remain fixed until separate mechanism and quality gates pass."
+  ]
+}

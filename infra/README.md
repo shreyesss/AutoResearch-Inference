@@ -8,6 +8,8 @@ The workload control checkpoint is documented in [WORKLOAD_CONTROL_MATRIX.md](WO
 
 The first bounded B0 load curve and a compact mixed-input probe are documented in [B0_LOAD_CALIBRATION.md](B0_LOAD_CALIBRATION.md). `b0-load-curve.sh`, `b0-mixed-probe.sh`, and `analyze-b0-load-curve.py` run and inspect the pinned Qwen controls. The tracked summary and provisional load policy record observed starts/completions, input realization and the selected diagnostic operating points; full raw evidence stays in `.artifacts/b0-load-curve/`. `freeze-b0-chat-inputs.py` materializes selected exact prompt/schedule assets under `workloads/`; `replay-frozen-b0.sh` and `validate-frozen-b0.py` verify their native fixed-schedule replay on Qwen, with results in `b0-frozen-replay-validation.json`.
 
+The first real serving-parameter sensitivity contrast is documented in [SEQUENCE_CAP_SENSITIVITY_PILOT.md](SEQUENCE_CAP_SENSITIVITY_PILOT.md). `run-sequence-cap-pilot.sh` repeats B0 and a 32-sequence candidate against the same two frozen chat schedules; `analyze-sequence-cap-pilot.py` validates every request and summarizes queueing, latency, throughput, and backlog in `sequence-cap-pilot-results.json`. This diagnostic establishes a reproducible parameter effect and overload at the candidate's tested rates; it does not qualify autonomous search.
+
 This is a small, manual infrastructure check before the full `iar` campaign CLI exists. It measures a diagnostic synthetic chat workload on the target GPU. It does not establish a representative workload or a confirmed p99/SLA result.
 
 Pinned inputs:

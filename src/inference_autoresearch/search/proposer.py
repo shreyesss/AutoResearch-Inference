@@ -190,13 +190,23 @@ def parse_codex_output(raw: dict[str, Any], domain: Domain,
 class CodexProposer:
     def __init__(self, domain: Domain, artifact_root: Path, timeout_s: int = 180,
                  skill_path: Path | None = None, cli: str = "codex",
-                 expected_version: str | None = None):
+                 expected_version: str | None = None, model: str | None = None,
+                 reasoning_effort: str | None = None, web_search: str = "disabled"):
         self.domain = domain
         self.artifact_root = Path(artifact_root)
         self.timeout_s = timeout_s
         self.skill_path = Path(skill_path) if skill_path else Path(__file__).resolve().parents[3] / "agent" / "SKILL.md"
         self.cli = cli
         self.expected_version = expected_version
+        if model is not None and (not model or any(c.isspace() for c in model)):
+            raise ValueError("proposer model must be one nonempty model ID")
+        if reasoning_effort not in (None, "low", "medium", "high", "xhigh", "max", "ultra"):
+            raise ValueError("unsupported proposer reasoning effort")
+        if web_search not in ("disabled", "cached", "indexed", "live"):
+            raise ValueError("unsupported proposer web-search mode")
+        self.model = model
+        self.reasoning_effort = reasoning_effort
+        self.web_search = web_search
 
     def propose(self, context: ProposalContext) -> CandidateProposal:
         binary = shutil.which(self.cli)
@@ -294,10 +304,17 @@ class CodexProposer:
                   "Return exactly one JSON proposal matching ../proposal.schema.json. "
                   "The controller alone validates and evaluates it.")
         argv = [binary, "exec", "--sandbox", "danger-full-access", "--skip-git-repo-check",
-                "--ignore-user-config", "--ephemeral", "--json", "--cd", str(workspace),
-                "--output-schema", str(schema_file), "--output-last-message", str(final_file), "-"]
+                "--ignore-user-config", "--ephemeral", "--json"]
+        if self.model:
+            argv.extend(("--model", self.model))
+        if self.reasoning_effort:
+            argv.extend(("--config", f'model_reasoning_effort="{self.reasoning_effort}"'))
+        argv.extend(("--config", f'web_search="{self.web_search}"', "--cd", str(workspace),
+                     "--output-schema", str(schema_file), "--output-last-message", str(final_file), "-"))
         receipt_file = run_dir / "proposer-receipt.json"
         receipt = {"driver": "codex-cli", "version": version.stdout.strip(), "argv": argv,
+                   "model": self.model, "reasoning_effort": self.reasoning_effort,
+                   "web_search": self.web_search,
                    "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                    "skill_sha256": hashlib.sha256(skill.encode()).hexdigest(),
                    "reference_sha256": hashlib.sha256(reference.encode()).hexdigest(),

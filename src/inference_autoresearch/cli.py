@@ -42,6 +42,11 @@ def _load_campaign(path: Path) -> dict[str, Any]:
         raise ValueError(f"campaign missing keys: {[k for k in required if k not in raw]}")
     if raw["schema_version"] != "0.1":
         raise ValueError("campaign schema version not supported")
+    proposer = raw.get("proposer", {})
+    if not isinstance(proposer, dict) or (proposer and not isinstance(proposer.get("model"), str)):
+        raise ValueError("campaign proposer must declare a model ID")
+    if proposer and proposer.get("web_search") not in ("disabled", "cached", "indexed", "live"):
+        raise ValueError("campaign proposer must declare a supported web-search mode")
     return raw
 
 
@@ -162,6 +167,9 @@ def build_parser() -> argparse.ArgumentParser:
         if command in ("baseline", "pilot", "evaluate"):
             item.add_argument("--scenario", action="append", dest="scenarios",
                               help="Evaluator registry ID; may be repeated. Defaults to campaign screens.")
+        if command == "baseline":
+            item.add_argument("--stage", choices=("pilot", "screen"), default=None,
+                              help="Use screen for a matched search baseline; defaults to screen in fixed-four-v1.")
         if command == "evaluate":
             item.add_argument("--stage", choices=("pilot", "screen", "expanded", "confirm"), default="pilot")
         if command == "search":
@@ -189,6 +197,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         result: dict[str, Any] = {"campaign_id": campaign["campaign_id"], "backend": args.backend,
                  "campaign_hash": scientific_campaign_hash(campaign), "domain_hash": domain.digest,
                  "scenarios": registry.list(), "codex_cli": shutil.which("codex"),
+                 "proposer_config": campaign.get("proposer"),
                  "aiperf": shutil.which("aiperf") or str(project_root / ".venv/bin/aiperf")}
         if args.backend == "real":
             engine = _engine("real", campaign, domain, registry, artifact_root, ledger, campaign_path)
@@ -241,14 +250,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                       campaign["screen_scenario_ids"]) else
                   "registered_source_inventory_only" if command == "characterize" else "screen_assets_blocked")
         result = {"status": status, "backend": args.backend, "scenarios": items,
-                  "note": "Mixed/session source characterization is not yet complete."}
+                  "note": "See each scenario readiness and validation report for exact evaluator eligibility."}
         artifact_root.mkdir(parents=True, exist_ok=True)
         (artifact_root / f"{command}.json").write_text(json.dumps(result, indent=2) + "\n")
         return result
     if command == "report":
         rows = [event["payload"] for event in ledger.events(campaign["campaign_id"], "cell")]
         report_dir = artifact_root / "report"
-        artifacts = export(rows, report_dir)
+        suite_ids = (campaign["screen_scenario_ids"] if
+                     campaign.get("qualification_requirements", {}).get("mode") == "fixed-four-v1"
+                     else None)
+        artifacts = export(rows, report_dir, screen_scenario_ids=suite_ids)
         artifacts.update(export_history(ledger, campaign["campaign_id"], report_dir))
         return {"campaign_id": campaign["campaign_id"], "backend": args.backend,
                 "cells": len(rows), "artifacts": artifacts}
@@ -270,11 +282,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         mode = args.proposer or ("codex" if args.backend == "real" else "mock")
         if args.backend == "real" and mode == "mock":
             raise ValueError("real autonomous search cannot use mock proposer")
+        proposer_config = campaign.get("proposer", {})
         proposer = (MockProposer(domain) if mode == "mock" else CodexProposer(domain, artifact_root,
                      timeout_s=int(campaign["search_budget"].get("proposal_timeout_seconds", 180)),
                      skill_path=_file(args.skill, campaign_path),
-                     expected_version=campaign["runtime"].get("codex_cli_version_observed")))
-        evidence = EvidenceStore(project_root, artifact_root / "evidence").snapshot()
+                     expected_version=campaign["runtime"].get("codex_cli_version_observed"),
+                     model=proposer_config.get("model"),
+                     reasoning_effort=proposer_config.get("reasoning_effort"),
+                     web_search=proposer_config.get("web_search", "disabled")))
+        evidence_sources = campaign.get("evidence_sources")
+        if evidence_sources is not None and (not isinstance(evidence_sources, dict)
+                                             or not all(isinstance(k, str) and isinstance(v, str)
+                                                        for k, v in evidence_sources.items())):
+            raise ValueError("campaign evidence_sources must map evidence IDs to repository paths")
+        evidence = EvidenceStore(project_root, artifact_root / "evidence",
+                                 sources=evidence_sources).snapshot()
         engine = _engine(args.backend, campaign, domain, registry, artifact_root, ledger, campaign_path)
         controller = SearchController(campaign, campaign_path, domain, proposer, engine,
                                       ledger, artifact_root, args.backend, evidence)
@@ -284,12 +306,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if len(scenario_ids) != len(set(scenario_ids)):
         raise ValueError("scenario IDs must be distinct")
     if command == "baseline":
+        stage = args.stage or ("screen" if campaign.get("qualification_requirements", {}).get("mode") == "fixed-four-v1"
+                               else "pilot")
         candidate = CandidateProposal(proposal_id="B0", parameters={}, experiment_kind="exploration",
                     hypothesis="Measure frozen resolved stock performance baseline",
                     expected_tradeoff="reference", predictions=[{"observation": "primary metrics",
-                     "expected_change": "reference", "scope": "frozen diagnostic short-chat"}],
+                     "expected_change": "reference", "scope": "frozen campaign screen"}],
                     falsification_condition="request accounting or environment pin fails")
-        result = engine.evaluate(candidate, scenario_ids, "pilot")
+        result = engine.evaluate(candidate, scenario_ids, stage)
         return asdict(result) | {"backend": args.backend, "baseline": True}
     if command in ("evaluate", "pilot"):
         if args.candidate:

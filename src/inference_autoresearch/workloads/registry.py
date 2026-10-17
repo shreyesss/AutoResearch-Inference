@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -105,9 +106,11 @@ def verify_scenario(manifest: dict[str, Any], *, root: Path | None = None,
         raise WorkloadError("Planned session IDs are missing")
     if traffic_mode == "independent_open_loop":
         times = [row.get("timestamp") for row in rows]
+        if len(times) < 2:
+            raise WorkloadError("Independent replay needs at least two scheduled requests")
         if len(set(ids)) != len(ids):
             raise WorkloadError("Independent request IDs are duplicated")
-        if any(not isinstance(value, (float, int)) or value < 0 for value in times):
+        if any(type(value) not in (float, int) or not math.isfinite(value) or value < 0 for value in times):
             raise WorkloadError("Planned timestamps must be nonnegative milliseconds")
         if times != sorted(times) or abs(times[0]) > 1e-9:
             raise WorkloadError("Planned timestamps must start at zero and increase")
@@ -118,6 +121,8 @@ def verify_scenario(manifest: dict[str, Any], *, root: Path | None = None,
                or (expected_tokens is not None and row["output_length"] != expected_tokens)
                for row in rows):
             raise WorkloadError("Frozen rows lack matching text/output length")
+        if times[-1] <= 0:
+            raise WorkloadError("Independent replay needs a positive schedule duration")
         actual_rps = (len(rows) - 1) * 1000 / times[-1]
         if abs(actual_rps - manifest["offered_load"]) > 0.001:
             raise WorkloadError("Offered load differs from fixed schedule")
@@ -136,7 +141,8 @@ def verify_scenario(manifest: dict[str, Any], *, root: Path | None = None,
             raise WorkloadError("Dependent turns must be complete and ordered within session")
     return {"payload_path": payload, "schedule_path": schedule,
             "card_path": card, "preparation_path": preparation, "planned": rows,
-            "card": card_data}
+            "card": card_data,
+            "schedule_duration_s": times[-1] / 1000 if traffic_mode == "independent_open_loop" else None}
 
 
 class ScenarioRegistry:
@@ -176,5 +182,6 @@ class ScenarioRegistry:
             history_mode=data["history_mode"],
             cache_protocol=data["cache_protocol"],
             metadata={"manifest": data, "asset": str(checked["payload_path"]),
-                      "registry_root": str(self.root)},
+                      "registry_root": str(self.root),
+                      "schedule_duration_s": checked["schedule_duration_s"]},
         )

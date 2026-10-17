@@ -345,8 +345,10 @@ def normalize_exports(scenario: ScenarioManifest | dict[str, Any], artifact_dir:
     dispatch_duration = (max(starts) - first_start) / 1e9 if starts and first_start is not None else 0.0
     drain = max(0.0, elapsed - dispatch_duration) if elapsed is not None else 0.0
     metrics = {"output_tokens_per_s": counts["successful_completion_tokens"] / elapsed if elapsed else None,
-               "ttft_p50_ms": _percentile(ttfts, .5), "ttft_p99_ms": _percentile(ttfts, .99),
-               "tpot_p50_ms": _percentile(tpots, .5), "tpot_p99_ms": _percentile(tpots, .99),
+               "ttft_p50_ms": _percentile(ttfts, .5), "ttft_p90_ms": _percentile(ttfts, .9),
+               "ttft_p99_ms": _percentile(ttfts, .99),
+               "tpot_p50_ms": _percentile(tpots, .5), "tpot_p90_ms": _percentile(tpots, .9),
+               "tpot_p99_ms": _percentile(tpots, .99),
                "scheduled_ttft_p99_ms": _percentile(scheduled_ttfts, .99),
                "dispatch_lag_p99_ms": _percentile(lags, .99)}
     gauges = _server_gauges(artifact_dir / "server_metrics_export.csv")
@@ -380,7 +382,9 @@ def normalize_exports(scenario: ScenarioManifest | dict[str, Any], artifact_dir:
     class_summary_path = output_dir / "workload-class-summaries.json"
     class_summary_path.write_text(json.dumps({manifest["workload_name"]: {
         "counts": counts, "ttft_p50_ms": metrics["ttft_p50_ms"],
+        "ttft_p90_ms": metrics["ttft_p90_ms"],
         "ttft_p99_ms": metrics["ttft_p99_ms"], "tpot_p50_ms": metrics["tpot_p50_ms"],
+        "tpot_p90_ms": metrics["tpot_p90_ms"],
         "tpot_p99_ms": metrics["tpot_p99_ms"]}}, indent=2, sort_keys=True) + "\n")
     if stage == "triage":
         # Triage is an internal fast gate; the frozen v0.2 wire schema admits
@@ -549,8 +553,13 @@ class AIPerfAdapter:
             raise WorkloadError("Server base_url must be a bare HTTP origin")
         benchmark_duration = float(policy.metadata.get("benchmark_duration_s", 70))
         grace = float(policy.metadata.get("benchmark_grace_period_s", 60))
-        if benchmark_duration <= 0 or grace < 0:
+        if not math.isfinite(benchmark_duration) or not math.isfinite(grace) or benchmark_duration <= 0 or grace < 0:
             raise WorkloadError("Invalid benchmark duration/grace")
+        schedule_duration = checked["schedule_duration_s"]
+        if schedule_duration is not None and benchmark_duration < schedule_duration + 5:
+            raise WorkloadError("Benchmark duration would truncate the frozen schedule")
+        if policy.deadline_s < benchmark_duration + grace + 10:
+            raise WorkloadError("Process deadline would truncate the benchmark or grace period")
         loader = "tracelab" if manifest["traffic_mode"] == "dependent_sessions" else "single-turn"
         argv = [str(self.aiperf_executable), "profile",
                 "--model", manifest["model_id"], "--endpoint-type", "chat",

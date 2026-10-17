@@ -24,6 +24,7 @@ class FakeRuntime:
 class FakeBenchmark:
     def __init__(self, *, fail=False):
         self.fail = fail
+        self.policies = []
 
     def prepare(self, server, scenario, output_dir):
         output_dir.mkdir()
@@ -33,6 +34,7 @@ class FakeBenchmark:
 
     def run_cell(self, server, scenario, policy, output_dir):
         assert Path(policy.metadata["preparation_receipt"]).is_file()
+        self.policies.append(policy)
         if self.fail:
             raise RuntimeError("benchmark failed")
         return CellResult("cell-1", scenario.scenario_id, server.config_id, "valid",
@@ -108,3 +110,65 @@ def test_behavior_requires_queue_evidence():
     cell = CellResult("c", "s", "cfg", "valid", counts={},
                       metrics={"dispatch_lag_p99_ms": 1}, diagnostics={"server_gauges": {"queue_max": None}})
     assert classify_behavior(cell).behavior == "unknown"
+
+
+def test_bounded_transient_queue_admits_cold_mixed_but_not_backlog():
+    cell = CellResult("c", "mixed", "cfg", "valid", counts={},
+                      metrics={"dispatch_lag_p99_ms": 1.08},
+                      diagnostics={"server_gauges": {"queue_max": 2},
+                                   "windows": {"dispatch_duration_s": 362.19,
+                                               "drain_duration_s": 23.63}})
+    accepted = classify_behavior(cell)
+    assert accepted.behavior == "normal"
+    assert accepted.diagnostics["behavior_admission"] == "bounded_transient_queue"
+    document = CellResult("c3", "document", "cfg", "valid", counts={},
+                          metrics={"dispatch_lag_p99_ms": 1.12},
+                          diagnostics={"server_gauges": {"queue_max": 3},
+                                       "windows": {"dispatch_duration_s": 354.07,
+                                                   "drain_duration_s": 27.49}})
+    assert classify_behavior(document).behavior == "normal"
+    backlog = CellResult("c2", "mixed", "cfg", "valid", counts={},
+                         metrics={"dispatch_lag_p99_ms": 1.08},
+                         diagnostics={"server_gauges": {"queue_max": 2},
+                                      "windows": {"dispatch_duration_s": 181.10,
+                                                  "drain_duration_s": 30.70}})
+    assert classify_behavior(backlog).behavior == "unknown"
+    excessive_queue = CellResult("c4", "mixed", "cfg", "valid", counts={},
+                                 metrics={"dispatch_lag_p99_ms": 1.08},
+                                 diagnostics={"server_gauges": {"queue_max": 4},
+                                              "windows": {"dispatch_duration_s": 362.19,
+                                                          "drain_duration_s": 23.63}})
+    assert classify_behavior(excessive_queue).behavior == "unknown"
+
+
+def test_long_frozen_schedule_gets_full_window_and_recorded_limits(tmp_path):
+    scenario = ScenarioManifest("ops", expected_count=2,
+                                metadata={"schedule_duration_s": 121.23})
+    benchmark = FakeBenchmark()
+    engine = EvaluationEngine(campaign(tmp_path), {"ops": scenario}, FakeRuntime(),
+                              benchmark, tmp_path / "runs", None)
+    result = engine.evaluate(CandidateProposal("p0", {}), ["ops"], "pilot")
+    assert result.status == "valid"
+    policy = benchmark.policies[0]
+    assert policy.metadata["benchmark_duration_s"] == 132
+    assert policy.metadata["benchmark_grace_period_s"] == 122
+    assert policy.deadline_s == 284
+    recorded = json.loads((Path(result.artifacts["directory"]) / "evaluation-policy.json").read_text())
+    assert recorded["measurement_limits_by_scenario"]["ops"] == {
+        "schedule_duration_s": 121.23, "benchmark_duration_s": 132.0,
+        "benchmark_grace_period_s": 122.0, "deadline_s": 284.0,
+    }
+
+
+def test_short_schedule_retains_existing_limits(tmp_path):
+    benchmark = FakeBenchmark()
+    engine = EvaluationEngine(campaign(tmp_path),
+                              {"short": ScenarioManifest("short", expected_count=2,
+                                                         metadata={"schedule_duration_s": 59.765625})},
+                              FakeRuntime(), benchmark, tmp_path / "runs", None)
+    result = engine.evaluate(CandidateProposal("p0", {}), ["short"], "pilot")
+    assert result.status == "valid"
+    policy = benchmark.policies[0]
+    assert policy.metadata["benchmark_duration_s"] == 70
+    assert policy.metadata["benchmark_grace_period_s"] == 60
+    assert policy.deadline_s == 180

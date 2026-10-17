@@ -1,0 +1,86 @@
+{
+  "schema_version": "0.1",
+  "campaign_id": "qwen38-27b-ops4-v1",
+  "status": "draft_four_task_baseline_pending",
+  "model": {
+    "id": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "local_path": ".artifacts/models/Qwen3.8-27B",
+    "tensor_parallel_size": 1,
+    "dtype": "bfloat16",
+    "max_model_len": 40960
+  },
+  "runtime": {
+    "image": "vllm/vllm-openai@sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14",
+    "vllm_version": "0.28.0",
+    "aiperf_version": "0.13.0",
+    "gpu_uuid": "GPU-9bb5b2a6-b234-55f6-6462-e030fcadfa83",
+    "codex_cli_version_observed": "0.162.0-alpha.17.2",
+    "endpoint": "http://127.0.0.1:8000"
+  },
+  "baseline": {
+    "max_num_seqs": 512,
+    "max_num_batched_tokens": 8192,
+    "gpu_memory_utilization": 0.92,
+    "enable_prefix_caching": true,
+    "mtp_draft_tokens": 0,
+    "enable_chunked_prefill": true,
+    "long_prefill_token_threshold": 0,
+    "reasoning_parser": "qwen3"
+  },
+  "workload_registry": "configs/workloads/ops4-registry.json",
+  "screen_scenario_ids": [
+    "qwen-ops-chat-low-v1",
+    "qwen-ops-agent-low-v1",
+    "qwen-ops-document-reference-v1",
+    "qwen-ops-mixed-reference-v1"
+  ],
+  "real_search_qualification_path": ".artifacts/autoresearch-codebase/qwen38-27b-ops4-v1/real/qualification-report.json",
+  "search_domain_path": "configs/search-domain.json",
+  "qualification_requirements": {
+    "mode": "fixed-four-v1",
+    "baseline_min_repeats": 1,
+    "scope": "exploratory_inference_metrics"
+  },
+  "search_budget": {
+    "max_distinct_proposals": 8,
+    "max_expanded_finalists": 3,
+    "wall_seconds": 43200,
+    "proposal_timeout_seconds": 300
+  },
+  "objectives": {
+    "output_tokens_per_s": "maximize",
+    "ttft_p99_ms": "minimize",
+    "tpot_p99_ms": "minimize"
+  },
+  "policy": {
+    "one_gpu_lease": true,
+    "warmup_requests_disjoint": 3,
+    "candidate_cannot_change_workload_or_arrivals": true,
+    "real_autonomous_search_requires_qualification": true,
+    "heldout_outcomes_visible_to_proposer": false,
+    "four_task_suite": [
+      "chat",
+      "agent",
+      "document",
+      "mixed"
+    ]
+  },
+  "proposer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "web_search": "live",
+    "container_network": "bridge"
+  },
+  "evidence_sources": {
+    "ops4-study-design": "infra/OPS4_STUDY.md",
+    "ops4-campaign": "configs/campaign-ops4.json",
+    "ops4-domain": "configs/search-domain.json",
+    "ops4-baseline": "infra/OPS4_BASELINE.md",
+    "ops4-chat-card": "configs/workloads/ops-frozen/qwen-ops-chat-low-v1.card.json",
+    "ops4-agent-card": "configs/workloads/ops-frozen/qwen-ops-agent-low-v1.card.json",
+    "ops4-document-card": "configs/workloads/ops-frozen/qwen-ops-document-reference-v1.card.json",
+    "ops4-mixed-card": "configs/workloads/ops-frozen/qwen-ops-mixed-reference-v1.card.json"
+  }
+}

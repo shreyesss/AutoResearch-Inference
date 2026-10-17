@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 import uuid
 from contextlib import contextmanager
@@ -63,9 +64,11 @@ def _validate_cell(cell: CellResult, expected: int, config_id: str, scenario_id:
 def classify_behavior(cell: CellResult) -> CellResult:
     """Assign only defensible finite-run behavior; unknown stays ineligible.
 
-    Zero observed server queue, clean completion, and low dispatch lag establish
-    an ordinary operating observation. Growing queue plus large drain establishes
-    overload. Neither proves sustainable capacity beyond this measured window.
+    Clean completion and low client lag are required. A small transient queue
+    is admissible only when at most three requests wait and post-send drain is at
+    most 10% of dispatch time. This rule is fixed before the four-task B0 and
+    admits natural long-prefill contention without accepting sustained backlog.
+    Neither case proves capacity beyond this measured window.
     """
     gauges = cell.diagnostics.get("server_gauges", {})
     queue = gauges.get("queue_max")
@@ -74,10 +77,35 @@ def classify_behavior(cell: CellResult) -> CellResult:
     drain = windows.get("drain_duration_s")
     dispatch = windows.get("dispatch_duration_s")
     if queue == 0 and cell.status == "valid" and lag is not None and lag <= 20:
-        return replace(cell, behavior="normal")
+        return replace(cell, behavior="normal", diagnostics=cell.diagnostics | {
+            "behavior_admission": "zero_server_queue"})
+    if (cell.status == "valid" and isinstance(queue, (int, float)) and 0 < queue <= 3
+            and isinstance(dispatch, (int, float)) and dispatch > 0
+            and isinstance(drain, (int, float)) and 0 <= drain <= 0.10 * dispatch
+            and lag is not None and lag <= 20):
+        return replace(cell, behavior="normal", diagnostics=cell.diagnostics | {
+            "behavior_admission": "bounded_transient_queue",
+            "behavior_thresholds": {"queue_max": 3, "max_drain_fraction": 0.10}})
     if isinstance(queue, (int, float)) and queue > 0 and isinstance(drain, (int, float)) and isinstance(dispatch, (int, float)) and drain > max(30, dispatch / 3):
         return replace(cell, behavior="overload")
     return replace(cell, behavior="unknown")
+
+
+def measurement_limits(scenario: ScenarioManifest) -> dict[str, float]:
+    """Give the entire frozen schedule time to dispatch, plus bounded drain time.
+
+    The ordinary 60-second fixtures retain their existing 70/60/180-second
+    benchmark/grace/process limits. Longer OPS schedules get a window derived
+    from the verified last timestamp rather than a hardcoded 70-second cut-off.
+    """
+    duration = scenario.metadata.get("schedule_duration_s", 60.0)
+    if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+        raise EvaluationError("Scenario has no valid verified schedule duration")
+    benchmark = max(70, math.ceil(duration) + 10)
+    grace = 60 if duration <= 60 else min(180, max(60, math.ceil(duration)))
+    deadline = max(180, benchmark + grace + 30)
+    return {"schedule_duration_s": float(duration), "benchmark_duration_s": float(benchmark),
+            "benchmark_grace_period_s": float(grace), "deadline_s": float(deadline)}
 
 
 class EvaluationEngine:
@@ -152,6 +180,7 @@ class EvaluationEngine:
             raise EvaluationError("provide distinct frozen scenario IDs")
         # Resolve all read-only inputs before touching the GPU.
         scenarios = [self._scenario(identifier) for identifier in scenario_ids]
+        limits = {scenario.scenario_id: measurement_limits(scenario) for scenario in scenarios}
         resolved = resolve_config(candidate.parameters, self._pinned(), self._domain())
         preflight_start = time.monotonic()
         if self.campaign.get("backend", "real") == "real":
@@ -169,7 +198,7 @@ class EvaluationEngine:
         _save(output_dir / "evaluation-policy.json", {
             "protocol_id": protocol_id, "stage": stage,
             "scenario_ids": scenario_ids, "cache_policy": "fresh vLLM process per measured cell; disjoint warmup",
-            "benchmark_duration_s": 70, "benchmark_grace_period_s": 60,
+            "measurement_limits_by_scenario": limits,
         })
         self._append("evaluation_transition", evaluation_id, {"state": "validated", "config_id": resolved.config_id})
         self._append("resolved_config", resolved.config_id, asdict(resolved) | {
@@ -198,12 +227,15 @@ class EvaluationEngine:
                 receipt_path = cell_dir / "warmup" / "preparation-receipt.json"
                 if not isinstance(receipt, dict) or not receipt_path.is_file():
                     raise EvaluationError("benchmark preparation did not produce a receipt")
-                policy = MeasurementPolicy(stage=stage, replicate=1, window_s=60.0, deadline_s=180.0,
+                cell_limits = limits[scenario.scenario_id]
+                policy = MeasurementPolicy(stage=stage, replicate=1,
+                                           window_s=cell_limits["schedule_duration_s"],
+                                           deadline_s=cell_limits["deadline_s"],
                                            min_eligible=0, cache_protocol=scenario.cache_protocol,
                                            metadata={"run_id": evaluation_id,
                                                      "preparation_receipt": str(receipt_path),
-                                                     "benchmark_duration_s": 70,
-                                                     "benchmark_grace_period_s": 60,
+                                                     "benchmark_duration_s": cell_limits["benchmark_duration_s"],
+                                                     "benchmark_grace_period_s": cell_limits["benchmark_grace_period_s"],
                                                      "protocol_id": protocol_id})
                 self._append("evaluation_transition", evaluation_id,
                              {"state": "measuring", "scenario_id": scenario.scenario_id})

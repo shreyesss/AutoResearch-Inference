@@ -32,6 +32,22 @@ class AIPerfAdapterTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("--tokenizer-revision") + 1],
                          "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0")
 
+    def test_build_argv_rejects_truncated_schedule_or_deadline(self):
+        adapter = AIPerfAdapter(aiperf_executable=Path(".venv/bin/aiperf"),
+                                tokenizer_path=Path(".artifacts/models/Qwen3.8-27B"))
+        server = ServerHandle(server_id="test", base_url="http://127.0.0.1:8000", config_id="b0")
+        with self.assertRaisesRegex(WorkloadError, "truncate the frozen schedule"):
+            adapter.build_argv(server, self.scenario,
+                               MeasurementPolicy(stage="pilot", metadata={
+                                   "benchmark_duration_s": 60, "benchmark_grace_period_s": 60}),
+                               Path("/tmp/iar-test-cell"))
+        with self.assertRaisesRegex(WorkloadError, "truncate the benchmark"):
+            adapter.build_argv(server, self.scenario,
+                               MeasurementPolicy(stage="pilot", deadline_s=130,
+                                                 metadata={"benchmark_duration_s": 70,
+                                                           "benchmark_grace_period_s": 60}),
+                               Path("/tmp/iar-test-cell"))
+
     def test_offline_aiperf_preflight_loads_exact_pinned_snapshot(self):
         adapter = AIPerfAdapter(aiperf_executable=Path(".venv/bin/aiperf"),
                                 tokenizer_path=Path(".artifacts/models/Qwen3.8-27B"))

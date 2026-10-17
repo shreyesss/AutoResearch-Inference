@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "aiperf_version": "0.13.0",
+  "target_model": "Qwen/Qwen3.8-27B",
+  "target_max_model_len": 40960,
+  "source": "Deepseek_serve/ops_aiperf",
+  "exgentic": {
+    "snapshot": "configs/workloads/ops-aiperf-source/production-exgentic.yaml",
+    "snapshot_sha256": "43aedd731fd169b494d82e188ae38d77c6dd78f2c7f6b54b3bf025db5fe01e75",
+    "public_dataset": "exgentic_v2",
+    "hf_repo": "Exgentic/agent-llm-traces-v2",
+    "hf_revision": "4b8ad4ab198438e5a170f9171c19c6a2cf7c1814",
+    "selection": {
+      "benchmark": "swebench",
+      "harness": "openai_solo",
+      "source_model": "gpt-5.2-2025-12-11",
+      "conversations": 48,
+      "fixed_schedule": true
+    },
+    "offline_scan": {
+      "rows_scanned": 4191,
+      "matched_sessions": 48,
+      "replayable_llm_requests": 894,
+      "source_max_input_tokens": 13491,
+      "source_max_requested_output_tokens": 737,
+      "source_input_plus_requested_output_over_40960": 0,
+      "selected_session_ids_sha256": "a02beedec1d987dcb6ccde3c44dcffc76ff903bc0910e643463ea0a3c7ec2872",
+      "fixed_schedule_timestamp_origin": "first replayable call in each selected session",
+      "maximum_fixed_schedule_offset_s": 1208.8183227539062,
+      "requests_before_120_s": 495,
+      "requests_before_300_s": 770,
+      "requests_before_900_s": 875
+    },
+    "status": "ready_for_qwen_live_input_and_token_count_validation",
+    "remaining_check": "Qwen chat-template token counts and HTTP compatibility must be measured on the actual endpoint before accepting a baseline."
+  },
+  "agentx": {
+    "snapshot": "configs/workloads/ops-aiperf-source/production-agentx.yaml",
+    "snapshot_sha256": "a478d8f2aa79923080e96752d3b4f1620e72dc5fef393acbd8a24fb28461d61b",
+    "public_dataset": "semianalysis_cc_traces_weka_062126",
+    "hf_repo": "semianalysisai/cc-traces-weka-062126",
+    "hf_revision_observed": "23f152f6f0f9399a85901b89a6458def0ef16729",
+    "hf_jsonl_bytes": 1847151435,
+    "hf_jsonl_sha256": "29b6a19e751ff5230771519aab755f80a0f43a4ba9cf96b72d3a6a437ec99276",
+    "scenario": "inferencex-agentx-mvp",
+    "concurrency": 16,
+    "duration_s": 900,
+    "configured_max_context_length": 1048576,
+    "offline_scan": {
+      "method": "AIPerf 0.13.0 WekaTrace.model_validate and _trace_peak_context_length on all JSONL rows",
+      "traces": 393,
+      "requests": 98827,
+      "qwen_40960_eligible_traces": 0,
+      "minimum_trace_peak_context": 44048,
+      "median_trace_peak_context": 226315,
+      "p90_trace_peak_context": 692567,
+      "maximum_trace_peak_context": 996579
+    },
+    "status": "blocked_for_qwen_b0_by_context_mismatch",
+    "remaining_check": "No complete source trace fits Qwen B0. A larger-context server or a new request-level modified workload is required; do not label a modified workload as this source AgentX scenario."
+  }
+}

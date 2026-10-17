@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from collections import defaultdict
 from collections import Counter
 from pathlib import Path
@@ -21,7 +22,8 @@ def eligible(row: dict[str, Any]) -> bool:
             and counts.get("planned") == counts.get("completed") == counts.get("dispatched")
             and all(counts.get(key) == 0 for key in
                     ("not_dispatched", "failed", "timed_out", "canceled", "censored"))
-            and all(isinstance(metrics.get(k), (int, float)) for k in OBJECTIVES))
+            and all(isinstance(metrics.get(k), (int, float)) and not isinstance(metrics.get(k), bool)
+                    and math.isfinite(metrics[k]) for k in OBJECTIVES))
 
 
 def dominates(a: dict[str, Any], b: dict[str, Any]) -> bool:
@@ -42,7 +44,8 @@ def pareto_front(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [r for r in valid if not any(dominates(other, r) for other in valid if other is not r)]
 
 
-def export(rows: list[dict[str, Any]], output_dir: Path) -> dict[str, str]:
+def export(rows: list[dict[str, Any]], output_dir: Path,
+           screen_scenario_ids: list[str] | None = None) -> dict[str, str]:
     """Group by exact scenario/load/protocol/stage; never average p99s."""
     output_dir.mkdir(parents=True, exist_ok=True)
     groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
@@ -80,8 +83,130 @@ def export(rows: list[dict[str, Any]], output_dir: Path) -> dict[str, str]:
     summary_path = output_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     plot_paths = _plots(groups, output_dir)
+    suite_paths = (export_suite_front(rows, screen_scenario_ids, output_dir)
+                   if screen_scenario_ids is not None else {})
     return {"fronts_json": str(json_path), "points_csv": str(csv_path),
-            "summary_json": str(summary_path), **plot_paths}
+            "summary_json": str(summary_path), **plot_paths, **suite_paths}
+
+
+def _suite_dominates(a: dict[str, Any], b: dict[str, Any], scenario_ids: list[str]) -> bool:
+    """Point dominance across every task metric, with no cross-task averaging."""
+    weak = True
+    strict = False
+    for scenario_id in scenario_ids:
+        for metric in OBJECTIVES:
+            av = a["metrics"][scenario_id][metric]
+            bv = b["metrics"][scenario_id][metric]
+            better_or_equal = av >= bv if metric == "output_tokens_per_s" else av <= bv
+            weak &= better_or_equal
+            strict |= av != bv
+    return weak and strict
+
+
+def export_suite_front(rows: list[dict[str, Any]], scenario_ids: list[str],
+                       output_dir: Path) -> dict[str, str]:
+    """Export complete-config fronts at each exact screen measurement protocol.
+
+    Every config, including a triage-only or failed one, remains inspectable. A
+    config enters dominance only with exactly one eligible cell for each task at
+    the B0-anchored task load and cache protocol.
+    """
+    if len(scenario_ids) != 4 or len(set(scenario_ids)) != 4:
+        raise ValueError("suite frontier requires four distinct screen scenarios")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    expected = set(scenario_ids)
+    relevant = [r for r in rows if r.get("scenario_id") in expected and r.get("config_id")]
+    config_ids = sorted({str(r["config_id"]) for r in relevant})
+    protocols = sorted({str(r.get("measurement_protocol", "")) for r in relevant
+                        if r.get("stage") == "screen"}) or ["fresh-server-cell-v1"]
+    scopes: list[dict[str, Any]] = []
+    csv_rows: list[dict[str, Any]] = []
+    for protocol in protocols:
+        screen = [r for r in relevant if r.get("stage") == "screen"
+                  and str(r.get("measurement_protocol", "")) == protocol]
+        expected_scopes: dict[str, tuple[str, str, str] | None] = {}
+        scope_reasons: list[str] = []
+        for scenario_id in scenario_ids:
+            members = [r for r in screen if r.get("scenario_id") == scenario_id]
+            b0 = [r for r in members if r.get("is_baseline") is True]
+            source = b0 or members
+            values = {tuple(str(r.get(k, "")) for k in
+                            ("offered_load", "load_unit", "cache_protocol")) for r in source}
+            expected_scopes[scenario_id] = next(iter(values)) if len(values) == 1 else None
+            if not values:
+                scope_reasons.append(f"{scenario_id}:missing_screen_scope")
+            elif len(values) > 1:
+                scope_reasons.append(f"{scenario_id}:ambiguous_screen_scope")
+        configurations = []
+        for config_id in config_ids:
+            config_rows = [r for r in relevant if str(r["config_id"]) == config_id]
+            cells: dict[str, str] = {}
+            metrics: dict[str, dict[str, float]] = {}
+            reasons = list(scope_reasons)
+            for scenario_id in scenario_ids:
+                members = [r for r in screen if str(r["config_id"]) == config_id
+                           and r.get("scenario_id") == scenario_id]
+                required = expected_scopes[scenario_id]
+                matched = [r for r in members if required is not None and
+                           tuple(str(r.get(k, "")) for k in
+                                 ("offered_load", "load_unit", "cache_protocol")) == required]
+                valid = [r for r in matched if eligible(r)]
+                if not members:
+                    reasons.append(f"{scenario_id}:missing_screen_cell")
+                elif not matched:
+                    reasons.append(f"{scenario_id}:incompatible_load_or_cache")
+                elif len(valid) != 1:
+                    reasons.append(f"{scenario_id}:" +
+                                   ("duplicate_eligible_cells" if len(valid) > 1 else "no_eligible_cell"))
+                if len(valid) == 1:
+                    cells[scenario_id] = str(valid[0].get("cell_id", ""))
+                    metrics[scenario_id] = {key: valid[0]["metrics"][key] for key in OBJECTIVES}
+            configurations.append({"config_id": config_id,
+                                   "is_baseline": any(r.get("is_baseline") is True for r in config_rows),
+                                   "status": "incomplete" if reasons else "eligible",
+                                   "reason_codes": reasons, "cell_ids": cells,
+                                   "metrics": metrics, "dominated_by": []})
+        complete = [item for item in configurations if item["status"] == "eligible"]
+        for item in complete:
+            item["dominated_by"] = [other["config_id"] for other in complete
+                                    if other is not item and _suite_dominates(other, item, scenario_ids)]
+            item["status"] = "dominated" if item["dominated_by"] else "frontier"
+        for item in configurations:
+            flat: dict[str, Any] = {"config_id": item["config_id"], "stage": "screen",
+                                    "measurement_protocol": protocol,
+                                    "is_baseline": item["is_baseline"], "status": item["status"],
+                                    "reason_codes": ";".join(item["reason_codes"]),
+                                    "dominated_by": ";".join(item["dominated_by"])}
+            for scenario_id in scenario_ids:
+                flat[f"{scenario_id}.cell_id"] = item["cell_ids"].get(scenario_id, "")
+                for metric in OBJECTIVES:
+                    flat[f"{scenario_id}.{metric}"] = item["metrics"].get(scenario_id, {}).get(metric, "")
+            csv_rows.append(flat)
+        scopes.append({"stage": "screen", "measurement_protocol": protocol,
+                       "scenario_scopes": {scenario_id: dict(zip(
+                           ("offered_load", "load_unit", "cache_protocol"), scope)) if scope else None
+                           for scenario_id, scope in expected_scopes.items()},
+                       "front_config_ids": [item["config_id"] for item in configurations
+                                            if item["status"] == "frontier"],
+                       "configurations": configurations})
+    result = {"schema_version": "suite-front-v1", "scenario_ids": scenario_ids,
+              "objectives": [{"scenario_id": scenario_id, "metric": metric,
+                              "direction": "maximize" if metric == "output_tokens_per_s" else "minimize"}
+                             for scenario_id in scenario_ids for metric in OBJECTIVES],
+              "scopes": scopes}
+    json_path = output_dir / "suite-front.json"
+    json_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    fieldnames = ["config_id", "stage", "measurement_protocol", "is_baseline", "status",
+                  "reason_codes", "dominated_by"] + [
+                      key for scenario_id in scenario_ids
+                      for key in [f"{scenario_id}.cell_id"] +
+                      [f"{scenario_id}.{metric}" for metric in OBJECTIVES]]
+    csv_path = output_dir / "suite-front.csv"
+    with csv_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(csv_rows)
+    return {"suite_front_json": str(json_path), "suite_front_csv": str(csv_path)}
 
 
 def _plots(groups: dict[tuple[str, ...], list[dict[str, Any]]], output_dir: Path) -> dict[str, str]:
@@ -163,6 +288,9 @@ def export_history(ledger: Any, campaign_id: str, output_dir: Path) -> dict[str,
              f"Failures/reasons: {summary.get('reason_counts', {})}.", "",
              "See fronts.json for exact compatible-load nondominance, points.csv for B0 and dominated points,",
              "feedback.json for matched-B0 deltas, and ledger.sqlite3 for append-only events."]
+    if (output_dir / "suite-front.json").is_file():
+        lines += ["", "See suite-front.json and suite-front.csv for the four-task config frontier,",
+                  "including B0, dominated configs, and incomplete configs with exclusion reasons."]
     path = output_dir / "REPORT.md"
     path.write_text("\n".join(lines) + "\n")
     output["markdown"] = str(path)

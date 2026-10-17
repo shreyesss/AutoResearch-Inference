@@ -1,0 +1,21 @@
+schema_version: 1
+name: mixed-bursty
+suite: synthetic
+category: mixed
+description: "Ragged production-shaped mixture with bursty Gamma arrivals."
+dataset:
+  kind: sequence_distribution
+  entries: 8192
+  maximum_input_tokens: 32768
+  pairs:
+    - {category: chat, input: 512, input_stddev: 128, output: 256, output_stddev: 64, weight: 45}
+    - {category: agent, input: 8192, input_stddev: 2048, output: 1024, output_stddev: 256, weight: 20}
+    - {category: document, input: 28672, input_stddev: 4096, output: 512, output_stddev: 128, weight: 15}
+    - {category: code, input: 2048, input_stddev: 512, output: 1024, output_stddev: 256, weight: 20}
+request:
+  ignore_eos: true
+timing:
+  mode: request_rate
+  arrival_pattern: gamma
+  arrival_smoothness: 0.3
+  request_rate: external

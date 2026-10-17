@@ -11,7 +11,7 @@ from typing import Any
 from inference_autoresearch.contracts import CampaignResult, CandidateProposal, ProposalContext, Proposer
 from inference_autoresearch.storage import Ledger
 from .domain import Domain, config_identity, scientific_campaign_hash, sha
-from .report import export, export_history, pareto_front, eligible, dominates, OBJECTIVES
+from .report import export, export_history, export_suite_front, pareto_front, eligible, dominates, OBJECTIVES
 
 
 class SearchGateError(RuntimeError):
@@ -41,16 +41,25 @@ def qualification_ok(campaign: dict[str, Any], domain: Domain, campaign_path: Pa
     if qualification.get("qualification_requirements_hash") != sha(
             campaign.get("qualification_requirements", {})):
         raise SearchGateError("qualification requirements changed since report generation")
-    required = ("provenance_validated", "traffic_validated", "baseline_characterized", "sensitivity_qualified")
+    fixed_four = campaign.get("qualification_requirements", {}).get("mode") == "fixed-four-v1"
+    required = ("provenance_validated", "traffic_validated", "baseline_characterized")
+    if fixed_four:
+        if (qualification.get("qualification_mode") != "fixed-four-v1" or
+                qualification.get("qualification_grade") != "exploratory_four_task" or
+                qualification.get("sensitivity_qualified") is not False):
+            raise SearchGateError("four-task qualification grade or sensitivity claim is invalid")
+    else:
+        required += ("sensitivity_qualified",)
     if any(qualification.get(key) is not True for key in required):
-        raise SearchGateError("qualification lacks workload/B0/sensitivity evidence")
+        raise SearchGateError("qualification lacks required workload/B0 evidence")
     if not qualification.get("evidence_ids"):
         raise SearchGateError("qualification has no evidence IDs")
     if ledger is not None and registry is not None and artifact_root is not None:
         from .qualification import assess
         fresh = assess(campaign, domain, ledger, registry, artifact_root, backend="real")
-        if not fresh["search_allowed"] or any(fresh[key] != qualification.get(key) for key in
+        if not fresh["search_allowed"] or any(fresh.get(key) != qualification.get(key) for key in
             ("campaign_hash", "domain_hash", "qualification_requirements_hash",
+             "qualification_mode", "qualification_grade",
              "provenance_validated", "traffic_validated",
              "baseline_characterized", "sensitivity_qualified", "evidence_ids")):
             raise SearchGateError("qualification no longer matches current machine evidence")
@@ -82,6 +91,9 @@ class SearchController:
         if cap < 1:
             raise ValueError("search requires positive proposal budget")
         triage_id = self.campaign.get("triage_scenario_id")
+        fixed_four = self.campaign.get("qualification_requirements", {}).get("mode") == "fixed-four-v1"
+        if fixed_four and triage_id is not None:
+            raise SearchGateError("four-task search evaluates every task; triage is disallowed")
         if triage_id is not None and (not isinstance(triage_id, str)
                                       or triage_id not in self.campaign["screen_scenario_ids"]):
             raise ValueError("triage_scenario_id must be one frozen screen scenario")
@@ -103,6 +115,7 @@ class SearchController:
         if resume and hasattr(self.proposer, "index"):
             self.proposer.index = proposed
         baseline_id = config_identity(self.campaign, self.campaign["baseline"])
+        seen_ids.add(baseline_id)
         # The triage and two-load screen have independent matched B0 cells.
         # A prior pilot or a manual shared-server cell cannot satisfy either.
         def ensure_baseline(stage: str, scenario_ids: list[str]) -> list[dict[str, Any]]:
@@ -112,7 +125,8 @@ class SearchController:
                         if event["payload"].get("config_id") == baseline_id
                         and event["payload"].get("stage") == stage
                         and event["payload"].get("measurement_protocol") in
-                        (protocol, "mock-frozen-v1")]
+                        (protocol, "mock-frozen-v1")
+                        and (not fixed_four or event["payload"].get("is_baseline") is True)]
             cells = matching_cells()
             missing = set(scenario_ids) - {cell["scenario_id"] for cell in cells if eligible(cell)}
             if missing:
@@ -144,15 +158,21 @@ class SearchController:
             heldout_ids = set(self.campaign.get("heldout_scenario_ids", []))
             recent = [event["payload"] for event in self.ledger.events(campaign_id, "cell")
                       if event["payload"].get("scenario_id") not in heldout_ids
-                      and "heldout" not in str(event["payload"].get("stage", "")).lower()][-80:]
+                      and "heldout" not in str(event["payload"].get("stage", "")).lower()]
             front = _scoped_fronts(recent)
+            if fixed_four:
+                suite_paths = export_suite_front(recent, self.campaign["screen_scenario_ids"],
+                                                 self.artifact_root / "report")
+                suite = json.loads(Path(suite_paths["suite_front_json"]).read_text())
+                front.append({"scope": "fixed_four_suite", "objectives": suite["objectives"],
+                              "scopes": suite["scopes"]})
             feedback = [event["payload"] for event in self.ledger.events(campaign_id, "feedback")][-12:]
             context = ProposalContext(
                 campaign_id=campaign_id,
                 mission="Find compatible Pareto tradeoffs in pinned vLLM serving settings",
                 domain=self.domain.raw,
                 baseline=self.campaign["baseline"], frontier=front,
-                recent_results=feedback + recent[-12:], evidence_refs=self.evidence_refs,
+                recent_results=baseline_cells + feedback + recent[-12:], evidence_refs=self.evidence_refs,
                 remaining_budget={"distinct_proposals": cap - proposed,
                                   "wall_seconds": max(0, wall_limit - (time.monotonic() - start))},
                 qualification=qualification,
@@ -218,8 +238,9 @@ class SearchController:
                                    {"error_type": type(exc).__name__, "reason": str(exc)})
                 stop_reason = "proposal_or_evaluation_error"
                 break
+        export_kwargs = {"screen_scenario_ids": self.campaign["screen_scenario_ids"]} if fixed_four else {}
         paths = export([e["payload"] for e in self.ledger.events(campaign_id, "cell")],
-                       self.artifact_root / "report")
+                       self.artifact_root / "report", **export_kwargs)
         paths.update(export_history(self.ledger, campaign_id, self.artifact_root / "report"))
         if stop_reason == "proposal_budget":
             stop_reason = "screen_budget_confirmation_pending"

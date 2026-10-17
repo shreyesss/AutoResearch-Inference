@@ -1,5 +1,7 @@
 # AutoResearch Inference
 
+**Proposed next campaign (18 October 2026):** [Evaluation v2 design for review](EVALUATION_V2_PLAN.md), with detailed [adaptive evaluator](infra/ADAPTIVE_EVAL_PLAN.md), [serving search expansion](infra/SERVING_SEARCH_EXPANSION_PLAN.md), and [agent research](infra/AGENT_RESEARCH_PLAN.md) plans. These documents are proposals; the implemented evaluator below still follows its existing campaign protocol.
+
 An executable, evidence-tracked harness for **Qwen/Qwen3.8-27B serving settings on one GPU**. AIPerf replays frozen requests against pinned vLLM. One Codex CLI proposer suggests bounded parameter changes; the evaluator alone starts containers, measures cells and maintains compatibility-scoped Pareto results.
 
 **Current state:** the earlier short-chat B0 and manual parameter comparisons are documented in [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md). The new evaluator has completed a real two-load B0 with full request accounting under `fresh-server-cell-v1`; results are below. Its registry also carries an engineered mixed probe and a recorded TraceLab control; neither is representative-search qualified. The real autonomous-search gate remains closed pending B0 repeats, a measured sensitivity pilot, representative mixed/session/semantic traffic, and tail qualification. Results from mock, manual shared-server and new fresh-server protocols remain separate.

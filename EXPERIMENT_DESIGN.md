@@ -1,5 +1,7 @@
 # Qwen serving autoresearch: executable experiment contract
 
+**Next protocol proposal (18 October 2026):** [Evaluation v2](EVALUATION_V2_PLAN.md) defines the staged evaluator, exploratory/adaptive load curves, independent test, expanded serving domain, and agent evidence changes for review. This file remains the contract for the existing fixed-four campaign until a new version is implemented and qualified.
+
 **State, 17 October 2026:** the earlier two-load short-chat vertical slice passed real B0 and MTP1 pilot measurements. The current `qwen38-27b-ops4-v1` study is calibrating and freezing four synthetic tasks before its own fresh-server B0. No autonomous four-task candidate result or production representative result has been produced. The immutable rsynced handoff remains in `inference-autoresearch-handoff/`; executable code and campaign revisions live outside it.
 
 ## The question and authority boundary

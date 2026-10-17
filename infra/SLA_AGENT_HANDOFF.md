@@ -59,3 +59,42 @@ request exports. It may research and propose serving settings only. The
 controller owns server deployment, traffic, evaluation and promotion. The
 adaptive points remain development observations. A later frozen-rate repeat
 and sealed-test protocol are required before claiming an SLA-capacity frontier.
+
+## One-shot overnight candidate watcher
+
+`infra/run_v3_candidate_search.py wait-run` waits for the separate
+`iar-v3-sla-profiler` tmux to exit with a successful B0 profile receipt. It
+verifies the approved policy, hash-pinned profile with at least one valid
+four-class point, both matched B0 cells, and idle GPU. It then runs the
+GPU-free `sla-search --check` preflight before the serving search. The watcher
+stops on an invalid or missing upstream receipt, failed preflight, or existing
+proposals. It never reruns automatically. The search can consume many hours;
+it ends at development observations and does not run sealed test.
+
+Launch only one watcher session:
+
+```bash
+tmux new-session -d -s iar-v3-candidate-search 'cd /home/ubuntu/shreyas/skunk-work && PYTHONPATH=src .venv/bin/python infra/run_v3_candidate_search.py wait-run --wait-timeout-s 43200 > .artifacts/v3-independent-capture/candidate-search-watcher.log 2>&1'
+```
+
+Inspect progress and terminal status:
+
+```bash
+tmux has-session -t iar-v3-candidate-search
+cat .artifacts/v3-independent-capture/candidate-search-status.json
+tail -n 80 .artifacts/v3-independent-capture/candidate-search-watcher.log
+tail -n 80 .artifacts/v3-independent-capture/candidate-search-console.log
+```
+
+The status JSON records stages, exit code, and errors. `candidate-search-console.log`
+and `candidate-search-console.stderr.log` are live logs; the campaign ledger
+and run folders retain individual proposals and evaluations. If status is
+`blocked`, inspect the named gate and artifacts. A restart requires a separate
+manual review of the ledger and status file; the watcher refuses to overwrite
+either a previous status or existing proposals. For a GPU-free readiness check
+after the profiler finishes:
+
+```bash
+PYTHONPATH=src .venv/bin/python infra/run_v3_candidate_search.py check
+.venv/bin/iar sla-search --backend real --campaign configs/campaign-sla-serving-v3.json --check
+```

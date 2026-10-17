@@ -1,6 +1,6 @@
 # v3c serving search space
 
-**Status:** versioned proposal. `configs/campaign-sla-serving-v3c.json` is a new campaign; the running v3b campaign and its evidence are unchanged. The model, vLLM image, GPU, 40,960-token context, workload bodies, arrival schedule, and approved research SLA remain pinned.
+**Status:** versioned campaign. `configs/campaign-sla-serving-v3c.json` is a new campaign; the v3b candidate watcher was retired before any proposal and its preflight evidence remains auditable. The model, vLLM image, GPU, 40,960-token context, workload bodies, arrival schedule, and approved research SLA remain pinned.
 
 | Server control | B0 | v3c values | Interpretation |
 | --- | ---: | --- | --- |
@@ -14,6 +14,6 @@ The runtime already accepts these five controls. Omitted values resolve to B0. A
 
 Prefix caching remains on and MTP remains off. Independent cold requests have no demonstrated prefix reuse; enable a cache branch only with token-exact repeated prefixes and observed hits. Earlier MTP 1/3 manual trials found a decode gain and a TTFT cost, but accepted-token telemetry and semantic-quality checks are still needed before MTP can enter the SLA winner search. Disabling chunked prefill is also held out because the present token budgets are below the pinned 40,960-token context and require a separate feasible branch.
 
-The campaign specifies `gpt-6-sol`, medium reasoning, eight proposal attempts and a two-finalist budget. **The current v3 controller has not yet implemented a cheaper two-finalist promotion path**: it requires finalists to equal proposals and can run the expensive development/profile stages for every viable proposal. Do not launch v3c until that controller gate is updated and tested. The two-finalist decision must use adequate evidence; a single 36-request p90 ranking is too noisy.
+The campaign specifies `gpt-6-sol`, medium reasoning, eight proposal attempts and a two-finalist budget. The controller now screens all proposals before allocating the long development/profile budget to at most two provisional finalists. The two-finalist decision uses throughput and latency diagnostics from the 36-request screen; those observations are noisy and cannot establish a reliable optimum. Full details and measured time costs are in `infra/V3C_RUN.md`.
 
 Source: `configs/search-domain.json` (historical larger domain), `configs/search-domain-v2.json` (v3b domain), `src/inference_autoresearch/runtime/config.py` (trusted argument renderer), `infra/V3_AXIS_ADMISSION_DECISION.md` (axis evidence limits), and `infra/MANUAL_SERVING_SEARCH.md` (MTP observations).

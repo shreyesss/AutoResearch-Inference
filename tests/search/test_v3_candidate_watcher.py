@@ -137,6 +137,8 @@ def test_controller_preflight_and_search_share_docker_runtime(tmp_path, monkeypa
     assert seen[0][10:-1] == seen[1][10:]
     assert seen[0][9].endswith("preflight.pid")
     assert seen[1][9].endswith("run.pid")
+    assert watcher.CAMPAIGN_ID == "qwen38-27b-sla-serving-v3c"
+    assert str(watcher.CAMPAIGN).endswith("campaign-sla-serving-v3c.json")
 
 
 def test_controller_pin_rejects_rebuilt_image_mismatch(monkeypatch):

@@ -30,10 +30,10 @@ PROFILE_RECEIPT = INPUT_ROOT / "b0-sla-profile-receipt.json"
 PROFILE_INVALID = INPUT_ROOT / "b0-sla-profile-invalid.json"
 STUDY = INPUT_ROOT / "sla-study-activated.json"
 B0_RECEIPT = INPUT_ROOT / "matched-evaluator-b0-receipt.json"
-CAMPAIGN_ID = "qwen38-27b-sla-serving-v3b"
-CAMPAIGN = ROOT / "configs/campaign-sla-serving-v3b.json"
+CAMPAIGN_ID = "qwen38-27b-sla-serving-v3c"
+CAMPAIGN = ROOT / "configs/campaign-sla-serving-v3c.json"
 OUT = ROOT / ".artifacts/autoresearch-codebase" / CAMPAIGN_ID / "real"
-STATUS = INPUT_ROOT / "candidate-search-v3b-status.json"
+STATUS = INPUT_ROOT / "candidate-search-v3c-status.json"
 CONTROLLER_CONTAINER = "deploy-controller-1"
 CONTROLLER_IMAGE = "iar-controller:0.1"
 PROFILER_SESSION = "iar-v3-sla-profiler"
@@ -191,7 +191,7 @@ def controller_runtime_pin() -> dict[str, str]:
         raise RuntimeError("controller image code or isolated Codex wrapper is stale")
     campaign = read(CAMPAIGN)
     if campaign.get("campaign_id") != CAMPAIGN_ID:
-        raise RuntimeError("versioned v3b campaign identity differs")
+        raise RuntimeError("versioned v3c campaign identity differs")
     return {"container_id": inspect["Id"], "image_id": image["Id"],
             "source_tree_sha256": hashlib.sha256(json.dumps(
                 copied_hashes, sort_keys=True).encode()).hexdigest(),
@@ -296,7 +296,7 @@ def wait_for_profile(timeout_s: int, state: dict[str, Any]) -> dict[str, Any]:
 
 def run_waiter(timeout_s: int) -> dict[str, Any]:
     INPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    with (INPUT_ROOT / "candidate-search-v3b-watcher.lock").open("w") as lock:
+    with (INPUT_ROOT / "candidate-search-v3c-watcher.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if STATUS.exists():
             raise RuntimeError("existing candidate search status requires inspection; refusing rerun")
@@ -309,19 +309,19 @@ def run_waiter(timeout_s: int) -> dict[str, Any]:
             no_prior_proposals()
             controller_pin = controller_runtime_pin()
             stamp(state, "controller_image_verified", controller=controller_pin)
-            preflight_pid = INPUT_ROOT / "candidate-search-v3b-preflight.pid"
-            search_pid = INPUT_ROOT / "candidate-search-v3b-run.pid"
+            preflight_pid = INPUT_ROOT / "candidate-search-v3c-preflight.pid"
+            search_pid = INPUT_ROOT / "candidate-search-v3c-run.pid"
             check_argv = ["docker", "exec", "-w", str(ROOT), CONTROLLER_CONTAINER,
                           "bash", "-c", 'printf "%s\\n" "$$" > "$1"; shift; exec "$@"',
-                          "iar-v3b-watch", str(preflight_pid),
+                          "iar-v3c-watch", str(preflight_pid),
                           "iar", "sla-search", "--backend", "real",
                           "--campaign", str(CAMPAIGN), "--check"]
             stamp(state, "gpu_free_search_preflight", argv=check_argv)
             check_code, check_stdout, check_timeout = run_command(
-                check_argv, INPUT_ROOT / "candidate-search-v3b-preflight.log",
+                check_argv, INPUT_ROOT / "candidate-search-v3c-preflight.log",
                 timeout_s=600, inner_pid_path=preflight_pid)
             if check_code or check_timeout:
-                raise RuntimeError("GPU-free SLA search preflight failed; inspect candidate-search-v3b-preflight.log")
+                raise RuntimeError("GPU-free SLA search preflight failed; inspect candidate-search-v3c-preflight.log")
             preflight = json.loads(check_stdout)
             if (preflight.get("status") != "ready"
                     or preflight.get("study_sha256") != evidence["study_sha256"]
@@ -337,11 +337,11 @@ def run_waiter(timeout_s: int) -> dict[str, Any]:
             search_argv[search_argv.index(str(preflight_pid))] = str(search_pid)
             stamp(state, "candidate_search_running", argv=search_argv)
             code, stdout, timed_out = run_command(
-                search_argv, INPUT_ROOT / "candidate-search-v3b-console.log",
+                search_argv, INPUT_ROOT / "candidate-search-v3c-console.log",
                 timeout_s=72000, inner_pid_path=search_pid)
             stamp(state, "candidate_search_finished", exit_code=code, timed_out=timed_out)
             if code or timed_out:
-                raise RuntimeError("candidate search failed or timed out; inspect v3b console and ledger")
+                raise RuntimeError("candidate search failed or timed out; inspect v3c console and ledger")
             result = json.loads(stdout)
             if (result.get("capacity_confirmed") is not False
                     or result.get("campaign_id") != CAMPAIGN_ID

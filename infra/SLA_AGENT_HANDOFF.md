@@ -1,5 +1,10 @@
 # v3 agent-controlled serving search handoff
 
+**Historical v3b design.** Its candidate watcher was retired before any
+proposal. The revised `gpt-6-sol` campaign, cost gates, commands and current
+status are in `infra/V3C_RUN.md` and `configs/campaign-sla-serving-v3c.json`.
+Do not use the v3b commands below for the current run.
+
 The approved research policy is `configs/sla-policy-v3.json`. The active v3
 study record is `configs/sla-study-v3.template.json`. The B0-only campaign at
 `configs/campaign-sla-b0-v3.json` produces matched development CellResults; it

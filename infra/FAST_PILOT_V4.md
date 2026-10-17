@@ -26,7 +26,7 @@ as a qualified independent window.
   `all-screen-points.csv`, the provisional plot, and a hash-pinned shortlist.
 - **Interpretation:** 36 requests cannot establish per-class p90, p99, SLA
   capacity, or a robust Pareto frontier. The screen rejects obvious failures
-  and identifies configurations worth longer independent comparisons. The
+  and identifies configurations worth multi-rate comparisons. The
   approved p90 TTFT/TPOT limits remain research targets, not product SLOs.
 
 After the pilot, a separate operator study repeats B0 and up to two finalists
@@ -43,7 +43,7 @@ source is **not** a held-out test after this subset is used.
 An independent 240-request test input is still required for a declared
 finalist. The existing v3 sealed-test plan has two 240-request windows at 0.1
 requests/s and is too slow for this pilot; it has not been run. Until a faster
-versioned test protocol is qualified, this pilot and the 144-request gate do
+versioned test protocol is qualified, this pilot and the 32-by-3 curve do
 not establish SLA capacity or independent validation.
 
 ## Inspect or check

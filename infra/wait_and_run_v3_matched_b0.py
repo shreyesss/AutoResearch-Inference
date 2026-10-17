@@ -76,7 +76,7 @@ def main() -> int:
             raise RuntimeError(f"Existing waiter status requires inspection: {STATUS}")
         state = {"schema_version": "matched-evaluator-b0-waiter-v1",
                  "status": "waiting", "started_at_utc": now(),
-                 "gpu_work_started": False, "sla_capacity_confirmed": False,
+                 "evaluator_run_invoked": False, "sla_capacity_confirmed": False,
                  "source_tmux": SOURCE_TMUX}
         save(state)
         try:
@@ -104,7 +104,7 @@ def main() -> int:
             if child("check", preflight_log, timeout_s=120) != 0:
                 raise RuntimeError(f"matched evaluator B0 preflight blocked; inspect {preflight_log}")
             state["status"] = "running_matched_evaluator_b0"
-            state["gpu_work_started"] = True
+            state["evaluator_run_invoked"] = True
             save(state)
             run_log = ARTIFACTS / "matched-evaluator-b0-waiter-run.log"
             if child("run", run_log, timeout_s=21600) != 0:

@@ -91,6 +91,7 @@ def test_watcher_records_preflight_failure_and_refuses_rerun(tmp_path, monkeypat
     monkeypatch.setattr(watcher, "STATUS", root / "candidate-search-status.json")
     monkeypatch.setattr(watcher, "wait_for_profile", lambda *_: {"study_sha256": "pin"})
     monkeypatch.setattr(watcher, "no_prior_proposals", lambda: None)
+    monkeypatch.setattr(watcher, "controller_runtime_pin", lambda: {"image_id": "pin"})
     monkeypatch.setattr(watcher, "run_command", lambda *_args, **_kwargs: (1, "", False))
     monkeypatch.setattr(watcher, "idle_gpu", lambda: pytest.fail("GPU gate reached"))
     with pytest.raises(RuntimeError, match="preflight failed"):
@@ -101,6 +102,55 @@ def test_watcher_records_preflight_failure_and_refuses_rerun(tmp_path, monkeypat
     assert status["sealed_test_touched"] is False
     with pytest.raises(RuntimeError, match="existing candidate search status"):
         watcher.run_waiter(60)
+
+
+def test_controller_preflight_and_search_share_docker_runtime(tmp_path, monkeypatch):
+    root = tmp_path / ".artifacts/v3-independent-capture"
+    pin = {"image_id": "sha256:current"}
+    seen: list[list[str]] = []
+    monkeypatch.setattr(watcher, "INPUT_ROOT", root)
+    monkeypatch.setattr(watcher, "STATUS", root / "status.json")
+    monkeypatch.setattr(watcher, "wait_for_profile", lambda *_: {
+        "study_sha256": "study", "policy_sha256": "policy"})
+    monkeypatch.setattr(watcher, "no_prior_proposals", lambda: None)
+    monkeypatch.setattr(watcher, "controller_runtime_pin", lambda: pin)
+    monkeypatch.setattr(watcher, "idle_gpu", lambda: None)
+
+    def fake_run(argv, *_args, **_kwargs):
+        seen.append(argv)
+        if "--check" in argv:
+            return 0, json.dumps({"status": "ready", "study_sha256": "study",
+                                  "policy_sha256": "policy", "capacity_confirmed": False}), False
+        return 0, json.dumps({"campaign_id": watcher.CAMPAIGN_ID,
+                              "status": "development_screen_complete",
+                              "capacity_confirmed": False}), False
+
+    monkeypatch.setattr(watcher, "run_command", fake_run)
+    result = watcher.run_waiter(60)
+    assert result["status"] == "development_search_observed"
+    assert len(seen) == 2
+    assert seen[0][0:5] == seen[1][0:5] == [
+        "docker", "exec", "-w", str(watcher.ROOT), watcher.CONTROLLER_CONTAINER]
+    assert seen[0][-1] == "--check" and seen[1] == seen[0][:-1]
+
+
+def test_controller_pin_rejects_rebuilt_image_mismatch(monkeypatch):
+    class Result:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(argv, **_kwargs):
+        if argv[:2] == ["docker", "inspect"]:
+            return Result(json.dumps([{"State": {"Running": True},
+                                       "Image": "sha256:old", "Config": {"Image": watcher.CONTROLLER_IMAGE},
+                                       "Mounts": []}]))
+        if argv[:3] == ["docker", "image", "inspect"]:
+            return Result(json.dumps([{"Id": "sha256:new"}]))
+        pytest.fail("stale image should be rejected before Docker exec")
+
+    monkeypatch.setattr(watcher.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="container, current image"):
+        watcher.controller_runtime_pin()
 
 
 def test_watcher_blocks_when_profiler_disappears_without_receipt(tmp_path, monkeypatch):

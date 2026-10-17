@@ -30,9 +30,12 @@ PROFILE_RECEIPT = INPUT_ROOT / "b0-sla-profile-receipt.json"
 PROFILE_INVALID = INPUT_ROOT / "b0-sla-profile-invalid.json"
 STUDY = INPUT_ROOT / "sla-study-activated.json"
 B0_RECEIPT = INPUT_ROOT / "matched-evaluator-b0-receipt.json"
-CAMPAIGN = ROOT / "configs/campaign-sla-serving-v3.json"
-OUT = ROOT / ".artifacts/autoresearch-codebase/qwen38-27b-sla-serving-v3/real"
-STATUS = INPUT_ROOT / "candidate-search-status.json"
+CAMPAIGN_ID = "qwen38-27b-sla-serving-v3b"
+CAMPAIGN = ROOT / "configs/campaign-sla-serving-v3b.json"
+OUT = ROOT / ".artifacts/autoresearch-codebase" / CAMPAIGN_ID / "real"
+STATUS = INPUT_ROOT / "candidate-search-v3b-status.json"
+CONTROLLER_CONTAINER = "deploy-controller-1"
+CONTROLLER_IMAGE = "iar-controller:0.1"
 PROFILER_SESSION = "iar-v3-sla-profiler"
 UPSTREAM_SESSIONS = ("iar-v3-dev-overnight", "iar-v3-b0-waiter", PROFILER_SESSION)
 
@@ -146,10 +149,54 @@ def no_prior_proposals() -> None:
     ledger_path = OUT / "ledger.sqlite3"
     if ledger_path.is_file():
         ledger = Ledger(ledger_path)
-        if ledger.events("qwen38-27b-sla-serving-v3", "proposal"):
+        if ledger.events(CAMPAIGN_ID, "proposal"):
             raise RuntimeError("v3 candidate proposals already exist; never rerun automatically")
     if (OUT / "sla-search-summary.json").exists():
         raise RuntimeError("v3 candidate search already completed")
+
+
+def controller_runtime_pin() -> dict[str, str]:
+    """Refuse stale/replaced controller images before either CLI invocation.
+
+    The controller's package is copied into the image at build time while the
+    repository is bind-mounted read-only. Check the copied source, not merely
+    the visible mount, so a host edit cannot masquerade as a rebuilt image.
+    """
+    inspect = json.loads(subprocess.run(
+        ["docker", "inspect", CONTROLLER_CONTAINER], capture_output=True,
+        text=True, check=True, timeout=15).stdout)[0]
+    image = json.loads(subprocess.run(
+        ["docker", "image", "inspect", CONTROLLER_IMAGE], capture_output=True,
+        text=True, check=True, timeout=15).stdout)[0]
+    mounts = {item["Destination"]: item for item in inspect.get("Mounts", [])}
+    if (not inspect["State"]["Running"] or inspect["Image"] != image["Id"]
+            or inspect["Config"]["Image"] != CONTROLLER_IMAGE
+            or mounts.get(str(ROOT), {}).get("RW") is not False
+            or mounts.get(str(ROOT / ".artifacts"), {}).get("RW") is not True
+            or mounts.get("/var/run/docker.sock", {}).get("RW") is not True):
+        raise RuntimeError("controller container, current image or required mounts differ")
+    relative_paths = ["pyproject.toml"] + [
+        str(path.relative_to(ROOT)) for path in sorted((ROOT / "src").rglob("*.py"))]
+    host_hashes = {relative: sha(ROOT / relative) for relative in relative_paths}
+    code = ("import hashlib,json,pathlib; r=pathlib.Path('/opt/iar-source'); "
+            "ps=[pathlib.Path('pyproject.toml')]+[p.relative_to(r) for p in sorted((r/'src').rglob('*.py'))]; "
+            "print(json.dumps({str(p):hashlib.sha256((r/p).read_bytes()).hexdigest() for p in ps}))")
+    copied_hashes = json.loads(subprocess.run(
+        ["docker", "exec", CONTROLLER_CONTAINER, "python3", "-c", code],
+        capture_output=True, text=True, check=True, timeout=30).stdout)
+    wrapper_hash = subprocess.run(
+        ["docker", "exec", CONTROLLER_CONTAINER, "sha256sum", "/usr/local/bin/codex"],
+        capture_output=True, text=True, check=True, timeout=15).stdout.split()[0]
+    if copied_hashes != host_hashes or wrapper_hash != sha(ROOT / "deploy/codex-isolated"):
+        raise RuntimeError("controller image code or isolated Codex wrapper is stale")
+    campaign = read(CAMPAIGN)
+    if campaign.get("campaign_id") != CAMPAIGN_ID:
+        raise RuntimeError("versioned v3b campaign identity differs")
+    return {"container_id": inspect["Id"], "image_id": image["Id"],
+            "source_tree_sha256": hashlib.sha256(json.dumps(
+                copied_hashes, sort_keys=True).encode()).hexdigest(),
+            "isolated_wrapper_sha256": wrapper_hash,
+            "campaign_sha256": sha(CAMPAIGN)}
 
 
 def idle_gpu() -> None:
@@ -226,7 +273,7 @@ def wait_for_profile(timeout_s: int, state: dict[str, Any]) -> dict[str, Any]:
 
 def run_waiter(timeout_s: int) -> dict[str, Any]:
     INPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    with (INPUT_ROOT / "candidate-search-watcher.lock").open("w") as lock:
+    with (INPUT_ROOT / "candidate-search-v3b-watcher.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if STATUS.exists():
             raise RuntimeError("existing candidate search status requires inspection; refusing rerun")
@@ -237,13 +284,16 @@ def run_waiter(timeout_s: int) -> dict[str, Any]:
             evidence = wait_for_profile(timeout_s, state)
             stamp(state, "b0_profile_gate_passed", evidence=evidence)
             no_prior_proposals()
-            check_argv = [str(ROOT / ".venv/bin/iar"), "sla-search", "--backend", "real",
+            controller_pin = controller_runtime_pin()
+            stamp(state, "controller_image_verified", controller=controller_pin)
+            check_argv = ["docker", "exec", "-w", str(ROOT), CONTROLLER_CONTAINER,
+                          "iar", "sla-search", "--backend", "real",
                           "--campaign", str(CAMPAIGN), "--check"]
             stamp(state, "gpu_free_search_preflight", argv=check_argv)
             check_code, check_stdout, check_timeout = run_command(
-                check_argv, INPUT_ROOT / "candidate-search-preflight.log", timeout_s=600)
+                check_argv, INPUT_ROOT / "candidate-search-v3b-preflight.log", timeout_s=600)
             if check_code or check_timeout:
-                raise RuntimeError("GPU-free SLA search preflight failed; inspect candidate-search-preflight.log")
+                raise RuntimeError("GPU-free SLA search preflight failed; inspect candidate-search-v3b-preflight.log")
             preflight = json.loads(check_stdout)
             if (preflight.get("status") != "ready"
                     or preflight.get("study_sha256") != evidence["study_sha256"]
@@ -253,16 +303,18 @@ def run_waiter(timeout_s: int) -> dict[str, Any]:
             stamp(state, "preflight_passed", preflight=preflight)
             no_prior_proposals()
             idle_gpu()
+            if controller_runtime_pin() != controller_pin:
+                raise RuntimeError("controller image, copied code, wrapper or campaign changed after preflight")
             search_argv = check_argv[:-1]
             stamp(state, "candidate_search_running", argv=search_argv)
             code, stdout, timed_out = run_command(
-                search_argv, INPUT_ROOT / "candidate-search-console.log", timeout_s=72000)
+                search_argv, INPUT_ROOT / "candidate-search-v3b-console.log", timeout_s=72000)
             stamp(state, "candidate_search_finished", exit_code=code, timed_out=timed_out)
             if code or timed_out:
-                raise RuntimeError("candidate search failed or timed out; inspect console and ledger")
+                raise RuntimeError("candidate search failed or timed out; inspect v3b console and ledger")
             result = json.loads(stdout)
             if (result.get("capacity_confirmed") is not False
-                    or result.get("campaign_id") != "qwen38-27b-sla-serving-v3"
+                    or result.get("campaign_id") != CAMPAIGN_ID
                     or result.get("status") != "development_screen_complete"):
                 raise RuntimeError("candidate search result identity or claim is invalid")
             state["status"] = "development_search_observed"

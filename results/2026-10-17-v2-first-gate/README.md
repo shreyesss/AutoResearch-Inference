@@ -57,6 +57,7 @@ records; this efficiency change has not yet been measured.
 
 - B0: `.artifacts/autoresearch-codebase/qwen38-27b-eval-v2/real/qwen38-27b-eval-v2/eval-6145d5adcd8647b6a31e5530fb2a534a/`
 - Candidate: `.artifacts/autoresearch-codebase/qwen38-27b-eval-v2/real/qwen38-27b-eval-v2/eval-f6a75cba60564b36b434f0b078f7606d/`
+- First complete TPE trial: `.artifacts/autoresearch-codebase/qwen38-27b-eval-v2/real/qwen38-27b-eval-v2/eval-8d13c0e2621140b38c2007377c4c1b2f/`
 - Agent research, notes, cited evidence and exact proposal:
   `.artifacts/autoresearch-codebase/qwen38-27b-eval-v2/real/proposals/attempt-0001/`
 - Qualification, ledger, Optuna study and reports:
@@ -72,3 +73,11 @@ failed during that correction. Its server log and the operator intervention
 remain in the artifact ledger. After the serving study finishes, the persistent
 session runs an exploratory AIPerf adaptive
 rate pilot on B0. Neither an SLA nor a capacity boundary has been defined.
+
+At `2026-10-17T21:12Z`, the first post-restart complete TPE trial,
+`optuna-00004`, tested batch budget 16384, threshold 8192 and eager off.
+It was valid/normal with 36/36 completions: 55.046 output tokens/s,
+TTFT p90 5697.9 ms and TPOT p90 58.53 ms/token. Its Optuna objectives were
+`[0.9996308 throughput ratio, 1.0025544 worst p90 latency ratio]` against B0.
+The controller then started `optuna-00005` automatically. This is a loop-health
+check and an exploratory point, not a confirmed gain.

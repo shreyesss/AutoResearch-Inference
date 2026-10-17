@@ -59,6 +59,8 @@ def test_study_activation_requires_exact_matched_b0_receipt(tmp_path):
     assert study["adaptive_development"]["baseline_cell_paths"] == [cells[scenario]["path"]]
     assert study["adaptive_development"]["matched_baseline_replication_cell_paths"] == [cells[repeat]["path"]]
     assert study["adaptive_development"]["manifest_sha256"] == _sha(manifest_path)
+    assert study["adaptive_development"]["baseline_cell_sha256_by_path"][cells[scenario]["path"]] == cells[scenario]["sha256"]
+    assert study["adaptive_development"]["baseline_raw_sha256_by_path"][cells[repeat]["path"]] == cells[repeat]["raw_requests_sha256"]
     assert study["baseline_adaptive_run_paths"] == []
     (tmp_path / cells[repeat]["raw_requests_path"]).write_text("changed\n")
     with pytest.raises(ValueError, match="changed or became ineligible"):

@@ -164,6 +164,28 @@ def test_v3_agent_stages_approved_policy_and_class_assessed_b0_before_proposal(t
     policy_path.write_text(json.dumps(policy))
     policy_digest = hashlib.sha256(policy_path.read_bytes()).hexdigest()
     baseline_id = resolve_config({}, PinnedEnvironment(root / "models/qwen")).config_id
+    manifest_path = root / "configs/dev-manifest.json"
+    classes_path = root / "configs/dev-classes.json"
+    manifest_path.write_text(json.dumps({"scenario_id": "dev-1042", "n_planned": 240}))
+    classes_path.write_text(json.dumps({"classes": ["chat", "agent", "code", "document"]}))
+    matched = {}
+    for scenario_id in ("dev-1042", "dev-1043"):
+        folder = root / "artifacts" / scenario_id
+        folder.mkdir(parents=True)
+        raw_b0 = folder / "requests.jsonl"
+        raw_b0.write_text('{"request_id":"one"}\n')
+        cell_path = folder / "cell-result.json"
+        cell_path.write_text(json.dumps({"cell_id": f"B0:{scenario_id}",
+                                         "scenario_id": scenario_id, "config_id": baseline_id,
+                                         "status": "valid", "behavior": "normal",
+                                         "counts": {"planned": 240, "dispatched": 240,
+                                                    "completed": 240, "failed": 0,
+                                                    "timed_out": 0, "canceled": 0,
+                                                    "censored": 0, "not_dispatched": 0},
+                                         "artifacts": {"raw_requests": str(raw_b0)}}))
+        matched[str(cell_path.relative_to(root))] = {
+            "cell_sha256": hashlib.sha256(cell_path.read_bytes()).hexdigest(),
+            "raw_sha256": hashlib.sha256(raw_b0.read_bytes()).hexdigest()}
     profile_path = root / "artifacts/dev/sla-profile-points.json"
     profile_path.parent.mkdir(parents=True)
     raw = root / "artifacts/dev/native.jsonl"
@@ -182,7 +204,17 @@ def test_v3_agent_stages_approved_policy_and_class_assessed_b0_before_proposal(t
     profile_path.write_text(json.dumps(profile))
     study = {"schema_version": "sla-study-scaffold-v1", "claim": "not_runnable_until_qualified",
              "source_campaign_path": "configs/source.json",
-             "adaptive_development": {"scenario_id": "dev-1042"},
+             "adaptive_development": {"scenario_id": "dev-1042",
+                                      "manifest_path": "configs/dev-manifest.json",
+                                      "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+                                      "request_class_path": "configs/dev-classes.json",
+                                      "request_class_sha256": hashlib.sha256(classes_path.read_bytes()).hexdigest(),
+                                      "baseline_cell_paths": ["artifacts/dev-1042/cell-result.json"],
+                                      "matched_baseline_replication_cell_paths": ["artifacts/dev-1043/cell-result.json"],
+                                      "baseline_cell_sha256_by_path": {
+                                          path: item["cell_sha256"] for path, item in matched.items()},
+                                      "baseline_raw_sha256_by_path": {
+                                          path: item["raw_sha256"] for path, item in matched.items()}},
              "policy": {"path": "configs/policy.json", "agent_evidence_source": "configs/policy.json",
                         "sha256": policy_digest, "approval_status": "approved", "approved_by": "user"},
              "baseline_adaptive_run_paths": [{"source_path": "artifacts/dev/sla-profile-points.json",
@@ -194,6 +226,10 @@ def test_v3_agent_stages_approved_policy_and_class_assessed_b0_before_proposal(t
     assert packet["capacity_confirmed"] is False
     assert packet["policy_sha256"] == policy_digest
     assert packet["baseline_adaptive_studies"][0]["class_assessed_point_count"] == 1
+    assert [cell["role"] for cell in packet["matched_b0_cells"]] == [
+        "development_anchor", "development_replication"]
+    assert all((run_dir / cell["raw_requests"]["path"]).is_file()
+               for cell in packet["matched_b0_cells"])
     native = packet["baseline_adaptive_studies"][0]["native_artifacts"][0]
     assert (run_dir / native["staged"]["path"]).read_bytes() == raw.read_bytes()
     assert json.loads((run_dir / packet["policy_path"]).read_text()) == policy

@@ -95,6 +95,65 @@ def _checked_study_source(root: Path, relative: str, digest: str) -> Path:
     return path
 
 
+def _stage_matched_b0(study: dict[str, Any], root: Path, run_dir: Path,
+                      baseline_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    development = study["adaptive_development"]
+    manifest = _checked_study_source(root, development["manifest_path"],
+                                     development.get("manifest_sha256"))
+    classes = _checked_study_source(root, development["request_class_path"],
+                                    development.get("request_class_sha256"))
+    manifest_staged = run_dir / "sla-study" / "development-manifest.json"
+    classes_staged = run_dir / "sla-study" / "development-classes.json"
+    _write_snapshot(manifest_staged, manifest.read_bytes())
+    _write_snapshot(classes_staged, classes.read_bytes())
+    anchor = development.get("baseline_cell_paths")
+    replication = development.get("matched_baseline_replication_cell_paths")
+    if (not isinstance(anchor, list) or len(anchor) != 1
+            or not isinstance(replication, list) or not replication):
+        raise ProposerError("v3 agent requires matched B0 anchor and independent replication cells")
+    cells = []
+    for role, paths in (("development_anchor", anchor), ("development_replication", replication)):
+        for position, relative in enumerate(paths):
+            digest_expected = development.get("baseline_cell_sha256_by_path", {}).get(relative)
+            raw_digest_expected = development.get("baseline_raw_sha256_by_path", {}).get(relative)
+            source = _checked_study_source(root, relative, digest_expected)
+            cell = json.loads(source.read_text())
+            raw_source = Path(str(cell.get("artifacts", {}).get("raw_requests", ""))).resolve()
+            if (not raw_source.is_relative_to(root) or not raw_source.is_file()
+                    or raw_source.is_symlink() or not isinstance(raw_digest_expected, str)
+                    or len(raw_digest_expected) != 64
+                    or hashlib.sha256(raw_source.read_bytes()).hexdigest() != raw_digest_expected):
+                raise ProposerError("matched B0 raw request evidence is missing or changed")
+            counts = cell.get("counts", {})
+            if (cell.get("config_id") != baseline_id
+                    or cell.get("status") != "valid" or cell.get("behavior") != "normal"
+                    or counts.get("planned") != 240 or counts.get("dispatched") != 240
+                    or counts.get("completed") != 240
+                    or any(counts.get(key) != 0 for key in
+                           ("failed", "timed_out", "canceled", "censored", "not_dispatched"))
+                    or (role == "development_anchor"
+                        and cell.get("scenario_id") != development["scenario_id"])):
+                raise ProposerError("matched B0 CellResult is not qualified")
+            if raw_source.stat().st_size > 16 * 1024 * 1024:
+                raise ProposerError("matched B0 raw request file exceeds 16 MiB staging limit")
+            destination = run_dir / "sla-study" / "matched-b0" / f"{role}-{position:02d}"
+            cell_staged = destination / "cell-result.json"
+            raw_staged = destination / raw_source.name
+            _write_snapshot(cell_staged, source.read_bytes())
+            _write_snapshot(raw_staged, raw_source.read_bytes())
+            cells.append({"role": role, "evidence_id": str(cell["cell_id"]),
+                          "scenario_id": cell["scenario_id"], "config_id": baseline_id,
+                          "metrics": cell.get("metrics", {}), "counts": counts,
+                          "source": {"path": str(cell_staged.relative_to(run_dir)),
+                                     "sha256": digest_expected},
+                          "raw_requests": {"path": str(raw_staged.relative_to(run_dir)),
+                                           "sha256": raw_digest_expected}})
+    return cells, {"manifest": {"path": str(manifest_staged.relative_to(run_dir)),
+                                "sha256": development["manifest_sha256"]},
+                   "class_sidecar": {"path": str(classes_staged.relative_to(run_dir)),
+                                     "sha256": development["request_class_sha256"]}}
+
+
 def _stage_sla_study(study_path: Path, run_dir: Path, *, root: Path | None = None) -> dict[str, Any]:
     """Stage approved policy and class-aware B0 trials before a v3 Codex proposal.
 
@@ -134,6 +193,7 @@ def _stage_sla_study(study_path: Path, run_dir: Path, *, root: Path | None = Non
     _write_snapshot(run_dir / "sla-study" / "study.json", study_bytes)
     policy_staged = run_dir / "sla-study" / "approved-policy.json"
     _write_snapshot(policy_staged, policy_path.read_bytes())
+    matched_b0, development_inputs = _stage_matched_b0(study, root, run_dir, baseline_id)
     indexed = []
     for number, entry in enumerate(runs):
         if not isinstance(entry, dict):
@@ -249,6 +309,8 @@ def _stage_sla_study(study_path: Path, run_dir: Path, *, root: Path | None = Non
               "policy_id": policy["policy_id"], "policy_sha256": policy_ref["sha256"],
               "policy_path": str(policy_staged.relative_to(run_dir)),
               "target_type": "approved_research_target_not_product_sla",
+              "development_inputs": development_inputs,
+              "matched_b0_cells": matched_b0,
               "baseline_adaptive_studies": indexed, "capacity_confirmed": False,
               "limitation": "Adaptive observations alone do not confirm an SLA boundary; independent windows remain required."}
     _write_snapshot(run_dir / "sla-study-index.json", (json.dumps(packet, indent=2) + "\n").encode())
@@ -664,6 +726,7 @@ class CodexProposer:
             research_index["sla_policy_id"] = sla_evidence["policy_id"]
             research_index["sla_policy_sha256"] = sla_evidence["policy_sha256"]
             research_index["baseline_adaptive_studies"] = len(sla_evidence["baseline_adaptive_studies"])
+            research_index["matched_b0_cells"] = len(sla_evidence["matched_b0_cells"])
         _write_snapshot(run_dir / "research-index.json", (json.dumps(research_index, indent=2) + "\n").encode())
         # The isolated proposer runs as uid 1000 while the controller may run as
         # root. Codex writes its last message itself, so pre-create only that
@@ -742,6 +805,7 @@ class CodexProposer:
         allowed.update(item["cell_id"] for item in measurements["cells"]
                        if isinstance(item.get("cell_id"), str))
         if sla_evidence is not None:
+            allowed.update(item["evidence_id"] for item in sla_evidence["matched_b0_cells"])
             allowed.update(item["evidence_id"] for item in sla_evidence["baseline_adaptive_studies"])
             allowed.update(str(point["point_id"])
                            for study in sla_evidence["baseline_adaptive_studies"]

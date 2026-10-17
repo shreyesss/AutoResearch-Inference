@@ -113,6 +113,10 @@ def build_activated_study(root: Path, template: dict[str, Any], receipt: dict[st
     development["baseline_cell_paths"] = cell_paths
     development["matched_baseline_replication_cell_paths"] = [
         entry["path"] for name, entry in sorted(cells.items()) if name != scenario_id]
+    development["baseline_cell_sha256_by_path"] = {
+        entry["path"]: entry["sha256"] for entry in cells.values()}
+    development["baseline_raw_sha256_by_path"] = {
+        entry["path"]: entry["raw_requests_sha256"] for entry in cells.values()}
     development["minimum_baseline_cells"] = 1
     study["baseline_adaptive_run_paths"] = []
     return study

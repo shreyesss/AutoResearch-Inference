@@ -211,6 +211,7 @@ class SLAServingController:
         result = {"cell_id": cell["cell_id"], "scenario_id": cell["scenario_id"],
                   "config_id": cell["config_id"], "observed_feasible": assessment["observed_feasible"],
                   "assessment": assessment, "raw_requests": str(raw_path),
+                  "raw_requests_sha256": hashlib.sha256(raw_path.read_bytes()).hexdigest(),
                   "claim": "matched_development_point_only_no_confirmed_capacity"}
         return result
 

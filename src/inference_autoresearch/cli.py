@@ -159,6 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="iar", description="Pinned Qwen serving experiments")
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("doctor", "characterize", "prepare", "baseline", "pilot", "evaluate", "adaptive",
+                    "sla-profile",
                     "assess-adaptive-sla",
                     "qualify", "search", "report", "inspect"):
         item = sub.add_parser(command)
@@ -169,6 +170,13 @@ def build_parser() -> argparse.ArgumentParser:
             item.add_argument("--candidate")
         if command == "adaptive":
             item.add_argument("--candidate", help="Optional typed v2 serving override; omitted uses B0.")
+        if command == "sla-profile":
+            item.add_argument("--study", default="configs/sla-study-v3.template.json")
+            item.add_argument("--candidate", help="Optional typed serving override; omitted uses B0.")
+            item.add_argument("--initial-rate-rps", type=float, default=0.2)
+            item.add_argument("--min-rate-rps", type=float, default=0.1)
+            item.add_argument("--max-rate-rps", type=float, default=1.6)
+            item.add_argument("--max-points", type=int, default=6)
         if command == "assess-adaptive-sla":
             item.add_argument("--policy", required=True, help="Explicit versioned application SLA policy JSON.")
             item.add_argument("--adaptive-run", required=True,
@@ -323,6 +331,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if command == "adaptive":
         return _run_adaptive_pilot(args, campaign, campaign_path, domain, registry,
                                    artifact_root, ledger)
+    if command == "sla-profile":
+        return _run_sla_profile(args, campaign, campaign_path, domain, registry,
+                                artifact_root, ledger, project_root)
     engine = _engine(args.backend, campaign, domain, registry, artifact_root, ledger, campaign_path)
     scenario_ids = args.scenarios or campaign["screen_scenario_ids"]
     if len(scenario_ids) != len(set(scenario_ids)):
@@ -490,6 +501,128 @@ def _run_adaptive_sla_assessment(args: argparse.Namespace,
             "policy_id": policy["policy_id"], "point_count": assessment["point_count"],
             "observed_feasible_point_count": assessment["observed_feasible_point_count"],
             "claim": assessment["claim"], "capacity_confirmed": False}
+
+
+def _run_sla_profile(args: argparse.Namespace, campaign: dict[str, Any],
+                     campaign_path: Path, domain: Domain, registry: ScenarioRegistry,
+                     artifact_root: Path, ledger: Ledger, project_root: Path) -> dict[str, Any]:
+    """One fresh pinned server, class-aware external rate planner, raw AIPerf points."""
+    from inference_autoresearch.benchmark.sla_profiler import SLAProfileSpec, run_sla_profile
+    from inference_autoresearch.contracts import ScenarioManifest
+    from inference_autoresearch.evaluation.sla_study import audit_sla_study
+    from inference_autoresearch.runtime.config import resolve_config
+    from inference_autoresearch.workloads.registry import verify_scenario
+
+    if args.backend != "real" or campaign.get("campaign_id") != "qwen38-27b-eval-v2":
+        raise ValueError("iar sla-profile requires --backend real --campaign configs/campaign-v2.json")
+    study_path = _file(args.study, campaign_path).resolve()
+    readiness = audit_sla_study(study_path, root=project_root)
+    if readiness["status"] != "inputs_ready_for_new_campaign":
+        raise ValueError(f"SLA study inputs are not qualified: {readiness['blockers']}")
+    study = json.loads(study_path.read_text())
+    if _file(study["source_campaign_path"], campaign_path).resolve() != campaign_path:
+        raise ValueError("SLA study source campaign differs from requested campaign")
+    screen = registry.load(study["screen"]["scenario_id"])
+    development_ref = study["adaptive_development"]
+    development_path = _file(development_ref["manifest_path"], campaign_path).resolve()
+    development_manifest = json.loads(development_path.read_text())
+    checked = verify_scenario(development_manifest, root=project_root, require_validated=True)
+    development = ScenarioManifest(
+        scenario_id=development_manifest["scenario_id"],
+        workload_id=development_manifest["workload_name"], path=development_path,
+        group_id=development_manifest["workload_group_id"],
+        offered_load=development_manifest["offered_load"],
+        load_unit=development_manifest["load_unit"],
+        expected_count=development_manifest["n_planned"],
+        output_policy=development_manifest["output_policy"],
+        traffic_mode=development_manifest["traffic_mode"],
+        history_mode=development_manifest["history_mode"],
+        cache_protocol=development_manifest["cache_protocol"],
+        metadata={"manifest": development_manifest, "asset": str(checked["payload_path"]),
+                  "registry_root": str(project_root),
+                  "request_classes": checked["request_classes"],
+                  "request_class_path": str(checked["request_class_path"])})
+    policy_path = _file(study["policy"]["path"], campaign_path).resolve()
+    policy = json.loads(policy_path.read_text())
+    spec = SLAProfileSpec(initial_rate_rps=args.initial_rate_rps,
+                          min_rate_rps=args.min_rate_rps,
+                          max_rate_rps=args.max_rate_rps,
+                          max_qualified_points=args.max_points)
+    spec.validate(screen, development, policy)
+    candidate = _candidate(Path(args.candidate), domain) if args.candidate else CandidateProposal(
+        proposal_id="B0-sla-profile", parameters={}, experiment_kind="exploration",
+        hypothesis="Locate observed class-aware SLA boundary on qualified development traffic")
+    domain.validate(candidate.parameters)
+    engine = _engine("real", campaign, domain, registry, artifact_root, ledger, campaign_path)
+    engine.benchmark.preflight_tokenizer(development)
+    resolved = resolve_config(candidate.parameters, engine._pinned(), engine._domain())
+    run_id = "sla-profile-" + uuid.uuid4().hex
+    run_dir = artifact_root / "sla-profile" / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    (run_dir / "proposal.json").write_text(json.dumps(asdict(candidate), indent=2, sort_keys=True) + "\n")
+    (run_dir / "resolved-config.json").write_text(json.dumps(asdict(resolved), indent=2,
+                                                           sort_keys=True, default=str) + "\n")
+    (run_dir / "study.json").write_text(json.dumps(study, indent=2, sort_keys=True) + "\n")
+    ledger.append(campaign["campaign_id"], "sla_profile_transition", run_id,
+                  {"state": "validated", "config_id": resolved.config_id,
+                   "development_scenario_id": development.scenario_id,
+                   "claim": "observed_development_points_no_confirmed_capacity"})
+    started = time.monotonic()
+    handle = None
+    result: dict[str, Any] | None = None
+    try:
+        handle = engine.runtime.start(resolved, run_dir / "server")
+        ledger.append(campaign["campaign_id"], "sla_profile_transition", run_id,
+                      {"state": "warming", "server_id": handle.server_id})
+        engine.benchmark.prepare(handle, development, run_dir / "warmup")
+        ledger.append(campaign["campaign_id"], "sla_profile_transition", run_id,
+                      {"state": "measuring", "screen_count": 36,
+                       "qualified_count_per_point": 240,
+                       "max_qualified_points": spec.max_qualified_points})
+        result = run_sla_profile(handle, screen, development, policy, spec,
+                                 run_dir / "aiperf", engine.benchmark,
+                                 preparation_receipt=run_dir / "warmup" / "preparation-receipt.json",
+                                 policy_source_path=policy_path)
+        from inference_autoresearch.search.report import export_sla_profile_class_points
+        class_report = export_sla_profile_class_points(result, run_dir / "report")
+        point_path = run_dir / "aiperf" / "sla-profile-points.json"
+        artifacts = {"all_points": str(point_path), "aiperf_dir": str(run_dir / "aiperf"),
+                     "server": str(run_dir / "server"), "policy": str(policy_path),
+                     "study": str(study_path), **class_report}
+        valid = [point for point in result["points"]
+                 if point["qualified"] and point["qualified"]["status"] == "valid"]
+        ledger.append(campaign["campaign_id"], "sla_profile_study", run_id,
+                      {"status": "observed" if valid else "invalid",
+                       "config_id": resolved.config_id,
+                       "claim": result["claim"], "capacity_confirmed": False,
+                       "point_count": len(result["points"]),
+                       "valid_qualified_point_count": len(valid), "artifacts": artifacts})
+        return {"run_id": run_id, "status": "observed" if valid else "invalid",
+                "claim": result["claim"], "capacity_confirmed": False,
+                "point_count": len(result["points"]),
+                "valid_qualified_point_count": len(valid), "artifacts": artifacts}
+    except Exception as exc:
+        failure = {"status": "failed", "error_type": type(exc).__name__,
+                   "reason": str(exc), "artifacts_dir": str(run_dir)}
+        (run_dir / "failure.json").write_text(json.dumps(failure, indent=2) + "\n")
+        ledger.append(campaign["campaign_id"], "sla_profile_study", run_id, failure)
+        raise
+    finally:
+        pending_error = sys.exc_info()[0] is not None
+        cleanup_error = None
+        if handle is not None:
+            try:
+                engine.runtime.stop(handle)
+            except Exception as exc:
+                cleanup_error = exc
+        ledger.append(campaign["campaign_id"], "sla_profile_transition", run_id,
+                      {"state": "cleanup_failed" if cleanup_error else
+                                "stopped" if handle is not None else "startup_failed",
+                       "wall_seconds": round(time.monotonic() - started, 3),
+                       "measurement_completed": result is not None,
+                       "cleanup_error": str(cleanup_error) if cleanup_error else None})
+        if cleanup_error and not pending_error:
+            raise cleanup_error
 
 
 def main(argv: list[str] | None = None) -> int:

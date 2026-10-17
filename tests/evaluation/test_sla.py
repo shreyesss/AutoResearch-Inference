@@ -23,6 +23,10 @@ def test_observed_sla_requires_complete_class_accounting_and_reports_denominator
     assert result["observed_feasible"] is False
     assert "ttft_attainment_unconfirmed" in result["classes"]["chat"]["reason_codes"]
     assert result["classes"]["chat"]["ttft_observed_ms"] == pytest.approx(190)
+    diagnostics = result["classes"]["chat"]["diagnostic_percentiles_ms"]
+    assert diagnostics["ttft"]["p50"] == pytest.approx(150)
+    assert diagnostics["ttft"]["p99"] == pytest.approx(199)
+    assert diagnostics["tpot"]["p95"] == pytest.approx(39.5)
     assert result["classes"]["chat"]["ttft_eligible"] == 2
     with pytest.raises(SLAContractError, match="exactly match"):
         assess_observed_point(rows[:1], _policy(), {"a": "chat", "b": "chat"})

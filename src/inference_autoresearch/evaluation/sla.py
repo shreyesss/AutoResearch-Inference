@@ -151,6 +151,12 @@ def assess_observed_point(
             "ttft_eligible": len(ttfts), "tpot_eligible": len(tpots),
             "error_fraction": error_fraction, "percentile": percentile,
             "ttft_observed_ms": ttft, "tpot_observed_ms": tpot,
+            "diagnostic_percentiles_ms": {
+                "ttft": {key: _percentile(ttfts, fraction)
+                         for key, fraction in _PERCENTILES.items()},
+                "tpot": {key: _percentile(tpots, fraction)
+                         for key, fraction in _PERCENTILES.items()},
+            },
             "ttft_deadline_breaches": ttft_breaches,
             "tpot_deadline_breaches": tpot_breaches,
             "ttft_violation_upper_bound": ttft_upper,

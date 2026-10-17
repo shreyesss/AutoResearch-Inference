@@ -1,9 +1,10 @@
 # Adaptive evaluation plan for the Qwen serving study
 
-**Status: proposal for review; no evaluator or campaign behavior changed.** This
-document specifies the next protocol version. `configs/campaign-ops4.json`
-remains the qualified `fixed-four-v1` campaign until the new protocol and its
-own B0 are implemented and measured. BLIS is outside this phase.
+**Status: v2 screen, Optuna search, and exploratory adaptive CLI implemented;
+real v2 B0 and adaptive pilot are still being measured/validated.** The v2
+artifacts are `configs/campaign-v2.json` and
+`configs/evaluation-protocol-v2.json`. The older `configs/campaign-ops4.json`
+retains its separate `fixed-four-v1` evidence. BLIS is outside this phase.
 
 ## Objective and measured starting point
 
@@ -96,9 +97,12 @@ rate just to acquire samples changes the tested load.
 | 4. Adaptive load curve/capacity | On B0 and finalists, map the open-loop rate curve under declared bounds; keep concurrency ceiling nonbinding. Without numeric SLOs, label it exploratory. With SLOs, use `smooth_isotonic` for a noisy, approximately monotone boundary; compare `monotonic_sla` and BO/TPE on the same B0 budget. Preserve all points. | Every iteration sends real requests. Startup can be amortized within one server run; total may exceed 45 min for enough points/repeats. Measure it. |
 | 5. Sealed fixed-schedule test | Freeze selected configuration(s) before exposing test outcomes. Run matched B0 and candidates at predeclared load(s), independent content/arrival windows and sample budget. Enforce SLO, error, validity and uncertainty rules. | Paid for a small finalist set, not every proposal. |
 
-Gate 1 exists in the controller in a limited form, but `fixed-four-v1`
-explicitly disallows it; stages 2, 4 and 5 are **not implemented**. Introduce a
-versioned campaign/protocol and separate B0. A same-server four-task bundle
+Gate 1 is implemented for the separate `fast-gate-v2` campaign. Stage 4 has
+an exploratory `iar adaptive` command: one fresh server, disjoint warmup,
+AIPerf rate probes, full native history, per-point validation, and report
+plots. It has **not passed a real GPU pilot** and cannot claim an SLA boundary.
+Stages 2 and 5 are not implemented because independent development and sealed
+test manifests are not yet frozen. A same-server four-task bundle
 could avoid three starts (roughly 17 min of the recorded 22.5 min startup), but
 must be experimentally validated for cache residue, order and warmup effects;
 do not pool its values with fresh-server cells.

@@ -1,9 +1,12 @@
 # Agent research design for the upgraded evaluator
 
-Status: implementation proposal for review, **not an active campaign change**. The
-measured `qwen38-27b-ops4-v1` campaign, its B0 and candidate remain intact. Build
-this under a new campaign and protocol version after the evaluator design is
-approved. See `OPS4_EVALUATION_REDESIGN.md` and `SEARCH_SPACE_EXPANSION.md`.
+Status: the v2 mixed fast gate, Optuna outer search, evidence index, skill,
+and exploratory `iar adaptive` command are implemented. The new
+`qwen38-27b-eval-v2` campaign is acquiring its own real B0; independent
+development/held-out data, repeated confirmation, and SLA capacity are still
+future gates. The measured `qwen38-27b-ops4-v1` campaign and its records remain
+separate. See `OPS4_EVALUATION_REDESIGN.md` and
+`SERVING_SEARCH_EXPANSION_PLAN.md`.
 
 ## Mission and evidence the agent receives
 
@@ -37,12 +40,11 @@ prompt. Include the AIPerf native `search_history.json` and per-trial exports
 for capacity studies, **including invalid and overloaded points**. The agent
 gets plotted load curves and underlying point tables; plots alone are not data.
 
-The current `agent/SKILL.md` already uses a path-only prompt and instructs
-inspection of `context.json`, `research-index.json`, `measurements-index.json`,
-hash-checked evidence, and `history/`. `search/proposer.py` stages recent and
-frontier cells, including B0, with explicit file limits. It does **not** stage
-adaptive history or all older cells by default. The planned index extends this
-mechanism without forced long-context injection or hiding the source records.
+The `agent/SKILL.md` uses a path-only prompt and instructs inspection of
+`context.json`, `evaluation-index.json`, hash-checked evidence, and `history/`.
+`search/proposer.py` stages controller-visible development cells, including B0
+and all adaptive points, with links to native exports. This preserves file-based
+memory without forced long-context injection or hiding the source records.
 
 ## Research method and promotion authority
 
@@ -130,7 +132,9 @@ claims from measured GPU evidence.
 | Reporting | Extend `search/report.py` with every adaptive point, fixed-load and load-curve plots, per-class p50/p90/p99, validity flags, repeats/uncertainty and frontier provenance. | Reproduce a plotted point from native AIPerf exports. |
 | Agent budget comparison | Run equal-GPU-budget agent, outer optimizer and simple baselines on the same dev protocol; seal test during selection. | Compare confirmed frontier progress and GPU minutes, not proposal count alone. |
 
-The first build validation is **one versioned dev B0 repeat and one candidate
-through the fast gate**, with complete request accounting and readable agent
-packet. Only after its measured time and noise are known should we enable
-automatic promotion or adaptive capacity search. BLIS is outside this build.
+The immediate validation is **one versioned v2 B0 and one candidate through
+the fast gate**, with complete request accounting and readable agent packet.
+The overnight search may explore this gate, but its single-window results stay
+provisional. A real `iar adaptive` pilot and independent dev/test streams are
+separate checkpoints before capacity or generalization claims. BLIS is outside
+this build.

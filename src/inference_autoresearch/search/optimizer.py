@@ -38,7 +38,9 @@ class OptunaProposer:
         self.study_dir.mkdir(parents=True, exist_ok=True)
         self.storage_path = self.study_dir / "optuna.sqlite3"
         seed = int(campaign.get("search_budget", {}).get("optimizer_seed", 20261018))
-        sampler = optuna.samplers.NSGAIISampler(seed=seed)
+        # The overnight study has only 18 distinct proposals. NSGA-II's usual
+        # population would spend that budget on its random initial generation.
+        sampler = optuna.samplers.TPESampler(seed=seed, n_startup_trials=6)
         self.study = optuna.create_study(
             study_name=campaign["campaign_id"],
             storage=f"sqlite:///{self.storage_path}",
@@ -48,7 +50,7 @@ class OptunaProposer:
         )
         identity = {"campaign_hash": scientific_campaign_hash(campaign),
                     "domain_hash": domain.digest, "backend": backend,
-                    "objective_version": "mixed-throughput-vs-worst-p90-ratio-v1"}
+                    "objective_version": "mixed-throughput-vs-worst-p90-ratio-tpe-v2"}
         old = self.study.user_attrs.get("identity")
         if old is not None and old != identity:
             raise ValueError("Optuna study identity differs; use a new campaign/output directory")
@@ -107,7 +109,7 @@ class OptunaProposer:
             return CandidateProposal(
                 proposal_id=proposal_id, parameters=overrides,
                 experiment_kind="exploration",
-                hypothesis="Explore admitted vLLM serving settings using Optuna NSGA-II",
+                hypothesis="Explore admitted vLLM serving settings using multiobjective TPE",
                 expected_tradeoff="Measure output throughput against chat/long-prefill latency",
                 predictions=[{"observation": "mixed workload throughput and p90 latency",
                               "expected_change": "unknown; sampler exploration",

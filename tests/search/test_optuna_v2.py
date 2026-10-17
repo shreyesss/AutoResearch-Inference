@@ -38,6 +38,7 @@ def test_v2_optuna_search_uses_only_one_mixed_cell_and_resumes(tmp_path: Path):
     path, campaign, domain, _registry, root, ledger, evaluator, proposer = _setup(tmp_path)
     controller = SearchController(campaign, path, domain, proposer, evaluator,
                                   ledger, root, "mock")
+    assert isinstance(proposer.study.sampler, optuna.samplers.TPESampler)
     result = controller.run(max_proposals=2)
     assert result.proposed_count == result.tested_count == 2
     cells = [row["payload"] for row in ledger.events(campaign["campaign_id"], "cell")]

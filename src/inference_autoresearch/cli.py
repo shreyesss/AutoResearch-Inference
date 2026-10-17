@@ -8,6 +8,8 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -156,7 +158,7 @@ def _print(data: Any) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="iar", description="Pinned Qwen serving experiments")
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("doctor", "characterize", "prepare", "baseline", "pilot", "evaluate",
+    for command in ("doctor", "characterize", "prepare", "baseline", "pilot", "evaluate", "adaptive",
                     "qualify", "search", "report", "inspect"):
         item = sub.add_parser(command)
         item.add_argument("--campaign", default="configs/campaign.json")
@@ -164,6 +166,8 @@ def build_parser() -> argparse.ArgumentParser:
         item.add_argument("--output-dir", default=".artifacts/autoresearch-codebase")
         if command in ("pilot", "evaluate"):
             item.add_argument("--candidate")
+        if command == "adaptive":
+            item.add_argument("--candidate", help="Optional typed v2 serving override; omitted uses B0.")
         if command in ("baseline", "pilot", "evaluate"):
             item.add_argument("--scenario", action="append", dest="scenarios",
                               help="Evaluator registry ID; may be repeated. Defaults to campaign screens.")
@@ -307,6 +311,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         controller = SearchController(campaign, campaign_path, domain, proposer, engine,
                                       ledger, artifact_root, args.backend, evidence)
         return asdict(controller.run(max_proposals=args.max_proposals, resume=args.resume))
+    if command == "adaptive":
+        return _run_adaptive_pilot(args, campaign, campaign_path, domain, registry,
+                                   artifact_root, ledger)
     engine = _engine(args.backend, campaign, domain, registry, artifact_root, ledger, campaign_path)
     scenario_ids = args.scenarios or campaign["screen_scenario_ids"]
     if len(scenario_ids) != len(set(scenario_ids)):
@@ -343,12 +350,117 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     raise ValueError(f"unknown command {command}")
 
 
+def _run_adaptive_pilot(args: argparse.Namespace, campaign: dict[str, Any],
+                        campaign_path: Path, domain: Domain, registry: ScenarioRegistry,
+                        artifact_root: Path, ledger: Ledger) -> dict[str, Any]:
+    """Exploratory rate curve on one fresh pinned server; never an SLA claim."""
+    if args.backend != "real" or campaign.get("qualification_requirements", {}).get("mode") != "fast-gate-v2":
+        raise ValueError("iar adaptive requires the real fast-gate-v2 campaign")
+    from inference_autoresearch.benchmark.adaptive import AdaptiveLoadSpec, run_adaptive
+    from inference_autoresearch.evaluation.protocol_v2 import load_protocol, stage_invocation
+    from inference_autoresearch.runtime.config import resolve_config
+
+    protocol = load_protocol(_file(campaign["evaluation_protocol_path"], campaign_path), registry)
+    stage = stage_invocation(protocol, "adaptive_exploration")
+    scenario = registry.load(stage["scenario_id"])
+    spec = AdaptiveLoadSpec.from_protocol(protocol)
+    spec.validate(scenario)
+    candidate = _candidate(Path(args.candidate), domain) if args.candidate else CandidateProposal(
+        proposal_id="B0-adaptive", parameters={}, experiment_kind="exploration",
+        hypothesis="Measure the exploratory B0 offered-rate curve")
+    domain.validate(candidate.parameters)
+    engine = _engine("real", campaign, domain, registry, artifact_root, ledger, campaign_path)
+    engine.benchmark.preflight_tokenizer(scenario)
+    resolved = resolve_config(candidate.parameters, engine._pinned(), engine._domain())
+    run_id = "adaptive-" + uuid.uuid4().hex
+    run_dir = artifact_root / "adaptive" / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    (run_dir / "proposal.json").write_text(json.dumps(asdict(candidate), indent=2, sort_keys=True) + "\n")
+    (run_dir / "resolved-config.json").write_text(json.dumps(asdict(resolved), indent=2,
+                                                           sort_keys=True, default=str) + "\n")
+    (run_dir / "protocol.json").write_text(json.dumps(protocol, indent=2, sort_keys=True) + "\n")
+    ledger.append(campaign["campaign_id"], "adaptive_transition", run_id,
+                  {"state": "validated", "config_id": resolved.config_id,
+                   "scenario_id": scenario.scenario_id, "claim": "exploratory_load_curve_only"})
+    started = time.monotonic()
+    handle = None
+    result: dict[str, Any] | None = None
+    answer: dict[str, Any] | None = None
+    try:
+        handle = engine.runtime.start(resolved, run_dir / "server")
+        ledger.append(campaign["campaign_id"], "adaptive_transition", run_id,
+                      {"state": "warming", "server_id": handle.server_id})
+        engine.benchmark.prepare(handle, scenario, run_dir / "warmup")
+        ledger.append(campaign["campaign_id"], "adaptive_transition", run_id,
+                      {"state": "measuring", "sample_count_per_trial": spec.request_count,
+                       "repeats_per_iteration": spec.repeats, "max_iterations": spec.iterations})
+        result = run_adaptive(handle, scenario, spec, run_dir / "aiperf", engine.benchmark,
+                              preparation_receipt=run_dir / "warmup" / "preparation-receipt.json")
+        artifacts = {"normalized_search_points": str(run_dir / "aiperf" / "normalized-search-points.json"),
+                     "native_search_history": str(run_dir / "aiperf" / "search_history.json"),
+                     "aiperf_console": str(run_dir / "aiperf" / "aiperf-console.log"),
+                     "server": str(run_dir / "server"),
+                     **result.get("report_artifacts", {})}
+        valid_trial_count = sum(row["status"] == "valid" for row in result["points"])
+        valid_rate_count = len({row.get("configured_rate") for row in result["points"]
+                                if row["status"] == "valid" and row.get("configured_rate") is not None})
+        study_status = ("exploratory" if result["process_exit_code"] == 0 and valid_rate_count >= 2
+                        else "invalid")
+        cell = {"cell_id": run_id, "scenario_id": scenario.scenario_id,
+                "config_id": resolved.config_id, "stage": "capacity",
+                "status": study_status, "behavior": "unknown", "evidence_grade": "exploratory",
+                "measurement_protocol": result["protocol_id"],
+                "claim": "exploratory_load_curve_only", "is_baseline": not candidate.parameters,
+                "counts": {}, "metrics": {}, "artifacts": artifacts,
+                "reason_codes": ((["aiperf_process_failure"] if result["process_exit_code"] else [])
+                                 + (["fewer_than_two_valid_rates"] if valid_rate_count < 2 else [])),
+                "point_count": len(result["points"]),
+                "valid_trial_count": valid_trial_count,
+                "valid_rate_count": valid_rate_count}
+        ledger.append(campaign["campaign_id"], "cell", run_id, cell)
+        ledger.append(campaign["campaign_id"], "adaptive_study", run_id,
+                      {"status": study_status, "cell_id": run_id, "artifacts": artifacts,
+                       "point_count": cell["point_count"], "valid_trial_count": cell["valid_trial_count"],
+                       "valid_rate_count": valid_rate_count})
+        answer = {"run_id": run_id, "campaign_id": campaign["campaign_id"],
+                  "config_id": resolved.config_id, "status": study_status,
+                  "claim": "exploratory_load_curve_only", "point_count": cell["point_count"],
+                  "valid_trial_count": cell["valid_trial_count"], "valid_rate_count": valid_rate_count,
+                  "artifacts": artifacts}
+    except Exception as exc:
+        failure = {"status": "failed", "error_type": type(exc).__name__, "reason": str(exc),
+                   "artifacts_dir": str(run_dir)}
+        (run_dir / "failure.json").write_text(json.dumps(failure, indent=2) + "\n")
+        ledger.append(campaign["campaign_id"], "adaptive_study", run_id, failure)
+        raise
+    finally:
+        pending_error = sys.exc_info()[0] is not None
+        cleanup_error = None
+        if handle is not None:
+            try:
+                engine.runtime.stop(handle)
+            except Exception as exc:
+                cleanup_error = exc
+        ledger.append(campaign["campaign_id"], "adaptive_transition", run_id,
+                      {"state": "cleanup_failed" if cleanup_error else
+                                "stopped" if handle is not None else "startup_failed",
+                       "wall_seconds": round(time.monotonic() - started, 3),
+                       "measurement_completed": result is not None,
+                       "cleanup_error": str(cleanup_error) if cleanup_error else None})
+        if cleanup_error and not pending_error:
+            raise cleanup_error
+    assert answer is not None
+    return answer
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         result = run(args)
         _print(result)
         if args.command in ("baseline", "pilot", "evaluate") and result.get("status") != "valid":
+            return 2
+        if args.command == "adaptive" and result.get("status") != "exploratory":
             return 2
         if args.command == "prepare" and result.get("status") == "screen_assets_blocked":
             return 2

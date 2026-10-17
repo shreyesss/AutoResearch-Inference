@@ -46,7 +46,15 @@ raw requests, and report files sit under
 The 36-request gate is a fast regression filter. A single run per setting
 does not establish a reliable production Pareto frontier. AIPerf adaptive
 rate exploration is implemented separately with fixed samples per rate,
-repeats, input and dispatch verification, and all-point exports. It needs
-an independently qualified development/held-out manifest and application
-TTFT/TPOT SLOs before making an SLA-capacity claim. Cache and MTP controls
-stay fixed until exact-match and quality/acceptance diagnostics are ready.
+repeats, input and dispatch verification, and all-point exports. Its pilot
+command, after the overnight GPU lease is free, is:
+
+```bash
+.venv/bin/iar adaptive --campaign configs/campaign-v2.json --backend real
+```
+
+Add `--candidate FILE` to probe a finalist. The pilot needs real-run validity
+inspection, then an independently qualified development/held-out manifest and
+application TTFT/TPOT SLOs before making an SLA-capacity claim. Cache and MTP
+controls stay fixed until exact-match and quality/acceptance diagnostics are
+ready.

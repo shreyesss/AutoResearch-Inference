@@ -187,6 +187,8 @@ if __name__ == "__main__":
                         help="Use predeclared v2 independent windows instead of historical OPS4")
     parser.add_argument("--split-stage", choices=("development_replication", "sealed_test"),
                         help="Required with --split-plan; validate only this independent stage")
+    parser.add_argument("--scenario",
+                        help="Replay one predeclared split window first; promotion still requires the full stage")
     args = parser.parse_args()
     if args.split_plan:
         if not args.split_stage:
@@ -194,9 +196,17 @@ if __name__ == "__main__":
         from inference_autoresearch.evaluation.split_v2 import load_split_plan
         split_plan = load_split_plan(args.split_plan, root=ROOT)
         IDS = tuple(row["scenario_id"] for row in split_plan["stages"][args.split_stage]["windows"])
+        if args.scenario:
+            if args.action != "replay":
+                parser.error("--scenario is only valid for replay; promote requires the full stage")
+            if args.scenario not in IDS:
+                parser.error("--scenario must be a predeclared window in --split-stage")
+            IDS = (args.scenario,)
         OUT = ROOT / ".artifacts/v2-independent-validation" / args.split_stage
         REPORT = OUT / "validation-report.json"
         SCHEMA_VERSION = "v2-independent-validation-v1"
     elif args.split_stage:
         parser.error("--split-stage requires --split-plan")
+    elif args.scenario:
+        parser.error("--scenario requires --split-plan and --split-stage")
     replay() if args.action == "replay" else promote()

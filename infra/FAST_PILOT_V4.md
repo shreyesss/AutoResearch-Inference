@@ -29,10 +29,18 @@ as a qualified independent window.
   and identifies configurations worth longer independent comparisons. The
   approved p90 TTFT/TPOT limits remain research targets, not product SLOs.
 
-The first full evaluation after the pilot should repeat B0 and shortlisted
-configurations on the same larger development input, then profile only
-promising configurations over load. A sealed test is reserved for a declared
-finalist. The initial run does not claim to have performed these stages.
+After the pilot, a separate gate repeats B0 and up to two finalists on the
+same **144-request development subset** of the frozen 1042 input: 54 chat and
+30 each of agent, code and document. The 30-request floor follows the approved
+per-class p90 policy. It is a same-source development comparison, so the p90
+estimates and operator plot remain provisional. The full 240-request 1042
+source is **not** a held-out test after this subset is used.
+
+An independent 240-request test input is still required for a declared
+finalist. The existing v3 sealed-test plan has two 240-request windows at 0.1
+requests/s and is too slow for this pilot; it has not been run. Until a faster
+versioned test protocol is qualified, this pilot and the 144-request gate do
+not establish SLA capacity or independent validation.
 
 ## Inspect or check
 

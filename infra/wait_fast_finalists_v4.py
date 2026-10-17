@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start the matched finalist follow-up only after the fast pilot succeeds."""
+"""Start the matched 144-request development gate after the pilot succeeds."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PILOT = ROOT / ".artifacts/fast-pilot-v4"
 STATUS = PILOT / "finalist-waiter-status.json"
 PILOT_STATUS = PILOT / "run-status.json"
-FOLLOWUP = PILOT / "finalist-240"
+FOLLOWUP = PILOT / "dev-144"
 
 
 def record(stage: str, **details: object) -> None:

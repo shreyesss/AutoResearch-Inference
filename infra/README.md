@@ -6,6 +6,8 @@ The next source-selection and live-input checkpoint is documented in [DATASET_QU
 
 The workload control checkpoint is documented in [WORKLOAD_CONTROL_MATRIX.md](WORKLOAD_CONTROL_MATRIX.md). It freezes a four-turn TraceLab session, a six-session Mooncake burst and the previously validated five SpecBench prompts. `prepare-workload-controls.py`, `replay-workload-controls.sh` and `validate-workload-controls.py` produce and inspect the native AIPerf requests; the tracked manifest and validation JSON record source hashes and actual replay findings. This checkpoint stops before B0 load calibration.
 
+The first bounded B0 load curve and a compact mixed-input probe are documented in [B0_LOAD_CALIBRATION.md](B0_LOAD_CALIBRATION.md). `b0-load-curve.sh`, `b0-mixed-probe.sh`, and `analyze-b0-load-curve.py` run and inspect the pinned Qwen controls. The tracked summary and provisional load policy record observed starts/completions, input realization and the selected diagnostic operating points; full raw evidence stays in `.artifacts/b0-load-curve/`. `freeze-b0-chat-inputs.py` materializes selected exact prompt/schedule assets under `workloads/`; `replay-frozen-b0.sh` and `validate-frozen-b0.py` verify their native fixed-schedule replay on Qwen, with results in `b0-frozen-replay-validation.json`.
+
 This is a small, manual infrastructure check before the full `iar` campaign CLI exists. It measures a diagnostic synthetic chat workload on the target GPU. It does not establish a representative workload or a confirmed p99/SLA result.
 
 Pinned inputs:

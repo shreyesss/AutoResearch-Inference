@@ -1,0 +1,57 @@
+{
+  "version": "b0-diagnostic-policy-v1",
+  "status": "provisional calibration; not search-qualified",
+  "environment": {
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "gpu_uuid": "GPU-9bb5b2a6-b234-55f6-6462-e030fcadfa83",
+    "vllm_image_digest": "sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14",
+    "model": "Qwen/Qwen3.8-27B",
+    "model_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "aiperf_version": "0.13.0",
+    "server_explicit_settings": {
+      "tensor_parallel_size": 1,
+      "dtype": "bfloat16",
+      "max_model_len": 40960,
+      "max_num_seqs": 512,
+      "reasoning_parser": "qwen3"
+    },
+    "observed_defaults": {
+      "chunked_prefill_enabled": true,
+      "max_num_batched_tokens": 8192,
+      "prefix_caching_enabled": true,
+      "gpu_memory_utilization": 0.92,
+      "cuda_graphs_enabled": true
+    },
+    "max_num_seqs_reason": "unmodified 1024 default failed boot with hybrid Mamba cache; 512 is a feasibility override, not a benchmark-selected optimization"
+  },
+  "fixed_chat_diagnostic": {
+    "role": "mechanical diagnostic, not representative traffic",
+    "target_realized_prompt_tokens": 512,
+    "aiperf_input_target_tokens": 552,
+    "completion_tokens": 256,
+    "output_policy": "ignore_eos=true and min_tokens=256",
+    "chat_template_kwargs": {"enable_thinking": false},
+    "temperature": 0,
+    "streaming": true,
+    "arrival_process": "constant open-loop requests per second",
+    "client_concurrency_cap": "256 through 3.2 requests/s; 512 for 4.8 and 6.4; raw starts and lag confirm the caps did not bind",
+    "cache_protocol": "one server start, disjoint three-request warmup, unique-seed content per cell, no cache reset; common chat template may remain cached",
+    "benchmark_sending_window_s": 60,
+    "benchmark_duration_cap_s": 70,
+    "drain_grace_s": 60
+  },
+  "calibration": {
+    "provisional_reference_rps": 3.2,
+    "basis": "two 192-request 60-second sending windows sustained approximately 32 starts and completions per 10 seconds after fill; 4.8 retained rising outstanding work; 6.4 clearly accumulated backlog",
+    "ordinary_screen_rps": 2.56,
+    "initial_common_ladder_rps": [1.92, 2.56, 3.2, 3.84],
+    "ladder_status": "2.56 and 3.2 have frozen payload/schedule assets and one matched B0 replay each; 1.92 and 3.84 cells not yet materialized or validated",
+    "tail_status": "provisional; 60-second windows and at most 384 requests per point do not establish stable p99 SLA or long-run capacity"
+  },
+  "mixed_diagnostic": {
+    "config": "infra/mixed-prefill-control.json",
+    "validated_rate_rps": 0.5,
+    "status": "30-request realization check only; sustainable mixed rate not calibrated"
+  },
+  "search_gate": "Fixed-chat 2.56 and 3.2 payloads and absolute schedules are frozen and live-replayed on B0. Before qualified candidate comparison, repeat matched B0 windows, verify hybrid cache preparation, and separately calibrate mixed/session cards and representative traffic. External request rate is workload input, not a serving parameter proposed by Codex."
+}

@@ -1,5 +1,14 @@
 # Overnight v2 experiment
 
+**Historical runbook.** The exploratory v2 Optuna session was stopped on
+18 October 2026 (IST). Its results remain under the v2 artifact directory.
+The active research-SLA workflow is documented in
+[V3_OVERNIGHT_CHECKPOINT.md](V3_OVERNIGHT_CHECKPOINT.md),
+[SLA_CAPACITY_RUN.md](SLA_CAPACITY_RUN.md), and
+[SLA_PROFILE_RUN.md](SLA_PROFILE_RUN.md). The v3 workflow qualifies independent
+development inputs, measures matched B0 cells, then profiles B0 load under the
+approved research targets.
+
 ## Scope
 
 The campaign is `qwen38-27b-eval-v2`, defined by

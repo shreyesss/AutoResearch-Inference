@@ -67,6 +67,8 @@ class Domain:
         if "long_prefill_token_threshold" in overrides:
             if overrides.get("enable_chunked_prefill") is False:
                 raise ValueError("long prefill threshold requires chunked prefill")
+        if overrides.get("enforce_eager") is True and overrides.get("max_cudagraph_capture_size", 512) != 512:
+            raise ValueError("CUDA graph capture size is inactive in eager mode")
 
     def effective(self, baseline: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
         self.validate(overrides)
@@ -74,6 +76,8 @@ class Domain:
         effective.update(overrides)
         if not effective.get("enable_chunked_prefill") and effective.get("long_prefill_token_threshold", 0):
             raise ValueError("long prefill threshold requires chunked prefill")
+        if effective.get("enforce_eager") is True and effective.get("max_cudagraph_capture_size", 512) != 512:
+            raise ValueError("CUDA graph capture size is inactive in eager mode")
         return effective
 
     def proposal_schema(self) -> dict[str, Any]:

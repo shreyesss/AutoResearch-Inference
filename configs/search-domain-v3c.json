@@ -18,6 +18,16 @@
       "baseline": false,
       "condition": "report startup and steady-state separately; eager mode must be verified in pinned vLLM logs"
     },
+    "async_scheduling": {
+      "values": [true, false],
+      "baseline": true,
+      "condition": "baseline omits the flag and is inferred auto-enabled for TP1 without speculation; verify the resolved value, then compare scheduler overlap, service latency and throughput"
+    },
+    "max_cudagraph_capture_size": {
+      "values": [64, 128, 512],
+      "baseline": 512,
+      "condition": "only with enforce_eager=false; track graph capture time, memory and actual covered batch sizes separately from steady-state SLA latency"
+    },
     "max_num_seqs": {
       "values": [64, 128, 256, 512],
       "baseline": 512,
@@ -51,6 +61,8 @@
     "Every candidate uses the same frozen mixed screen and matched B0 protocol.",
     "The fast screen gives exploratory throughput and latency observations, not tail-SLA evidence.",
     "Sequence-cap and memory-fraction changes are diagnostic unless measured queue or KV pressure establishes a mechanism.",
+    "A CUDA graph cap other than 512 is invalid when enforce_eager=true; baseline 512 and omitted cap have the same effective identity.",
+    "Async scheduling at B0 is the pinned runtime auto setting, inferred true; do not claim the effective value until startup evidence confirms it.",
     "Prefix caching and MTP remain fixed until separate mechanism and quality gates pass."
   ]
 }

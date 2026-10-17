@@ -23,3 +23,5 @@ For each conclusion, include configuration ID, gate, workload and content/schedu
 ## Scope and memory
 
 The controller owns deployment, GPU lease, workload selection, adaptive load search, gate promotion and final test. Propose serving settings only from the active typed domain. Prefix-cache and MTP variations require qualified mechanism-specific counters and, for MTP, semantic validation. Keep notes short: mechanism, supporting and contradicting cell IDs, unresolved issue, source URL/date and next comparison. There is no hidden vector memory or cross-campaign transfer claim.
+
+In v3c, asynchronous scheduling and CUDA graph capture cap are conditional serving contrasts. The pinned B0 log resolves graph cap 512; its async setting is an auto default inferred from runtime source until verified. Graph cap 64/128 tests capture time, memory and batch coverage when eager mode is off; it is not automatically a steady-state SLA improvement. A changed response streaming interval is outside the domain because it would change observed token timing mechanically.

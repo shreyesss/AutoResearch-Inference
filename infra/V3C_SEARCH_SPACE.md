@@ -7,10 +7,12 @@
 | `max_num_batched_tokens` | 8192 | 2048, 4096, 8192, 16384 | Prefill/decode scheduling on the mixed workload. |
 | `long_prefill_token_threshold` | 0 | 0, 2048, 8192 | Diagnostic with chunked prefill enabled; check actual long-prefill contention. |
 | `enforce_eager` | false | false, true | Compare startup/graph cost and steady-state service separately. |
+| `async_scheduling` | auto (inferred true) | true, false | Compare scheduler overlap and service. B0 omits the flag; verify the effective value before attributing an effect. |
+| `max_cudagraph_capture_size` | 512 (resolved in B0 log) | 64, 128, 512 | Compare graph capture time and memory. A smaller cap may leave large batches outside graph coverage; no steady-state SLA gain is presumed. Invalid with eager mode. |
 | `max_num_seqs` | 512 | 64, 128, 256, 512 | Restored diagnostic axis. Read observed active sequences and queueing: a small cap may create overload rather than improve service. |
 | `gpu_memory_utilization` | 0.92 | 0.85, 0.90, 0.92, 0.95 | Restored diagnostic axis. Check successful boot, actual KV allocation, occupancy, and preemption before claiming a capacity benefit. |
 
-The runtime already accepts these five controls. Omitted values resolve to B0. AIPerf request rate is an evaluator input, not a serving parameter. This grid is a proposal domain, not a claim that all combinations are feasible or valuable. The short 36-request screen establishes only gross validity and regression evidence; class-specific research SLA evidence requires larger samples and independent confirmation.
+The trusted launcher accepts these seven controls. For the two added controls, explicit `async_scheduling=true` and `max_cudagraph_capture_size=512` normalize to the original B0 argument list and configuration identity. AIPerf request rate is an evaluator input, not a serving parameter. This grid is a proposal domain, not a claim that all combinations are feasible or valuable. The short 36-request screen establishes only gross validity and regression evidence; class-specific research SLA evidence requires larger samples and independent confirmation.
 
 Prefix caching remains on and MTP remains off. Independent cold requests have no demonstrated prefix reuse; enable a cache branch only with token-exact repeated prefixes and observed hits. Earlier MTP 1/3 manual trials found a decode gain and a TTFT cost, but accepted-token telemetry and semantic-quality checks are still needed before MTP can enter the SLA winner search. Disabling chunked prefill is also held out because the present token budgets are below the pinned 40,960-token context and require a separate feasible branch.
 

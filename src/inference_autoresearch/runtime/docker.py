@@ -220,6 +220,16 @@ class DockerRuntimeManager:
             )
         if expected.get("enforce_eager") is True:
             checks["enforce_eager"] = "enforce_eager=True" in log or "'enforce_eager': True" in log
+        if expected.get("async_scheduling") is False:
+            checks["async_scheduling"] = (
+                "async_scheduling=False" in log or "'async_scheduling': False" in log
+            )
+        if "max_cudagraph_capture_size" in expected:
+            size = expected["max_cudagraph_capture_size"]
+            checks["max_cudagraph_capture_size"] = (
+                f"'max_cudagraph_capture_size': {size}" in log
+                or f"max_cudagraph_capture_size={size}" in log
+            )
         if expected["mtp_draft_tokens"]:
             checks["mtp"] = f"'num_speculative_tokens': {expected['mtp_draft_tokens']}" in log or f"num_speculative_tokens={expected['mtp_draft_tokens']}" in log
         else:

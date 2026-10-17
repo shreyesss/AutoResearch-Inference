@@ -39,6 +39,36 @@ def test_eager_execution_is_conditional_and_keeps_stock_identity():
         resolve_config({"enforce_eager": 1}, pin)
 
 
+def test_v3c_optional_axes_keep_b0_identity_and_render_nondefault_flags():
+    pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
+    stock = resolve_config({}, pin)
+    baseline_explicit = resolve_config({"async_scheduling": True,
+                                        "max_cudagraph_capture_size": 512}, pin)
+    assert baseline_explicit.config_id == stock.config_id
+    assert baseline_explicit.argv == stock.argv
+    async_off = resolve_config({"async_scheduling": False}, pin)
+    assert async_off.config_id != stock.config_id
+    assert "--no-async-scheduling" in async_off.argv
+    graph64 = resolve_config({"max_cudagraph_capture_size": 64}, pin)
+    assert graph64.config_id != stock.config_id
+    assert graph64.argv[graph64.argv.index("--max-cudagraph-capture-size") + 1] == "64"
+    for invalid in ({"async_scheduling": 0}, {"max_cudagraph_capture_size": True},
+                    {"max_cudagraph_capture_size": 32},
+                    {"enforce_eager": True, "max_cudagraph_capture_size": 64}):
+        with pytest.raises(ConfigError):
+            resolve_config(invalid, pin)
+
+
+def test_v3c_domain_rejects_graph_cap_in_eager_mode():
+    from inference_autoresearch.search.domain import Domain
+    domain = Domain.load(Path("configs/search-domain-v3c.json"))
+    domain.validate({"async_scheduling": False, "max_cudagraph_capture_size": 128})
+    with pytest.raises(ValueError):
+        domain.validate({"enforce_eager": True, "max_cudagraph_capture_size": 128})
+    with pytest.raises(ValueError):
+        domain.effective({"enforce_eager": True}, {"max_cudagraph_capture_size": 128})
+
+
 def test_canonical_config_reaches_lease_check_without_docker(tmp_path, monkeypatch):
     pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
     manager = DockerRuntimeManager(pin, tmp_path / "gpu.lock")
@@ -70,3 +100,21 @@ def test_startup_accepts_pinned_vllm_default_token_budget_log_format():
     assert evidence["checks"]["token_budget"] is True
     with pytest.raises(RuntimeFailure):
         DockerRuntimeManager._verify_startup(log.replace("'max_num_batched_tokens': 2048", ""), config)
+
+
+def test_startup_requires_optional_axis_receipts():
+    pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
+    config = resolve_config({"async_scheduling": False,
+                             "max_cudagraph_capture_size": 64}, pin)
+    log = ("v0.28.0 model='/models/Qwen3.8-27B' max_seq_len=40960 "
+           "'max_num_seqs': 512 enable_prefix_caching=True "
+           "enable_chunked_prefill=True max_num_batched_tokens=8192 "
+           "Desired GPU memory utilization is (0.92, 87.37 GiB) "
+           "speculative_config=None 'async_scheduling': False "
+           "'max_cudagraph_capture_size': 64")
+    checks = DockerRuntimeManager._verify_startup(log, config)["checks"]
+    assert checks["async_scheduling"] and checks["max_cudagraph_capture_size"]
+    with pytest.raises(RuntimeFailure):
+        DockerRuntimeManager._verify_startup(log.replace("'async_scheduling': False", ""), config)
+    with pytest.raises(RuntimeFailure):
+        DockerRuntimeManager._verify_startup(log.replace("'max_cudagraph_capture_size': 64", ""), config)

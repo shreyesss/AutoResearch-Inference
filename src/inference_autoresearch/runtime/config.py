@@ -27,7 +27,7 @@ BASELINE = {
     "enable_chunked_prefill": True,
     "long_prefill_token_threshold": 0,
 }
-ALLOWED_KEYS = frozenset(BASELINE) | {"enforce_eager"}
+ALLOWED_KEYS = frozenset(BASELINE) | {"enforce_eager", "async_scheduling", "max_cudagraph_capture_size"}
 
 
 class ConfigError(ValueError):
@@ -77,6 +77,23 @@ def resolve_config(overrides: Mapping[str, object], pinned: PinnedEnvironment,
             if value:
                 settings[key] = True
             continue
+        if key == "async_scheduling":
+            if type(value) is not bool:
+                raise ConfigError("async_scheduling must be a boolean")
+            # B0 omits the flag, allowing pinned vLLM's auto selection.
+            # Explicit true is the proposed B0 value and must not change its
+            # historical configuration identity.
+            if not value:
+                settings[key] = False
+            continue
+        if key == "max_cudagraph_capture_size":
+            if type(value) is not int or value not in (64, 128, 512):
+                raise ConfigError("max_cudagraph_capture_size must be 64, 128 or 512")
+            # The pinned B0 startup log resolved 512. Normalize that value to
+            # omitted so an explicit B0 proposal deduplicates with old B0.
+            if value != 512:
+                settings[key] = value
+            continue
         settings[key] = value
     for key, upper in (("max_num_seqs", 2048), ("max_num_batched_tokens", 65536)):
         val = settings[key]
@@ -100,6 +117,8 @@ def resolve_config(overrides: Mapping[str, object], pinned: PinnedEnvironment,
         raise ConfigError("invalid long_prefill_token_threshold")
     if threshold and not settings["enable_chunked_prefill"]:
         raise ConfigError("long prefill threshold requires chunked prefill")
+    if settings.get("enforce_eager") and "max_cudagraph_capture_size" in settings:
+        raise ConfigError("CUDA graph capture size is inactive in eager mode")
 
     # Explicitly set all supported effective values except MTP=0, whose native
     # behavior is omission. The baseline still hashes its resolved defaults.
@@ -117,6 +136,10 @@ def resolve_config(overrides: Mapping[str, object], pinned: PinnedEnvironment,
         argv += ["--long-prefill-token-threshold", str(threshold)]
     if settings.get("enforce_eager") is True:
         argv += ["--enforce-eager"]
+    if settings.get("async_scheduling") is False:
+        argv += ["--no-async-scheduling"]
+    if "max_cudagraph_capture_size" in settings:
+        argv += ["--max-cudagraph-capture-size", str(settings["max_cudagraph_capture_size"])]
     if mtp:
         argv += ["--speculative-config", json.dumps({"method": "mtp", "num_speculative_tokens": mtp}, separators=(",", ":"))]
     argv += ["--host", "0.0.0.0", "--port", "8000"]

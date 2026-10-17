@@ -60,6 +60,7 @@ def _stage_previous_attempts(proposal_root: Path, run_dir: Path) -> list[dict[st
 _CELL_RESEARCH_FILES = (
     "cell-result.json", "cell-result-v02.json", "controller-validation.json", "timing.json",
     "aiperf/normalized-requests.jsonl", "aiperf/profile_export.jsonl",
+    "aiperf/profile_export_raw.jsonl",
     "aiperf/profile_export_aiperf.json", "aiperf/profile_export_aiperf.csv",
     "aiperf/server_metrics_export.csv", "aiperf/server_metrics_export.json",
     "aiperf/profile_export_console.txt", "aiperf/workload-class-summaries.json",

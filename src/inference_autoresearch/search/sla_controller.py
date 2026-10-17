@@ -27,6 +27,7 @@ from inference_autoresearch.evaluation.sla_study import audit_sla_study
 from inference_autoresearch.evaluation.split_v2 import SplitError, audit_confirmation_pairs, load_split_plan
 from inference_autoresearch.search.domain import Domain, config_identity
 from inference_autoresearch.search.proposer import CodexProposer, _stage_sla_study
+from inference_autoresearch.search.rate_screen import run_rate_screen, select_screen_rate
 from inference_autoresearch.search.report import eligible
 from inference_autoresearch.search.sla_curve_report import export_sla_curves
 
@@ -194,6 +195,12 @@ class SLAServingController:
         # This also checks the approved policy, both hash-pinned B0 cells and
         # a class-assessed adaptive B0 profile before any server is launched.
         evidence = _stage_sla_study(study_path, self.artifact_root / "preflight")
+        rate_lock = select_screen_rate(study, self.root,
+                                       self.registry.load(campaign["screen_scenario_ids"][0]))
+        rate_lock_path = self.artifact_root / "screen-rate-lock.json"
+        if rate_lock_path.exists() and _read(rate_lock_path) != rate_lock:
+            raise SLASearchError("existing diagnostic rate lock differs from pinned B0 evidence")
+        _write(rate_lock_path, rate_lock)
         if hashlib.sha256(study_path.read_bytes()).hexdigest() != study_before:
             raise SLASearchError("active SLA study changed during preflight")
         binary = shutil.which(self.proposer.cli)
@@ -224,6 +231,9 @@ class SLAServingController:
                 "matched_b0_cell_ids": [row["cell_id"] for row in baseline],
                 "matched_b0_class_assessments": baseline_assessments,
                 "b0_profile_point_count": sum(row["point_count"] for row in evidence["baseline_adaptive_studies"]),
+                "diagnostic_rate_lock_path": str(rate_lock_path),
+                "diagnostic_rate_rps": rate_lock["selected_rate_rps"],
+                "diagnostic_rate_selection_reason": rate_lock["selection_reason"],
                 "capacity_confirmed": False})
         self.ledger.append(campaign["campaign_id"], "sla_baseline_development_assessment",
                            "matched_b0", {"assessments": baseline_assessments,
@@ -234,6 +244,12 @@ class SLAServingController:
         wanted = set(ids)
         return [event["payload"] for event in self.ledger.events(self.campaign["campaign_id"], "cell")
                 if event["payload"].get("cell_id") in wanted]
+
+    def _screen_evaluate(self, proposal: CandidateProposal, screen_id: str,
+                         rate_lock: dict[str, Any]) -> Any:
+        return run_rate_screen(self.evaluator, proposal, self.registry.load(screen_id),
+                               rate_lock, self.ledger, self.campaign["campaign_id"],
+                               self.artifact_root)
 
     def _assess_cell(self, cell: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
         if not eligible(cell):
@@ -314,17 +330,22 @@ class SLAServingController:
         campaign_id = self.campaign["campaign_id"]
         study_path = (self.root / self.campaign["sla_study_path"]).resolve()
         study_digest = hashlib.sha256(study_path.read_bytes()).hexdigest()
+        rate_lock_path = self.artifact_root / "screen-rate-lock.json"
+        rate_lock = _read(rate_lock_path)
+        rate_lock_digest = hashlib.sha256(rate_lock_path.read_bytes()).hexdigest()
         study_lock = {"study_path": str(study_path), "study_sha256": study_digest,
                       "policy_sha256": study["policy"]["sha256"],
                       "baseline_profile_sha256": [item["source_sha256"]
                                                   for item in study["baseline_adaptive_run_paths"]],
                       "baseline_cell_sha256_by_path":
                           study["adaptive_development"]["baseline_cell_sha256_by_path"],
+                      "diagnostic_rate_lock_sha256": rate_lock_digest,
                       "capacity_confirmed": False}
         self.ledger.claim(campaign_id, "sla_study_lock", "frozen", study_digest, study_lock)
         def require_frozen_study() -> None:
-            if hashlib.sha256(study_path.read_bytes()).hexdigest() != study_digest:
-                raise SLASearchError("active SLA study changed during v3 search")
+            if (hashlib.sha256(study_path.read_bytes()).hexdigest() != study_digest
+                    or hashlib.sha256(rate_lock_path.read_bytes()).hexdigest() != rate_lock_digest):
+                raise SLASearchError("active SLA study or diagnostic rate lock changed during v3 search")
         if self.ledger.events(campaign_id, "proposal"):
             raise SLASearchError("v3 search already has proposals; inspect before starting another batch")
         budget = self.campaign["search_budget"]
@@ -335,13 +356,15 @@ class SLAServingController:
         dev_ids = self.campaign["development_scenario_ids"]
         baseline = CandidateProposal(proposal_id="B0-sla-screen", parameters={},
             experiment_kind="exploration", hypothesis="Matched short screen reference")
-        screen_result = self.evaluator.evaluate(baseline, [screen_id], "triage")
+        screen_result = self._screen_evaluate(baseline, screen_id, rate_lock)
         require_frozen_study()
         screen_b0 = self._cells(screen_result.cell_ids)
         if screen_result.status != "valid" or len(screen_b0) != 1 or not eligible(screen_b0[0]):
             raise SLASearchError("fresh 36-request B0 screen failed")
         self.ledger.append(campaign_id, "sla_screen_baseline", screen_b0[0]["cell_id"],
-                           {"cell_id": screen_b0[0]["cell_id"], "claim": "regression_screen_only"})
+                           {"cell_id": screen_b0[0]["cell_id"], "claim": rate_lock["claim"],
+                            "rate_rps": rate_lock["selected_rate_rps"],
+                            "rate_lock_sha256": rate_lock_digest})
         screened: list[dict[str, Any]] = []
         finalized: list[dict[str, Any]] = []
         profiles: list[dict[str, Any]] = []
@@ -377,7 +400,7 @@ class SLAServingController:
             self.ledger.append(campaign_id, "proposal", proposal.proposal_id,
                                {"proposal": asdict(proposal), "config_id": config_id,
                                 "claim": "v3_research_proposal"})
-            result = self.evaluator.evaluate(proposal, [screen_id], "triage")
+            result = self._screen_evaluate(proposal, screen_id, rate_lock)
             require_frozen_study()
             cells = self._cells(result.cell_ids)
             if len(cells) != 1:

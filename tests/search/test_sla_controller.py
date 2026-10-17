@@ -125,6 +125,11 @@ def test_all_proposals_receive_only_prior_short_screen_feedback_before_finalist_
     study_path = tmp_path / campaign["sla_study_path"]
     study_path.parent.mkdir(parents=True)
     study_path.write_text("{}")
+    rate_lock = {"schema_version": "rate-screen-lock-v1", "claim": "rate_matched_stochastic_36_request_triage_only",
+                 "selected_rate_rps": .2}
+    lock_path = tmp_path / "artifacts/screen-rate-lock.json"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text(json.dumps(rate_lock))
     audit = tmp_path / ".artifacts/v3-independent-capture/development-input-audit.json"
     audit.write_text("{}")
     domain = Domain.load(ROOT / "configs/search-domain-v2.json")
@@ -177,6 +182,8 @@ def test_all_proposals_receive_only_prior_short_screen_feedback_before_finalist_
          "capacity_confirmation": {"split_plan_path": "split.json"}},
         {}, [{"cell_id": "b0-dev-1042"}, {"cell_id": "b0-dev-1043"}])
     controller._cells = lambda ids: [cells[cell_id] for cell_id in ids]
+    controller._screen_evaluate = lambda proposal, screen_id, lock: (
+        controller.evaluator.evaluate(proposal, [screen_id], "triage"))
     controller._assess_cell = lambda cell, policy: {
         "cell_id": cell["cell_id"], "observed_feasible": True}
     profile_source = tmp_path / ".artifacts/autoresearch-codebase/profile/sla-profile-points.json"

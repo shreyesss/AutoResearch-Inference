@@ -193,7 +193,7 @@ class DockerRuntimeManager:
             self._sampler = _Sampler(url, output_dir / "telemetry.jsonl", self.sample_period_s)
             self._sampler.start()
             return handle
-        except Exception:
+        except BaseException:
             self._cleanup_container(container_name, output_dir)
             self._release()
             raise
@@ -208,7 +208,10 @@ class DockerRuntimeManager:
             "sequence_cap": f"'max_num_seqs': {expected['max_num_seqs']}" in log,
             "prefix_caching": f"enable_prefix_caching={expected['enable_prefix_caching']}" in log,
             "chunked_prefill": f"enable_chunked_prefill={expected['enable_chunked_prefill']}" in log,
-            "token_budget": f"max_num_batched_tokens={expected['max_num_batched_tokens']}" in log,
+            # At the pinned 2048 default vLLM logs this value in its
+            # non-default-args dict but omits the usual chunked-prefill line.
+            "token_budget": (f"max_num_batched_tokens={expected['max_num_batched_tokens']}" in log
+                             or f"'max_num_batched_tokens': {expected['max_num_batched_tokens']}" in log),
             "memory_fraction": bool(re.search(r"Desired GPU memory utilization is \(" + re.escape(str(expected["gpu_memory_utilization"])) + r"[,)]", log)),
         }
         if expected["long_prefill_token_threshold"]:

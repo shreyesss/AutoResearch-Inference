@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from inference_autoresearch.runtime.config import BASELINE, ConfigError, PinnedEnvironment, resolve_config
-from inference_autoresearch.runtime.docker import DockerRuntimeManager
+from inference_autoresearch.runtime.docker import DockerRuntimeManager, RuntimeFailure
 
 
 def test_baseline_identity_and_authority():
@@ -49,3 +49,24 @@ def test_canonical_config_reaches_lease_check_without_docker(tmp_path, monkeypat
     monkeypatch.setattr(manager, "_acquire", stop_before_external_effect)
     with pytest.raises(LeaseReached):
         manager.start(resolve_config({}, pin), tmp_path / "server")
+
+
+def test_startup_accepts_pinned_vllm_default_token_budget_log_format():
+    pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
+    config = resolve_config({"max_num_batched_tokens": 2048,
+                             "long_prefill_token_threshold": 8192,
+                             "enforce_eager": True}, pin,
+                            {"max_num_batched_tokens": [2048, 8192],
+                             "long_prefill_token_threshold": [0, 8192],
+                             "enforce_eager": [False, True]})
+    log = ("v0.28.0 model='/models/Qwen3.8-27B' max_seq_len=40960 "
+           "'max_num_seqs': 512 enable_prefix_caching=True "
+           "enable_chunked_prefill=True "
+           "non-default args: {'max_num_batched_tokens': 2048, "
+           "'long_prefill_token_threshold': 8192} "
+           "Desired GPU memory utilization is (0.92, 87.37 GiB) "
+           "enforce_eager=True speculative_config=None")
+    evidence = DockerRuntimeManager._verify_startup(log, config)
+    assert evidence["checks"]["token_budget"] is True
+    with pytest.raises(RuntimeFailure):
+        DockerRuntimeManager._verify_startup(log.replace("'max_num_batched_tokens': 2048", ""), config)

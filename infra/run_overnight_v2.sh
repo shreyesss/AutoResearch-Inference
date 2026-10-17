@@ -16,6 +16,9 @@ finish() {
   date -u +%Y-%m-%dT%H:%M:%SZ > "$run_dir/overnight-finished-utc.txt"
 }
 trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 search_status=0
 PYTHONUNBUFFERED=1 "$project_root/.venv/bin/iar" search \

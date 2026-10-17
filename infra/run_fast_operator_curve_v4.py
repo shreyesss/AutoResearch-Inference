@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""One matched stratified 144-request dev point for B0 and at most two finalists.
+"""Three matched 32-request operator points for B0 and at most two finalists.
 
 `check` is GPU-free and read-only. `run` uses one shared GPU lease and writes
-every native AIPerf export. A single Poisson rate is an observed operator
-comparison, not an SLA capacity curve or a sealed-test result.
+every native AIPerf export. The short curves diagnose operator tradeoffs;
+they are neither SLA attainment nor independently confirmed capacity.
 """
 
 from __future__ import annotations
@@ -36,14 +36,14 @@ from inference_autoresearch.workloads.registry import sha256_file, verify_scenar
 
 CAMPAIGN_ID = "qwen38-27b-fast-pilot-v4"
 SCENARIO_ID = "qwen-ops-mixed-development-1042-v1"
-DEV_SCENARIO_ID = "qwen-ops-mixed-development-1042-stratified-144-v4"
-RATE_RPS = 0.4
+CURVE_SCENARIO_ID = "qwen-ops-mixed-development-1042-curve32-v4"
+RATES_RPS = (0.2, 0.4, 0.8)
 SEED = 41042
-SAMPLING_SEED = 1441042
-CLASS_QUOTAS = {"chat": 54, "agent": 30, "code": 30, "document": 30}
+SAMPLING_SEED = 321042
+CLASS_QUOTAS = {"chat": 8, "agent": 8, "code": 8, "document": 8}
 ROOT = Path(__file__).resolve().parents[1]
 PILOT = ROOT / ".artifacts/fast-pilot-v4"
-OUTPUT = PILOT / "dev-144"
+OUTPUT = PILOT / "operator-curve-32x3"
 
 
 class FollowupError(RuntimeError):
@@ -203,13 +203,11 @@ def preflight(root: Path = ROOT, pilot: Path = PILOT) -> dict[str, Any]:
         raise FollowupError("B0 config identity differs")
     cases = selected_cases(root, shortlist, pilot / "ledger.sqlite", pinned, domain)
     policy = read(policy_path)
-    if (set(policy.get("classes", {})) != set(CLASS_QUOTAS)
-            or any(CLASS_QUOTAS[name] < policy["classes"][name]["min_eligible_requests"]
-                   for name in CLASS_QUOTAS)):
-        raise FollowupError("144-request quotas are below approved per-class sample minimum")
+    if set(policy.get("classes", {})) != set(CLASS_QUOTAS):
+        raise FollowupError("Curve class labels differ from approved research policy")
     selection = stratified_rows(checked["planned"], checked["request_classes"])
-    return {"status": "ready_for_matched_144_development_followup", "capacity_confirmed": False,
-            "rate_rps": RATE_RPS, "seed": SEED,
+    return {"status": "ready_for_exploratory_operator_curve", "capacity_confirmed": False,
+            "rates_rps": RATES_RPS, "seed": SEED,
             "class_quotas": CLASS_QUOTAS, "sampling_seed": SAMPLING_SEED,
             "selected_ids_sha256": selection["ids_sha256"],
             "shortlist_sha256": sha256_file(shortlist_path),
@@ -237,7 +235,7 @@ def stratified_rows(planned: list[dict[str, Any]],
             raise FollowupError(f"Source lacks {quota} {name} requests")
         chosen.update(rng.sample(pools[name], quota))
     rows = [dict(row) for row in planned if row["session_id"] in chosen]
-    if len(rows) != 144 or len({row["session_id"] for row in rows}) != 144:
+    if len(rows) != 32 or len({row["session_id"] for row in rows}) != 32:
         raise FollowupError("Stratified selection is incomplete or duplicated")
     origin = rows[0]["timestamp"]
     for row in rows:
@@ -248,39 +246,39 @@ def stratified_rows(planned: list[dict[str, Any]],
 
 
 def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> ScenarioManifest:
-    """Stage a new 144-body dev manifest; leave live source/240 evidence intact."""
+    """Stage one 32-body diagnostic corpus; leave source 240 evidence intact."""
     original = prepared["source_manifest"]
     input_dir = output / "input"
     input_dir.mkdir(parents=True, exist_ok=False)
     source = verify_scenario(original, root=root, require_validated=False)
     chosen = stratified_rows(source["planned"], source["request_classes"])
     if chosen["ids_sha256"] != prepared["selected_ids_sha256"]:
-        raise FollowupError("Deterministic 144-request selection changed")
-    payload_path = input_dir / "1042-stratified-144.jsonl"
+        raise FollowupError("Deterministic 32-request selection changed")
+    payload_path = input_dir / "1042-curve-32.jsonl"
     with payload_path.open("w") as stream:
         for row in chosen["rows"]:
             stream.write(json.dumps(row, sort_keys=True) + "\n")
-    class_path = input_dir / "1042-stratified-144.classes.json"
+    class_path = input_dir / "1042-curve-32.classes.json"
     write(class_path, {"schema_version": "ops-request-classes-v1",
-                       "scenario_id": DEV_SCENARIO_ID,
+                       "scenario_id": CURVE_SCENARIO_ID,
                        "classes_by_session_id": {key: source["request_classes"][key]
                                                  for key in chosen["ids"]}})
     source_card = read(root / original["workload_card_path"])
-    source_schedule_rps = 143000 / chosen["rows"][-1]["timestamp"]
-    card = source_card | {"card_id": DEV_SCENARIO_ID, "readiness": "validated",
+    source_schedule_rps = 31000 / chosen["rows"][-1]["timestamp"]
+    card = source_card | {"card_id": CURVE_SCENARIO_ID, "readiness": "validated",
                           "shape_counts": CLASS_QUOTAS,
-                          "configured_average_rps": RATE_RPS,
+                          "configured_average_rps": None,
                           "frozen_schedule_average_rps": source_schedule_rps,
                           "source_arrival": {"pattern": "subset_of_1042_frozen_source",
                                              "rate_rps": source_schedule_rps},
-                          "evaluation_arrival": {"pattern": "poisson", "rate_rps": RATE_RPS,
-                                                 "seed": SEED + round(RATE_RPS * 1_000_000)},
-                          "limitations": ["Derived development subset of the same 1042 source; not independent test.",
-                                          "The stored timestamps are source-order metadata; AIPerf Poisson 0.4 req/s replaces arrivals."]}
+                          "evaluation_arrival": {"pattern": "poisson", "rates_rps": RATES_RPS,
+                                                 "base_seed": SEED},
+                          "limitations": ["Same-source exploratory subset, not independent test or SLA sample.",
+                                          "Stored timestamps are source-order metadata; AIPerf replaces arrivals."]}
     card_path = input_dir / "1042.card.json"
     write(card_path, card)
-    manifest = original | {"scenario_id": DEV_SCENARIO_ID,
-                           "readiness": "validated", "n_planned": 144,
+    manifest = original | {"scenario_id": CURVE_SCENARIO_ID,
+                           "readiness": "validated", "n_planned": 32,
                            "payload_path": str(payload_path.relative_to(root)),
                            "schedule_path": str(payload_path.relative_to(root)),
                            "payload_sha256": sha256_file(payload_path),
@@ -290,20 +288,20 @@ def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> Scena
                            "workload_card_path": str(card_path.relative_to(root)),
                            "workload_card_sha256": sha256_file(card_path),
                            "shape_counts": CLASS_QUOTAS,
-                           "seeds": {"arrivals": SEED + round(RATE_RPS * 1_000_000),
+                           "seeds": {"arrivals": SEED,
                                      "content": 1042, "prefix": 0},
                            "offered_load": source_schedule_rps, "offered_rps": source_schedule_rps,
                            "dispatch_duration_s": chosen["rows"][-1]["timestamp"] / 1000,
-                           "notes": "Derived 144-body development subset; AIPerf Poisson .4 req/s replaces source arrivals. Not independent test."}
+                           "notes": "32-body same-source diagnostic; AIPerf Poisson rates replace arrivals. No SLA or independent test."}
     manifest_path = input_dir / "1042.manifest.json"
     write(manifest_path, manifest)
     checked = verify_scenario(manifest, root=root, require_validated=True)
-    if len(checked["planned"]) != 144 or {name: list(checked["request_classes"].values()).count(name)
+    if len(checked["planned"]) != 32 or {name: list(checked["request_classes"].values()).count(name)
                                           for name in CLASS_QUOTAS} != CLASS_QUOTAS:
-        raise FollowupError("Derived 144 manifest did not retain class quotas")
+        raise FollowupError("Derived 32 manifest did not retain class quotas")
     write(input_dir / "selection-receipt.json", {
-        "schema_version": "v4-stratified-dev-144-v1", "source_scenario_id": SCENARIO_ID,
-        "derived_scenario_id": DEV_SCENARIO_ID, "sampling_seed": SAMPLING_SEED,
+        "schema_version": "v4-operator-curve-32-v1", "source_scenario_id": SCENARIO_ID,
+        "derived_scenario_id": CURVE_SCENARIO_ID, "sampling_seed": SAMPLING_SEED,
         "class_quotas": CLASS_QUOTAS, "selected_ids_sha256": chosen["ids_sha256"],
         "selected_ids": chosen["ids"], "source_manifest_sha256": prepared["source_manifest_sha256"],
         "source_payload_sha256": prepared["source_payload_sha256"],
@@ -311,11 +309,11 @@ def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> Scena
         "derived_payload_sha256": sha256_file(payload_path),
         "derived_card_sha256": sha256_file(card_path),
         "derived_class_sidecar_sha256": sha256_file(class_path),
-        "claim": "same_source_stratified_development_only_no_independent_test"})
-    return ScenarioManifest(scenario_id=DEV_SCENARIO_ID, workload_id=manifest["workload_name"],
+        "claim": "same_source_exploratory_operator_curve_only"})
+    return ScenarioManifest(scenario_id=CURVE_SCENARIO_ID, workload_id=manifest["workload_name"],
                             path=manifest_path, group_id=manifest["workload_group_id"],
                             offered_load=source_schedule_rps, load_unit="requests_per_s",
-                            expected_count=144, output_policy="forced_length",
+                            expected_count=32, output_policy="forced_length",
                             traffic_mode="independent_open_loop", history_mode="single_turn",
                             cache_protocol="cold_stream",
                             metadata={"manifest": manifest, "asset": str(checked["payload_path"]),
@@ -324,80 +322,141 @@ def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> Scena
 
 
 def class_rows(trial: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    assessment = trial.get("assessment") or {}
     rows = {}
-    for name, value in assessment.get("classes", {}).items():
-        diag = value["diagnostic_percentiles_ms"]
-        rows[name] = {"n": value["planned"], "ttft_p50_ms": diag["ttft"]["p50"],
-                      "ttft_p90_ms": diag["ttft"]["p90"],
-                      "tpot_p50_ms": diag["tpot"]["p50"],
-                      "tpot_p90_ms": diag["tpot"]["p90"],
-                      "ttft_breaches": value["ttft_deadline_breaches"],
-                      "tpot_breaches": value["tpot_deadline_breaches"],
-                      "observed_feasible": value["observed_feasible"],
-                      "reason_codes": value["reason_codes"]}
+    for name, value in trial.get("class_metrics", {}).items():
+        rows[name] = {"n_dispatched": value.get("n_dispatched"),
+                      "ttft_eligible": value.get("ttft_eligible"),
+                      "tpot_eligible": value.get("tpot_eligible"),
+                      "ttft_p50_ms": value.get("ttft_p50_ms"),
+                      "ttft_p90_ms": value.get("ttft_p90_ms"),
+                      "tpot_p50_ms": value.get("tpot_p50_ms"),
+                      "tpot_p90_ms": value.get("tpot_p90_ms")}
     return rows
 
 
+def diagnostic_reasons(trial: dict[str, Any]) -> list[str]:
+    """Reject incomplete traffic and missing latency; never score SLA targets."""
+    reasons = list(trial.get("reason_codes", []))
+    if trial.get("status") != "valid":
+        reasons.append("invalid_aiperf_trial")
+    classes = class_rows(trial)
+    if set(classes) != set(CLASS_QUOTAS):
+        reasons.append("class_coverage_mismatch")
+    for name, quota in CLASS_QUOTAS.items():
+        row = classes.get(name, {})
+        if any(row.get(key) != quota for key in ("n_dispatched", "ttft_eligible", "tpot_eligible")):
+            reasons.append(f"{name}_latency_or_count_missing")
+        if any(not isinstance(row.get(key), (int, float)) or not math.isfinite(row[key])
+               for key in ("ttft_p50_ms", "ttft_p90_ms", "tpot_p50_ms", "tpot_p90_ms")):
+            reasons.append(f"{name}_percentile_missing")
+    native = trial.get("native_summary_metrics", {})
+    if any(not isinstance(native.get(key), (int, float)) or not math.isfinite(native[key])
+           for key in ("output_tokens_per_s", "ttft_p50_ms", "ttft_p90_ms",
+                       "tpot_p50_ms", "tpot_p90_ms")):
+        reasons.append("aggregate_metric_missing")
+    return sorted(set(reasons))
+
+
 def compare_points(points: list[dict[str, Any]]) -> dict[str, Any]:
-    if not points or points[0]["label"] != "B0":
-        raise FollowupError("Matched followup needs B0 first")
-    baseline = points[0]
-    if baseline["trial"]["status"] != "valid":
-        raise FollowupError("Matched B0 rate trial is invalid")
+    if len(points) < len(RATES_RPS) or any(point["trial"]["status"] != "valid" for point in points):
+        raise FollowupError("Operator curve has missing or invalid trials")
+    by_label: dict[str, dict[float, dict[str, Any]]] = {}
+    for point in points:
+        by_label.setdefault(point["label"], {})[point["rate_rps"]] = point
+    if any(set(group) != set(RATES_RPS) for group in by_label.values()) or "B0" not in by_label:
+        raise FollowupError("Every configuration needs the same three offered rates")
     comparisons = []
-    base = class_rows(baseline["trial"])
-    for point in points[1:]:
-        trial = point["trial"]
-        if trial["status"] != "valid":
-            raise FollowupError("Finalist rate trial is invalid")
-        classes = class_rows(trial)
-        if set(classes) != set(base):
-            raise FollowupError("Finalist class evidence differs from B0")
-        deltas = {name: {metric + "_delta_ms": classes[name][metric] - base[name][metric]
-                         for metric in ("ttft_p50_ms", "ttft_p90_ms", "tpot_p50_ms", "tpot_p90_ms")}
-                  for name in base}
-        comparisons.append({"label": point["label"], "config_id": point["config_id"],
-                            "observed_feasible": trial["observed_feasible"],
-                            "class_latency_deltas_vs_b0": deltas,
-                            "output_tokens_per_s_ratio_vs_b0": (
-                                trial["native_summary_metrics"]["output_tokens_per_s"] /
-                                baseline["trial"]["native_summary_metrics"]["output_tokens_per_s"])
-                            if baseline["trial"]["native_summary_metrics"]["output_tokens_per_s"] else None})
-    return {"claim": "same_source_stratified_144_matched_dev_observations_only",
-            "capacity_confirmed": False, "independent_test": False,
-            "rate_rps": RATE_RPS, "class_quotas": CLASS_QUOTAS,
+    for label, rate_map in by_label.items():
+        if label == "B0":
+            continue
+        for rate in RATES_RPS:
+            point, baseline = rate_map[rate], by_label["B0"][rate]
+            classes, base = class_rows(point["trial"]), class_rows(baseline["trial"])
+            if set(classes) != set(base):
+                raise FollowupError("Finalist class evidence differs from B0")
+            deltas = {name: {metric + "_delta_ms": classes[name][metric] - base[name][metric]
+                             for metric in ("ttft_p50_ms", "ttft_p90_ms", "tpot_p50_ms", "tpot_p90_ms")}
+                      for name in base}
+            numerator = point["trial"]["native_summary_metrics"]["output_tokens_per_s"]
+            denominator = baseline["trial"]["native_summary_metrics"]["output_tokens_per_s"]
+            comparisons.append({"label": label, "config_id": point["config_id"],
+                                "rate_rps": rate, "class_latency_deltas_vs_b0": deltas,
+                                "output_tokens_per_s_ratio_vs_b0": numerator / denominator
+                                if numerator is not None and denominator else None})
+    return {"claim": "same_source_32_request_operator_curves_only",
+            "capacity_confirmed": False, "independent_test": False, "sla_assessed": False,
+            "rates_rps": RATES_RPS, "requests_per_rate": 32, "class_quotas": CLASS_QUOTAS,
             "points": points, "comparisons": comparisons}
 
 
 def plot_operator_points(output: Path, points: list[dict[str, Any]]) -> dict[str, str]:
-    """Descriptive per-class operator points; one rate cannot define load curves."""
+    """Descriptive three-rate curves; no SLA boundary or confidence claim."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    names = [point["label"] for point in points]
-    figure, axes = plt.subplots(2, 1, figsize=(max(8, len(points) * 2.2), 8), sharex=True)
-    for metric, axis in (("ttft_p90_ms", axes[0]), ("tpot_p90_ms", axes[1])):
-        for class_name in sorted(class_rows(points[0]["trial"])):
-            axis.plot(names, [class_rows(point["trial"])[class_name][metric] for point in points],
-                      marker="o", label=class_name)
-        axis.set_ylabel(metric.replace("_", " "))
+    labels = list(dict.fromkeys(point["label"] for point in points))
+    figure, axes = plt.subplots(3, 1, figsize=(9, 11), sharex=True)
+    for label in labels:
+        ordered = sorted((point for point in points if point["label"] == label),
+                         key=lambda row: row["rate_rps"])
+        for axis, metric in zip(axes, ("output_tokens_per_s", "ttft_p90_ms", "tpot_p90_ms")):
+            axis.plot(RATES_RPS, [point["trial"]["native_summary_metrics"][metric]
+                                      for point in ordered], marker="o", label=label)
+    for axis, metric in zip(axes, ("Output tokens/s", "Overall TTFT p90 ms", "Overall TPOT p90 ms")):
+        axis.set_ylabel(metric)
         axis.grid(True, alpha=0.3)
         axis.legend()
-    axes[0].set_title(f"Observed class p90 at {RATE_RPS} req/s; provisional, one Poisson seed")
-    axes[1].set_xlabel("Serving configuration")
+    axes[0].set_title("Observed operator curves, 32 requests/rate; exploratory")
+    axes[2].set_xlabel("Offered requests/s")
     figure.tight_layout()
-    path = output / "per-class-operator-points.svg"
+    path = output / "operator-curves.svg"
     figure.savefig(path)
     plt.close(figure)
-    return {"per_class_svg": str(path)}
+    class_figure, class_axes = plt.subplots(4, 2, figsize=(13, 13), sharex=True)
+    for row_index, name in enumerate(CLASS_QUOTAS):
+        for column_index, metric in enumerate(("ttft", "tpot")):
+            axis = class_axes[row_index, column_index]
+            for label in labels:
+                ordered = sorted((point for point in points if point["label"] == label),
+                                 key=lambda row: row["rate_rps"])
+                for percentile, style in (("p50", "--"), ("p90", "-")):
+                    key = f"{metric}_{percentile}_ms"
+                    axis.plot(RATES_RPS, [class_rows(point["trial"])[name][key]
+                                              for point in ordered], marker="o", linestyle=style,
+                              label=f"{label} {percentile}")
+            axis.set_ylabel(f"{name} {metric.upper()} ms")
+            axis.grid(True, alpha=0.3)
+            axis.legend(fontsize="small")
+    class_axes[-1, 0].set_xlabel("Offered requests/s")
+    class_axes[-1, 1].set_xlabel("Offered requests/s")
+    class_figure.suptitle("Per-class observed p50/p90; 8 requests/class/rate")
+    class_figure.tight_layout()
+    class_path = output / "per-class-curves.svg"
+    class_figure.savefig(class_path)
+    plt.close(class_figure)
+    scatter, scatter_axis = plt.subplots(figsize=(9, 6))
+    for point in points:
+        metrics = point["trial"]["native_summary_metrics"]
+        scatter_axis.scatter(metrics["ttft_p90_ms"], metrics["output_tokens_per_s"],
+                             label=f"{point['label']} @ {point['rate_rps']:g}")
+    scatter_axis.set_xlabel("Overall TTFT p90 ms")
+    scatter_axis.set_ylabel("Output tokens/s")
+    scatter_axis.set_title("Observed throughput/latency points; no confirmed Pareto frontier")
+    scatter_axis.grid(True, alpha=0.3)
+    scatter_axis.legend(fontsize="small")
+    scatter.tight_layout()
+    scatter_path = output / "throughput-latency-points.svg"
+    scatter.savefig(scatter_path)
+    plt.close(scatter)
+    return {"operator_curves_svg": str(path), "per_class_curves_svg": str(class_path),
+            "throughput_latency_svg": str(scatter_path)}
 
 
 def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[str, Any]:
     prepared = preflight(root, pilot)
     root, output = root.resolve(), output.resolve()
-    guard_path = root / ".artifacts/gpu-locks" / "v4-finalist-process.lock"
+    guard_path = root / ".artifacts/gpu-locks" / "v4-operator-curve-process.lock"
     guard_path.parent.mkdir(parents=True, exist_ok=True)
     with guard_path.open("a+") as guard:
         fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -416,9 +475,10 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
                                                "b0_sha256", "policy_sha256",
                                                "source_manifest_sha256", "source_card_sha256",
                                                "source_payload_sha256")}
-        lock.update({"schema_version": "fast-dev-144-v1", "rate_rps": RATE_RPS,
-                     "arrival_pattern": "poisson", "arrival_seed": SEED + round(RATE_RPS * 1_000_000),
-                     "claim": "same_source_stratified_144_dev_point_no_capacity",
+        lock.update({"schema_version": "fast-operator-curve-32x3-v1",
+                     "rates_rps": RATES_RPS, "requests_per_rate": 32,
+                     "arrival_pattern": "poisson", "base_seed": SEED,
+                     "claim": "same_source_32_request_operator_curves_no_sla_or_capacity",
                      "selected_ids_sha256": prepared["selected_ids_sha256"],
                      "capacity_confirmed": False})
         write(output / "run-lock.json", lock)
@@ -432,9 +492,10 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
         gpu_lock = Path(os.environ.get("IAR_GPU_LOCK_PATH", str(root / ".artifacts/gpu-locks" /
                             f"{prepared['pinned'].gpu_uuid}.lock")))
         runtime = DockerRuntimeManager(prepared["pinned"], gpu_lock)
-        spec = SLAProfileSpec(initial_rate_rps=RATE_RPS, min_rate_rps=RATE_RPS,
-                              max_rate_rps=RATE_RPS * 2, seed=SEED,
-                              client_concurrency_cap=512)
+        spec = SLAProfileSpec(initial_rate_rps=RATES_RPS[0], min_rate_rps=RATES_RPS[0],
+                              max_rate_rps=RATES_RPS[-1], seed=SEED,
+                              min_realized_rate_fraction=0.5,
+                              client_concurrency_cap=256)
         points = []
         state = {"status": "running", "active": None, "completed": [],
                  "capacity_confirmed": False, "independent_test": False}
@@ -457,59 +518,98 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
                 try:
                     handle = runtime.start(config, cell / "server")
                     adapter.prepare(handle, scenario, cell / "warmup")
-                    native = cell / "aiperf"
-                    native.mkdir()
-                    argv = build_rate_argv(adapter, handle, scenario, rate=RATE_RPS,
-                                           spec=spec, output_dir=native)
-                    write(native / "aiperf-argv.json", {"argv": argv})
-                    timeout = math.ceil((scenario.expected_count + 4 * math.sqrt(scenario.expected_count))
-                                        / RATE_RPS) + 390
-                    with (native / "aiperf-console.log").open("w") as console:
-                        try:
-                            result = subprocess.run(argv, stdout=console, stderr=subprocess.STDOUT,
-                                                    env=adapter._offline_env(), timeout=timeout,
-                                                    check=False)
-                            exit_code = result.returncode
-                        except subprocess.TimeoutExpired:
-                            exit_code = -1
-                    write(native / "aiperf-exit.json", {"exit_code": exit_code})
-                    trial = assess_rate_trial(native, scenario, prepared["policy"],
-                                              rate=RATE_RPS, process_exit_code=exit_code, spec=spec)
-                    if trial["status"] == "valid" and not _output_caps_realized(
-                            _jsonl(native / "profile_export_raw.jsonl"),
-                            _jsonl(native / "profile_export.jsonl")):
-                        trial["status"] = "invalid"
-                        trial["reason_codes"].append("wrong_output_length")
-                    trial["class_p50_p90"] = class_rows(trial)
-                    write(cell / "rate-trial.json", trial)
-                    points.append({"label": case["label"], "config_id": config.config_id,
-                                   "parameters": case["parameters"], "trial": trial,
-                                   "trial_path": str(cell / "rate-trial.json")})
-                    write(output / "all-points.json", {"capacity_confirmed": False,
-                                                       "rate_rps": RATE_RPS, "points": points})
+                    for rate in RATES_RPS:
+                        native = cell / f"rate-{rate:g}" / "aiperf"
+                        native.mkdir(parents=True)
+                        argv = build_rate_argv(adapter, handle, scenario, rate=rate,
+                                               spec=spec, output_dir=native)
+                        write(native / "aiperf-argv.json", {"argv": argv})
+                        timeout = math.ceil((scenario.expected_count + 4 * math.sqrt(scenario.expected_count))
+                                            / rate) + 390
+                        with (native / "aiperf-console.log").open("w") as console:
+                            try:
+                                result = subprocess.run(argv, stdout=console, stderr=subprocess.STDOUT,
+                                                        env=adapter._offline_env(), timeout=timeout,
+                                                        check=False)
+                                exit_code = result.returncode
+                            except subprocess.TimeoutExpired:
+                                exit_code = -1
+                        write(native / "aiperf-exit.json", {"exit_code": exit_code})
+                        trial = assess_rate_trial(native, scenario, None,
+                                                  rate=rate, process_exit_code=exit_code, spec=spec)
+                        if trial["status"] == "valid" and not _output_caps_realized(
+                                _jsonl(native / "profile_export_raw.jsonl"),
+                                _jsonl(native / "profile_export.jsonl")):
+                            trial["status"] = "invalid"
+                            trial["reason_codes"].append("wrong_output_length")
+                        reasons = diagnostic_reasons(trial)
+                        if reasons:
+                            trial["status"] = "invalid"
+                            trial["reason_codes"] = reasons
+                        trial["class_p50_p90"] = class_rows(trial)
+                        write(native.parent / "rate-trial.json", trial)
+                        points.append({"label": case["label"], "config_id": config.config_id,
+                                       "parameters": case["parameters"], "rate_rps": rate,
+                                       "arrival_seed": SEED + round(rate * 1_000_000),
+                                       "trial": trial,
+                                       "trial_path": str(native.parent / "rate-trial.json")})
+                        write(output / "all-points.json", {"capacity_confirmed": False,
+                                                           "sla_assessed": False,
+                                                           "rates_rps": RATES_RPS, "points": points})
+                        state["active_rate_rps"] = rate
+                        write(output / "run-status.json", state)
+                        if trial["status"] != "valid":
+                            raise FollowupError(f"Invalid traffic/accounting for {case['label']} "
+                                                f"at {rate} req/s: {trial['reason_codes']}")
                     state["completed"].append(case["label"])
                     state["active"] = None
+                    state["active_rate_rps"] = None
                     write(output / "run-status.json", state)
-                    if trial["status"] != "valid":
-                        raise FollowupError(f"Invalid rate trial for {case['label']}: {trial['reason_codes']}")
                 finally:
                     if handle is not None:
                         runtime.stop(handle)
             report = compare_points(points)
             report["plots"] = plot_operator_points(output, points)
             write(output / "matched-comparison.json", report)
-            fields = ["label", "config_id", "class", "n", "ttft_p50_ms", "ttft_p90_ms",
-                      "tpot_p50_ms", "tpot_p90_ms", "ttft_breaches", "tpot_breaches",
-                      "observed_feasible", "output_tokens_per_s"]
+            fields = ["label", "config_id", "rate_rps", "offered_rps", "realized_rps",
+                      "output_tokens_per_s", "dispatch_lag_p99_ms", "failures", "class",
+                      "n_dispatched", "ttft_eligible", "tpot_eligible", "ttft_p50_ms",
+                      "ttft_p90_ms", "tpot_p50_ms", "tpot_p90_ms"]
             with (output / "class-points.csv").open("w", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=fields)
                 writer.writeheader()
                 for point in points:
                     for name, row in class_rows(point["trial"]).items():
                         writer.writerow({"label": point["label"], "config_id": point["config_id"],
-                                         "class": name, **{key: row[key] for key in fields if key in row},
+                                         "rate_rps": point["rate_rps"],
+                                         "offered_rps": point["trial"]["rate_rps"],
+                                         "realized_rps": point["trial"]["realized_rate_rps"],
                                          "output_tokens_per_s": point["trial"]["native_summary_metrics"]
-                                         ["output_tokens_per_s"]})
+                                         ["output_tokens_per_s"],
+                                         "dispatch_lag_p99_ms": point["trial"]["dispatch_lag_p99_ms"],
+                                         "failures": point["trial"]["dispatched"] - point["trial"]["completed"],
+                                         "class": name, **{key: row[key] for key in fields if key in row}})
+            aggregate_fields = ["label", "config_id", "offered_rps", "realized_rps",
+                                "output_tokens_per_s", "ttft_p50_ms", "ttft_p90_ms",
+                                "tpot_p50_ms", "tpot_p90_ms", "dispatch_lag_p99_ms",
+                                "planned", "dispatched", "completed", "failures", "status"]
+            with (output / "operator-points.csv").open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=aggregate_fields)
+                writer.writeheader()
+                for point in points:
+                    trial = point["trial"]
+                    writer.writerow({"label": point["label"], "config_id": point["config_id"],
+                                     "offered_rps": point["rate_rps"],
+                                     "realized_rps": trial["realized_rate_rps"],
+                                     "dispatch_lag_p99_ms": trial["dispatch_lag_p99_ms"],
+                                     "planned": trial["planned"],
+                                     "dispatched": trial["dispatched"],
+                                     "completed": trial["completed"],
+                                     "failures": trial["dispatched"] - trial["completed"],
+                                     "status": trial["status"],
+                                     **{key: trial["native_summary_metrics"].get(key) for key in
+                                        ("output_tokens_per_s", "ttft_p50_ms", "ttft_p90_ms",
+                                         "tpot_p50_ms", "tpot_p90_ms")}})
             state.update({"status": "complete", "capacity_confirmed": False})
             write(output / "run-status.json", state)
             return report
@@ -525,14 +625,16 @@ def main() -> int:
     args = parser.parse_args()
     if args.action == "check":
         result = preflight()
-        print(json.dumps({"status": result["status"], "rate_rps": RATE_RPS,
+        print(json.dumps({"status": result["status"], "rates_rps": RATES_RPS,
+                          "requests_per_rate": 32,
                           "cases": [row["label"] for row in result["cases"]],
                           "capacity_confirmed": False}, indent=2))
         return 0
     result = run()
-    print(json.dumps({"status": "complete", "dev_requests": 144,
+    print(json.dumps({"status": "complete", "requests_per_configuration": 96,
                       "matched_comparison": str(OUTPUT / "matched-comparison.json"),
                       "points": len(result["points"]), "capacity_confirmed": False,
+                      "sla_assessed": False,
                       "independent_test": False}, indent=2))
     return 0
 
@@ -541,5 +643,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(f"V4 finalist followup blocked: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"V4 operator curve blocked: {type(exc).__name__}: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

@@ -1,4 +1,4 @@
-"""The stratified 144-request gate admits only pinned pilot selections."""
+"""The 32x3 operator curve admits only pinned pilot selections and inputs."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from inference_autoresearch.runtime.config import PinnedEnvironment, resolve_con
 from inference_autoresearch.workloads.registry import WorkloadError, sha256_file, verify_scenario
 
 
-SCRIPT = Path(__file__).resolve().parents[2] / "infra/run_fast_finalists_v4.py"
-SPEC = importlib.util.spec_from_file_location("run_fast_finalists_v4", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[2] / "infra/run_fast_operator_curve_v4.py"
+SPEC = importlib.util.spec_from_file_location("run_fast_operator_curve_v4", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -69,7 +69,7 @@ def test_uses_controller_aiperf_on_path(tmp_path: Path, monkeypatch: pytest.Monk
         MODULE.controller_aiperf_executable()
 
 
-def test_stratified_dev_selection_is_deterministic_and_without_replacement() -> None:
+def test_curve32_selection_is_deterministic_and_without_replacement() -> None:
     counts = {"chat": 101, "agent": 42, "code": 57, "document": 40}
     planned = []
     classes = {}
@@ -81,14 +81,14 @@ def test_stratified_dev_selection_is_deterministic_and_without_replacement() -> 
     first = MODULE.stratified_rows(planned, classes)
     second = MODULE.stratified_rows(planned, classes)
     assert first == second
-    assert len(first["ids"]) == len(set(first["ids"])) == 144
+    assert len(first["ids"]) == len(set(first["ids"])) == 32
     assert {name: sum(classes[key] == name for key in first["ids"])
             for name in counts} == MODULE.CLASS_QUOTAS
     assert first["rows"][0]["timestamp"] == 0
     assert planned[0]["timestamp"] == 0  # source is untouched
 
 
-def test_staged_dev_manifest_and_class_hashes_are_verified(tmp_path: Path) -> None:
+def test_staged_curve_manifest_and_class_hashes_are_verified(tmp_path: Path) -> None:
     counts = {"chat": 101, "agent": 42, "code": 57, "document": 40}
     caps = {"chat": 256, "agent": 1024, "code": 1024, "document": 512}
     rows = []
@@ -133,32 +133,38 @@ def test_staged_dev_manifest_and_class_hashes_are_verified(tmp_path: Path) -> No
                 "source_manifest_sha256": sha256_file(source_manifest),
                 "source_payload_sha256": sha256_file(source_payload),
                 "selected_ids_sha256": chosen["ids_sha256"]}
-    output = tmp_path / ".artifacts/fast-pilot-v4/dev-144"
+    output = tmp_path / ".artifacts/fast-pilot-v4/operator-curve-32x3"
     scenario = MODULE.staged_scenario(tmp_path, output, prepared)
     verified = verify_scenario(scenario.metadata["manifest"], root=tmp_path)
-    assert scenario.expected_count == 144
-    assert len(verified["planned"]) == 144
+    assert scenario.expected_count == 32
+    assert len(verified["planned"]) == 32
     assert {name: list(verified["request_classes"].values()).count(name)
             for name in counts} == MODULE.CLASS_QUOTAS
     sidecar = tmp_path / scenario.metadata["manifest"]["request_class_path"]
-    sidecar.write_text(sidecar.read_text().replace("chat-0", "changed-0"))
+    sidecar.write_text(sidecar.read_text() + " ")
     with pytest.raises(WorkloadError, match="sidecar missing or changed"):
         verify_scenario(scenario.metadata["manifest"], root=tmp_path)
 
 
 def test_matched_comparison_retains_class_p90_direction(tmp_path: Path) -> None:
-    def point(label: str, p90: float, throughput: float) -> dict:
-        classes = {"chat": {"planned": 40, "ttft_deadline_breaches": 0,
-                            "tpot_deadline_breaches": 0, "observed_feasible": True,
-                            "reason_codes": [], "diagnostic_percentiles_ms": {
-                                "ttft": {"p50": p90 / 2, "p90": p90},
-                                "tpot": {"p50": 20, "p90": 30}}}}
-        return {"label": label, "config_id": label, "trial": {
-            "status": "valid", "observed_feasible": True, "assessment": {"classes": classes},
-            "native_summary_metrics": {"output_tokens_per_s": throughput}}}
-    points = [point("B0", 100, 50), point("candidate", 80, 60)]
+    def point(label: str, rate: float, p90: float, throughput: float) -> dict:
+        classes = {name: {"n_dispatched": 8, "ttft_eligible": 8, "tpot_eligible": 8,
+                          "ttft_p50_ms": p90 / 2, "ttft_p90_ms": p90,
+                          "tpot_p50_ms": 20, "tpot_p90_ms": 30}
+                   for name in MODULE.CLASS_QUOTAS}
+        return {"label": label, "config_id": label, "rate_rps": rate, "trial": {
+            "status": "valid", "class_metrics": classes,
+            "native_summary_metrics": {"output_tokens_per_s": throughput,
+                                       "ttft_p90_ms": p90, "tpot_p90_ms": 30}}}
+    points = [point(label, rate, p90, throughput) for label, p90, throughput in
+              (("B0", 100, 50), ("candidate", 80, 60)) for rate in MODULE.RATES_RPS]
     result = MODULE.compare_points(points)
     assert result["capacity_confirmed"] is False
+    assert result["sla_assessed"] is False
     assert result["comparisons"][0]["class_latency_deltas_vs_b0"]["chat"]["ttft_p90_ms_delta_ms"] == -20
     assert result["comparisons"][0]["output_tokens_per_s_ratio_vs_b0"] == 1.2
-    assert Path(MODULE.plot_operator_points(tmp_path, points)["per_class_svg"]).is_file()
+    assert Path(MODULE.plot_operator_points(tmp_path, points)["operator_curves_svg"]).is_file()
+    incomplete = dict(points[0]["trial"])
+    incomplete["class_metrics"] = dict(incomplete["class_metrics"])
+    incomplete["class_metrics"].pop("document")
+    assert "class_coverage_mismatch" in MODULE.diagnostic_reasons(incomplete)

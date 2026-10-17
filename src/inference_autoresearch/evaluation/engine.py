@@ -15,6 +15,7 @@ from typing import Any
 from inference_autoresearch.contracts import (CandidateProposal, CellResult, EvaluationResult,
                                                MeasurementPolicy, ScenarioManifest)
 from inference_autoresearch.contracts_wire import export_cell_result
+from inference_autoresearch.evaluation.observations import observation_receipt
 from inference_autoresearch.runtime.config import BASELINE, PinnedEnvironment, resolve_config
 
 
@@ -286,6 +287,10 @@ class EvaluationEngine:
                     except Exception as exc:
                         cell_failure = f"{scenario.scenario_id}:cleanup:{exc}"
                         failures.append(cell_failure)
+                if candidate.requested_observations:
+                    _save(cell_dir / "observation-receipt.json",
+                          observation_receipt(candidate.requested_observations,
+                                              asdict(resolved), cell_dir))
                 timing = {"scenario_id": scenario.scenario_id, "stage": stage,
                           "protocol_id": protocol_id, "ordinal": ordinal,
                           "status": "failed" if cell_failure or failures else "completed",

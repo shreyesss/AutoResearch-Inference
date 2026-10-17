@@ -75,6 +75,20 @@ def test_cleanup_and_accounting_in_fake_path(tmp_path):
                ("server_start_s", "warmup_s", "benchmark_s", "result_processing_s", "server_stop_s"))
 
 
+def test_engine_writes_truthful_requested_observation_receipt(tmp_path):
+    scenario = ScenarioManifest("short", expected_count=2)
+    engine = EvaluationEngine(campaign(tmp_path), {"short": scenario}, FakeRuntime(),
+                              FakeBenchmark(), tmp_path / "runs", None)
+    proposal = CandidateProposal("p1", {}, requested_observations=[
+        "resolved_config", "token_budget_summary", "targeted_profile"])
+    result = engine.evaluate(proposal, ["short"], "pilot")
+    receipt = json.loads((Path(result.artifacts["directory"]) / "cell-01-short" /
+                          "observation-receipt.json").read_text())
+    assert receipt["observations"]["resolved_config"]["status"] == "available"
+    assert receipt["observations"]["token_budget_summary"]["status"] == "partial"
+    assert receipt["observations"]["targeted_profile"]["status"] == "not_executed"
+
+
 def test_failure_still_stops_server(tmp_path):
     runtime = FakeRuntime()
     engine = EvaluationEngine(campaign(tmp_path), {"short": ScenarioManifest("short", expected_count=2)},

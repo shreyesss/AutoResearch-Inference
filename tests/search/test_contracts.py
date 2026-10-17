@@ -85,7 +85,7 @@ def test_codex_driver_keeps_event_stream_separate_from_validated_proposal(tmp_pa
     payload = {"schema_version": "0.2", "proposal_id": "p1",
                "parent_configuration_ids": [], "parameters": strict_params,
                "hypothesis": "Test cap headroom", "expected_tradeoff": "May queue",
-               "evidence_ids": [], "experiment_kind": "hypothesis",
+               "evidence_ids": ["baseline_cell:s:eval-1:s:1"], "experiment_kind": "hypothesis",
                "predictions": [{"observation": "queue", "expected_change": "increase",
                                 "scope": "short-chat 3.2"}],
                "falsification_condition": "Queue remains zero", "requested_observations": []}
@@ -97,11 +97,13 @@ def test_codex_driver_keeps_event_stream_separate_from_validated_proposal(tmp_pa
         f"p.write_text({json.dumps(json.dumps(payload))}); print('{{\"type\":\"event\"}}')\n")
     fake.chmod(0o755)
     context = ProposalContext("c", "test", domain.raw, {}, [], [], [], {"distinct_proposals": 1},
-                              {"search_allowed": True})
+                              {"search_allowed": True,
+                               "evidence_ids": ["baseline_cell:s:eval-1:s:1"]})
     proposal = CodexProposer(domain, tmp_path / "artifacts", cli=str(fake),
                               skill_path=ROOT / "agent/SKILL.md",
                               expected_version="0.test").propose(context)
     assert proposal.parameters == {"max_num_seqs": 128}
+    assert proposal.evidence_ids == ["baseline_cell:s:eval-1:s:1"]
     attempt = tmp_path / "artifacts/proposals/attempt-0001"
     assert json.loads((attempt / "codex.events.jsonl").read_text())["type"] == "event"
     assert json.loads((attempt / "proposal.final.json").read_text())["proposal_id"] == "p1"

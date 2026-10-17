@@ -350,7 +350,12 @@ class CodexProposer:
             receipt["status"] = "invalid_final_json"
             receipt_file.write_text(json.dumps(receipt, indent=2) + "\n")
             raise ProposerError(f"Codex final response is not JSON: {final_file}") from exc
+        # The qualification report's immutable scenario and B0 cell IDs are
+        # exposed in context.json and backed by staged measurement files.
+        # Accept those citations as well as the separately staged documents.
         allowed = {str(ref["evidence_id"]) for ref in staged_refs}
+        allowed.update(item for item in context.qualification.get("evidence_ids", [])
+                       if isinstance(item, str))
         try:
             proposal = parse_codex_output(raw, self.domain, allowed)
         except (ProposerError, ValueError) as exc:

@@ -6,7 +6,7 @@ Each proposal attempt has a human-readable folder. `context.json` contains curre
 
 ## Scientific scope
 
-The handoff contract is v0.2. Workload construction and sensitivity qualification precede real adaptive search. Supported vLLM serving settings are the initial intervention class. Workload traffic and evaluator policy stay frozen outside proposal authority. The campaign fixes model/tokenizer, runtime image, task/output mode, exact offered loads, cache preparation and scoring. New intervention families require a versioned contract.
+The handoff contract is v0.2. This campaign begins after independent workload replay and four matched B0 cells qualify. The first candidate can test serving-parameter sensitivity. Supported vLLM serving settings are the initial intervention class. Workload traffic and evaluator policy stay frozen outside proposal authority. The campaign fixes model/tokenizer, runtime image, task/output mode, exact offered loads, cache preparation and scoring. New intervention families require a versioned contract.
 
 Primary objective vector at an operating point: output tokens/s ↑, TTFT p99 ↓, TPOT p99 ↓. Report p50, completion/error/censoring, client lag, backlog, diagnostics and interval uncertainty. Conditional Pareto fronts use exact load and compatible protocol; a cross-load archive uses only an approved common ladder. An exact front does not certify a global optimum. No scalar objective is assumed.
 

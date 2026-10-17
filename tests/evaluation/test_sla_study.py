@@ -8,14 +8,15 @@ from inference_autoresearch.runtime.config import PinnedEnvironment, resolve_con
 from inference_autoresearch.workloads.registry import sha256_file
 
 
-def test_unlaunched_v3_template_blocks_on_policy_development_and_b0():
+def test_unlaunched_v3_template_accepts_policy_but_blocks_on_development_and_b0():
     result = sla_study.audit_sla_study(
         Path("configs/sla-study-v3.template.json"), root=Path.cwd())
     assert result["status"] == "blocked"
     assert result["capacity_confirmed"] is False
     assert result["screen_request_count"] == 36
     assert result["adaptive_request_count_per_point"] == 240
-    assert "application_sla_policy_not_approved" in result["blockers"]
+    assert result["policy_sha256"] == sha256_file(Path("configs/sla-policy-v3.json"))
+    assert "application_sla_policy_not_approved" not in result["blockers"]
     assert "development_manifest_missing_or_unpinned" in result["blockers"]
     assert "development_b0_cells_missing" in result["blockers"]
 

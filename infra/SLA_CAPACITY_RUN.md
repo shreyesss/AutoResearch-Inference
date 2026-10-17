@@ -6,15 +6,15 @@ start. Its completed cells and interrupted trial remain in the v2 ledger. The
 scheduled B0 adaptive pilot had not run. No result from that campaign is an SLA
 or capacity result.
 
-## Proposed research service contract
+## Approved research service contract
 
-The values below are a proposal for this pinned Qwen3.8-27B, BF16, TP1,
-single-RTX-PRO-6000 study. They are not product-owner commitments. They were
+The user approved the values below as research targets for this pinned Qwen3.8-27B, BF16, TP1,
+single-RTX-PRO-6000 study on 17 October 2026. They are not product-owner commitments. They were
 chosen slightly above the only available mixed B0 p90 observations so B0 can
 anchor a feasible-load search; a second B0 window could change that assessment.
-The machine-readable proposal is `configs/sla-policy-proposed.json`.
+The approved, versioned policy is `configs/sla-policy-v3.json`; the earlier proposal remains for review.
 
-| Request shape | Mixed B0 TTFT p90 (n) | Proposed TTFT p90 limit | Mixed B0 TPOT p90 | Proposed TPOT p90 limit |
+| Request shape | Mixed B0 TTFT p90 (n) | Research TTFT p90 limit | Mixed B0 TPOT p90 | Research TPOT p90 limit |
 | --- | ---: | ---: | ---: | ---: |
 | Chat | 1,078 ms (17) | 1,500 ms | 52.55 ms/token | 70 ms/token |
 | Agent | 1,847 ms (8) | 2,500 ms | 58.25 ms/token | 70 ms/token |
@@ -29,7 +29,7 @@ class limits and complete dispatch/accounting. The starting 0.1 requests/s is
 an anchor, not a capacity target. The rate bracket must expand if its high end
 is clean and contract-feasible.
 
-The proposed policy asks for at least 30 eligible requests per class and a
+The approved research policy asks for at least 30 eligible requests per class and a
 one-sided 95% binomial upper bound on deadline-breach probability no greater
 than 10%. This bound assumes independent requests; common contention makes
 multiple independent windows necessary. The 36-request screen has only 5
@@ -40,7 +40,7 @@ is an operational check, not proof of a true zero error rate.
 
 | Gate | Required evidence | Current state |
 | --- | --- | --- |
-| Frozen service contract | Approved class deadlines, percentile, error rule, rate objective, hashes | Proposed file exists; application owner has not confirmed it. |
+| Frozen service contract | Approved class deadlines, percentile, error rule, rate objective, hashes | Research targets approved and versioned; product SLA remains undefined. |
 | Independent inputs | Two development and two sealed-test windows with new content and arrival seeds, replay validated; no test payloads in proposer workspace | Split plan and audit code exist; real manifests have not been captured. |
 | Matched B0 | One complete B0 per qualified window with input, dispatch, server and request records | Only the old 36-request mixed B0 exists. |
 | Class-aware load search | Rate proposals, all native AIPerf trials, per-class SLA scoring, no client throttle, no sustained backlog | Existing `iar adaptive` is a throughput-only 36-request pilot. It is not the SLA search. |
@@ -62,13 +62,13 @@ boot-verified B0/candidate contrast. See `infra/PINNED_SEARCH_AXIS_AUDIT.md`.
 
 ## Next inspectable checkpoint
 
-1. Review the proposed service contract and exact independent split plan.
+1. Freeze the approved research contract and exact independent split plan.
 2. Capture and replay-validate one development window and its matched B0;
    inspect class counts, load, errors, queue and wall time before generating
    the remaining windows.
 3. Run class-aware adaptive probing on B0; inspect **every** proposed rate and
    why it passed/failed. A 36-request pilot can bracket possible pressure but
-   cannot pass the proposed class sample minimum. Probe a larger qualified
+   cannot pass the approved class sample minimum. Probe a larger qualified
    development corpus near the suspected boundary, then confirm the selected
    rate on new fixed arrivals. Feed the full B0 curve to Codex **before** its
    first SLA-directed proposal, not after an optimizer finishes.

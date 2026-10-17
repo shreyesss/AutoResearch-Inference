@@ -1,0 +1,63 @@
+{
+  "evidence_ids": [
+    "ops4-study-design",
+    "ops4-campaign",
+    "ops4-domain",
+    "ops4-baseline",
+    "ops4-chat-card",
+    "ops4-agent-card",
+    "ops4-document-card",
+    "ops4-mixed-card"
+  ],
+  "expected_tradeoff": "Long-prompt TTFT may increase, and additional prefill work may lengthen drain and slightly reduce output tokens/s. Short chat should remain approximately unchanged. The directional hypothesis follows [pinned vLLM guidance](https://docs.vllm.ai/en/v0.28.0/configuration/optimization/#chunked-prefill); request-level TPOT improvement remains unverified. Evaluate all twelve task objectives separately; finite-window output rate does not establish sustainable capacity.",
+  "experiment_kind": "hypothesis",
+  "falsification_condition": "If actual prefill chunks shrink but overlapping decode gaps do not improve after examining compilation events, reject the interference mechanism. If gaps improve without lower document/mixed request TPOT p99, the primary-metric prediction is unsupported. Unchanged chunks leave activation unproven. Failed, incomplete or backlog-growing cells invalidate the useful-tradeoff claim. Single-window p99 differences remain provisional, especially with 18 document and 36 mixed requests; confirmation requires matched repeats.",
+  "hypothesis": "Reducing max_num_batched_tokens from B0's 8192 to 4096, with chunked prefill enabled, will shorten prefill steps and reduce interference with ongoing decode, potentially lowering document and mixed request-level TPOT p99. B0 shows long streaming gaps on these tasks, zero preemptions and spare KV capacity. Inference-time compilation is an alternative explanation for some spikes and must remain visible. The prior 4096 proposal failed citation validation and has no measured outcome.",
+  "parameters": {
+    "max_num_batched_tokens": 4096
+  },
+  "parent_configuration_ids": [
+    "cfg-8d0de585f89598b2160f"
+  ],
+  "predictions": [
+    {
+      "expected_change": "Budget resolves to 4096; chunked prefill remains enabled. Long-prefill chunks become smaller and more numerous, subject to runtime alignment. Other settings resolve to B0.",
+      "observation": "Resolved configuration and actual scheduled prefill tokens per step",
+      "scope": "All four tasks, each at its exact frozen B0 schedule with cold_stream and fresh-server-cell-v1."
+    },
+    {
+      "expected_change": "Shorter prefill steps and smaller overlapping decode gaps. Inspect compilation events and graph coverage before attributing differences to scheduling.",
+      "observation": "Prefill-step duration and streaming gaps during overlapping decode",
+      "scope": "Agent, document and mixed tasks; diagnostics only, retaining every request in primary metrics."
+    },
+    {
+      "expected_change": "Decrease on document and mixed relative to B0's 86.803 and 64.839 ms; a smaller improvement is plausible on agent. Streaming-gap improvement alone does not establish this prediction.",
+      "observation": "tpot_p99_ms",
+      "scope": "Document at 0.048012963240014, mixed at 0.09663392049112318 and agent at 0.12635792497642334 requests/s; matched protocol."
+    },
+    {
+      "expected_change": "Long-prompt TTFT may increase. Output rate should remain near B0 or slightly decrease if additional prefill work extends drain.",
+      "observation": "ttft_p50_ms, ttft_p90_ms, ttft_p99_ms and output_tokens_per_s",
+      "scope": "Agent, document and mixed, separately at their exact B0 schedules; inspect mixed prompt-length groups alongside aggregate metrics."
+    },
+    {
+      "expected_change": "Approximately unchanged if the smaller token budget remains nonbinding for short prompts.",
+      "observation": "output_tokens_per_s, ttft_p99_ms and tpot_p99_ms",
+      "scope": "Chat at 2.3756352824373157 requests/s, matched cold_stream screen."
+    },
+    {
+      "expected_change": "Preserve complete clean ledgers, zero preemptions and bounded queues; no material dispatch-lag increase. Record any regression alongside p50/p90 and drain.",
+      "observation": "Completion counts, failures, queue evolution, preemptions and dispatch lag",
+      "scope": "All four tasks separately; expected completions are 307 chat, 27 agent, 18 document and 36 mixed."
+    }
+  ],
+  "proposal_id": "ops4-attempt-0002-batch4096",
+  "requested_observations": [
+    "resolved_config",
+    "queue_batch_summary",
+    "token_budget_summary",
+    "cache_memory_summary",
+    "graph_summary"
+  ],
+  "schema_version": "0.2"
+}

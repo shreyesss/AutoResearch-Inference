@@ -43,6 +43,14 @@ search as a separate inner load experiment on B0 and finalists. The observed
 12-request smoke had client throttling/dispatch distortion, so no capacity
 claim follows from its selected best rate.
 
+**Request count is set by our protocol, not searched by the planner.** We use
+different predeclared counts across stages: 36 requests for the existing mixed
+screen, more requests and independent windows for development confirmation,
+and a separately sized test. Within one rate sweep, every sampled rate gets
+the same request count and workload distribution, with separately labelled
+repeats near a possible boundary. Store planned, sent, completed, and
+metric-eligible counts for each point; a duration cap may cause these to differ.
+
 ## Workloads, split, and sample policy
 
 1. **Development screen:** the existing frozen 36-request mixed stream, with

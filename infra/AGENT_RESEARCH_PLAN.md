@@ -53,7 +53,9 @@ mechanism without forced long-context injection or hiding the source records.
 2. Propose one interpretable setting or a justified interaction, with a typed
    domain-valid override, predicted direction by workload class, likely
    tradeoff, and needed existing diagnostics. No invented percentage gains or
-   SLO thresholds. Duplicate/invalid configs stop before GPU use.
+   SLO thresholds. Duplicate/invalid configs stop before GPU use. Prefix-cache
+   and MTP settings remain fixed in v2 unless the dedicated token-exact reuse,
+   acceptance and semantic-quality gates in the serving-domain plan pass.
 3. Controller runs the frozen fast dev screen. A result with full accounting
    but only 36 mixed requests is a **coarse regression screen**: it cannot prove
    p99 improvement or certify any class's SLA. A clear failure may stop here;
@@ -83,10 +85,14 @@ The agent reads the remaining **GPU minutes, proposal count and gate costs**
 from context. Spend cheap gates on broad hypotheses; spend matched repeats,
 longer dev windows and load search on plausible contenders. A failed gate and
 its diagnostic reason are useful evidence, not silent omissions. An outer
-mixed-variable Bayesian/TPE baseline can propose serving settings under the
+Optuna Bayesian/TPE baseline can propose serving settings under the
 same domain and GPU budget, with random/local-search baselines; the agent is
 most useful for mechanism research and proposing conditional domain changes.
 Do not claim agent superiority without this budget-matched comparison.
+Assess reuse of [InseeFrLab auto-tuning-vllm](AUTO_TUNING_VLLM_REUSE.md) as the
+outer study/controller through an adapter before building a separate search
+loop; its default local vLLM/GuideLLM trial protocol differs from our
+Docker/AIPerf baseline.
 
 ## Memory, observability and execution environment
 

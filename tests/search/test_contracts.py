@@ -108,9 +108,89 @@ def test_codex_driver_keeps_event_stream_separate_from_validated_proposal(tmp_pa
     receipt = json.loads((attempt / "proposer-receipt.json").read_text())
     normalized = attempt / "proposal.normalized.json"
     assert receipt["status"] == "validated"
+    assert receipt["sandbox"] == "docker-isolated-research-workspace"
+    assert "--sandbox" in receipt["argv"]
+    assert receipt["argv"][receipt["argv"].index("--sandbox") + 1] == "danger-full-access"
+    assert receipt["argv"][receipt["argv"].index("--cd") + 1] == str(attempt / "workspace")
+    assert (attempt / "SKILL.md").is_file()
     assert receipt["normalized_proposal_path"] == str(normalized)
     assert receipt["normalized_proposal_sha256"] == hashlib.sha256(normalized.read_bytes()).hexdigest()
     assert json.loads(normalized.read_text())["parameters"] == {"max_num_seqs": 128}
+
+
+def test_research_workspace_stages_full_evidence_measurements_and_prior_notes(tmp_path):
+    from inference_autoresearch.contracts import ProposalContext
+    from inference_autoresearch.search.proposer import CodexProposer
+    fake = tmp_path / "codex"
+    domain = Domain.load(ROOT / "configs/search-domain.json")
+    strict_params = {name: None for name in domain.codex_output_schema()["properties"]["parameters"]["properties"]}
+    strict_params["max_num_seqs"] = 128
+    payload = {"schema_version": "0.2", "proposal_id": "p1", "parent_configuration_ids": [],
+               "parameters": strict_params, "hypothesis": "Inspect the queue",
+               "expected_tradeoff": "Unknown", "evidence_ids": ["full-evidence"],
+               "experiment_kind": "hypothesis", "predictions": [{"observation": "queue",
+               "expected_change": "up", "scope": "same load"}],
+               "falsification_condition": "Queue is flat", "requested_observations": []}
+    fake.write_text("#!/usr/bin/env python3\n"
+        "import json,sys,pathlib\n"
+        "if sys.argv[1:] == ['--version']: print('codex-cli 0.test'); sys.exit(0)\n"
+        "if sys.argv[1:] == ['login','status']: print('Logged in'); sys.exit(0)\n"
+        "args=sys.argv[1:]; w=pathlib.Path(args[args.index('--cd')+1]); "
+        "(w/'prompt.txt').write_text(sys.stdin.read()); "
+        "(w/'notes.md').write_text('queue needs another load\\n'); "
+        "p=pathlib.Path(args[args.index('--output-last-message')+1]); "
+        f"p.write_text({json.dumps(json.dumps(payload))}); print('{{\"type\":\"event\"}}')\n")
+    fake.chmod(0o755)
+    artifact_root = tmp_path / "artifacts"
+    cell = artifact_root / "campaign" / "eval-1" / "cell-01"
+    (cell / "aiperf").mkdir(parents=True)
+    (cell / "server").mkdir()
+    (cell / "aiperf/normalized-requests.jsonl").write_text('{"ttft_ms": 100}\n')
+    (cell / "server/server.log").write_text('queue=0\n')
+    (cell / "cell-result.json").write_text('{"status":"valid"}\n')
+    (cell.parent / "resolved-config.json").write_text('{"max_num_seqs":512}\n')
+    evidence = tmp_path / "evidence.txt"
+    evidence.write_text("Evidence is complete.\n" * 1000)
+    digest = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    row = {"cell_id": "eval-1:s:1", "stage": "screen", "scenario_id": "s",
+           "artifacts": {"raw_requests": str(cell / "aiperf/normalized-requests.jsonl")},
+           "metrics": {"ttft_p99_ms": 100}}
+    heldout = dict(row, cell_id="eval-1:heldout:1", stage="heldout")
+    context = ProposalContext("c", "test", domain.raw, {}, [{"scope": ["s"], "cells": [row]}],
+                              [row, heldout], [{"evidence_id": "full-evidence",
+                              "snapshot_path": str(evidence), "sha256": digest}],
+                              {"distinct_proposals": 2}, {"search_allowed": True})
+    proposer = CodexProposer(domain, artifact_root, cli=str(fake),
+                             skill_path=ROOT / "agent/SKILL.md", expected_version="0.test")
+    proposer.propose(context)
+    first = artifact_root / "proposals/attempt-0001"
+    assert (first / "evidence/full-evidence.txt").read_bytes() == evidence.read_bytes()
+    assert (first / "measurements/eval-1/cell-01/aiperf/normalized-requests.jsonl").is_file()
+    assert (first / "measurements/eval-1/cell-01/server/server.log").is_file()
+    assert (first / "measurements/eval-1/resolved-config.json").is_file()
+    measurements = json.loads((first / "measurements-index.json").read_text())
+    assert [item["cell_id"] for item in measurements["cells"]] == ["eval-1:s:1"]
+    assert (first / "workspace/notes.md").read_text() == "queue needs another load\n"
+    proposer.propose(context)
+    second = artifact_root / "proposals/attempt-0002"
+    assert (second / "history/attempt-0001/notes.md").read_text() == "queue needs another load\n"
+    assert (second / "history/attempt-0001/proposal.normalized.json").is_file()
+    assert "Evidence is complete." not in (first / "workspace/prompt.txt").read_text()
+    assert "../measurements-index.json" in (first / "workspace/prompt.txt").read_text()
+
+
+def test_default_real_proposer_refuses_host_codex_without_docker_boundary(tmp_path, monkeypatch):
+    from inference_autoresearch.contracts import ProposalContext
+    from inference_autoresearch.search.proposer import CodexProposer, ProposerError
+    fake_host_codex = tmp_path / "codex"
+    fake_host_codex.write_text("#!/bin/sh\nexit 0\n")
+    fake_host_codex.chmod(0o755)
+    monkeypatch.setattr("inference_autoresearch.search.proposer.shutil.which",
+                        lambda _: str(fake_host_codex))
+    domain = Domain.load(ROOT / "configs/search-domain.json")
+    context = ProposalContext("c", "test", domain.raw, {}, [], [], [], {}, {})
+    with pytest.raises(ProposerError, match="isolated Docker wrapper"):
+        CodexProposer(domain, tmp_path, cli="codex").propose(context)
 
 
 def test_codex_strict_schema_requires_all_typed_keys_and_normalizes_nulls():

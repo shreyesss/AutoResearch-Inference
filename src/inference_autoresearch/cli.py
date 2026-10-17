@@ -21,6 +21,7 @@ from inference_autoresearch.search.proposer import CodexProposer, MockProposer, 
 from inference_autoresearch.search.qualification import assess
 from inference_autoresearch.search.report import export, export_history
 from inference_autoresearch.storage import Ledger
+from inference_autoresearch.storage.inspection import write_inspection
 from inference_autoresearch.workloads.registry import ScenarioRegistry
 
 
@@ -151,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="iar", description="Pinned Qwen serving experiments")
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("doctor", "characterize", "prepare", "baseline", "pilot", "evaluate",
-                    "qualify", "search", "report"):
+                    "qualify", "search", "report", "inspect"):
         item = sub.add_parser(command)
         item.add_argument("--campaign", default="configs/campaign.json")
         item.add_argument("--backend", choices=("mock", "real"), default="mock")
@@ -178,8 +179,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     domain = Domain.load(_file(campaign["search_domain_path"], campaign_path))
     registry = ScenarioRegistry(_file(campaign["workload_registry"], campaign_path), root=project_root)
     artifact_root = Path(args.output_dir).resolve() / campaign["campaign_id"] / args.backend
+    if args.command == "inspect" and not (artifact_root / "ledger.sqlite3").is_file():
+        raise ValueError(f"no campaign ledger to inspect: {artifact_root / 'ledger.sqlite3'}")
     ledger = Ledger(artifact_root / "ledger.sqlite3")
     command = args.command
+    if command == "inspect":
+        return write_inspection(ledger, campaign["campaign_id"], artifact_root, args.backend)
     if command == "doctor":
         result: dict[str, Any] = {"campaign_id": campaign["campaign_id"], "backend": args.backend,
                  "campaign_hash": scientific_campaign_hash(campaign), "domain_hash": domain.digest,

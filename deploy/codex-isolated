@@ -1,6 +1,8 @@
 #!/bin/bash
+# IAR_ISOLATED_CODEX_WRAPPER=1
 # Called by the trusted controller. `codex exec ... -` reads the proposal prompt
-# from stdin. The candidate process can write only its bounded artifact area.
+# from stdin. The candidate process can inspect staged research files and write
+# only its current attempt workspace. Docker is the security boundary.
 set -eu
 : "${IAR_REPO_ROOT:?Set absolute repository root}"
 : "${IAR_CODEX_HOME:?Set absolute Codex auth path}"
@@ -19,12 +21,17 @@ for argument in "$@"; do
 done
 write_mount=()
 if [[ -n "$proposal_dir" ]]; then
-  case "$proposal_dir" in
-    "$IAR_REPO_ROOT"/.artifacts/*) ;;
+  proposal_dir="$(readlink -f "$proposal_dir")"
+  attempt_dir="$(dirname "$proposal_dir")"
+  case "$attempt_dir" in
+    "$IAR_REPO_ROOT"/.artifacts/*/proposals/attempt-[0-9][0-9][0-9][0-9]|\
+    "$IAR_REPO_ROOT"/.artifacts/proposals/attempt-[0-9][0-9][0-9][0-9]) ;;
     *) echo "Codex output directory must be under .artifacts" >&2; exit 2 ;;
   esac
-  [[ -d "$proposal_dir" ]] || { echo "Codex output directory missing" >&2; exit 2; }
-  write_mount=(-v "$proposal_dir:$proposal_dir:rw")
+  [[ "$(basename "$proposal_dir")" == "workspace" && -d "$proposal_dir" ]] || {
+    echo "Codex research workspace missing" >&2; exit 2;
+  }
+  write_mount=(-v "$attempt_dir:$attempt_dir:rw")
 fi
 exec docker run --rm -i --pull never \
   --read-only --cap-drop ALL --security-opt no-new-privileges \

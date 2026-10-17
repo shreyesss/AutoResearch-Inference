@@ -21,8 +21,8 @@ The Dockerized first-pass `mtp_draft_tokens=1` pilot completed the same 154/154 
 | `configs/workloads/` | Versioned workload cards/manifests with asset hashes and readiness |
 | `src/inference_autoresearch/workloads/`, `benchmark/` | Workload verification and native AIPerf replay/export adapter |
 | `src/inference_autoresearch/runtime/`, `evaluation/` | Pinned Docker lifecycle, GPU lease, telemetry, cell validity/accounting |
-| `src/inference_autoresearch/search/`, `storage/` | Codex proposer, qualification gate, append-only ledger, Pareto exports |
-| `agent/SKILL.md` | Single operational instruction file for the proposer; `agent/reference.md` is a versioned evidence packet |
+| `src/inference_autoresearch/search/`, `storage/` | Codex proposer, qualification gate, append-only ledger, inspection index, Pareto exports |
+| `agent/SKILL.md` | Single operational instruction file for the proposer; each attempt gets staged research files and writable notes |
 | `deploy/` | Controller and isolated proposer container recipe; pinned vLLM runs as a sibling service |
 | `infra/` | Prior real measurements and reproducible manual probes |
 | `EXPERIMENT_DESIGN.md` | Experiment policy and inspection checkpoints |
@@ -56,6 +56,8 @@ If the model is absent, run `.venv/bin/python scripts/prepare-model.py` to downl
 Mock output is labeled and stored under `.artifacts/autoresearch-codebase/`. It exercises the controller and plot path without scientific performance claims. A bounded real diagnostic can be run with `iar baseline --backend real`; each cell starts a fresh pinned server and runs the same frozen short-chat stream. `iar pilot --backend real` runs the predeclared MTP1 contrast across both cards; `iar evaluate --backend real --candidate configs/pilot-cap64.json --stage pilot` runs the inactive-axis control. The pilot plan requires both scenario IDs and matched repeats. `--scenario REGISTRY_ID` can narrow a baseline investigator run. `iar qualify --backend real` writes a sensitivity/qualification report with exact missing gates; it does not launch GPU work. Real `search` refuses to run until a matching real qualification report opens the gate. Failed evaluations return a nonzero exit code while retaining JSON artifacts.
 
 Every evaluation should leave resolved settings/argv, model and image pins, AIPerf native exports, normalized per-request records, Docker logs/state, server `/metrics`, GPU samples, cell verdicts and ledger events. `report` exports a Markdown report, JSON/CSV, feedback/proposal records and SVG Pareto plots grouped by exact compatible load/protocol. The plot is descriptive; short sample p99 points remain provisional.
+
+Use `iar inspect --backend real --output-dir .artifacts/vertical-slice-v3` to regenerate a human-readable `inspection/INDEX.md` and machine-readable `index.json` from the real ledger and proposer attempt folders. New evaluations also write per-cell and aggregate phase timings. The Codex proposer reads a small path-only prompt, inspects staged source and non-held-out run files inside its isolated container, and writes notes for later attempts. The current campaign has no opt-in fast triage; an optional one-load validity gate is available for a versioned future campaign. The fresh-server protocol still spends several minutes starting the model for each cell, so ordinary iteration speed has not yet been improved by server reuse.
 
 ## Current search question
 

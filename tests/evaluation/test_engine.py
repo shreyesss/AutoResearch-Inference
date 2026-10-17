@@ -66,6 +66,11 @@ def test_cleanup_and_accounting_in_fake_path(tmp_path):
     assert result.status == "valid"
     assert len(runtime.started) == len(runtime.stopped) == 1
     assert json.loads((Path(result.artifacts["directory"]) / "cell-01-short" / "controller-validation.json").read_text())["frontier_eligible"]
+    timings = json.loads(Path(result.artifacts["timings"]).read_text())
+    assert timings["protocol_id"] == "fresh-server-cell-v1"
+    assert timings["cells"][0]["status"] == "completed"
+    assert all(name in timings["cells"][0]["phases"] for name in
+               ("server_start_s", "warmup_s", "benchmark_s", "result_processing_s", "server_stop_s"))
 
 
 def test_failure_still_stops_server(tmp_path):
@@ -75,6 +80,28 @@ def test_failure_still_stops_server(tmp_path):
     result = engine.evaluate(CandidateProposal("p0", {}), ["short"], "pilot")
     assert result.status == "failed" and "benchmark failed" in result.failure_reasons[0]
     assert len(runtime.stopped) == 1
+    timings = json.loads(Path(result.artifacts["timings"]).read_text())
+    assert timings["cells"][0]["status"] == "failed"
+    assert "benchmark_s" in timings["cells"][0]["phases"]
+    assert "server_stop_s" in timings["cells"][0]["phases"]
+
+
+def test_triage_is_separate_stage_and_protocol(tmp_path):
+    scenario = ScenarioManifest("short", expected_count=2)
+    real_campaign = campaign(tmp_path) | {"backend": "real"}
+    benchmark = FakeBenchmark()
+    benchmark.preflight_tokenizer = lambda manifest: None
+    engine = EvaluationEngine(real_campaign, {"short": scenario}, FakeRuntime(),
+                              benchmark, tmp_path / "runs", None)
+    result = engine.evaluate(CandidateProposal("p1", {}), ["short"], "triage")
+    output = Path(result.artifacts["directory"])
+    assert result.stage == "triage"
+    assert result.artifacts["protocol_id"] == "fresh-server-triage-v1"
+    assert json.loads((output / "evaluation-policy.json").read_text())["stage"] == "triage"
+    assert json.loads((output / "evaluation-timings.json").read_text())["protocol_id"] == "fresh-server-triage-v1"
+    status = json.loads((output / "cell-01-short" / "wire-export-status.json").read_text())
+    assert status["status"] == "unavailable_for_triage"
+    assert not (output / "cell-01-short" / "cell-result-v02.json").exists()
 
 
 def test_behavior_requires_queue_evidence():

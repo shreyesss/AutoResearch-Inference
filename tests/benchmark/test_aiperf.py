@@ -85,6 +85,15 @@ class AIPerfAdapterTest(unittest.TestCase):
             self.assertEqual(row["terminal_state"], "not_dispatched")
             self.assertIsNone(row["ttft_ms"])
 
+    def test_triage_keeps_native_result_out_of_frozen_wire_shape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            (directory / "profile_export_aiperf.json").write_text(json.dumps({"is_complete": False}))
+            normalize_exports(self.scenario, directory, config_id="b0", run_id="triage",
+                              stage="triage")
+            self.assertTrue((directory / "triage-native-result.json").is_file())
+            self.assertFalse((directory / "cell-result.json").exists())
+
     def test_measurement_requires_preparation_receipt(self):
         adapter = AIPerfAdapter()
         server = ServerHandle(server_id="test", base_url="http://127.0.0.1:8000", config_id="b0")

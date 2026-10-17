@@ -1,5 +1,9 @@
 # Frozen reference packet v1
 
+## Research workspace and memory
+
+Each proposal attempt has a human-readable folder. `context.json` contains current campaign state, recent cell/feedback summaries, the active domain and remaining budget. `research-index.json` lists complete staged evidence files and prior attempt snapshots. `measurements-index.json` links staged, size-bounded raw files for non-heldout recent/frontier cells and explains omissions. Read relevant files on demand; the proposal prompt deliberately carries paths instead of their full contents. `workspace/notes.md` is writable campaign working memory for the next attempt. The controller snapshots it read-only under `history/attempt-*/notes.md`, together with validated prior proposals and receipts. Codex event JSONL, stderr, final JSON and validation receipts stay outside the notes and can be inspected by the operator. This memory is within one campaign; it is not a curated cross-campaign lesson store. The proposal agent cannot inspect arbitrary host paths or run its own GPU measurements.
+
 ## Scientific scope
 
 The handoff contract is v0.2. Workload construction and sensitivity qualification precede real adaptive search. Supported vLLM serving settings are the initial intervention class. Workload traffic and evaluator policy stay frozen outside proposal authority. The campaign fixes model/tokenizer, runtime image, task/output mode, exact offered loads, cache preparation and scoring. New intervention families require a versioned contract.

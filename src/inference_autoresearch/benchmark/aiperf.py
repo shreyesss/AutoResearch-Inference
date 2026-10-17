@@ -382,10 +382,16 @@ def normalize_exports(scenario: ScenarioManifest | dict[str, Any], artifact_dir:
         "counts": counts, "ttft_p50_ms": metrics["ttft_p50_ms"],
         "ttft_p99_ms": metrics["ttft_p99_ms"], "tpot_p50_ms": metrics["tpot_p50_ms"],
         "tpot_p99_ms": metrics["tpot_p99_ms"]}}, indent=2, sort_keys=True) + "\n")
-    wire = _wire_cell_result(result, manifest=manifest, run_id=run_id, stage=stage,
-                             replicate=replicate, artifact_dir=artifact_dir,
-                             class_summary_path=class_summary_path)
-    (output_dir / "cell-result.json").write_text(json.dumps(wire, indent=2, sort_keys=True) + "\n")
+    if stage == "triage":
+        # Triage is an internal fast gate; the frozen v0.2 wire schema admits
+        # pilot/screen/expanded/confirm only. Keep a clearly native result.
+        (output_dir / "triage-native-result.json").write_text(
+            json.dumps(asdict(result), indent=2, sort_keys=True) + "\n")
+    else:
+        wire = _wire_cell_result(result, manifest=manifest, run_id=run_id, stage=stage,
+                                 replicate=replicate, artifact_dir=artifact_dir,
+                                 class_summary_path=class_summary_path)
+        (output_dir / "cell-result.json").write_text(json.dumps(wire, indent=2, sort_keys=True) + "\n")
     return result
 
 

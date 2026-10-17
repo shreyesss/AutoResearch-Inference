@@ -11,24 +11,36 @@ from inference_autoresearch.contracts import ProposalContext
 from inference_autoresearch.search.domain import Domain
 from inference_autoresearch.search.evidence import EvidenceStore
 from inference_autoresearch.search.proposer import CodexProposer
+from inference_autoresearch.storage import Ledger
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--real-artifact-root", type=Path,
+                        help="Existing real campaign artifact directory; stage its recorded cells for a proposer-only smoke.")
     args = parser.parse_args()
     root = args.repo.resolve()
     campaign = json.loads((root / "configs/campaign.json").read_text())
     domain = Domain.load(root / campaign["search_domain_path"])
-    out = root / ".artifacts/proposer-smoke"
+    out = args.real_artifact_root.resolve() if args.real_artifact_root else root / ".artifacts/proposer-smoke"
+    recent = []
+    if args.real_artifact_root:
+        ledger_path = out / "ledger.sqlite3"
+        if not ledger_path.is_file() or not out.is_relative_to(root / ".artifacts"):
+            raise ValueError("real artifact root must be an existing campaign directory under .artifacts")
+        heldout_ids = set(campaign.get("heldout_scenario_ids", []))
+        recent = [event["payload"] for event in Ledger(ledger_path).events(campaign["campaign_id"], "cell")
+                  if event["payload"].get("scenario_id") not in heldout_ids
+                  and "heldout" not in str(event["payload"].get("stage", "")).lower()]
     evidence = EvidenceStore(root, out / "evidence").snapshot()
     context = ProposalContext(
         campaign_id=campaign["campaign_id"],
         mission="Proposer integration smoke only. Return one schema-valid proposal; no evaluation will run.",
-        domain=domain.raw, baseline=campaign["baseline"], frontier=[], recent_results=[],
+        domain=domain.raw, baseline=campaign["baseline"], frontier=[], recent_results=recent[-12:],
         evidence_refs=evidence, remaining_budget={"distinct_proposals": 1, "wall_seconds": args.timeout},
-        qualification={"search_allowed": False, "reason": "proposer-only smoke; real campaign gate closed"},
+        qualification={"search_allowed": False, "reason": "proposer-only smoke; no evaluator calls"},
     )
     proposal = CodexProposer(domain, out, timeout_s=args.timeout,
                              skill_path=root / "agent/SKILL.md",

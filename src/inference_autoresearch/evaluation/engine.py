@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,16 @@ def _save(path: Path, payload: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n")
     tmp.replace(path)
+
+
+@contextmanager
+def _timed(phases: dict[str, float], name: str):
+    """Record elapsed wall time even when a phase raises."""
+    start = time.monotonic()
+    try:
+        yield
+    finally:
+        phases[name] = round(time.monotonic() - start, 6)
 
 
 def _validate_cell(cell: CellResult, expected: int, config_id: str, scenario_id: str) -> list[str]:
@@ -133,26 +144,30 @@ class EvaluationEngine:
             self.ledger.append(self.campaign_id, kind, entity_id, data)
 
     def evaluate(self, candidate: CandidateProposal, scenario_ids: list[str], stage: str) -> EvaluationResult:
-        if stage not in ("pilot", "screen", "expanded", "confirm"):
+        evaluation_start = time.monotonic()
+        if stage not in ("pilot", "triage", "screen", "expanded", "confirm"):
             raise EvaluationError("unknown evaluation stage")
+        protocol_id = "fresh-server-triage-v1" if stage == "triage" else "fresh-server-cell-v1"
         if not scenario_ids or len(set(scenario_ids)) != len(scenario_ids):
             raise EvaluationError("provide distinct frozen scenario IDs")
         # Resolve all read-only inputs before touching the GPU.
         scenarios = [self._scenario(identifier) for identifier in scenario_ids]
         resolved = resolve_config(candidate.parameters, self._pinned(), self._domain())
+        preflight_start = time.monotonic()
         if self.campaign.get("backend", "real") == "real":
             preflight = getattr(self.benchmark, "preflight_tokenizer", None)
             if preflight is None:
                 raise EvaluationError("real adapter must preflight the exact offline tokenizer loader")
             for scenario in scenarios:
                 preflight(scenario)
+        preflight_s = round(time.monotonic() - preflight_start, 6)
         evaluation_id = "eval-" + uuid.uuid4().hex
         output_dir = self.artifact_root / self.campaign_id / evaluation_id
         output_dir.mkdir(parents=True, exist_ok=False)
         _save(output_dir / "proposal.json", asdict(candidate))
         _save(output_dir / "resolved-config.json", asdict(resolved))
         _save(output_dir / "evaluation-policy.json", {
-            "protocol_id": "fresh-server-cell-v1", "stage": stage,
+            "protocol_id": protocol_id, "stage": stage,
             "scenario_ids": scenario_ids, "cache_policy": "fresh vLLM process per measured cell; disjoint warmup",
             "benchmark_duration_s": 70, "benchmark_grace_period_s": 60,
         })
@@ -163,18 +178,23 @@ class EvaluationEngine:
         })
         cell_ids: list[str] = []
         failures: list[str] = []
-        total_start = time.monotonic()
+        cell_timings: list[dict[str, Any]] = []
         for ordinal, scenario in enumerate(scenarios, 1):
             cell_dir = output_dir / f"cell-{ordinal:02d}-{scenario.scenario_id}"
             cell_dir.mkdir()
             handle = None
+            cell_start = time.monotonic()
+            phases: dict[str, float] = {}
+            cell_failure: str | None = None
             self._append("evaluation_transition", evaluation_id,
                          {"state": "starting", "scenario_id": scenario.scenario_id, "ordinal": ordinal})
             try:
-                handle = self.runtime.start(resolved, cell_dir / "server")
+                with _timed(phases, "server_start_s"):
+                    handle = self.runtime.start(resolved, cell_dir / "server")
                 self._append("evaluation_transition", evaluation_id,
                              {"state": "warming", "scenario_id": scenario.scenario_id})
-                receipt = self.benchmark.prepare(handle, scenario, cell_dir / "warmup")
+                with _timed(phases, "warmup_s"):
+                    receipt = self.benchmark.prepare(handle, scenario, cell_dir / "warmup")
                 receipt_path = cell_dir / "warmup" / "preparation-receipt.json"
                 if not isinstance(receipt, dict) or not receipt_path.is_file():
                     raise EvaluationError("benchmark preparation did not produce a receipt")
@@ -184,33 +204,42 @@ class EvaluationEngine:
                                                      "preparation_receipt": str(receipt_path),
                                                      "benchmark_duration_s": 70,
                                                      "benchmark_grace_period_s": 60,
-                                                     "protocol_id": "fresh-server-cell-v1"})
+                                                     "protocol_id": protocol_id})
                 self._append("evaluation_transition", evaluation_id,
                              {"state": "measuring", "scenario_id": scenario.scenario_id})
-                cell = self.benchmark.run_cell(handle, scenario, policy, cell_dir / "aiperf")
+                with _timed(phases, "benchmark_s"):
+                    cell = self.benchmark.run_cell(handle, scenario, policy, cell_dir / "aiperf")
                 if not isinstance(cell, CellResult):
                     raise EvaluationError("benchmark adapter returned an invalid CellResult")
-                cell = classify_behavior(cell)
-                _save(cell_dir / "cell-result.json", asdict(cell))
-                if self.campaign.get("backend", "real") == "real":
-                    export_cell_result(cell, scenario, policy, cell_dir / "server",
-                                       cell_dir / "cell-result-v02.json")
-                reasons = _validate_cell(cell, scenario.expected_count, resolved.config_id, scenario.scenario_id)
-                _save(cell_dir / "controller-validation.json", {"reason_codes": reasons,
-                       "frontier_eligible": cell.status == "valid" and cell.behavior == "normal" and not reasons})
-                if reasons or cell.status != "valid":
-                    failures.extend(f"{scenario.scenario_id}:{reason}" for reason in (reasons or cell.reason_codes or [cell.status]))
-                cell_ids.append(cell.cell_id)
-                self._append("cell", cell.cell_id, asdict(cell) | {
-                    "controller_validation": reasons, "stage": stage,
-                    "offered_load": scenario.offered_load, "load_unit": scenario.load_unit,
-                    "cache_protocol": scenario.cache_protocol,
-                    "measurement_protocol": "fresh-server-cell-v1",
-                    "workload_group_id": scenario.group_id,
-                    "is_baseline": not candidate.parameters,
-                })
+                with _timed(phases, "result_processing_s"):
+                    cell = classify_behavior(cell)
+                    _save(cell_dir / "cell-result.json", asdict(cell))
+                    if self.campaign.get("backend", "real") == "real" and stage != "triage":
+                        export_cell_result(cell, scenario, policy, cell_dir / "server",
+                                           cell_dir / "cell-result-v02.json")
+                    elif self.campaign.get("backend", "real") == "real":
+                        _save(cell_dir / "wire-export-status.json", {
+                            "status": "unavailable_for_triage",
+                            "reason": "frozen cell-result v0.2 schema excludes the triage stage",
+                            "native_cell_result": str(cell_dir / "cell-result.json"),
+                        })
+                    reasons = _validate_cell(cell, scenario.expected_count, resolved.config_id, scenario.scenario_id)
+                    _save(cell_dir / "controller-validation.json", {"reason_codes": reasons,
+                           "frontier_eligible": cell.status == "valid" and cell.behavior == "normal" and not reasons})
+                    if reasons or cell.status != "valid":
+                        failures.extend(f"{scenario.scenario_id}:{reason}" for reason in (reasons or cell.reason_codes or [cell.status]))
+                    cell_ids.append(cell.cell_id)
+                    self._append("cell", cell.cell_id, asdict(cell) | {
+                        "controller_validation": reasons, "stage": stage,
+                        "offered_load": scenario.offered_load, "load_unit": scenario.load_unit,
+                        "cache_protocol": scenario.cache_protocol,
+                        "measurement_protocol": protocol_id,
+                        "workload_group_id": scenario.group_id,
+                        "is_baseline": not candidate.parameters,
+                    })
             except Exception as exc:
                 reason = f"{scenario.scenario_id}:{type(exc).__name__}:{exc}"
+                cell_failure = reason
                 failures.append(reason)
                 _save(cell_dir / "failure.json", {"reason": reason, "state": "functional_or_measurement_failed"})
                 self._append("evaluation_transition", evaluation_id,
@@ -220,16 +249,33 @@ class EvaluationEngine:
                     self._append("evaluation_transition", evaluation_id,
                                  {"state": "draining", "scenario_id": scenario.scenario_id})
                     try:
-                        self.runtime.stop(handle)
+                        with _timed(phases, "server_stop_s"):
+                            self.runtime.stop(handle)
                     except Exception as exc:
-                        failures.append(f"{scenario.scenario_id}:cleanup:{exc}")
+                        cell_failure = f"{scenario.scenario_id}:cleanup:{exc}"
+                        failures.append(cell_failure)
+                timing = {"scenario_id": scenario.scenario_id, "stage": stage,
+                          "protocol_id": protocol_id, "ordinal": ordinal,
+                          "status": "failed" if cell_failure or failures else "completed",
+                          "failure": cell_failure, "phases": phases,
+                          "total_wall_s": round(time.monotonic() - cell_start, 6)}
+                _save(cell_dir / "timing.json", timing)
+                self._append("cell_timing", f"{evaluation_id}:{ordinal}", timing)
+                cell_timings.append(timing)
             if failures:
                 break
         status = "valid" if len(cell_ids) == len(scenarios) and not failures else "failed"
         result = EvaluationResult(evaluation_id, resolved.config_id, stage, cell_ids,
                                   status, failures, {"directory": str(output_dir),
-                                                     "protocol_id": "fresh-server-cell-v1",
-                                                     "elapsed_s": f"{time.monotonic() - total_start:.3f}"})
+                                                     "protocol_id": protocol_id,
+                                                     "elapsed_s": f"{time.monotonic() - evaluation_start:.3f}",
+                                                     "timings": str(output_dir / "evaluation-timings.json")})
+        _save(output_dir / "evaluation-timings.json", {
+            "evaluation_id": evaluation_id, "protocol_id": protocol_id,
+            "stage": stage, "preflight_s": preflight_s,
+            "cells": cell_timings,
+            "total_wall_s": round(time.monotonic() - evaluation_start, 6),
+        })
         _save(output_dir / "evaluation-result.json", asdict(result))
         self._append("evaluation", evaluation_id, asdict(result))
         return result

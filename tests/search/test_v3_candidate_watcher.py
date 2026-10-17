@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -131,7 +132,11 @@ def test_controller_preflight_and_search_share_docker_runtime(tmp_path, monkeypa
     assert len(seen) == 2
     assert seen[0][0:5] == seen[1][0:5] == [
         "docker", "exec", "-w", str(watcher.ROOT), watcher.CONTROLLER_CONTAINER]
-    assert seen[0][-1] == "--check" and seen[1] == seen[0][:-1]
+    assert seen[0][-1] == "--check"
+    assert seen[0][0:9] == seen[1][0:9]
+    assert seen[0][10:-1] == seen[1][10:]
+    assert seen[0][9].endswith("preflight.pid")
+    assert seen[1][9].endswith("run.pid")
 
 
 def test_controller_pin_rejects_rebuilt_image_mismatch(monkeypatch):
@@ -151,6 +156,33 @@ def test_controller_pin_rejects_rebuilt_image_mismatch(monkeypatch):
     monkeypatch.setattr(watcher.subprocess, "run", fake_run)
     with pytest.raises(RuntimeError, match="container, current image"):
         watcher.controller_runtime_pin()
+
+
+def test_timeout_signals_inner_container_pid_before_killing_docker_client(tmp_path, monkeypatch):
+    class FakeProcess:
+        pid = 314
+        returncode = 130
+
+        def __init__(self, *_args, **_kwargs):
+            self.calls = 0
+
+        def wait(self, *, timeout=None):
+            self.calls += 1
+            if self.calls < 3:
+                raise subprocess.TimeoutExpired("docker exec", timeout)
+
+    signals: list[str] = []
+    monkeypatch.setattr(watcher.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(watcher, "signal_container_process",
+                        lambda _path, name: signals.append(f"inner:{name}"))
+    monkeypatch.setattr(watcher.os, "killpg",
+                        lambda _pid, sig: signals.append(f"host:{sig.name}"))
+    pid_path = tmp_path / "run.pid"
+    code, _, timed_out = watcher.run_command(
+        ["docker", "exec"], tmp_path / "console.log", timeout_s=1,
+        inner_pid_path=pid_path)
+    assert code == 130 and timed_out
+    assert signals == ["inner:INT", "host:SIGINT", "inner:KILL", "host:SIGKILL"]
 
 
 def test_watcher_blocks_when_profiler_disappears_without_receipt(tmp_path, monkeypatch):

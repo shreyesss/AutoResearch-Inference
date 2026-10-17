@@ -220,7 +220,28 @@ def stamp(state: dict[str, Any], stage: str, **details: Any) -> None:
     write(STATUS, state)
 
 
-def run_command(argv: list[str], log_path: Path, *, timeout_s: int) -> tuple[int, str, bool]:
+def signal_container_process(pid_path: Path | None, signal_name: str) -> None:
+    if pid_path is None or not pid_path.is_file():
+        return
+    try:
+        pid = int(pid_path.read_text().strip())
+    except (OSError, ValueError):
+        return
+    if pid <= 1:
+        return
+    try:
+        subprocess.run(["docker", "exec", CONTROLLER_CONTAINER, "kill", "-s",
+                        signal_name, str(pid)], capture_output=True, check=False, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        # The host docker client is signaled by the caller even if Docker is
+        # unavailable during shutdown; the status remains a timed-out failure.
+        pass
+
+
+def run_command(argv: list[str], log_path: Path, *, timeout_s: int,
+                inner_pid_path: Path | None = None) -> tuple[int, str, bool]:
+    if inner_pid_path is not None:
+        inner_pid_path.unlink(missing_ok=True)
     # Both live logs remain readable during a long GPU search. Keep stdout
     # separate so the CLI's final JSON can be parsed without stderr warnings.
     with log_path.open("w") as log, log_path.with_suffix(".stderr.log").open("w") as errors:
@@ -232,6 +253,7 @@ def run_command(argv: list[str], log_path: Path, *, timeout_s: int) -> tuple[int
             process.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
+            signal_container_process(inner_pid_path, "INT")
             try:
                 os.killpg(process.pid, signal.SIGINT)
             except ProcessLookupError:
@@ -239,6 +261,7 @@ def run_command(argv: list[str], log_path: Path, *, timeout_s: int) -> tuple[int
             try:
                 process.wait(timeout=120)
             except subprocess.TimeoutExpired:
+                signal_container_process(inner_pid_path, "KILL")
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
@@ -286,12 +309,17 @@ def run_waiter(timeout_s: int) -> dict[str, Any]:
             no_prior_proposals()
             controller_pin = controller_runtime_pin()
             stamp(state, "controller_image_verified", controller=controller_pin)
+            preflight_pid = INPUT_ROOT / "candidate-search-v3b-preflight.pid"
+            search_pid = INPUT_ROOT / "candidate-search-v3b-run.pid"
             check_argv = ["docker", "exec", "-w", str(ROOT), CONTROLLER_CONTAINER,
+                          "bash", "-c", 'printf "%s\\n" "$$" > "$1"; shift; exec "$@"',
+                          "iar-v3b-watch", str(preflight_pid),
                           "iar", "sla-search", "--backend", "real",
                           "--campaign", str(CAMPAIGN), "--check"]
             stamp(state, "gpu_free_search_preflight", argv=check_argv)
             check_code, check_stdout, check_timeout = run_command(
-                check_argv, INPUT_ROOT / "candidate-search-v3b-preflight.log", timeout_s=600)
+                check_argv, INPUT_ROOT / "candidate-search-v3b-preflight.log",
+                timeout_s=600, inner_pid_path=preflight_pid)
             if check_code or check_timeout:
                 raise RuntimeError("GPU-free SLA search preflight failed; inspect candidate-search-v3b-preflight.log")
             preflight = json.loads(check_stdout)
@@ -305,10 +333,12 @@ def run_waiter(timeout_s: int) -> dict[str, Any]:
             idle_gpu()
             if controller_runtime_pin() != controller_pin:
                 raise RuntimeError("controller image, copied code, wrapper or campaign changed after preflight")
-            search_argv = check_argv[:-1]
+            search_argv = check_argv[:-1].copy()
+            search_argv[search_argv.index(str(preflight_pid))] = str(search_pid)
             stamp(state, "candidate_search_running", argv=search_argv)
             code, stdout, timed_out = run_command(
-                search_argv, INPUT_ROOT / "candidate-search-v3b-console.log", timeout_s=72000)
+                search_argv, INPUT_ROOT / "candidate-search-v3b-console.log",
+                timeout_s=72000, inner_pid_path=search_pid)
             stamp(state, "candidate_search_finished", exit_code=code, timed_out=timed_out)
             if code or timed_out:
                 raise RuntimeError("candidate search failed or timed out; inspect v3b console and ledger")

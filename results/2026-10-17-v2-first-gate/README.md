@@ -47,6 +47,12 @@ per-request prefill chunk trace was exported, so the scheduler mechanism is
 still an inference. The next decision requires independent repeats and a
 separate development/test stream.
 
+The first Codex research attempt recorded 567,741 input tokens (472,307
+reported as cached) and 8,623 output tokens in its Codex event log. Its
+tool reads included several large background files. The skill now instructs
+later attempts to start from indexed summaries and selectively aggregate raw
+records; this efficiency change has not yet been measured.
+
 ## Raw evidence
 
 - B0: `.artifacts/autoresearch-codebase/qwen38-27b-eval-v2/real/qwen38-27b-eval-v2/eval-6145d5adcd8647b6a31e5530fb2a534a/`
@@ -57,6 +63,12 @@ separate development/test stream.
   `.artifacts/autoresearch-codebase/qwen38-27b-eval-v2/real/`
 
 The overnight Optuna study started at `2026-10-17T20:51:57Z`. Its first
-trial was still running when this summary was written. After the serving
-study finishes, the persistent session runs an exploratory AIPerf adaptive
+trial was falsely rejected by the old startup-log verifier at the pinned
+2048 token budget. It was recorded as a failed trial, **not** a poor
+performance measurement. The verifier was corrected and checked against the
+actual saved startup log; the study resumed from its SQLite state at
+`2026-10-17T20:58:49Z`. One just-started trial was interrupted and marked
+failed during that correction. Its server log and the operator intervention
+remain in the artifact ledger. After the serving study finishes, the persistent
+session runs an exploratory AIPerf adaptive
 rate pilot on B0. Neither an SLA nor a capacity boundary has been defined.

@@ -11,6 +11,8 @@ You are the single proposal agent for the pinned Qwen3.8-27B serving study. Retu
 
 Read `../context.json`, `../research-index.json`, `../measurements-index.json` and, when present, `../evaluation-index.json`. Open the relevant complete hash-checked records under `../evidence/`, `../measurements/` and `../history/` on demand. The prompt contains paths, not a forced summary of the entire history. Check campaign/protocol IDs and hashes before comparing measurements. The old fixed-four OPS4 results are background evidence for a new protocol; a new protocol needs its own matched B0.
 
+Keep research reads selective: begin with cell summaries and the index, compute compact aggregates from raw request files, and open only the evidence sections needed for this hypothesis. Avoid dumping whole logs or every background document into the conversation. Preserve links and hashes so a later attempt can revisit the source.
+
 Look at B0 first: resolved flags, exact workload and input hashes, offered and realized rate, eligible request counts by class, TTFT and per-request TPOT p50/p90/p99, throughput, failures, client dispatch lag, queue/drain, and startup/warmup costs. Then inspect prior candidate points, invalid or dominated points, matched repeats, and every sampled adaptive load point. Use the native AIPerf export when a summary is ambiguous. Missing counters are `unavailable`, never zero. A short mixed screen has only 36 requests and cannot certify p99 or capacity.
 
 ## Research and proposal

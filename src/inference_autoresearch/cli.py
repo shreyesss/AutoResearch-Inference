@@ -539,6 +539,28 @@ def _run_adaptive_sla_assessment(args: argparse.Namespace,
             "claim": assessment["claim"], "capacity_confirmed": False}
 
 
+def _validate_sla_profile_campaign(campaign: dict[str, Any], campaign_path: Path,
+                                   study_path: Path, study: dict[str, Any]) -> None:
+    """Allow finalist profiling through the search domain without changing B0 pins."""
+    source_path = _file(study["source_campaign_path"], campaign_path).resolve()
+    source = _load_campaign(source_path)
+    if source.get("campaign_id") != "qwen38-27b-eval-v2":
+        raise ValueError("SLA study source campaign is not the pinned v2 B0")
+    if campaign.get("campaign_id") == "qwen38-27b-eval-v2":
+        if source_path != campaign_path.resolve():
+            raise ValueError("SLA study source campaign differs from requested campaign")
+        return
+    if campaign.get("campaign_id") != "qwen38-27b-sla-serving-v3c":
+        raise ValueError("SLA profiling requires the pinned v2 or v3c campaign")
+    if (_file(campaign.get("sla_study_path", ""), campaign_path).resolve() != study_path.resolve()
+            or campaign.get("qualification_requirements", {}).get("mode") != "sla-agent-v3"
+            or campaign.get("search_domain_path") != "configs/search-domain-v3c.json"
+            or campaign.get("screen_scenario_ids") != [study["screen"]["scenario_id"]]
+            or study["adaptive_development"]["scenario_id"] not in campaign.get("development_scenario_ids", [])
+            or any(campaign.get(key) != source.get(key) for key in ("model", "runtime", "baseline"))):
+        raise ValueError("v3c SLA profile differs from the approved study or pinned B0 environment")
+
+
 def _run_sla_profile(args: argparse.Namespace, campaign: dict[str, Any],
                      campaign_path: Path, domain: Domain, registry: ScenarioRegistry,
                      artifact_root: Path, ledger: Ledger, project_root: Path) -> dict[str, Any]:
@@ -549,15 +571,14 @@ def _run_sla_profile(args: argparse.Namespace, campaign: dict[str, Any],
     from inference_autoresearch.runtime.config import resolve_config
     from inference_autoresearch.workloads.registry import verify_scenario
 
-    if args.backend != "real" or campaign.get("campaign_id") != "qwen38-27b-eval-v2":
-        raise ValueError("iar sla-profile requires --backend real --campaign configs/campaign-v2.json")
+    if args.backend != "real":
+        raise ValueError("iar sla-profile requires --backend real")
     study_path = _file(args.study, campaign_path).resolve()
     readiness = audit_sla_study(study_path, root=project_root)
     if readiness["status"] != "inputs_ready_for_new_campaign":
         raise ValueError(f"SLA study inputs are not qualified: {readiness['blockers']}")
     study = json.loads(study_path.read_text())
-    if _file(study["source_campaign_path"], campaign_path).resolve() != campaign_path:
-        raise ValueError("SLA study source campaign differs from requested campaign")
+    _validate_sla_profile_campaign(campaign, campaign_path, study_path, study)
     screen = registry.load(study["screen"]["scenario_id"])
     development_ref = study["adaptive_development"]
     development_path = _file(development_ref["manifest_path"], campaign_path).resolve()

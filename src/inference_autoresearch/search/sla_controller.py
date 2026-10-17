@@ -258,7 +258,7 @@ class SLAServingController:
         candidate_path = root / "candidate.json"
         _write(candidate_path, asdict(proposal))
         argv = [str(self.root / ".venv/bin/iar"), "sla-profile", "--backend", "real",
-                "--campaign", "configs/campaign-v2.json", "--study", str(study_path),
+                "--campaign", str(self.campaign_path), "--study", str(study_path),
                 "--candidate", str(candidate_path), "--max-points",
                 str(self.campaign["sla_search"]["profile_max_qualified_points"])]
         _write(root / "profile-argv.json", {"argv": argv})

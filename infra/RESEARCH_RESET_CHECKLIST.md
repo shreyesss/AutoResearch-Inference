@@ -10,6 +10,7 @@ Status: working checklist, 18 October 2026 (Asia/Kolkata). The current OPS4 resu
 - [x] Run a bounded live AIPerf adaptive-load smoke on the pinned model and save native `search_history.json` and timing. Two 12-request trials completed; their selected rate is not a capacity result. See `AIPERF_ADAPTIVE_FINDINGS.md`.
 - [x] Check BLIS installation, Qwen/Blackwell calibration coverage, TraceV2 conversion, and whether it models model-loading time. All 307 recorded chat requests replayed on a surrogate, but model/hardware calibration is absent. See `BLISS_SPIKE.md`.
 - [x] Write the dev/test and fast-gate protocol with clear implemented/proposed labels, sample-size limits, frozen split identity, uncertainty, and promotion rules. See `OPS4_EVALUATION_REDESIGN.md`.
+- [x] Run fresh-server mixed-task B0 and 4096 candidate repeats, then audit exact paired request IDs and shape-level changes. Both confirm cells were valid/normal with 36/36 completions. The frozen-stream tail direction repeated; see `results/2026-10-18-research-reset/paired-mixed.json`. This does not establish an independent test result.
 
 ## Design decisions to resolve before a new autonomous campaign
 

@@ -90,8 +90,8 @@ suite needs new assets and access controls, not just a JSON flag.
 Start with Gate 1 on current frozen mixed task to prove implementation and time
 cost: one measured cell took 800 s, including 356 s startup and 50 s warmup.
 Its 36 requests are enough for a coarse smoke/large-regression filter, **not**
-for tail promotion; the document stratum has only about five requests at the
-declared mix weight, so per-class p99 cannot be a rejection rule at this gate.
+for tail promotion; the frozen mix contains 17 chat, 8 agent, 5 document and
+6 code shapes, so per-class p99 cannot be a rejection rule at this gate.
 A shorter clipped stream would require a new protocol and
 matched B0; it must still exercise the target mechanisms. Saving three server
 starts reduces the screening time from ~46 min to ~13 min on the recorded run.
@@ -135,6 +135,16 @@ not establish semantic answer quality, real user think time, dependent sessions,
 production class frequencies, cache reuse, or business SLAs. The current
 `cold_stream` protocol deliberately suppresses cross-request reuse.
 
+For this campaign, the chain is: `ops_aiperf` YAML specifies synthetic length
+classes/weights and an arrival recipe → an AIPerf source run realizes concrete
+prompts and Poisson arrival timestamps → `infra/freeze-ops-synthetic-cell.py`
+records the exact bodies and credits in JSONL → every B0/candidate cell replays
+that JSONL via AIPerf's fixed-schedule mode → the actual vLLM server produces
+tokens and measured latencies. AIPerf is the traffic generator and meter, **not
+a simulation of model computation**. Replaying the same JSONL reduces input
+variation for an A/B comparison, but cannot by itself test generalization to
+different prompts, arrival draws, sessions or deployment traffic.
+
 The next implementation checkpoint is one versioned dev stream and matched B0
 repeat policy, followed by a one-task gate wired into the controller. Measure its
 wall time and false-rejection risk against known B0/candidate artifacts before
@@ -143,9 +153,9 @@ stream and run finalist confirmation.
 
 ## References
 
-- [AIPerf timing modes](https://github.com/ai-dynamo/aiperf/blob/main/docs/benchmark-modes/timing-modes-reference.md): fixed schedule, request-rate, concurrency and sampling options.
-- [AIPerf arrival patterns](https://github.com/ai-dynamo/aiperf/blob/main/docs/tutorials/arrival-patterns.md): Poisson/gamma/constant controls and fixed-schedule incompatibility.
-- [AIPerf trace replay](https://github.com/ai-dynamo/aiperf/blob/main/docs/benchmark-modes/trace-replay.md): recorded timestamps and optional opt-out.
-- [AIPerf metric definitions](https://github.com/ai-dynamo/aiperf/blob/main/docs/metrics-reference.md): request-level TTFT/ITL and aggregate output throughput.
+- [AIPerf 0.13 timing modes](https://github.com/ai-dynamo/aiperf/blob/v0.13.0/docs/benchmark-modes/timing-modes-reference.md): fixed schedule, request-rate, concurrency and sampling options.
+- [AIPerf 0.13 arrival patterns](https://github.com/ai-dynamo/aiperf/blob/v0.13.0/docs/tutorials/arrival-patterns.md): Poisson/gamma/constant controls and fixed-schedule incompatibility.
+- [AIPerf 0.13 trace replay](https://github.com/ai-dynamo/aiperf/blob/v0.13.0/docs/benchmark-modes/trace-replay.md): recorded timestamps and optional opt-out.
+- [AIPerf 0.13 metric definitions](https://github.com/ai-dynamo/aiperf/blob/v0.13.0/docs/metrics-reference.md): request-level TTFT/ITL and aggregate output throughput.
 - Pinned local source: `.venv/lib/python3.12/site-packages/aiperf/timing/strategies/fixed_schedule.py` and `aiperf/metrics/types/inter_token_latency_metric.py` (version 0.13.0).
 - Recorded timing: `results/2026-10-17-ops4-first-search/candidate/evaluation-timings.json`.

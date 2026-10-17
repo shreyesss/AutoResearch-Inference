@@ -12,6 +12,10 @@ Pinned installation: AIPerf 0.13.0 in `.venv`. The local capability spike previo
 | Can it tune the rate of the frozen OPS4 trace? | No direct scalar rate on an exact fixed schedule. A rate search requires a rate-controlled run that changes timing semantics; an independently frozen schedule is then used for matched confirmation. |
 
 This means AIPerf is useful for a **separate inner load-capacity experiment** once numeric TTFT/TPOT/error SLAs are agreed. It is not a shortcut that makes each outer server-setting candidate cheap: each adaptive iteration sends another batch of real requests. Run adaptive load search for B0 and promising finalists, then verify selected boundary points on fresh frozen traffic. Preserve the ordinary fixed-load A/B comparison for causal server-setting claims.
+For an open-loop capacity claim, keep the client concurrency ceiling high enough
+that it does not throttle scheduled arrivals; otherwise the optimizer may prefer
+a client-limited experiment rather than a better server. The live smoke below
+shows why scheduled-versus-actual dispatch must be an admission check.
 
 ## Bounded live smoke
 

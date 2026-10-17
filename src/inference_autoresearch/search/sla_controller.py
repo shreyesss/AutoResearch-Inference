@@ -26,7 +26,7 @@ from inference_autoresearch.evaluation.sla import assess_observed_point, validat
 from inference_autoresearch.evaluation.sla_study import audit_sla_study
 from inference_autoresearch.evaluation.split_v2 import SplitError, audit_confirmation_pairs, load_split_plan
 from inference_autoresearch.search.domain import Domain, config_identity
-from inference_autoresearch.search.proposer import CodexProposer, _stage_sla_study
+from inference_autoresearch.search.proposer import CodexProposer, ProposerError, _stage_sla_study
 from inference_autoresearch.search.rate_screen import run_rate_screen, select_screen_rate
 from inference_autoresearch.search.report import eligible
 from inference_autoresearch.search.sla_curve_report import export_sla_curves
@@ -387,7 +387,16 @@ class SLAServingController:
                                   "wall_seconds": max(0, budget["wall_seconds"]-(time.monotonic()-started))},
                 qualification={"search_allowed": True, "qualification_grade": "v3_research_sla",
                                "evidence_ids": [row["cell_id"] for row in baseline_cells]})
-            proposal = self.proposer.propose(context)
+            try:
+                proposal = self.proposer.propose(context)
+            except ProposerError as exc:
+                # The proposer keeps the complete failed attempt receipt and
+                # event log. An invalid or timed-out proposal spends one try,
+                # but does not discard the valid measurements already made.
+                self.ledger.append(campaign_id, "sla_proposal_rejected", f"attempt-{attempt + 1}",
+                                   {"reason": "proposer_failed", "error": str(exc),
+                                    "attempt": attempt + 1})
+                continue
             require_frozen_study()
             self.domain.validate(proposal.parameters)
             config_id = config_identity(self.campaign,

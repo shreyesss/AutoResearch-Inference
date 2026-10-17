@@ -1,13 +1,15 @@
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from inference_autoresearch.search.rate_screen import (
-    RateScreenError, _output_caps_realized, select_screen_rate,
+    RateScreenError, _output_caps_realized, run_rate_screen, select_screen_rate,
 )
+from inference_autoresearch.contracts import CandidateProposal
 
 
 def _sha(path: Path) -> str:
@@ -91,3 +93,52 @@ def test_short_screen_rejects_output_cap_mismatch():
     assert not _output_caps_realized(raw, measured)
     measured[0]["metrics"]["usage_completion_tokens"]["value"] = 256
     assert _output_caps_realized(raw, measured)
+
+
+def test_candidate_server_start_failure_is_recorded_and_does_not_abort(tmp_path, monkeypatch):
+    import inference_autoresearch.search.rate_screen as module
+
+    manifest = tmp_path / "screen.json"
+    payload = tmp_path / "screen.jsonl"
+    profile = tmp_path / "profile.json"
+    for path in (manifest, payload, profile):
+        path.write_text("frozen")
+    screen = SimpleNamespace(scenario_id="screen-36", expected_count=36,
+                             path=manifest, cache_protocol="cold_stream",
+                             metadata={"asset": str(payload), "registry_root": str(tmp_path)})
+    rate_lock = {"schema_version": "rate-screen-lock-v1",
+                 "screen_scenario_id": screen.scenario_id,
+                 "screen_manifest_sha256": _sha(manifest),
+                 "screen_payload_sha256": _sha(payload),
+                 "source_profile_path": profile.name,
+                 "source_profile_sha256": _sha(profile),
+                 "selected_rate_rps": 0.2, "arrival_seed": 200042,
+                 "client_concurrency_cap": 256,
+                 "claim": "rate_matched_stochastic_36_request_triage_only"}
+    @dataclass
+    class Resolved:
+        config_id: str = "candidate-id"
+    monkeypatch.setattr(module, "resolve_config", lambda *_: Resolved())
+    class FailingRuntime:
+        def start(self, *_):
+            raise RuntimeError("server exited before readiness")
+    class Ledger:
+        def __init__(self):
+            self.rows = []
+        def append(self, *args):
+            self.rows.append(args)
+    ledger = Ledger()
+    engine = SimpleNamespace(
+        _pinned=lambda: None, _domain=lambda: None, runtime=FailingRuntime(),
+        benchmark=SimpleNamespace(preflight_tokenizer=lambda *_: None))
+    candidate = CandidateProposal("candidate-1", {"max_num_seqs": 64},
+                                  "exploration", "Startup may fail")
+    result = run_rate_screen(engine, candidate, screen, rate_lock, ledger,
+                             "campaign", tmp_path / "evaluations")
+    assert result.status == "failed"
+    assert len(result.cell_ids) == 1
+    cell = json.loads(next((tmp_path / "evaluations").glob("*/cell-*/cell-result.json")).read_text())
+    assert cell["status"] == "measurement_failed"
+    assert cell["counts"]["not_dispatched"] == 36
+    assert cell["reason_codes"] == ["screen_exception_RuntimeError"]
+    assert ledger.rows[0][1] == "cell"

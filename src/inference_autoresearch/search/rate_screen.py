@@ -255,9 +255,45 @@ def run_rate_screen(engine: Any, candidate: CandidateProposal, scenario: Any,
                                   failure_reasons=reasons)
         (evaluation_dir / "evaluation-result.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
         return result
+    except Exception as exc:
+        # A bad serving setting may fail during startup or warmup. Preserve it
+        # as an ineligible measured attempt so one bad proposal cannot abort
+        # the remaining search budget. Preflight and source-pin failures above
+        # this try block still stop the whole campaign.
+        failure = {"reason": f"{type(exc).__name__}: {exc}",
+                   "phase": "candidate_screen", "config_id": resolved.config_id}
+        (cell_dir / "failure.json").write_text(json.dumps(failure, indent=2) + "\n")
+        cell_id = f"{evaluation_id}:{scenario.scenario_id}:1"
+        reason = f"screen_exception_{type(exc).__name__}"
+        cell = {"cell_id": cell_id, "scenario_id": scenario.scenario_id,
+                "config_id": resolved.config_id, "status": "measurement_failed",
+                "behavior": "unknown", "evidence_grade": "ineligible",
+                "counts": {"planned": scenario.expected_count, "dispatched": 0,
+                           "completed": 0, "not_dispatched": scenario.expected_count,
+                           "failed": 0, "timed_out": 0, "canceled": 0, "censored": 0},
+                "metrics": {}, "artifacts": {"failure": str(cell_dir / "failure.json")},
+                "diagnostics": {"rate_screen_lock": rate_lock,
+                                "phase_timings_s": phases,
+                                "claim": "failed_screen_no_performance_observation"},
+                "reason_codes": [reason]}
+        (cell_dir / "cell-result.json").write_text(json.dumps(cell, indent=2, sort_keys=True) + "\n")
+        (cell_dir / "controller-validation.json").write_text(json.dumps({
+            "frontier_eligible": False, "reason_codes": [reason],
+            "claim": "failed_screen_no_performance_observation"}, indent=2) + "\n")
+        ledger.append(campaign_id, "cell", cell_id, cell | {
+            "stage": "triage", "offered_load": rate, "load_unit": "requests_per_s",
+            "cache_protocol": scenario.cache_protocol,
+            "measurement_protocol": "rate-matched-poisson-triage-v1",
+            "is_baseline": not candidate.parameters})
+        result = EvaluationResult(evaluation_id, resolved.config_id, "triage", [cell_id],
+                                  "failed", failure_reasons=[reason])
+        (evaluation_dir / "evaluation-result.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
+        return result
     finally:
         if handle is not None:
             engine.runtime.stop(handle)
+        (cell_dir / "timing.json").write_text(json.dumps({
+            "phases": phases, "total_wall_s": round(time.monotonic() - started, 6)}, indent=2) + "\n")
         (cell_dir / "timing.json").write_text(json.dumps({
             "stage": "triage", "protocol_id": "rate-matched-poisson-triage-v1",
             "phases": phases, "total_wall_s": time.monotonic() - started}, indent=2) + "\n")

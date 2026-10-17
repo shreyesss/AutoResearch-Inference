@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One matched 240-request development point for B0 and at most two v4 finalists.
+"""One matched stratified 144-request dev point for B0 and at most two finalists.
 
 `check` is GPU-free and read-only. `run` uses one shared GPU lease and writes
 every native AIPerf export. A single Poisson rate is an observed operator
@@ -11,9 +11,11 @@ from __future__ import annotations
 import argparse
 import csv
 import fcntl
+import hashlib
 import json
 import math
 import os
+import random
 import shutil
 import sqlite3
 import subprocess
@@ -34,11 +36,14 @@ from inference_autoresearch.workloads.registry import sha256_file, verify_scenar
 
 CAMPAIGN_ID = "qwen38-27b-fast-pilot-v4"
 SCENARIO_ID = "qwen-ops-mixed-development-1042-v1"
+DEV_SCENARIO_ID = "qwen-ops-mixed-development-1042-stratified-144-v4"
 RATE_RPS = 0.4
 SEED = 41042
+SAMPLING_SEED = 1441042
+CLASS_QUOTAS = {"chat": 54, "agent": 30, "code": 30, "document": 30}
 ROOT = Path(__file__).resolve().parents[1]
 PILOT = ROOT / ".artifacts/fast-pilot-v4"
-OUTPUT = PILOT / "finalist-240"
+OUTPUT = PILOT / "dev-144"
 
 
 class FollowupError(RuntimeError):
@@ -197,8 +202,16 @@ def preflight(root: Path = ROOT, pilot: Path = PILOT) -> dict[str, Any]:
     if baseline.config_id != b0.get("baseline_config_id"):
         raise FollowupError("B0 config identity differs")
     cases = selected_cases(root, shortlist, pilot / "ledger.sqlite", pinned, domain)
-    return {"status": "ready_for_matched_240_followup", "capacity_confirmed": False,
+    policy = read(policy_path)
+    if (set(policy.get("classes", {})) != set(CLASS_QUOTAS)
+            or any(CLASS_QUOTAS[name] < policy["classes"][name]["min_eligible_requests"]
+                   for name in CLASS_QUOTAS)):
+        raise FollowupError("144-request quotas are below approved per-class sample minimum")
+    selection = stratified_rows(checked["planned"], checked["request_classes"])
+    return {"status": "ready_for_matched_144_development_followup", "capacity_confirmed": False,
             "rate_rps": RATE_RPS, "seed": SEED,
+            "class_quotas": CLASS_QUOTAS, "sampling_seed": SAMPLING_SEED,
+            "selected_ids_sha256": selection["ids_sha256"],
             "shortlist_sha256": sha256_file(shortlist_path),
             "pilot_lock_sha256": sha256_file(lock_path),
             "b0_sha256": sha256_file(b0_path),
@@ -208,30 +221,101 @@ def preflight(root: Path = ROOT, pilot: Path = PILOT) -> dict[str, Any]:
             "source_payload_sha256": sha256_file(checked["payload_path"]),
             "cases": [{"label": "B0", "config_id": baseline.config_id,
                        "parameters": {}, "pilot_cell_id": None}, *cases],
-            "source_manifest": manifest, "policy": read(policy_path),
+            "source_manifest": manifest, "policy": policy,
             "pinned": pinned, "domain": domain}
 
 
+def stratified_rows(planned: list[dict[str, Any]],
+                    request_classes: dict[str, str]) -> dict[str, Any]:
+    """Draw fixed class quotas without replacement, retaining source order."""
+    pools = {name: [row["session_id"] for row in planned
+                    if request_classes[row["session_id"]] == name] for name in CLASS_QUOTAS}
+    rng = random.Random(SAMPLING_SEED)
+    chosen: set[str] = set()
+    for name, quota in CLASS_QUOTAS.items():
+        if len(pools[name]) < quota:
+            raise FollowupError(f"Source lacks {quota} {name} requests")
+        chosen.update(rng.sample(pools[name], quota))
+    rows = [dict(row) for row in planned if row["session_id"] in chosen]
+    if len(rows) != 144 or len({row["session_id"] for row in rows}) != 144:
+        raise FollowupError("Stratified selection is incomplete or duplicated")
+    origin = rows[0]["timestamp"]
+    for row in rows:
+        row["timestamp"] -= origin
+    ids = [row["session_id"] for row in rows]
+    return {"rows": rows, "ids": ids,
+            "ids_sha256": hashlib.sha256(json.dumps(ids, separators=(",", ":")).encode()).hexdigest()}
+
+
 def staged_scenario(root: Path, output: Path, prepared: dict[str, Any]) -> ScenarioManifest:
-    """Make a followup-only validated manifest from the completed replay receipt."""
+    """Stage a new 144-body dev manifest; leave live source/240 evidence intact."""
     original = prepared["source_manifest"]
     input_dir = output / "input"
     input_dir.mkdir(parents=True, exist_ok=False)
+    source = verify_scenario(original, root=root, require_validated=False)
+    chosen = stratified_rows(source["planned"], source["request_classes"])
+    if chosen["ids_sha256"] != prepared["selected_ids_sha256"]:
+        raise FollowupError("Deterministic 144-request selection changed")
+    payload_path = input_dir / "1042-stratified-144.jsonl"
+    with payload_path.open("w") as stream:
+        for row in chosen["rows"]:
+            stream.write(json.dumps(row, sort_keys=True) + "\n")
+    class_path = input_dir / "1042-stratified-144.classes.json"
+    write(class_path, {"schema_version": "ops-request-classes-v1",
+                       "scenario_id": DEV_SCENARIO_ID,
+                       "classes_by_session_id": {key: source["request_classes"][key]
+                                                 for key in chosen["ids"]}})
     source_card = read(root / original["workload_card_path"])
-    card = source_card | {"readiness": "validated"}
+    source_schedule_rps = 143000 / chosen["rows"][-1]["timestamp"]
+    card = source_card | {"card_id": DEV_SCENARIO_ID, "readiness": "validated",
+                          "shape_counts": CLASS_QUOTAS,
+                          "configured_average_rps": RATE_RPS,
+                          "frozen_schedule_average_rps": source_schedule_rps,
+                          "source_arrival": {"pattern": "subset_of_1042_frozen_source",
+                                             "rate_rps": source_schedule_rps},
+                          "evaluation_arrival": {"pattern": "poisson", "rate_rps": RATE_RPS,
+                                                 "seed": SEED + round(RATE_RPS * 1_000_000)},
+                          "limitations": ["Derived development subset of the same 1042 source; not independent test.",
+                                          "The stored timestamps are source-order metadata; AIPerf Poisson 0.4 req/s replaces arrivals."]}
     card_path = input_dir / "1042.card.json"
     write(card_path, card)
-    manifest = original | {"readiness": "validated",
+    manifest = original | {"scenario_id": DEV_SCENARIO_ID,
+                           "readiness": "validated", "n_planned": 144,
+                           "payload_path": str(payload_path.relative_to(root)),
+                           "schedule_path": str(payload_path.relative_to(root)),
+                           "payload_sha256": sha256_file(payload_path),
+                           "schedule_sha256": sha256_file(payload_path),
+                           "request_class_path": str(class_path.relative_to(root)),
+                           "request_class_sha256": sha256_file(class_path),
                            "workload_card_path": str(card_path.relative_to(root)),
                            "workload_card_sha256": sha256_file(card_path),
-                           "notes": "V4 followup-only copy qualified by pinned 1042 fixed-replay receipt."}
+                           "shape_counts": CLASS_QUOTAS,
+                           "seeds": {"arrivals": SEED + round(RATE_RPS * 1_000_000),
+                                     "content": 1042, "prefix": 0},
+                           "offered_load": source_schedule_rps, "offered_rps": source_schedule_rps,
+                           "dispatch_duration_s": chosen["rows"][-1]["timestamp"] / 1000,
+                           "notes": "Derived 144-body development subset; AIPerf Poisson .4 req/s replaces source arrivals. Not independent test."}
     manifest_path = input_dir / "1042.manifest.json"
     write(manifest_path, manifest)
     checked = verify_scenario(manifest, root=root, require_validated=True)
-    return ScenarioManifest(scenario_id=SCENARIO_ID, workload_id=manifest["workload_name"],
+    if len(checked["planned"]) != 144 or {name: list(checked["request_classes"].values()).count(name)
+                                          for name in CLASS_QUOTAS} != CLASS_QUOTAS:
+        raise FollowupError("Derived 144 manifest did not retain class quotas")
+    write(input_dir / "selection-receipt.json", {
+        "schema_version": "v4-stratified-dev-144-v1", "source_scenario_id": SCENARIO_ID,
+        "derived_scenario_id": DEV_SCENARIO_ID, "sampling_seed": SAMPLING_SEED,
+        "class_quotas": CLASS_QUOTAS, "selected_ids_sha256": chosen["ids_sha256"],
+        "selected_ids": chosen["ids"], "source_manifest_sha256": prepared["source_manifest_sha256"],
+        "source_payload_sha256": prepared["source_payload_sha256"],
+        "derived_manifest_sha256": sha256_file(manifest_path),
+        "derived_payload_sha256": sha256_file(payload_path),
+        "derived_card_sha256": sha256_file(card_path),
+        "derived_class_sidecar_sha256": sha256_file(class_path),
+        "claim": "same_source_stratified_development_only_no_independent_test"})
+    return ScenarioManifest(scenario_id=DEV_SCENARIO_ID, workload_id=manifest["workload_name"],
                             path=manifest_path, group_id=manifest["workload_group_id"],
-                            offered_load=RATE_RPS, load_unit="requests_per_s",
-                            expected_count=240, output_policy="forced_length",
+                            offered_load=source_schedule_rps, load_unit="requests_per_s",
+                            expected_count=144, output_policy="forced_length",
                             traffic_mode="independent_open_loop", history_mode="single_turn",
                             cache_protocol="cold_stream",
                             metadata={"manifest": manifest, "asset": str(checked["payload_path"]),
@@ -280,8 +364,9 @@ def compare_points(points: list[dict[str, Any]]) -> dict[str, Any]:
                                 trial["native_summary_metrics"]["output_tokens_per_s"] /
                                 baseline["trial"]["native_summary_metrics"]["output_tokens_per_s"])
                             if baseline["trial"]["native_summary_metrics"]["output_tokens_per_s"] else None})
-    return {"claim": "single_matched_rate_development_observations_only",
-            "capacity_confirmed": False, "rate_rps": RATE_RPS,
+    return {"claim": "same_source_stratified_144_matched_dev_observations_only",
+            "capacity_confirmed": False, "independent_test": False,
+            "rate_rps": RATE_RPS, "class_quotas": CLASS_QUOTAS,
             "points": points, "comparisons": comparisons}
 
 
@@ -331,11 +416,15 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
                                                "b0_sha256", "policy_sha256",
                                                "source_manifest_sha256", "source_card_sha256",
                                                "source_payload_sha256")}
-        lock.update({"schema_version": "fast-finalist-240-v1", "rate_rps": RATE_RPS,
+        lock.update({"schema_version": "fast-dev-144-v1", "rate_rps": RATE_RPS,
                      "arrival_pattern": "poisson", "arrival_seed": SEED + round(RATE_RPS * 1_000_000),
-                     "claim": "one_matched_development_rate_no_capacity", "capacity_confirmed": False})
+                     "claim": "same_source_stratified_144_dev_point_no_capacity",
+                     "selected_ids_sha256": prepared["selected_ids_sha256"],
+                     "capacity_confirmed": False})
         write(output / "run-lock.json", lock)
         scenario = staged_scenario(root, output, prepared)
+        lock["derived_input_receipt_sha256"] = sha256_file(output / "input/selection-receipt.json")
+        write(output / "run-lock.json", lock)
         adapter = AIPerfAdapter(aiperf_executable=controller_aiperf_executable(),
                                 tokenizer_path=prepared["pinned"].model_dir,
                                 tokenizer_cache_dir=root / ".artifacts/aiperf-hf-cache")
@@ -348,7 +437,7 @@ def run(root: Path = ROOT, pilot: Path = PILOT, output: Path = OUTPUT) -> dict[s
                               client_concurrency_cap=512)
         points = []
         state = {"status": "running", "active": None, "completed": [],
-                 "capacity_confirmed": False}
+                 "capacity_confirmed": False, "independent_test": False}
         write(output / "run-status.json", state)
         try:
             for ordinal, case in enumerate(prepared["cases"], 1):
@@ -441,8 +530,10 @@ def main() -> int:
                           "capacity_confirmed": False}, indent=2))
         return 0
     result = run()
-    print(json.dumps({"status": "complete", "matched_comparison": str(OUTPUT / "matched-comparison.json"),
-                      "points": len(result["points"]), "capacity_confirmed": False}, indent=2))
+    print(json.dumps({"status": "complete", "dev_requests": 144,
+                      "matched_comparison": str(OUTPUT / "matched-comparison.json"),
+                      "points": len(result["points"]), "capacity_confirmed": False,
+                      "independent_test": False}, indent=2))
     return 0
 
 

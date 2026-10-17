@@ -1,4 +1,4 @@
-"""The 240-request followup admits only hash-pinned pilot selections."""
+"""The stratified 144-request gate admits only pinned pilot selections."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from inference_autoresearch.runtime.config import PinnedEnvironment, resolve_config
-from inference_autoresearch.workloads.registry import sha256_file
+from inference_autoresearch.workloads.registry import WorkloadError, sha256_file, verify_scenario
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "infra/run_fast_finalists_v4.py"
@@ -67,6 +67,83 @@ def test_uses_controller_aiperf_on_path(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(MODULE.shutil, "which", lambda name: None)
     with pytest.raises(MODULE.FollowupError, match="absent from the controller PATH"):
         MODULE.controller_aiperf_executable()
+
+
+def test_stratified_dev_selection_is_deterministic_and_without_replacement() -> None:
+    counts = {"chat": 101, "agent": 42, "code": 57, "document": 40}
+    planned = []
+    classes = {}
+    for name, n in counts.items():
+        for index in range(n):
+            request_id = f"{name}-{index}"
+            planned.append({"session_id": request_id, "timestamp": len(planned) * 1000.0})
+            classes[request_id] = name
+    first = MODULE.stratified_rows(planned, classes)
+    second = MODULE.stratified_rows(planned, classes)
+    assert first == second
+    assert len(first["ids"]) == len(set(first["ids"])) == 144
+    assert {name: sum(classes[key] == name for key in first["ids"])
+            for name in counts} == MODULE.CLASS_QUOTAS
+    assert first["rows"][0]["timestamp"] == 0
+    assert planned[0]["timestamp"] == 0  # source is untouched
+
+
+def test_staged_dev_manifest_and_class_hashes_are_verified(tmp_path: Path) -> None:
+    counts = {"chat": 101, "agent": 42, "code": 57, "document": 40}
+    caps = {"chat": 256, "agent": 1024, "code": 1024, "document": 512}
+    rows = []
+    classes = {}
+    for name, count in counts.items():
+        for index in range(count):
+            request_id = f"{name}-{index}"
+            rows.append({"session_id": request_id, "timestamp": len(rows) * 1000.0,
+                         "text": f"{name} prompt {index}", "output_length": caps[name],
+                         "extra": {"temperature": 0}})
+            classes[request_id] = name
+    source_payload = tmp_path / "source.jsonl"
+    source_payload.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    source_card = tmp_path / "source.card.json"
+    source_card.write_text(json.dumps({"readiness": "prepared", "suite_role": "development",
+                                       "shape_counts": counts}))
+    source_classes = tmp_path / "source.classes.json"
+    source_classes.write_text(json.dumps({"schema_version": "ops-request-classes-v1",
+                                          "scenario_id": MODULE.SCENARIO_ID,
+                                          "classes_by_session_id": classes}))
+    (tmp_path / "preparation.json").write_text("{}")
+    manifest = {"schema_version": "0.2", "scenario_id": MODULE.SCENARIO_ID,
+                "readiness": "prepared", "traffic_mode": "independent_open_loop",
+                "history_mode": "single_turn", "load_unit": "requests_per_s",
+                "output_policy": "forced_length", "cache_protocol": "cold_stream",
+                "workload_name": "mixed", "workload_group_id": "test-mixed",
+                "suite_role": "development", "model_id": "Qwen/test",
+                "n_planned": 240, "output_tokens_fixed": None,
+                "offered_load": 1.0, "offered_rps": 1.0,
+                "payload_path": source_payload.name, "schedule_path": source_payload.name,
+                "payload_sha256": sha256_file(source_payload),
+                "schedule_sha256": sha256_file(source_payload),
+                "request_class_path": source_classes.name,
+                "request_class_sha256": sha256_file(source_classes),
+                "workload_card_path": source_card.name,
+                "workload_card_sha256": sha256_file(source_card),
+                "preparation_policy_path": "preparation.json", "shape_counts": counts}
+    source_manifest = tmp_path / "source.manifest.json"
+    source_manifest.write_text(json.dumps(manifest))
+    chosen = MODULE.stratified_rows(rows, classes)
+    prepared = {"source_manifest": manifest,
+                "source_manifest_sha256": sha256_file(source_manifest),
+                "source_payload_sha256": sha256_file(source_payload),
+                "selected_ids_sha256": chosen["ids_sha256"]}
+    output = tmp_path / ".artifacts/fast-pilot-v4/dev-144"
+    scenario = MODULE.staged_scenario(tmp_path, output, prepared)
+    verified = verify_scenario(scenario.metadata["manifest"], root=tmp_path)
+    assert scenario.expected_count == 144
+    assert len(verified["planned"]) == 144
+    assert {name: list(verified["request_classes"].values()).count(name)
+            for name in counts} == MODULE.CLASS_QUOTAS
+    sidecar = tmp_path / scenario.metadata["manifest"]["request_class_path"]
+    sidecar.write_text(sidecar.read_text().replace("chat-0", "changed-0"))
+    with pytest.raises(WorkloadError, match="sidecar missing or changed"):
+        verify_scenario(scenario.metadata["manifest"], root=tmp_path)
 
 
 def test_matched_comparison_retains_class_p90_direction(tmp_path: Path) -> None:

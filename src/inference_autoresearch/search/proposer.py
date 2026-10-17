@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from inference_autoresearch.contracts import CandidateProposal, ProposalContext
+from inference_autoresearch.evaluation.sla import validate_policy
+from inference_autoresearch.runtime.config import PinnedEnvironment, resolve_config
 from .domain import Domain
 
 
@@ -70,16 +72,196 @@ _EVALUATION_RESEARCH_FILES = (
 )
 _ADAPTIVE_RESEARCH_BASENAMES = {
     "normalized-search-points.json", "search_history.json",
-    "adaptive-points.json", "adaptive-points.csv",
+    "adaptive-points.json", "adaptive-points.csv", "sla-profile-points.json",
 }
+
+
+def _study_file(root: Path, relative: str) -> Path:
+    if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+        raise ProposerError("SLA study references must be project-relative paths")
+    path = (root / relative).resolve()
+    if not path.is_relative_to(root) or any(
+            marker in part.lower() for part in path.relative_to(root).parts
+            for marker in ("sealed", "heldout", "test")):
+        raise ProposerError("SLA study cannot stage paths outside development evidence")
+    return path
+
+
+def _checked_study_source(root: Path, relative: str, digest: str) -> Path:
+    path = _study_file(root, relative)
+    if (not isinstance(digest, str) or len(digest) != 64 or not path.is_file()
+            or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+        raise ProposerError(f"SLA study source missing or changed: {relative}")
+    return path
+
+
+def _stage_sla_study(study_path: Path, run_dir: Path, *, root: Path | None = None) -> dict[str, Any]:
+    """Stage approved policy and class-aware B0 trials before a v3 Codex proposal.
+
+    This is deliberately a strict, explicit input. A missing assessment or an
+    exploratory load point cannot silently become an SLA capacity claim.
+    """
+    study_path = study_path.resolve()
+    root = (root or Path(__file__).resolve().parents[3]).resolve()
+    if not study_path.is_relative_to(root) or not study_path.is_file():
+        raise ProposerError("SLA study must be an existing file under the project root")
+    study_bytes = study_path.read_bytes()
+    study = json.loads(study_bytes)
+    if (study.get("schema_version") != "sla-study-scaffold-v1"
+            or study.get("claim") != "not_runnable_until_qualified"):
+        raise ProposerError("unsupported SLA study specification")
+    policy_ref = study.get("policy", {})
+    if (policy_ref.get("approval_status") != "approved"
+            or not policy_ref.get("approved_by")
+            or policy_ref.get("agent_evidence_source") != policy_ref.get("path")
+            or "proposed" in str(policy_ref.get("path", "")).lower()):
+        raise ProposerError("SLA policy is not approved for agent research")
+    policy_path = _checked_study_source(root, policy_ref["path"], policy_ref.get("sha256"))
+    policy = json.loads(policy_path.read_text())
+    validate_policy(policy)
+    if "proposed" in policy["policy_id"].lower():
+        raise ProposerError("SLA policy ID remains proposed")
+    development = study.get("adaptive_development", {})
+    scenario_id = development.get("scenario_id")
+    if not isinstance(scenario_id, str) or not scenario_id:
+        raise ProposerError("SLA study lacks a development scenario")
+    source_campaign = json.loads(_study_file(root, study["source_campaign_path"]).read_text())
+    baseline_id = resolve_config({}, PinnedEnvironment(
+        _study_file(root, source_campaign["model"]["local_path"]))).config_id
+    runs = study.get("baseline_adaptive_run_paths")
+    if not isinstance(runs, list) or not runs:
+        raise ProposerError("SLA study needs at least one assessed B0 adaptive run before proposals")
+    _write_snapshot(run_dir / "sla-study" / "study.json", study_bytes)
+    policy_staged = run_dir / "sla-study" / "approved-policy.json"
+    _write_snapshot(policy_staged, policy_path.read_bytes())
+    indexed = []
+    for number, entry in enumerate(runs):
+        if not isinstance(entry, dict):
+            raise ProposerError("SLA adaptive run references must be objects")
+        source = _checked_study_source(root, entry.get("source_path"), entry.get("source_sha256"))
+        if source.name == "sla-profile-points.json":
+            profile = json.loads(source.read_text())
+            qualified = [point["qualified"] for point in profile.get("points", [])
+                         if isinstance(point, dict) and isinstance(point.get("qualified"), dict)]
+            class_assessments = [item["assessment"] for item in qualified
+                                 if isinstance(item.get("assessment"), dict)]
+            if (profile.get("schema_version") != "sla-profile-points-v1"
+                    or profile.get("claim") != "observed_development_points_no_confirmed_capacity"
+                    or profile.get("capacity_confirmed") is not False
+                    or profile.get("config_id") != baseline_id
+                    or profile.get("development_scenario_id") != scenario_id
+                    or profile.get("policy_id") != policy["policy_id"]
+                    or profile.get("policy_sha256") != policy_ref["sha256"]
+                    or not isinstance(profile.get("points"), list) or not class_assessments
+                    or any(item.get("policy_id") != policy["policy_id"]
+                           or set(item.get("classes", {})) != set(policy["classes"])
+                           for item in class_assessments)):
+                raise ProposerError("B0 SLA profile is not class-assessed under the approved policy")
+            staged = run_dir / "sla-study" / f"b0-adaptive-{number:02d}" / source.name
+            _write_snapshot(staged, source.read_bytes())
+            native_files = []
+            remaining_bytes = 128 * 1024 * 1024
+            for point_index, point in enumerate(profile["points"]):
+                if not isinstance(point, dict):
+                    continue
+                for gate in ("screen", "qualified"):
+                    gate_result = point.get(gate)
+                    if not isinstance(gate_result, dict):
+                        continue
+                    artifacts = gate_result.get("artifacts") or {}
+                    for label in ("summary", "raw", "records", "server_metrics"):
+                        native = artifacts.get(label)
+                        if not isinstance(native, dict):
+                            continue
+                        reference = {"point_index": point_index, "gate": gate,
+                                     "label": label, "source": native}
+                        path = Path(str(native.get("path", ""))).resolve()
+                        digest = native.get("sha256")
+                        if (not path.is_relative_to(source.parent.parent)
+                                or not path.is_file() or path.is_symlink()
+                                or path.stat().st_size > 16 * 1024 * 1024
+                                or path.stat().st_size > remaining_bytes
+                                or not isinstance(digest, str) or len(digest) != 64):
+                            reference["omitted"] = "missing_outside_run_or_staging_budget"
+                        else:
+                            data = path.read_bytes()
+                            if hashlib.sha256(data).hexdigest() != digest:
+                                reference["omitted"] = "native_artifact_hash_mismatch"
+                            else:
+                                native_staged = staged.parent / "native" / f"point-{point_index:03d}" / gate / label / path.name
+                                _write_snapshot(native_staged, data)
+                                reference["staged"] = {"path": str(native_staged.relative_to(run_dir)),
+                                                       "sha256": digest, "bytes": len(data)}
+                                remaining_bytes -= len(data)
+                        native_files.append(reference)
+            indexed.append({"evidence_id": f"b0-adaptive-{number:02d}",
+                            "config_id": baseline_id, "scenario_id": scenario_id,
+                            "claim": profile["claim"], "capacity_confirmed": False,
+                            "source": {"path": str(staged.relative_to(run_dir)),
+                                       "sha256": entry["source_sha256"]},
+                            "point_count": len(profile["points"]),
+                            "class_assessed_point_count": len(class_assessments),
+                            "native_artifacts": native_files,
+                            "points": profile["points"]})
+            continue
+        assessment = _checked_study_source(root, entry.get("assessment_path"),
+                                           entry.get("assessment_sha256"))
+        if source.name != "normalized-search-points.json" or assessment.suffix != ".json":
+            raise ProposerError("SLA adaptive references must name normalized points and JSON assessment")
+        points = json.loads(source.read_text())
+        report = json.loads(assessment.read_text())
+        if (points.get("claim") != "exploratory_load_curve_only"
+                or points.get("config_id") != baseline_id
+                or points.get("scenario_id") != scenario_id
+                or not isinstance(points.get("points"), list) or not points["points"]
+                or report.get("schema_version") != "adaptive-sla-assessment-v1"
+                or report.get("claim") != "observed_adaptive_points_only_no_confirmed_capacity"
+                or report.get("capacity_confirmed") is not False
+                or report.get("config_id") != baseline_id
+                or report.get("scenario_id") != scenario_id
+                or report.get("policy_id") != policy["policy_id"]
+                or report.get("policy_sha256") != hashlib.sha256(json.dumps(policy, sort_keys=True,
+                        separators=(",", ":")).encode()).hexdigest()
+                or report.get("source_sha256") != entry["source_sha256"]
+                or Path(str(report.get("source", ""))).resolve() != source):
+            raise ProposerError("B0 adaptive evidence does not match approved policy and development scenario")
+        folder = run_dir / "sla-study" / f"b0-adaptive-{number:02d}"
+        points_staged = folder / "normalized-search-points.json"
+        report_staged = folder / "sla-assessment.json"
+        _write_snapshot(points_staged, source.read_bytes())
+        _write_snapshot(report_staged, assessment.read_bytes())
+        indexed.append({"evidence_id": f"b0-adaptive-{number:02d}",
+                        "config_id": baseline_id, "scenario_id": scenario_id,
+                        "claim": "observed_class_slo_points_only_no_confirmed_capacity",
+                        "source": {"path": str(points_staged.relative_to(run_dir)),
+                                   "sha256": entry["source_sha256"]},
+                        "assessment": {"path": str(report_staged.relative_to(run_dir)),
+                                       "sha256": entry["assessment_sha256"]},
+                        "point_count": len(points["points"]),
+                        "observed_feasible_point_count": report.get("observed_feasible_point_count"),
+                        "points": [{key: point.get(key) for key in
+                                    ("point_id", "configured_rate", "realized_rate", "status",
+                                     "reason_codes", "counts", "metrics", "class_metrics",
+                                     "class_label_policy")}
+                                   for point in points["points"] if isinstance(point, dict)]})
+    packet = {"schema_version": "agent-sla-evidence-v1",
+              "study_sha256": hashlib.sha256(study_bytes).hexdigest(),
+              "policy_id": policy["policy_id"], "policy_sha256": policy_ref["sha256"],
+              "policy_path": str(policy_staged.relative_to(run_dir)),
+              "target_type": "approved_research_target_not_product_sla",
+              "baseline_adaptive_studies": indexed, "capacity_confirmed": False,
+              "limitation": "Adaptive observations alone do not confirm an SLA boundary; independent windows remain required."}
+    _write_snapshot(run_dir / "sla-study-index.json", (json.dumps(packet, indent=2) + "\n").encode())
+    return packet
 
 
 def _adaptive_point_index(record: dict[str, Any], run_dir: Path) -> dict[str, Any] | None:
     """Make staged exploratory trials discoverable without claiming SLA capacity."""
-    if record["stage"] != "capacity":
+    if record["stage"] not in ("capacity", "sla_profile"):
         return None
     source = next((item for item in record["files"]
-                   if Path(item["path"]).name == "normalized-search-points.json"), None)
+                   if Path(item["path"]).name in
+                   ("normalized-search-points.json", "sla-profile-points.json")), None)
     if source is None:
         return None
     try:
@@ -88,6 +270,22 @@ def _adaptive_point_index(record: dict[str, Any], run_dir: Path) -> dict[str, An
         record["omitted"].append({"artifact": "normalized_search_points",
                                   "reason": "unreadable_adaptive_history"})
         return None
+    if Path(source["path"]).name == "sla-profile-points.json":
+        if (not isinstance(payload, dict)
+                or payload.get("schema_version") != "sla-profile-points-v1"
+                or payload.get("claim") != "observed_development_points_no_confirmed_capacity"
+                or payload.get("capacity_confirmed") is not False
+                or payload.get("config_id") != record["config_id"]
+                or payload.get("development_scenario_id") != record["scenario_id"]
+                or not isinstance(payload.get("points"), list)):
+            record["omitted"].append({"artifact": "sla_profile_points",
+                                      "reason": "sla_profile_identity_or_claim_mismatch"})
+            return None
+        return {"cell_id": record["cell_id"], "config_id": record["config_id"],
+                "scenario_id": record["scenario_id"], "claim": payload["claim"],
+                "policy_id": payload.get("policy_id"), "policy_sha256": payload.get("policy_sha256"),
+                "capacity_confirmed": False, "source": source,
+                "point_count": len(payload["points"]), "points": payload["points"]}
     if (not isinstance(payload, dict) or not isinstance(payload.get("points"), list)
             or payload.get("claim") != "exploratory_load_curve_only"
             or payload.get("config_id") != record["config_id"]
@@ -102,7 +300,7 @@ def _adaptive_point_index(record: dict[str, Any], run_dir: Path) -> dict[str, An
         points.append({key: point.get(key) for key in (
             "point_id", "iteration_idx", "trial_index", "configured_rate", "realized_rate",
             "status", "reason_codes", "counts", "metrics", "planner_feasible",
-            "objective_values", "sample_count_policy")})
+            "objective_values", "sample_count_policy", "class_metrics", "class_label_policy")})
     return {"cell_id": record["cell_id"], "config_id": record["config_id"],
             "scenario_id": record["scenario_id"], "claim": "exploratory_load_curve_only",
             "capacity_confirmed": False, "source": source, "point_count": len(points),
@@ -162,6 +360,39 @@ def _stage_adaptive_sla_reports(source: Path, record: dict[str, Any], run_dir: P
     return budget
 
 
+def _stage_sla_profile_native_files(source: Path, record: dict[str, Any], run_dir: Path,
+                                    destination: Path, budget: int) -> int:
+    """Keep raw trial links inspectable inside the isolated Codex container."""
+    try:
+        profile = json.loads(source.read_text())
+    except (OSError, ValueError):
+        return budget
+    for number, point in enumerate(profile.get("points", [])):
+        if not isinstance(point, dict):
+            continue
+        for gate in ("screen", "qualified"):
+            details = point.get(gate)
+            if not isinstance(details, dict):
+                continue
+            artifacts = details.get("artifacts") or {}
+            for label in ("summary", "raw", "records", "server_metrics"):
+                ref = artifacts.get(label)
+                if not isinstance(ref, dict):
+                    continue
+                native = Path(str(ref.get("path", ""))).resolve()
+                digest = ref.get("sha256")
+                if (not native.is_relative_to(source.parent.parent) or not native.is_file()
+                        or native.is_symlink() or not isinstance(digest, str)
+                        or len(digest) != 64 or hashlib.sha256(native.read_bytes()).hexdigest() != digest):
+                    record["omitted"].append({"artifact": f"{number}:{gate}:{label}",
+                                              "reason": "native_sla_profile_artifact_missing_or_changed"})
+                    continue
+                budget = _copy_research_file(native,
+                    destination / "native" / f"point-{number:03d}" / gate / label / native.name,
+                    run_dir, record, budget)
+    return budget
+
+
 def _stage_measurements(context: ProposalContext, artifact_root: Path,
                         run_dir: Path) -> dict[str, Any]:
     """Expose only controller-recorded, non-heldout same-campaign run files."""
@@ -206,6 +437,10 @@ def _stage_measurements(context: ProposalContext, artifact_root: Path,
                                          / adaptive_source.name, run_dir, record, budget)
             if adaptive_source.name == "normalized-search-points.json":
                 budget = _stage_adaptive_sla_reports(
+                    adaptive_source, record, run_dir,
+                    run_dir / "measurements" / "adaptive" / f"record-{len(records):04d}", budget)
+            elif adaptive_source.name == "sla-profile-points.json":
+                budget = _stage_sla_profile_native_files(
                     adaptive_source, record, run_dir,
                     run_dir / "measurements" / "adaptive" / f"record-{len(records):04d}", budget)
         adaptive_index = _adaptive_point_index(record, run_dir)
@@ -319,7 +554,8 @@ class CodexProposer:
     def __init__(self, domain: Domain, artifact_root: Path, timeout_s: int = 180,
                  skill_path: Path | None = None, cli: str = "codex",
                  expected_version: str | None = None, model: str | None = None,
-                 reasoning_effort: str | None = None, web_search: str = "disabled"):
+                 reasoning_effort: str | None = None, web_search: str = "disabled",
+                 sla_study_path: Path | None = None):
         self.domain = domain
         self.artifact_root = Path(artifact_root)
         self.timeout_s = timeout_s
@@ -335,6 +571,7 @@ class CodexProposer:
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.web_search = web_search
+        self.sla_study_path = Path(sla_study_path) if sla_study_path is not None else None
 
     def propose(self, context: ProposalContext) -> CandidateProposal:
         binary = shutil.which(self.cli)
@@ -407,6 +644,8 @@ class CodexProposer:
         (run_dir / "history").mkdir()
         history = _stage_previous_attempts(proposal_root, run_dir)
         measurements = _stage_measurements(context, self.artifact_root, run_dir)
+        sla_evidence = (_stage_sla_study(self.sla_study_path, run_dir)
+                        if self.sla_study_path is not None else None)
         research_index = {
             "current": {"skill": "../SKILL.md", "reference": "../reference.md",
                         "context": "../context.json", "evidence": "../evidence/",
@@ -420,6 +659,11 @@ class CodexProposer:
             "writable_notes": "notes.md",
             "authority": "Only parameter proposals; the controller owns traffic and evaluation.",
         }
+        if sla_evidence is not None:
+            research_index["sla_evidence"] = "../sla-study-index.json"
+            research_index["sla_policy_id"] = sla_evidence["policy_id"]
+            research_index["sla_policy_sha256"] = sla_evidence["policy_sha256"]
+            research_index["baseline_adaptive_studies"] = len(sla_evidence["baseline_adaptive_studies"])
         _write_snapshot(run_dir / "research-index.json", (json.dumps(research_index, indent=2) + "\n").encode())
         # The isolated proposer runs as uid 1000 while the controller may run as
         # root. Codex writes its last message itself, so pre-create only that
@@ -430,6 +674,9 @@ class CodexProposer:
                   "../reference.md. Inspect ../research-index.json and ../context.json; open "
                   "the staged evidence under ../evidence/, prior notes under ../history/, "
                   "and scoped real-run files listed by ../evaluation-index.json and ../measurements-index.json. "
+                  + ("Before proposing, read ../sla-study-index.json, its hash-checked approved research policy, "
+                     "and B0 adaptive trial assessments. Treat all sampled rates as observations, not confirmed capacity. "
+                     if sla_evidence is not None else "") +
                   "Use shell/file reads freely inside this isolated research container. "
                   "Write any durable reasoning for the next attempt to notes.md here. "
                   "Return exactly one JSON proposal matching ../proposal.schema.json. "
@@ -457,6 +704,9 @@ class CodexProposer:
                    "staged_measurement_files": sum(len(cell["files"]) for cell in measurements["cells"]),
                    "staged_adaptive_studies": len(measurements["adaptive_studies"]),
                    "staged_adaptive_points": sum(item["point_count"] for item in measurements["adaptive_studies"]),
+                   "sla_study_sha256": sla_evidence["study_sha256"] if sla_evidence else None,
+                   "sla_policy_sha256": sla_evidence["policy_sha256"] if sla_evidence else None,
+                   "staged_b0_adaptive_studies": len(sla_evidence["baseline_adaptive_studies"]) if sla_evidence else 0,
                    "previous_attempts": len(history),
                    "status": "started"}
         receipt_file.write_text(json.dumps(receipt, indent=2) + "\n")
@@ -491,6 +741,11 @@ class CodexProposer:
                        if isinstance(item, str))
         allowed.update(item["cell_id"] for item in measurements["cells"]
                        if isinstance(item.get("cell_id"), str))
+        if sla_evidence is not None:
+            allowed.update(item["evidence_id"] for item in sla_evidence["baseline_adaptive_studies"])
+            allowed.update(str(point["point_id"])
+                           for study in sla_evidence["baseline_adaptive_studies"]
+                           for point in study["points"] if isinstance(point.get("point_id"), str))
         try:
             proposal = parse_codex_output(raw, self.domain, allowed)
         except (ProposerError, ValueError) as exc:

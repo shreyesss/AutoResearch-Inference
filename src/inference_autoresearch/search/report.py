@@ -331,6 +331,27 @@ def export_adaptive_points(points: list[dict[str, Any]], output_dir: Path) -> di
                              "reason_codes": json.dumps(point.get("reason_codes") or []),
                              "artifacts": json.dumps(point.get("artifacts") or {}, sort_keys=True)})
     paths = {"adaptive_points_json": str(json_path), "adaptive_points_csv": str(csv_path)}
+    # Per-class percentiles remain separate: aggregate latency can hide a
+    # document or code regression in a mixed arrival stream. Include invalid
+    # trials with their status even when no latency observation is usable.
+    class_path = output_dir / "adaptive-class-points.csv"
+    class_metrics = tuple(f"{metric}_{percentile}_ms" for metric in ("ttft", "tpot", "e2e")
+                          for percentile in ("p50", "p90", "p95", "p99"))
+    with class_path.open("w", newline="") as handle:
+        class_fields = ("point_id", "config_id", "scenario_id", "configured_rate",
+                        "realized_rate", "status", "class_label_policy", "class_label",
+                        "n_dispatched", "ttft_eligible", "tpot_eligible", "e2e_eligible",
+                        *class_metrics, "reason_codes")
+        writer = csv.DictWriter(handle, fieldnames=class_fields)
+        writer.writeheader()
+        for point in points:
+            classes = point.get("class_metrics") or {}
+            for label, values in sorted(classes.items()):
+                writer.writerow({**{key: point.get(key) for key in class_fields[:7]},
+                                 "class_label": label,
+                                 **{key: values.get(key) for key in class_fields[8:-1]},
+                                 "reason_codes": json.dumps(point.get("reason_codes") or [])})
+    paths["adaptive_class_points_csv"] = str(class_path)
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -391,3 +412,42 @@ def export_adaptive_points(points: list[dict[str, Any]], output_dir: Path) -> di
         plt.close(fig)
         paths[filename.replace("-", "_").replace(".svg", "_svg")] = str(plot_path)
     return paths
+
+
+def export_sla_profile_class_points(profile: dict[str, Any], output_dir: Path) -> dict[str, str]:
+    """Flatten every class-assessed v3 point without pooling loads or repeats."""
+    if profile.get("schema_version") != "sla-profile-points-v1":
+        raise ValueError("expected a v3 SLA profile")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / "sla-profile-class-points.csv"
+    fields = ("point_index", "rate_rps", "gate", "point_status", "observed_feasible",
+              "class", "planned", "completed", "ttft_eligible", "tpot_eligible",
+              "error_fraction", "ttft_p50_ms", "ttft_p90_ms", "ttft_p95_ms", "ttft_p99_ms",
+              "tpot_p50_ms", "tpot_p90_ms", "tpot_p95_ms", "tpot_p99_ms",
+              "ttft_violation_upper_bound", "tpot_violation_upper_bound", "reason_codes")
+    with destination.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for index, point in enumerate(profile.get("points", [])):
+            if not isinstance(point, dict):
+                continue
+            for gate in ("screen", "qualified"):
+                result = point.get(gate)
+                if not isinstance(result, dict):
+                    continue
+                assessment = result.get("assessment") or {}
+                for name, row in sorted((assessment.get("classes") or {}).items()):
+                    diagnostics = row.get("diagnostic_percentiles_ms") or {}
+                    writer.writerow({"point_index": index, "rate_rps": point.get("rate_rps"),
+                                     "gate": gate, "point_status": result.get("status"),
+                                     "observed_feasible": row.get("observed_feasible"),
+                                     "class": name,
+                                     **{key: row.get(key) for key in
+                                        ("planned", "completed", "ttft_eligible", "tpot_eligible",
+                                         "error_fraction", "ttft_violation_upper_bound",
+                                         "tpot_violation_upper_bound")},
+                                     **{f"{metric}_{percentile}_ms": (diagnostics.get(metric) or {}).get(percentile)
+                                        for metric in ("ttft", "tpot")
+                                        for percentile in ("p50", "p90", "p95", "p99")},
+                                     "reason_codes": json.dumps(row.get("reason_codes") or [])})
+    return {"sla_profile_class_points_csv": str(destination)}

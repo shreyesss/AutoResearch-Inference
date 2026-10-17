@@ -303,6 +303,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         mode = args.proposer or ("codex" if args.backend == "real" else "mock")
         if args.backend == "real" and mode == "mock":
             raise ValueError("real autonomous search cannot use mock proposer")
+        sla_study_path = campaign.get("sla_study_path")
+        if sla_study_path is not None:
+            if not isinstance(sla_study_path, str) or not sla_study_path:
+                raise ValueError("SLA campaign requires a versioned sla_study_path")
+            if mode != "codex":
+                raise ValueError("SLA campaign requires the Codex proposer and approved B0 evidence")
         proposer_config = campaign.get("proposer", {})
         if mode == "mock":
             proposer = MockProposer(domain)
@@ -316,7 +322,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                      expected_version=campaign["runtime"].get("codex_cli_version_observed"),
                      model=proposer_config.get("model"),
                      reasoning_effort=proposer_config.get("reasoning_effort"),
-                     web_search=proposer_config.get("web_search", "disabled"))
+                     web_search=proposer_config.get("web_search", "disabled"),
+                     sla_study_path=_file(sla_study_path, campaign_path)
+                     if sla_study_path is not None else None)
         evidence_sources = campaign.get("evidence_sources")
         if evidence_sources is not None and (not isinstance(evidence_sources, dict)
                                              or not all(isinstance(k, str) and isinstance(v, str)

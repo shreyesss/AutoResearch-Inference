@@ -28,8 +28,12 @@ Optuna campaign is not the v3 SLA search.
 `configs/campaign-sla-serving-v3.json` is the separate bounded Codex search
 campaign. It points at the activated study artifact, uses only the 36-request
 screen and the two development windows in its registry, and pins four agent
-proposals with at most two development finalists. Run it only after inspecting
+proposals. Every proposal passing the gross-regression screen gets both
+development windows. Run it only after inspecting
 the B0 SLA profile:
+
+The two frozen windows use independent development seeds 1042 and 1043. Both
+are development data. Neither is the sealed test set.
 
 ```bash
 .venv/bin/iar sla-search --backend real --campaign configs/campaign-sla-serving-v3.json
@@ -45,8 +49,9 @@ proposals exist, so inspect the ledger before launching another campaign.
 Each proposal gets a fresh 36-request screen. The screen rejects incomplete or
 non-normal cells and predeclared, conspicuous regressions: throughput below
 half of B0, or aggregate p90 TTFT/TPOT over twice B0. This is a coarse cost
-guard, not a confidence statement. At most two nondominated screen candidates
-then receive both independent 240-request development evaluations. Their
+guard, not a confidence statement. All screen candidates that pass the guard
+then receive both independent 240-request development evaluations. The
+36-request Pareto view is diagnostic and cannot eliminate a candidate. Their
 native request exports are scored against the approved four-class policy and
 paired with the matched B0 cells. Only candidates observed feasible on both
 development windows enter the class-aware adaptive rate profiler. All screen,

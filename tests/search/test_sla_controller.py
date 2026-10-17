@@ -41,16 +41,18 @@ def test_v3_screen_rejects_only_invalid_or_predeclared_large_regressions():
     assert invalid["reason_codes"] == ["screen_invalid_or_incomplete"]
 
 
-def test_v3_shortlist_retains_all_viable_and_reports_provisional_pareto():
+def test_v3_shortlist_promotes_all_viable_and_reports_provisional_pareto():
     rows = [_screen("a", 100, 1000, 50) | {"screen_promoted": True},
             _screen("b", 120, 1100, 45) | {"screen_promoted": True},
             _screen("dominated", 80, 1500, 60) | {"screen_promoted": True},
             _screen("rejected", 200, 800, 30) | {"screen_promoted": False}]
-    shortlist = select_screen_finalists(rows, 2)
-    assert shortlist["selected_cell_ids"] == ["b", "a"]
+    shortlist = select_screen_finalists(rows, 4)
+    assert shortlist["selected_cell_ids"] == ["b", "a", "dominated"]
     assert shortlist["nondominated_cell_ids"] == ["b", "a"]
     assert shortlist["all_viable_cell_ids"] == ["a", "b", "dominated"]
     assert shortlist["evidence_grade"] == "provisional_36_request_screen"
+    campaign = json.loads((ROOT / "configs/campaign-sla-serving-v3.json").read_text())
+    assert campaign["sla_search"]["max_finalists"] == campaign["search_budget"]["max_distinct_proposals"]
 
 
 def test_v3_preflight_refuses_missing_approved_study_before_evaluator(tmp_path):

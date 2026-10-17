@@ -1,7 +1,7 @@
 """Bounded Codex proposal loop for the approved v3 research SLA.
 
-The first stage is a cheap 36-request regression screen. At most two
-predeclared screen finalists receive matched independent 240-request
+The first stage is a cheap 36-request regression screen. Every candidate
+passing that gross-regression screen receives matched independent 240-request
 development cells and class-aware observations. No sealed data is loaded and
 no observed rate is called confirmed SLA capacity.
 """
@@ -89,11 +89,15 @@ def select_screen_finalists(rows: list[dict[str, Any]], max_finalists: int) -> d
                                             row["metrics"]["ttft_p90_ms"],
                                             row["metrics"]["tpot_p90_ms"],
                                             row["cell_id"]))
-    selected = ordered[:max_finalists]
+    # A 36-request percentile is too noisy to eliminate an otherwise viable
+    # candidate through point Pareto dominance. Keep that frontier diagnostic,
+    # but promote every candidate that passes the predeclared gross screen.
+    selected = sorted(candidates, key=lambda row: (-row["metrics"]["output_tokens_per_s"],
+                                                  row["cell_id"]))[:max_finalists]
     return {"selected_cell_ids": [row["cell_id"] for row in selected],
             "nondominated_cell_ids": [row["cell_id"] for row in ordered],
             "all_viable_cell_ids": [row["cell_id"] for row in candidates],
-            "rule": "valid_complete_screen_then_aggregate_p90_point_pareto_ranked_by_throughput",
+            "rule": "all_valid_complete_screen_candidates_with_point_pareto_diagnostic_only",
             "evidence_grade": "provisional_36_request_screen",
             "limitation": "Point dominance and ranking may change with independent 240-request windows."}
 
@@ -134,7 +138,7 @@ class SLAServingController:
                     "min_throughput_fraction_of_b0": 0.5,
                     "max_ttft_p90_multiplier_of_b0": 2.0,
                     "max_tpot_p90_multiplier_of_b0": 2.0}
-                or search.get("max_finalists") not in (1, 2)
+                or search.get("max_finalists") != campaign.get("search_budget", {}).get("max_distinct_proposals")
                 or search.get("profile_max_qualified_points") not in range(1, 7)
                 or search.get("sealed_test") != "out_of_registry_and_not_run"):
             raise SLASearchError("v3 coarse screen, shortlist or sealed-test policy differs")

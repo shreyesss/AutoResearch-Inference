@@ -20,7 +20,7 @@ The 36-request screen has too few observations per class to estimate class p90 r
 
 ## Search space and immutable inputs
 
-`configs/search-domain-v3c.json` enables `max_num_batched_tokens`, `long_prefill_token_threshold`, `enforce_eager`, `max_num_seqs`, and `gpu_memory_utilization`. The last two require queue and KV-pressure diagnostics for a mechanism claim. Prefix caching stays on; MTP stays off until the workload and telemetry can validate their mechanisms. The model, GPU, vLLM image, 40,960-token context, mixed request bodies, arrival schedules and approved research targets stay pinned. See `infra/V3C_SEARCH_SPACE.md` for exact values.
+`configs/search-domain-v3c.json` enables `max_num_batched_tokens`, `long_prefill_token_threshold`, `enforce_eager`, `max_num_seqs`, `gpu_memory_utilization`, `async_scheduling`, and `max_cudagraph_capture_size`. Sequence cap and memory fraction require queue and KV-pressure diagnostics for a mechanism claim. The graph cap is also a startup/memory contrast; its steady-state effect depends on covered batch sizes. Prefix caching stays on; MTP stays off until the workload and telemetry can validate their mechanisms. The model, GPU, vLLM image, 40,960-token context, mixed request bodies, arrival schedules and approved research targets stay pinned. See `infra/V3C_SEARCH_SPACE.md` for exact values.
 
 ## Inspect and launch
 

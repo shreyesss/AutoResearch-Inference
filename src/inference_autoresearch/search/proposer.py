@@ -68,6 +68,7 @@ _CELL_RESEARCH_FILES = (
 _EVALUATION_RESEARCH_FILES = (
     "resolved-config.json", "evaluation-result.json", "proposal.json", "evaluation-policy.json",
 )
+_ADAPTIVE_RESEARCH_BASENAMES = {"normalized-search-points.json", "search_history.json"}
 
 
 def _stage_measurements(context: ProposalContext, artifact_root: Path,
@@ -84,30 +85,51 @@ def _stage_measurements(context: ProposalContext, artifact_root: Path,
     for row in rows:
         cell_id = str(row.get("cell_id", ""))
         stage = str(row.get("stage", ""))
-        if not cell_id or cell_id in seen or not stage or "heldout" in stage.lower():
+        if not cell_id or cell_id in seen or not stage or any(
+                marker in stage.lower() for marker in ("heldout", "sealed", "test")):
             continue
         seen.add(cell_id)
-        if len(records) >= 24:
-            break
         artifacts = row.get("artifacts") or {}
         if not isinstance(artifacts, dict):
-            continue
+            artifacts = {}
+        record = {"cell_id": cell_id, "stage": stage, "scenario_id": row.get("scenario_id"),
+                  "config_id": row.get("config_id"), "measurement_protocol": row.get("measurement_protocol"),
+                  "offered_load": row.get("offered_load"), "load_unit": row.get("load_unit"),
+                  "matched_baseline_cell_id": row.get("matched_baseline_cell_id"),
+                  "evidence_grade": row.get("evidence_grade", "ungraded"),
+                  "metrics": row.get("metrics", {}), "counts": row.get("counts", {}),
+                  "status": row.get("status"), "behavior": row.get("behavior"),
+                  "reason_codes": row.get("reason_codes", []),
+                  "uncertainty": row.get("uncertainty", "unavailable"),
+                  "files": [], "omitted": []}
+        for label, artifact_path in artifacts.items():
+            if not isinstance(artifact_path, str) or Path(artifact_path).name not in _ADAPTIVE_RESEARCH_BASENAMES:
+                continue
+            adaptive_source = Path(artifact_path).resolve()
+            if not adaptive_source.is_relative_to(root):
+                record["omitted"].append({"artifact": label, "reason": "adaptive_artifact_outside_campaign"})
+                continue
+            budget = _copy_research_file(adaptive_source,
+                                         run_dir / "measurements" / "adaptive" / f"record-{len(records):04d}"
+                                         / adaptive_source.name, run_dir, record, budget)
         reference = artifacts.get("raw_requests") or artifacts.get("aiperf_export")
         if not isinstance(reference, str):
+            record["omitted"].append({"reason": "no_raw_artifact_reference"})
+            records.append(record)
             continue
         source = Path(reference).resolve()
         if not source.is_relative_to(root):
+            record["omitted"].append({"reason": "raw_artifact_outside_campaign"})
+            records.append(record)
             continue
         cell_dir = next((part for part in source.parents if part.name.startswith("cell-")
                          and part.parent.name.startswith("eval-")), None)
         if cell_dir is None or not cell_dir.is_relative_to(root):
+            record["omitted"].append({"reason": "raw_artifact_not_in_cell"})
+            records.append(record)
             continue
         evaluation_dir = cell_dir.parent
         destination = run_dir / "measurements" / evaluation_dir.name / cell_dir.name
-        record = {"cell_id": cell_id, "stage": stage, "scenario_id": row.get("scenario_id"),
-                  "metrics": row.get("metrics", {}), "counts": row.get("counts", {}),
-                  "status": row.get("status"), "behavior": row.get("behavior"),
-                  "files": [], "omitted": []}
         for relative in _CELL_RESEARCH_FILES:
             source_file = cell_dir / relative
             budget = _copy_research_file(source_file, destination / relative, run_dir,
@@ -120,9 +142,14 @@ def _stage_measurements(context: ProposalContext, artifact_root: Path,
         records.append(record)
     result = {"cells": records, "file_size_limit_bytes": 16 * 1024 * 1024,
               "total_size_limit_bytes": 128 * 1024 * 1024,
-              "scope": "controller-recorded recent/frontier cells; heldout excluded",
+              "scope": "controller-provided visible development cells; heldout/test excluded",
               "excluded": "Unlisted native raw exports, model weights and unrelated artifacts"}
     _write_snapshot(run_dir / "measurements-index.json", (json.dumps(result, indent=2) + "\n").encode())
+    _write_snapshot(run_dir / "evaluation-index.json", (json.dumps({
+        "schema_version": "evaluation-index-v1", "campaign_id": context.campaign_id,
+        "cells": records, "visible_cell_count": len(records),
+        "note": "Controller-provided development evidence only; source files listed with SHA-256 in files."
+    }, indent=2) + "\n").encode())
     return result
 
 
@@ -283,7 +310,8 @@ class CodexProposer:
             "current": {"skill": "../SKILL.md", "reference": "../reference.md",
                         "context": "../context.json", "evidence": "../evidence/",
                         "schema": "../proposal.schema.json",
-                        "measurements": "../measurements-index.json"},
+                        "measurements": "../measurements-index.json",
+                        "evaluation": "../evaluation-index.json"},
             "previous_attempts": history,
             "measurement_cells": len(measurements["cells"]),
             "writable_notes": "notes.md",
@@ -298,7 +326,7 @@ class CodexProposer:
         prompt = ("You are the serving autoresearch proposer. First read ../SKILL.md and "
                   "../reference.md. Inspect ../research-index.json and ../context.json; open "
                   "the staged evidence under ../evidence/, prior notes under ../history/, "
-                  "and scoped real-run files listed by ../measurements-index.json. "
+                  "and scoped real-run files listed by ../evaluation-index.json and ../measurements-index.json. "
                   "Use shell/file reads freely inside this isolated research container. "
                   "Write any durable reasoning for the next attempt to notes.md here. "
                   "Return exactly one JSON proposal matching ../proposal.schema.json. "
@@ -356,6 +384,8 @@ class CodexProposer:
         allowed = {str(ref["evidence_id"]) for ref in staged_refs}
         allowed.update(item for item in context.qualification.get("evidence_ids", [])
                        if isinstance(item, str))
+        allowed.update(item["cell_id"] for item in measurements["cells"]
+                       if isinstance(item.get("cell_id"), str))
         try:
             proposal = parse_codex_output(raw, self.domain, allowed)
         except (ProposerError, ValueError) as exc:

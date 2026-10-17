@@ -27,6 +27,18 @@ def test_conditional_serve_controls():
     assert mtp.config_id != resolve_config({}, pin).config_id
 
 
+def test_eager_execution_is_conditional_and_keeps_stock_identity():
+    pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
+    stock = resolve_config({}, pin)
+    assert resolve_config({"enforce_eager": False}, pin).config_id == stock.config_id
+    eager = resolve_config({"enforce_eager": True}, pin, {"enforce_eager": [False, True]})
+    assert eager.config_id != stock.config_id
+    assert "--enforce-eager" in eager.argv
+    assert "--enforce-eager" not in stock.argv
+    with pytest.raises(ConfigError):
+        resolve_config({"enforce_eager": 1}, pin)
+
+
 def test_canonical_config_reaches_lease_check_without_docker(tmp_path, monkeypatch):
     pin = PinnedEnvironment(Path("/models/Qwen3.8-27B"))
     manager = DockerRuntimeManager(pin, tmp_path / "gpu.lock")

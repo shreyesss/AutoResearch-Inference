@@ -22,6 +22,15 @@ def test_inspection_links_cells_logs_and_feedback(tmp_path: Path) -> None:
     (attempt / "workspace").mkdir(parents=True)
     (attempt / "proposer-receipt.json").write_text('{"status":"validated"}\n')
     (attempt / "workspace" / "notes.md").write_text("Measured decode tradeoff.\n")
+    adaptive = root / "capacity" / "normalized-search-points.json"
+    adaptive.parent.mkdir()
+    adaptive.write_text(json.dumps({"points": [{
+        "point_id": "trial-1", "config_id": "B0", "scenario_id": "mixed",
+        "configured_rate": 0.1, "realized_rate": 0.09, "status": "invalid_dispatch",
+        "reason_codes": ["client_throttled"], "counts": {"completed": 10},
+        "metrics": {"ttft_p50_ms": 300, "ttft_p90_ms": 900,
+                    "ttft_p99_ms": 1200, "output_tokens_per_s": 50},
+    }]}))
     ledger.append(campaign_id, "proposal", "proposal-one", {
         "config_id": "cfg-one", "proposal": {"hypothesis": "Speculation improves decode"}})
     ledger.append(campaign_id, "evaluation_transition", "eval-one", {"state": "measuring"})
@@ -46,8 +55,11 @@ def test_inspection_links_cells_logs_and_feedback(tmp_path: Path) -> None:
     assert f"{campaign_id}/eval-one/cell-01-chat/server/server.log" in data["evaluations"][0]["files"]
     assert data["proposals"][0]["feedback"]["status"] == "valid"
     assert data["attempts"][0]["status"] == "validated"
+    assert data["adaptive_studies"][0]["point_count"] == 1
+    assert data["adaptive_studies"][0]["points"][0]["status"] == "invalid_dispatch"
     assert "proposals/attempt-0001/workspace/notes.md" in data["attempts"][0]["files"]
     assert "measuring" in Path(result["index_markdown"]).read_text()
+    assert "TTFT p50/p90/p99" in Path(result["index_markdown"]).read_text()
 
 
 def test_inspection_never_walks_external_ledger_directory(tmp_path: Path) -> None:

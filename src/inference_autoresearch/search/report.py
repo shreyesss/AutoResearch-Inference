@@ -295,3 +295,99 @@ def export_history(ledger: Any, campaign_id: str, output_dir: Path) -> dict[str,
     path.write_text("\n".join(lines) + "\n")
     output["markdown"] = str(path)
     return output
+
+
+def export_adaptive_points(points: list[dict[str, Any]], output_dir: Path) -> dict[str, str]:
+    """Archive every adaptive trial, including invalid and dominated trials.
+
+    `points` is the flat, normalized AIPerf trial list. This export never selects
+    a best rate or certifies capacity; each rate/replicate remains separate.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "adaptive-points.json"
+    json_path.write_text(json.dumps({"schema_version": "adaptive-points-v1",
+                                     "claim": "observed_trials_only; no confirmed_capacity",
+                                     "points": points},
+                                    indent=2, sort_keys=True) + "\n")
+    metrics = ("output_tokens_per_s", "request_per_s",
+               "ttft_p50_ms", "ttft_p90_ms", "ttft_p95_ms", "ttft_p99_ms",
+               "tpot_p50_ms", "tpot_p90_ms", "tpot_p95_ms", "tpot_p99_ms",
+               "dispatch_lag_p99_ms")
+    fields = ("point_id", "config_id", "scenario_id", "iteration_idx", "trial_index",
+              "configured_rate", "realized_rate", "status", "planner_feasible",
+              "planned", "dispatched", "completed", "failed", "censored",
+              *metrics, "reason_codes", "artifacts")
+    csv_path = output_dir / "adaptive-points.csv"
+    with csv_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for point in points:
+            counts = point.get("counts") or {}
+            values = point.get("metrics") or {}
+            writer.writerow({**{key: point.get(key) for key in fields[:9]},
+                             **{key: counts.get(key) for key in
+                                ("planned", "dispatched", "completed", "failed", "censored")},
+                             **{key: values.get(key) for key in metrics},
+                             "reason_codes": json.dumps(point.get("reason_codes") or []),
+                             "artifacts": json.dumps(point.get("artifacts") or {}, sort_keys=True)})
+    paths = {"adaptive_points_json": str(json_path), "adaptive_points_csv": str(csv_path)}
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return paths | {"adaptive_plots_status": "matplotlib_unavailable"}
+    for metric, filename, label in (("output_tokens_per_s", "adaptive-throughput.svg", "Output tokens/s"),
+                                    ("ttft_p50_ms", "adaptive-ttft-p50.svg", "TTFT p50 (ms)"),
+                                    ("ttft_p90_ms", "adaptive-ttft-p90.svg", "TTFT p90 (ms)"),
+                                    ("ttft_p95_ms", "adaptive-ttft-p95.svg", "TTFT p95 (ms)"),
+                                    ("ttft_p99_ms", "adaptive-ttft-p99.svg", "TTFT p99 (ms)"),
+                                    ("tpot_p50_ms", "adaptive-tpot-p50.svg", "TPOT p50 (ms/token)"),
+                                    ("tpot_p90_ms", "adaptive-tpot-p90.svg", "TPOT p90 (ms/token)"),
+                                    ("tpot_p95_ms", "adaptive-tpot-p95.svg", "TPOT p95 (ms/token)"),
+                                    ("tpot_p99_ms", "adaptive-tpot-p99.svg", "TPOT p99 (ms/token)")):
+        fig, ax = plt.subplots(figsize=(7, 4))
+        drawn = False
+        configs = sorted({str(point.get("config_id", "")) for point in points})
+        for config_id in configs:
+            for valid, marker, alpha in ((True, "o", .9), (False, "x", .7)):
+                scoped = [point for point in points if str(point.get("config_id", "")) == config_id
+                          and (point.get("status") == "valid") == valid]
+                coordinates = [(point.get("realized_rate"), (point.get("metrics") or {}).get(metric))
+                               for point in scoped]
+                coordinates = [(float(x), float(y)) for x, y in coordinates
+                               if isinstance(x, (int, float)) and isinstance(y, (int, float))
+                               and math.isfinite(x) and math.isfinite(y)]
+                if not coordinates:
+                    continue
+                ax.scatter([x for x, _ in coordinates], [y for _, y in coordinates],
+                           marker=marker, alpha=alpha,
+                           label=f"{config_id} {'valid' if valid else 'invalid'}")
+                drawn = True
+        for point in points:
+            if point.get("status") == "valid":
+                continue
+            value = point.get("realized_rate")
+            if not isinstance(value, (int, float)) or not math.isfinite(value):
+                value = point.get("configured_rate")
+            if not isinstance(value, (int, float)) or not math.isfinite(value):
+                continue
+            # A vertical marker makes an invalid trial visible even when it has
+            # no usable latency; no artificial zero is placed on the y-axis.
+            ax.axvline(float(value), color="crimson", linestyle=":", alpha=.35)
+            drawn = True
+        if not drawn:
+            plt.close(fig)
+            continue
+        ax.set(xlabel="Realized requests/s", ylabel=label,
+               title="Observed adaptive trials (all repeats; selected rate is provisional)")
+        ax.grid(alpha=.2)
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(handles, labels, fontsize=7)
+        fig.tight_layout()
+        plot_path = output_dir / filename
+        fig.savefig(plot_path)
+        plt.close(fig)
+        paths[filename.replace("-", "_").replace(".svg", "_svg")] = str(plot_path)
+    return paths

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -41,13 +42,20 @@ def qualification_ok(campaign: dict[str, Any], domain: Domain, campaign_path: Pa
     if qualification.get("qualification_requirements_hash") != sha(
             campaign.get("qualification_requirements", {})):
         raise SearchGateError("qualification requirements changed since report generation")
-    fixed_four = campaign.get("qualification_requirements", {}).get("mode") == "fixed-four-v1"
+    mode = campaign.get("qualification_requirements", {}).get("mode")
+    fixed_four = mode == "fixed-four-v1"
+    fast_gate = mode == "fast-gate-v2"
     required = ("provenance_validated", "traffic_validated", "baseline_characterized")
     if fixed_four:
         if (qualification.get("qualification_mode") != "fixed-four-v1" or
                 qualification.get("qualification_grade") != "exploratory_four_task" or
                 qualification.get("sensitivity_qualified") is not False):
             raise SearchGateError("four-task qualification grade or sensitivity claim is invalid")
+    elif fast_gate:
+        if (qualification.get("qualification_mode") != "fast-gate-v2" or
+                qualification.get("qualification_grade") != "exploratory_fast_gate" or
+                qualification.get("sensitivity_qualified") is not False):
+            raise SearchGateError("fast-gate qualification grade or sensitivity claim is invalid")
     else:
         required += ("sensitivity_qualified",)
     if any(qualification.get(key) is not True for key in required):
@@ -81,6 +89,20 @@ class SearchController:
         self.evidence_refs = evidence_refs or []
 
     def run(self, max_proposals: int | None = None, resume: bool = False) -> CampaignResult:
+        """Only one proposal loop may run per campaign output directory."""
+        self.artifact_root.mkdir(parents=True, exist_ok=True)
+        lock_path = self.artifact_root / "search-process.lock"
+        with lock_path.open("a+") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise SearchGateError(f"another search process owns {lock_path}") from exc
+            try:
+                return self._run_locked(max_proposals=max_proposals, resume=resume)
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def _run_locked(self, max_proposals: int | None = None, resume: bool = False) -> CampaignResult:
         qualification = qualification_ok(self.campaign, self.domain, self.campaign_path, self.backend,
                                          self.ledger, getattr(self.evaluator, "registry", None),
                                          self.artifact_root)
@@ -92,6 +114,9 @@ class SearchController:
             raise ValueError("search requires positive proposal budget")
         triage_id = self.campaign.get("triage_scenario_id")
         fixed_four = self.campaign.get("qualification_requirements", {}).get("mode") == "fixed-four-v1"
+        fast_gate = self.campaign.get("qualification_requirements", {}).get("mode") == "fast-gate-v2"
+        if fast_gate and (triage_id is None or self.campaign.get("screen_scenario_ids") != [triage_id]):
+            raise SearchGateError("fast-gate-v2 requires exactly one mixed triage screen")
         if fixed_four and triage_id is not None:
             raise SearchGateError("four-task search evaluates every task; triage is disallowed")
         if triage_id is not None and (not isinstance(triage_id, str)
@@ -109,6 +134,8 @@ class SearchController:
         existing = self.ledger.events(campaign_id, "proposal")
         if existing and not resume:
             raise ValueError("campaign already has proposals; pass --resume")
+        if resume and hasattr(self.proposer, "reconcile"):
+            self.proposer.reconcile()
         proposed = len(existing)
         tested = len(self.ledger.events(campaign_id, "search_evaluation"))
         seen_ids = {event["payload"].get("config_id") for event in existing}
@@ -126,7 +153,8 @@ class SearchController:
                         and event["payload"].get("stage") == stage
                         and event["payload"].get("measurement_protocol") in
                         (protocol, "mock-frozen-v1")
-                        and (not fixed_four or event["payload"].get("is_baseline") is True)]
+                        and (not (fixed_four or fast_gate) or
+                             event["payload"].get("is_baseline") is True)]
             cells = matching_cells()
             missing = set(scenario_ids) - {cell["scenario_id"] for cell in cells if eligible(cell)}
             if missing:
@@ -172,7 +200,8 @@ class SearchController:
                 mission="Find compatible Pareto tradeoffs in pinned vLLM serving settings",
                 domain=self.domain.raw,
                 baseline=self.campaign["baseline"], frontier=front,
-                recent_results=baseline_cells + feedback + recent[-12:], evidence_refs=self.evidence_refs,
+                recent_results=baseline_cells + triage_baseline + feedback + recent,
+                evidence_refs=self.evidence_refs,
                 remaining_budget={"distinct_proposals": cap - proposed,
                                   "wall_seconds": max(0, wall_limit - (time.monotonic() - start))},
                 qualification=qualification,
@@ -222,7 +251,18 @@ class SearchController:
                                         "baseline_cell_id": reference.get("cell_id") if reference else None,
                                         "policy": triage_policy, "evidence_grade": "provisional",
                                         "limitation": "one load and one window; point dominance can be noise or hide gains at other loads"})
+                    if fast_gate:
+                        self.ledger.append(campaign_id, "search_evaluation", triage_result.evaluation_id,
+                                           asdict(triage_result) | {"proposal_id": proposal.proposal_id,
+                                                                    "evidence_grade": "exploratory_fast_gate"})
+                        if hasattr(self.proposer, "complete"):
+                            self.proposer.complete(proposal, triage_cells, triage_baseline,
+                                                   "valid" if decision == "promote_to_two_load_screen" else decision)
+                        tested += 1
+                        continue
                     if decision != "promote_to_two_load_screen":
+                        if hasattr(self.proposer, "complete"):
+                            self.proposer.complete(proposal, triage_cells, triage_baseline, decision)
                         continue
                     baseline_cells = ensure_baseline("screen", self.campaign["screen_scenario_ids"])
                 result = self.evaluator.evaluate(proposal, self.campaign["screen_scenario_ids"], "screen")
@@ -232,8 +272,12 @@ class SearchController:
                                    if e["payload"].get("cell_id") in result.cell_ids]
                 self.ledger.append(campaign_id, "feedback", proposal.proposal_id,
                                    _feedback(proposal, result, candidate_cells, baseline_cells))
+                if hasattr(self.proposer, "complete"):
+                    self.proposer.complete(proposal, candidate_cells, baseline_cells, result.status)
                 tested += 1
             except Exception as exc:
+                if hasattr(self.proposer, "fail_pending"):
+                    self.proposer.fail_pending(f"{type(exc).__name__}: {exc}")
                 self.ledger.append(campaign_id, "search_error", f"attempt-{proposed+1}",
                                    {"error_type": type(exc).__name__, "reason": str(exc)})
                 stop_reason = "proposal_or_evaluation_error"
@@ -243,7 +287,8 @@ class SearchController:
                        self.artifact_root / "report", **export_kwargs)
         paths.update(export_history(self.ledger, campaign_id, self.artifact_root / "report"))
         if stop_reason == "proposal_budget":
-            stop_reason = "screen_budget_confirmation_pending"
+            stop_reason = ("fast_gate_budget_confirmation_pending" if fast_gate else
+                           "screen_budget_confirmation_pending")
         result = CampaignResult(campaign_id, stop_reason, tested, proposed, paths)
         self.ledger.append(campaign_id, "search_stop", campaign_id, asdict(result))
         return result

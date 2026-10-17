@@ -1,0 +1,38 @@
+{
+  "protocol_id": "ops-mixed-v2-exploratory",
+  "version": 2,
+  "claim": "exploratory_throughput_latency_only",
+  "sampling_rule": "Request count is fixed across rates within one sweep; stage counts can differ after new manifests and B0 are qualified.",
+  "stages": {
+    "screen": {
+      "status": "ready",
+      "engine_stage": "triage",
+      "scenario_id": "qwen-ops-mixed-reference-v1",
+      "request_count": 36,
+      "manifest_sha256": "98c65491a2aede8fd568d663a12dbe9be591130f02a28a756f148b0f6614e718",
+      "claim": "large_regression_screen_only",
+      "requires_matched_b0": true
+    },
+    "adaptive_exploration": {
+      "status": "pilot_only",
+      "scenario_id": "qwen-ops-mixed-reference-v1",
+      "request_count": 36,
+      "repeats": 2,
+      "iterations": 3,
+      "min_rate_rps": 0.08,
+      "max_rate_rps": 0.2,
+      "client_concurrency_cap": 256,
+      "claim": "exploratory_load_curve_only"
+    },
+    "development_replication": {
+      "status": "awaiting_independent_manifest",
+      "request_count": null,
+      "independent_windows": null
+    },
+    "sealed_test": {
+      "status": "awaiting_independent_manifest",
+      "request_count": null,
+      "independent_windows": null
+    }
+  }
+}

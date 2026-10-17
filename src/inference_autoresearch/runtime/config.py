@@ -27,7 +27,7 @@ BASELINE = {
     "enable_chunked_prefill": True,
     "long_prefill_token_threshold": 0,
 }
-ALLOWED_KEYS = frozenset(BASELINE)
+ALLOWED_KEYS = frozenset(BASELINE) | {"enforce_eager"}
 
 
 class ConfigError(ValueError):
@@ -69,6 +69,14 @@ def resolve_config(overrides: Mapping[str, object], pinned: PinnedEnvironment,
     for key, value in overrides.items():
         if domain is not None and (key not in domain or value not in domain[key]):
             raise ConfigError(f"{key}={value!r} is outside the frozen domain")
+        if key == "enforce_eager":
+            if type(value) is not bool:
+                raise ConfigError("enforce_eager must be a boolean")
+            # Omitted and explicit false resolve to the same stock setting.
+            # Preserve historical v1 B0 identities.
+            if value:
+                settings[key] = True
+            continue
         settings[key] = value
     for key, upper in (("max_num_seqs", 2048), ("max_num_batched_tokens", 65536)):
         val = settings[key]
@@ -107,6 +115,8 @@ def resolve_config(overrides: Mapping[str, object], pinned: PinnedEnvironment,
     ]
     if threshold:
         argv += ["--long-prefill-token-threshold", str(threshold)]
+    if settings.get("enforce_eager") is True:
+        argv += ["--enforce-eager"]
     if mtp:
         argv += ["--speculative-config", json.dumps({"method": "mtp", "num_speculative_tokens": mtp}, separators=(",", ":"))]
     argv += ["--host", "0.0.0.0", "--port", "8000"]

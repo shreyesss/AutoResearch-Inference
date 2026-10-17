@@ -13,6 +13,7 @@ from .report import eligible
 
 REQUIRED_FAMILIES = ("mixed", "session", "semantic")
 FIXED_FOUR_MODE = "fixed-four-v1"
+FAST_GATE_MODE = "fast-gate-v2"
 FIXED_FOUR_SCENARIOS = (
     "qwen-ops-chat-low-v1",
     "qwen-ops-agent-low-v1",
@@ -27,6 +28,8 @@ def assess(campaign: dict[str, Any], domain: Domain, ledger: Any, registry: Any,
     """Fail closed. A real source-backed suite and repeated tails are required."""
     if campaign.get("qualification_requirements", {}).get("mode") == FIXED_FOUR_MODE:
         return _assess_fixed_four(campaign, domain, ledger, registry, artifact_root, backend)
+    if campaign.get("qualification_requirements", {}).get("mode") == FAST_GATE_MODE:
+        return _assess_fast_gate(campaign, domain, ledger, registry, artifact_root, backend)
     reasons: list[str] = []
     if backend != "real":
         reasons.append("mock_backend_not_qualifying")
@@ -190,6 +193,73 @@ def _assess_fixed_four(campaign: dict[str, Any], domain: Domain, ledger: Any,
             "qualification_requirements_hash": sha(requirements),
             "qualification_mode": FIXED_FOUR_MODE,
             "qualification_grade": "exploratory_four_task",
+            "provenance_validated": traffic_ok, "traffic_validated": traffic_ok,
+            "baseline_characterized": baseline_ok, "sensitivity_qualified": False,
+            "search_allowed": allowed, "blocked_reasons": sorted(set(reasons)),
+            "evidence_ids": evidence_ids, "source": "iar qualify", "report_root": str(artifact_root)}
+
+
+def _assess_fast_gate(campaign: dict[str, Any], domain: Domain, ledger: Any,
+                      registry: Any, artifact_root: Path, backend: str) -> dict[str, Any]:
+    """Exploratory autonomous screen on one validated mixed fixture and matched B0."""
+    from .domain import config_identity
+
+    requirements = campaign.get("qualification_requirements", {})
+    reasons: list[str] = []
+    evidence_ids: list[str] = []
+    if backend != "real":
+        reasons.append("mock_backend_not_qualifying")
+    scenario_id = campaign.get("triage_scenario_id")
+    suite_ok = (scenario_id == "qwen-ops-mixed-reference-v1" and
+                campaign.get("screen_scenario_ids") == [scenario_id])
+    if not suite_ok:
+        reasons.append("fast_gate_requires_one_frozen_mixed_screen")
+    for key in ("enable_prefix_caching", "mtp_draft_tokens"):
+        spec = domain.raw.get("parameters", {}).get(key)
+        if spec is not None and spec.get("active") is not False and len(spec.get("values", [])) > 1:
+            reasons.append(f"unqualified_search_axis:{key}")
+    scenario = None
+    if suite_ok:
+        try:
+            scenario = registry.load(scenario_id)
+            manifest = scenario.metadata["manifest"]
+            if (manifest.get("readiness") != "validated" or
+                    manifest.get("traffic_mode") != "independent_open_loop"):
+                raise ValueError("mixed fixture not validated independent replay")
+            evidence_ids.append(f"scenario:{scenario_id}:{manifest['payload_sha256']}")
+            report_hash = _frozen_validation_evidence(scenario, registry)
+            evidence_ids.append(f"frozen_validation:{scenario_id}:{report_hash}")
+        except (AttributeError, KeyError, OSError, ValueError, TypeError) as exc:
+            reasons.append(f"mixed_scenario_unqualified:{type(exc).__name__}")
+    traffic_ok = suite_ok and scenario is not None
+    baseline_ok = False
+    if traffic_ok and backend == "real":
+        try:
+            baseline_id = config_identity(campaign, campaign["baseline"])
+            cells = [event["payload"] for event in ledger.events(campaign["campaign_id"], "cell")]
+            matches = [row for row in cells if row.get("scenario_id") == scenario_id and
+                       row.get("config_id") == baseline_id and row.get("is_baseline") is True and
+                       row.get("stage") == "triage" and
+                       row.get("measurement_protocol") == "fresh-server-triage-v1" and
+                       row.get("offered_load") == scenario.offered_load and
+                       row.get("load_unit") == scenario.load_unit and
+                       row.get("cache_protocol") == scenario.cache_protocol and
+                       row.get("counts", {}).get("planned") == scenario.expected_count and
+                       not row.get("mock") and eligible(row)]
+            baseline_ok = len(matches) >= int(requirements.get("baseline_min_repeats", 1))
+            if baseline_ok:
+                evidence_ids.extend(f"baseline_cell:{scenario_id}:{row['cell_id']}" for row in matches)
+            else:
+                reasons.append("eligible_matched_mixed_triage_b0_missing")
+        except (AttributeError, KeyError, OSError, TypeError, ValueError) as exc:
+            reasons.append(f"baseline_evidence_unavailable:{type(exc).__name__}")
+    allowed = backend == "real" and traffic_ok and baseline_ok and not reasons
+    return {"schema_version": "qualification-v1", "backend": backend,
+            "campaign_id": campaign["campaign_id"],
+            "campaign_hash": scientific_campaign_hash(campaign), "domain_hash": domain.digest,
+            "qualification_requirements_hash": sha(requirements),
+            "qualification_mode": FAST_GATE_MODE,
+            "qualification_grade": "exploratory_fast_gate",
             "provenance_validated": traffic_ok, "traffic_validated": traffic_ok,
             "baseline_characterized": baseline_ok, "sensitivity_qualified": False,
             "search_allowed": allowed, "blocked_reasons": sorted(set(reasons)),

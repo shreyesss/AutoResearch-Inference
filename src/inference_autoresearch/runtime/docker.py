@@ -215,6 +215,8 @@ class DockerRuntimeManager:
             checks["long_prefill_token_threshold"] = (
                 f"'long_prefill_token_threshold': {expected['long_prefill_token_threshold']}" in log
             )
+        if expected.get("enforce_eager") is True:
+            checks["enforce_eager"] = "enforce_eager=True" in log or "'enforce_eager': True" in log
         if expected["mtp_draft_tokens"]:
             checks["mtp"] = f"'num_speculative_tokens': {expected['mtp_draft_tokens']}" in log or f"num_speculative_tokens={expected['mtp_draft_tokens']}" in log
         else:

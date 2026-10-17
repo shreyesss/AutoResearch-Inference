@@ -129,7 +129,7 @@ def test_research_workspace_stages_full_evidence_measurements_and_prior_notes(tm
     strict_params["max_num_seqs"] = 128
     payload = {"schema_version": "0.2", "proposal_id": "p1", "parent_configuration_ids": [],
                "parameters": strict_params, "hypothesis": "Inspect the queue",
-               "expected_tradeoff": "Unknown", "evidence_ids": ["full-evidence"],
+               "expected_tradeoff": "Unknown", "evidence_ids": ["full-evidence", "eval-1:s:1"],
                "experiment_kind": "hypothesis", "predictions": [{"observation": "queue",
                "expected_change": "up", "scope": "same load"}],
                "falsification_condition": "Queue is flat", "requested_observations": []}
@@ -172,6 +172,10 @@ def test_research_workspace_stages_full_evidence_measurements_and_prior_notes(tm
     assert (first / "measurements/eval-1/resolved-config.json").is_file()
     measurements = json.loads((first / "measurements-index.json").read_text())
     assert [item["cell_id"] for item in measurements["cells"]] == ["eval-1:s:1"]
+    evaluation = json.loads((first / "evaluation-index.json").read_text())
+    assert evaluation["visible_cell_count"] == 1
+    assert evaluation["cells"][0]["metrics"]["ttft_p99_ms"] == 100
+    assert evaluation["cells"][0]["files"][0]["sha256"]
     assert (first / "workspace/notes.md").read_text() == "queue needs another load\n"
     proposer.propose(context)
     second = artifact_root / "proposals/attempt-0002"
@@ -179,6 +183,7 @@ def test_research_workspace_stages_full_evidence_measurements_and_prior_notes(tm
     assert (second / "history/attempt-0001/proposal.normalized.json").is_file()
     assert "Evidence is complete." not in (first / "workspace/prompt.txt").read_text()
     assert "../measurements-index.json" in (first / "workspace/prompt.txt").read_text()
+    assert "../evaluation-index.json" in (first / "workspace/prompt.txt").read_text()
 
 
 def test_default_real_proposer_refuses_host_codex_without_docker_boundary(tmp_path, monkeypatch):

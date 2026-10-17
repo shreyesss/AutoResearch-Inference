@@ -1,0 +1,57 @@
+{
+  "schema_version": "0.1",
+  "status": "v2_exploratory_mixed_fast_gate",
+  "baseline_is_always_admissible": true,
+  "parameters": {
+    "max_num_batched_tokens": {
+      "values": [2048, 4096, 8192, 16384],
+      "baseline": 8192,
+      "condition": "measure long-prefill and short-decode interference on matched mixed traffic"
+    },
+    "long_prefill_token_threshold": {
+      "values": [0, 2048, 8192],
+      "baseline": 0,
+      "condition": "chunked prefill stays enabled; interpret only when long-prefill contention is observed"
+    },
+    "enforce_eager": {
+      "values": [false, true],
+      "baseline": false,
+      "condition": "report startup and steady-state separately; eager mode must be verified in pinned vLLM logs"
+    },
+    "max_num_seqs": {
+      "values": [512],
+      "baseline": 512,
+      "active": false,
+      "condition": "current mixed load does not bind the sequence cap"
+    },
+    "gpu_memory_utilization": {
+      "values": [0.92],
+      "baseline": 0.92,
+      "active": false,
+      "condition": "activate only after measured KV pressure or preemption"
+    },
+    "enable_prefix_caching": {
+      "values": [true],
+      "baseline": true,
+      "active": false,
+      "condition": "requires token-exact repeated-prefix workload and measured cache hits"
+    },
+    "mtp_draft_tokens": {
+      "values": [0],
+      "baseline": 0,
+      "active": false,
+      "condition": "requires accepted-token telemetry and semantic answer-quality checks"
+    },
+    "enable_chunked_prefill": {
+      "values": [true],
+      "baseline": true,
+      "active": false,
+      "condition": "held at baseline in this campaign"
+    }
+  },
+  "rules": [
+    "Every candidate uses the same frozen mixed screen and matched B0 protocol.",
+    "The fast screen gives exploratory throughput and latency observations, not tail-SLA evidence.",
+    "Prefix caching and MTP remain fixed until separate mechanism and quality gates pass."
+  ]
+}

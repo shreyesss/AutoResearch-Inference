@@ -168,14 +168,14 @@ def build_parser() -> argparse.ArgumentParser:
             item.add_argument("--scenario", action="append", dest="scenarios",
                               help="Evaluator registry ID; may be repeated. Defaults to campaign screens.")
         if command == "baseline":
-            item.add_argument("--stage", choices=("pilot", "screen"), default=None,
+            item.add_argument("--stage", choices=("pilot", "screen", "triage"), default=None,
                               help="Use screen for a matched search baseline; defaults to screen in fixed-four-v1.")
         if command == "evaluate":
             item.add_argument("--stage", choices=("pilot", "screen", "expanded", "confirm"), default="pilot")
         if command == "search":
             item.add_argument("--max-proposals", type=int)
             item.add_argument("--resume", action="store_true")
-            item.add_argument("--proposer", choices=("codex", "mock"))
+            item.add_argument("--proposer", choices=("codex", "mock", "optuna"))
             item.add_argument("--skill", default="agent/SKILL.md")
     return parser
 
@@ -283,13 +283,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if args.backend == "real" and mode == "mock":
             raise ValueError("real autonomous search cannot use mock proposer")
         proposer_config = campaign.get("proposer", {})
-        proposer = (MockProposer(domain) if mode == "mock" else CodexProposer(domain, artifact_root,
+        if mode == "mock":
+            proposer = MockProposer(domain)
+        elif mode == "optuna":
+            from inference_autoresearch.search.optimizer import OptunaProposer
+            proposer = OptunaProposer(campaign, domain, artifact_root, ledger, args.backend)
+        else:
+            proposer = CodexProposer(domain, artifact_root,
                      timeout_s=int(campaign["search_budget"].get("proposal_timeout_seconds", 180)),
                      skill_path=_file(args.skill, campaign_path),
                      expected_version=campaign["runtime"].get("codex_cli_version_observed"),
                      model=proposer_config.get("model"),
                      reasoning_effort=proposer_config.get("reasoning_effort"),
-                     web_search=proposer_config.get("web_search", "disabled")))
+                     web_search=proposer_config.get("web_search", "disabled"))
         evidence_sources = campaign.get("evidence_sources")
         if evidence_sources is not None and (not isinstance(evidence_sources, dict)
                                              or not all(isinstance(k, str) and isinstance(v, str)
@@ -306,8 +312,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if len(scenario_ids) != len(set(scenario_ids)):
         raise ValueError("scenario IDs must be distinct")
     if command == "baseline":
-        stage = args.stage or ("screen" if campaign.get("qualification_requirements", {}).get("mode") == "fixed-four-v1"
-                               else "pilot")
+        mode = campaign.get("qualification_requirements", {}).get("mode")
+        stage = args.stage or ("triage" if mode == "fast-gate-v2" else
+                               "screen" if mode == "fixed-four-v1" else "pilot")
         candidate = CandidateProposal(proposal_id="B0", parameters={}, experiment_kind="exploration",
                     hypothesis="Measure frozen resolved stock performance baseline",
                     expected_tradeoff="reference", predictions=[{"observation": "primary metrics",

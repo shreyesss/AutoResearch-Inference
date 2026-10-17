@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -100,11 +101,38 @@ def build_inspection(ledger: Ledger, campaign_id: str, root: Path,
                 receipt = {"status": "unreadable_receipt"}
             important = ("proposer-receipt.json", "codex.events.jsonl", "codex.stderr.txt",
                          "proposal.final.json", "proposal.normalized.json", "research-index.json",
-                         "measurements-index.json", "retrieval-audit.json", "workspace/notes.md")
+                         "measurements-index.json", "evaluation-index.json", "retrieval-audit.json",
+                         "workspace/notes.md")
             attempts.append({"attempt": folder.name, "status": receipt.get("status", "unknown"),
                              "directory": _path(root, folder),
                              "files": [_path(root, folder / name) for name in important
                                        if (folder / name).is_file() and not (folder / name).is_symlink()]})
+    adaptive_studies = []
+    for path in sorted(root.rglob("normalized-search-points.json")) if root.is_dir() else []:
+        if (not path.is_file() or path.is_symlink() or not _within(root, path)
+                or (root / "proposals") in path.parents):
+            continue
+        try:
+            payload = json.loads(path.read_text())
+            points = payload.get("points", [])
+            if not isinstance(points, list):
+                raise ValueError("points is not a list")
+            native = Path(payload["native_history"]).resolve() if isinstance(
+                payload.get("native_history"), str) else path.with_name("search_history.json")
+            adaptive_studies.append({
+                "path": _path(root, path), "native_history": _path(root, native)
+                if _within(root, native) and native.is_file() else None,
+                "point_count": len(points),
+                "status_counts": dict(Counter(str(point.get("status")) for point in points
+                                               if isinstance(point, dict))),
+                "points": [{key: point.get(key) for key in
+                            ("point_id", "config_id", "scenario_id", "iteration_idx", "trial_index",
+                             "configured_rate", "realized_rate", "status", "reason_codes", "counts",
+                             "metrics", "artifacts")}
+                           for point in points if isinstance(point, dict)],
+            })
+        except (OSError, ValueError) as exc:
+            adaptive_studies.append({"path": _path(root, path), "error": type(exc).__name__})
     timeline = [{"seq": event["seq"], "utc": event["utc"], "kind": event["kind"],
                  "entity_id": event["entity_id"],
                  "state": event["payload"].get("state"),
@@ -113,7 +141,7 @@ def build_inspection(ledger: Ledger, campaign_id: str, root: Path,
     return {"campaign_id": campaign_id, "backend": backend,
             "ledger": _path(root, ledger.path), "event_count": len(events),
             "timeline": timeline, "proposals": proposals, "attempts": attempts,
-            "evaluations": evaluations,
+            "evaluations": evaluations, "adaptive_studies": adaptive_studies,
             "top_level_files": sorted(_path(root, item) for item in root.iterdir()
                                       if item.is_file() and not item.is_symlink()) if root.is_dir() else []}
 
@@ -133,7 +161,9 @@ def _markdown(data: dict[str, Any]) -> str:
             metrics = cell.get("metrics", {})
             lines.append(f"- `{cell['cell_id']}` ({cell.get('scenario_id')}): {cell.get('status')}; "
                          f"output tok/s {metrics.get('output_tokens_per_s', '—')}, "
+                         f"TTFT p50/p90 {metrics.get('ttft_p50_ms', '—')}/{metrics.get('ttft_p90_ms', '—')} ms, "
                          f"TTFT p99 {metrics.get('ttft_p99_ms', '—')} ms, "
+                         f"TPOT p50/p90 {metrics.get('tpot_p50_ms', '—')}/{metrics.get('tpot_p90_ms', '—')} ms/token, "
                          f"TPOT p99 {metrics.get('tpot_p99_ms', '—')} ms.")
         if item["failure_reasons"]:
             lines.append(f"- Failures: {', '.join(item['failure_reasons'])}")
@@ -154,6 +184,21 @@ def _markdown(data: dict[str, Any]) -> str:
     for item in data["attempts"]:
         lines.append(f"- `{item['attempt']}`: {item['status']}; `{item['directory']}`")
         lines.extend(f"  - `{path}`" for path in item["files"])
+    lines += ["", "## Adaptive load studies", ""]
+    if not data["adaptive_studies"]:
+        lines.append("No normalized adaptive load studies recorded.")
+    for study in data["adaptive_studies"]:
+        lines.append(f"- `{study['path']}`: {study.get('point_count', 'unreadable')} trials; "
+                     f"statuses {study.get('status_counts', {})}; native history "
+                     f"`{study.get('native_history') or 'unavailable'}`.")
+        for point in study.get("points", []):
+            metrics = point.get("metrics") or {}
+            lines.append(f"  - `{point.get('point_id')}`: configured/realized "
+                         f"{point.get('configured_rate')}/{point.get('realized_rate')} requests/s; "
+                         f"{point.get('status')}; output {metrics.get('output_tokens_per_s', '—')} tok/s; "
+                         f"TTFT p50/p90/p99 "
+                         f"{metrics.get('ttft_p50_ms', '—')}/{metrics.get('ttft_p90_ms', '—')}/"
+                         f"{metrics.get('ttft_p99_ms', '—')} ms; reasons {point.get('reason_codes') or []}.")
     lines += ["", "## Timeline", ""]
     lines.extend(f"- {item['seq']} {item['utc']} {item['kind']} `{item['entity_id']}`"
                  + (f" · {item['state']}" if item['state'] else "")
@@ -175,5 +220,6 @@ def write_inspection(ledger: Ledger, campaign_id: str, root: Path,
             "event_count": data["event_count"], "evaluation_count": len(data["evaluations"]),
             "proposal_count": len(data["proposals"]),
             "attempt_count": len(data["attempts"]),
+            "adaptive_study_count": len(data["adaptive_studies"]),
             "index_json": str(target / "index.json"), "index_markdown": str(target / "INDEX.md"),
             "ledger": str(ledger.path)}

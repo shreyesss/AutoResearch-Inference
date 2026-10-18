@@ -194,9 +194,50 @@ def main():
             ax.grid(alpha=.25)
         fig.suptitle(f'Three-objective observed Pareto (*), matched concurrency {anchor}')
         fig.tight_layout(); fig.savefig(OUT / 'pareto.svg'); plt.close(fig)
+    # A latency-only frontier differs from the three-objective frontier above:
+    # throughput is encoded by color, but is not part of dominance here.
+    latency_fronts = {}
+    search_levels = sorted({r['concurrency'] for r in rows if r['phase'] == 'search'
+                            and r['validated'] and r['trial_state'] == 'COMPLETE'})
+    for percentiles, filename in ([((90,), 'ttft-tpot-pareto.svg'),
+                                   ((50, 90, 99), 'ttft-tpot-percentiles.svg')] if search_levels else []):
+        fig, axes = plt.subplots(len(search_levels), len(percentiles),
+                                 figsize=(7 * len(percentiles), 5 * len(search_levels)), squeeze=False)
+        for axis_row, concurrency in zip(axes, search_levels):
+            cohort = [r for r in rows if r['phase'] == 'search' and r['validated']
+                      and r['trial_state'] == 'COMPLETE' and r['concurrency'] == concurrency]
+            for ax, percentile in zip(axis_row, percentiles):
+                xkey, ykey = f'ttft_p{percentile}_ms', f'tpot_p{percentile}_ms'
+                front = sorted([r for r in cohort if not any(
+                    s[xkey] <= r[xkey] and s[ykey] <= r[ykey]
+                    and (s[xkey] < r[xkey] or s[ykey] < r[ykey]) for s in cohort)], key=lambda r: r[xkey])
+                latency_fronts[f'c{concurrency}_p{percentile}'] = [r['trial'] for r in front]
+                scatter = ax.scatter([r[xkey] / 1000 for r in cohort], [r[ykey] for r in cohort],
+                                     c=[r['output_tok_s'] for r in cohort], cmap='viridis', s=65)
+                ax.plot([r[xkey] / 1000 for r in front], [r[ykey] for r in front],
+                        '--', color='black', alpha=.6, label='Observed latency-only frontier')
+                for r in cohort:
+                    label = r['trial'].removeprefix('trial_')
+                    ax.annotate('B0' if label == '0' else label, (r[xkey]/1000, r[ykey]),
+                                xytext=(4, 4), textcoords='offset points', fontsize=8)
+                baseline = next(r for r in cohort if r['trial'] == 'trial_0')
+                ax.scatter([baseline[xkey]/1000], [baseline[ykey]], marker='s', s=150,
+                           facecolors='none', edgecolors='red', linewidths=2, label='B0')
+                ax.set(xlabel=f'p{percentile} TTFT (seconds; lower is better)',
+                       ylabel=f'p{percentile} TPOT (ms/token; lower is better)',
+                       title=f'{concurrency} clients · 120 requests per configuration')
+                ax.grid(alpha=.2); ax.legend(fontsize=8)
+                fig.colorbar(scatter, ax=ax, label='Output tokens/s')
+        fig.suptitle('Development TTFT–TPOT tradeoffs · labels = search trial IDs\n'
+                     'Lines connect measured nondominated points; no fitted curve or statistical confirmation')
+        fig.tight_layout(); fig.savefig(OUT / filename, bbox_inches='tight')
+        if len(percentiles) == 1:
+            fig.savefig(OUT / 'ttft-tpot-pareto.png', bbox_inches='tight', dpi=140)
+        plt.close(fig)
     confirmed = [r for r in rows if r['phase'] == 'confirmation' and r['validated'] and r['trial_state'] == 'COMPLETE']
     summary = {'points': len(rows), 'validated_candidates_including_b0': len(eligible),
                'objective_concurrency': anchor, 'observed_front': [r['trial'] for r in eligible if r['observed_pareto']],
+               'latency_only_fronts': latency_fronts,
                'capacity_confirmed': False, 'heldout_points_completed': len(confirmed),
                'heldout_campaign_finished': (STUDY / 'confirmation-finished.json').exists(),
                'independent_confirmation': 'inspect heldout deltas and B0 repeat' if confirmed else False}
@@ -206,13 +247,18 @@ def main():
     (OUT / 'index.html').write_text('<!doctype html><meta charset="utf-8"><title>Direct Optuna study</title>'
         '<h1>Direct Optuna / GuideLLM study</h1><p>Fresh baseline and same-workload comparisons. '
         'Exploratory observed frontier; no confirmed SLA capacity or production-quality claim.</p>'
+        '<p><a href="ANALYSIS.md">Search findings, exact configurations and confirmation status</a></p>'
         '<p>TPOT means (last token − first token)/(output tokens − 1), called inter_token_latency_ms by GuideLLM.</p>'
         '<img width="100%" src="ttft-curves.svg"><img width="100%" src="tpot-curves.svg">'
         '<img width="100%" src="operating-curves.svg">'
         '<img width="100%" src="class-curves.svg">'
+        '<img width="75%" src="ttft-tpot-pareto.svg">'
+        '<img width="100%" src="ttft-tpot-percentiles.svg">'
         + ('<img width="100%" src="pareto.svg">' if eligible else '') + table)
     (OUT / 'README.md').write_text('# Direct Optuna study\n\n'
         '[Live report](index.html) · [All points](points.csv) · [Per-class metrics](class-points.csv)\n\n'
+        '[Search analysis](ANALYSIS.md) · [p90 TTFT–TPOT frontier](ttft-tpot-pareto.svg) · '
+        '[p50/p90/p99 TTFT–TPOT](ttft-tpot-percentiles.svg)\n\n'
         '[Study manifest](study-manifest.json) · [Workload hashes](workload-card.json) · [Model hashes](model-manifest.json)\n\n'
         'Source: `.artifacts/optuna-direct-v1/`. Native GuideLLM exports and exact commands are preserved. '
         'Calibration uses 8 requests at concurrency 1 and 40 at other points; search uses 120 requests per point. '

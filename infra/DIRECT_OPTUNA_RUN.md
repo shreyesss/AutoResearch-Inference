@@ -1,5 +1,13 @@
 # Direct auto-tuning-vllm experiment
 
+**19 October, 00:57 IST checkpoint:** All 25 search trials completed with 6,000 valid
+requests. Trial 9 observed +10.0% throughput at 32 clients, with slightly worse
+TTFT; no repeatable winner is established. The automatic confirmation handoff
+failed after search, and was recovered at 00:53 IST. Held-out testing of B0,
+trials 9/10/24, then B0 again is now running. See the
+[results analysis](../results/2026-10-18-direct-optuna/ANALYSIS.md), including exact
+settings, same-config noise evidence and the new TTFT–TPOT Pareto plots.
+
 This is the concrete implementation selected after `OPTUNA_OPERATOR_CURVE_PLAN.md`.
 The active optimizer is **Optuna multivariate TPE**, not an LLM. The upstream
 InseeFrLab controller owns study creation, ask/tell, vLLM launches, trial cleanup,

@@ -17,6 +17,10 @@ def main():
     state = json.loads(result.stdout) if result.returncode == 0 else None
     finished = (ROOT / f'{phase}-finished.json').exists()
     alerts = []
+    if phase == 'search' and finished and not (ROOT / 'confirmation-finished.json').exists():
+        receipt = json.loads((ROOT / 'search-finished.json').read_text())
+        if time.time() - receipt['time'] > 180:
+            alerts.append('Search completed but confirmation has not published its heartbeat; campaign handoff stalled')
     if not finished:
         if state is None or not state['Running']:
             alerts.append('Controller container is absent/stopped without a phase completion receipt')

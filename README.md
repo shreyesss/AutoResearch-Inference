@@ -1,5 +1,11 @@
 # AutoResearch Inference
 
+**19 October, 00:57 IST results:** The direct Optuna search completed all 25 trials
+(6,000 valid requests). Trial 9 observed 10% higher throughput at 32 clients;
+repeatability remains unconfirmed. The failed automatic held-out handoff was
+recovered and confirmation is running. See [analysis and exact configurations](results/2026-10-18-direct-optuna/ANALYSIS.md)
+and [TTFT–TPOT Pareto plots](results/2026-10-18-direct-optuna/ttft-tpot-pareto.svg).
+
 **Current experiment (18 October 2026): Optuna + GuideLLM using InseeFrLab's auto-tuning-vllm.** The [direct study](infra/DIRECT_OPTUNA_RUN.md) uses multivariate TPE to vary eight serving controls together. A frozen synthetic chat/agent/code/document mix exercises real token lengths and prefix reuse. B0 and candidates receive the same two concurrency points, 120 requests each, with one server launch per configuration. The budget is B0 plus 24 candidates, followed by held-out curves for frozen finalists and a B0 repeat. There are no LLM proposals in this experiment. See the [executable configuration](configs/direct-optuna-study.json), [live status](.artifacts/optuna-direct-v1/status.json), and [measurements and curves](results/2026-10-18-direct-optuna/README.md). Results are observed tradeoffs; open-loop SLA capacity is not established by this protocol.
 
 **Historical v3c checkpoint (17 October 2026):** The development-input and matched-B0 chain was running; no candidate proposal had started at this checkpoint. That study used one synthetic mixed workload with four request classes, user-approved research p90 targets, a custom class-aware rate planner that runs AIPerf at each point, and a seven-control serving domain. The 36-request candidate screen selects a diagnostic rate from the valid B0 profile and compares B0 and candidates at the same rate, request bodies and Poisson seed. The two 240-request finalist windows were development data; sealed test inputs were planned but not captured. See the [launch audit](infra/V3C_LAUNCH_AUDIT.md), [exact search domain](infra/V3C_SEARCH_SPACE.md), and [run design](infra/V3C_RUN.md).

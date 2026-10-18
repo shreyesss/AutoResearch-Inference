@@ -1,0 +1,49 @@
+{
+  "caveats": [
+    "36 screen requests and 32 curve requests per point are small samples",
+    "Only three configurations have multi-rate curves; the others have one screen point",
+    "p99 is dominated by the highest one or two request latencies",
+    "No repeated windows, adaptive load search, independent test, or SLA capacity estimate"
+  ],
+  "objectives": {
+    "maximize": [
+      "output_tokens_per_s"
+    ],
+    "minimize": [
+      "ttft_p90_ms",
+      "tpot_p90_ms"
+    ]
+  },
+  "operator_global_frontier": [
+    "B0@0.4",
+    "B0@0.8",
+    "batch 4096@0.2",
+    "GPU mem .85@0.2"
+  ],
+  "operator_rate_matched_frontier": {
+    "0.2": [
+      "batch 4096",
+      "GPU mem .85"
+    ],
+    "0.4": [
+      "B0"
+    ],
+    "0.8": [
+      "B0",
+      "batch 4096",
+      "GPU mem .85"
+    ]
+  },
+  "scope": "sample_point_estimates_only_no_uncertainty_or_sla_capacity_claim",
+  "screen_frontier": [
+    "B0",
+    "pilot-v4-batch4096-a0001",
+    "pilot-v4-batch16384-a0003",
+    "pilot-v4-batch2048-a0006",
+    "pilot-v4-gpu-memory-085-attempt-0007"
+  ],
+  "source_sha256": {
+    ".artifacts/fast-pilot-v4/all-screen-points.csv": "e719c23e7fd58debd12ada914d8805a914dbbab355ab5fad7a1fb574e2233b43",
+    ".artifacts/fast-pilot-v4/operator-curve-32x3/all-points.json": "9b62babd09e2b6cb8bdd1988a065371e361a7251852ebf8a6a27ca5b1b193a7b"
+  }
+}

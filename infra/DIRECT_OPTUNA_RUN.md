@@ -1,189 +1,86 @@
-# Direct auto-tuning-vllm experiment
+# Direct Optuna / GuideLLM study — completed
 
-**19 October, 00:57 IST checkpoint:** All 25 search trials completed with 6,000 valid
-requests. Trial 9 observed +10.0% throughput at 32 clients, with slightly worse
-TTFT; no repeatable winner is established. The automatic confirmation handoff
-failed after search, and was recovered at 00:53 IST. Held-out testing of B0,
-trials 9/10/24, then B0 again is now running. See the
-[results analysis](../results/2026-10-18-direct-optuna/ANALYSIS.md), including exact
-settings, same-config noise evidence and the new TTFT–TPOT Pareto plots.
+Study ID: `optuna-direct-v1`. Search: 18 October 2026. Held-out confirmation finished **19 October 2026, 01:43 IST**. All 25 search and five confirmation trials completed, zero failed trials. [Results](../results/2026-10-18-direct-optuna/README.md) · [comparison](../results/2026-10-18-direct-optuna/comparison.html) · [code map](direct_optuna/README.md).
 
-This is the concrete implementation selected after `OPTUNA_OPERATOR_CURVE_PLAN.md`.
-The active optimizer is **Optuna multivariate TPE**, not an LLM. The upstream
-InseeFrLab controller owns study creation, ask/tell, vLLM launches, trial cleanup,
-SQLite storage and objective extraction. GuideLLM 0.7.1 generates traffic and
-records measurements. Our adapter defines the mixed workload, cache conditioning,
-two measurements per launch, conditional graph settings and result validation.
+## Question and scope
 
-Upstream commit: `bc856d4cad5f14d83b1bd284fbd7187d75c8c496`.
-Source: https://github.com/InseeFrLab/auto-tuning-vllm
-Optuna: 4.5.0; `multivariate=True`, `group=True`, seed 20261018.
-Runtime: the existing vLLM 0.28.0 image digest and model files. Benchmark packages
-are in a separate environment; vLLM runs with the image's original Python.
-The NVMe model mirror was SHA-256 checked against all 18 source weight shards.
-Model/hardware: Qwen/Qwen3.8-27B, BF16, tensor parallelism 1, context limit
-40,960, on one NVIDIA RTX PRO 6000 Blackwell Server Edition GPU (96GB class).
+Can joint changes to eight vLLM serving controls improve the throughput/latency tradeoff on a frozen mixed workload, and does a development improvement survive unseen prompts?
 
-## Input and measurement
+This study uses Optuna 4.5.0 multivariate/grouped TPE with seed 20261018, the InseeFrLab auto-tuning-vllm controller pinned at `bc856d4cad5f14d83b1bd284fbd7187d75c8c496`, and GuideLLM 0.7.1. There is no LLM proposal loop or AIPerf adaptive traffic search in this run.
 
-| Class | Mix | Target input tokens | Forced output tokens | Research p90 TTFT |
-|---|---:|---:|---:|---:|
-| Chat | 45% | 512 | 256 | 1,500ms |
-| Agent-like | 20% | 4,096 | 512 | 2,500ms |
-| Code-like | 20% | 2,048 | 512 | 750ms |
-| Document | 15% | 8,192 | 256 | 12,000ms |
+## Fixed environment
 
-TPOT research target: p90 <=70ms/token for every class, zero observed errors.
-This is a synthetic service-shaped mix. It is not a production trace, a coding
-correctness test, or a multi-turn agent benchmark. Meaningful task templates are
-expanded with synthetic reference material; exact generation length is forced.
-Input counts include the Qwen template and are within four tokens of each target;
-the exact count for every frozen request is stored. Thinking is disabled using
-the pinned template's `enable_thinking=false` setting.
+| Component | Value |
+|---|---|
+| Model | Qwen/Qwen3.8-27B; BF16; model revision `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` |
+| Hardware | One NVIDIA RTX PRO 6000 Blackwell Server Edition, 96 GB class |
+| vLLM | 0.28.0; TP=1; context limit 40,960 |
+| Image | `vllm/vllm-openai@sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14` |
+| Static behavior | Chunked prefill enabled; MTP disabled; thinking disabled; temperature 0; streaming |
+| Input identity | [workload card](../results/2026-10-18-direct-optuna/workload-card.json) and archived exact JSONL |
+| Model/source identity | [model manifest](../results/2026-10-18-direct-optuna/model-manifest.json), [study manifest](../results/2026-10-18-direct-optuna/study-manifest.json), phase source-hash receipts |
 
-Each balanced block has 20 requests. Development has two disjoint 1,200-request
-pools; held-out inputs have two disjoint 400-request pools. Input suffixes are
-unique. The intended shared prefix fraction is 50%, with 16 prefixes per class,
-Zipf(1.2) popularity. This target must be compared with actual cache-hit counters.
-Prefix-cache off receives identical inputs. Prefixes are prepared before each
-point; measured full prompts are never used for cache warmup.
+The model's 18 weight shards were SHA-256 matched to the NVMe mirror. The benchmark environment was isolated from the base image's Python used by vLLM subprocesses.
 
-The initial duration-based proposal was changed after inspecting GuideLLM's
-`MaxDurationConstraint`: timed termination can cancel in-flight work. The direct
-run instead uses native `max_requests` cohorts, validates completion and output
-caps, and retains every request record. No incomplete cohort enters the optimizer.
+## Inputs and load
 
-- Calibration: one B0 launch, concurrency 1/4/8/16/32; 8 requests for the
-  single-client floor and 40 for each other point. These are quick development
-  diagnostics, not tail-SLA confirmation.
-- Choose the first tested concurrency >=4 reaching 90% of the largest observed
-  calibration throughput. This is an observed anchor, not a proven capacity.
-- Search: 120 requests at that anchor and 120 at half that concurrency, minimum
-  one. Both use the same server launch. The two points use different frozen
-  input pools. Cache preparation is identical across configurations.
-- Each point has a 600-second external watchdog. A timeout is a failed trial,
-  not a shortened successful measurement. Full wall time and warmup are recorded.
-- The first search trial is matched B0. The configured total is B0 plus 24
-  candidates; nine startup observations include B0, leaving eight initial
-  candidate observations before guided sampling, assuming successful trials.
-- Three consecutive failed trials stop the campaign for inspection. Every
-  launch takes the shared GPU lease; only one configuration runs at a time.
-- Once search ends, freeze up to three distinct development Pareto extrema
-  (throughput, TTFT, TPOT). If B0 dominates all candidates, test the best observed
-  tradeoffs and report that negative result. The selection is saved before any
-  held-out execution. Run B0, the selected candidates, then B0 again on held-out
-  inputs at half-anchor / anchor / twice-anchor, 120 requests per point. Test
-  results never feed the search sampler. The B0 repeat exposes drift; it does not
-  by itself establish statistical confidence in every small difference.
+| Class | Share | Input tokens including template | Forced output | Count per point | Research p90 TTFT |
+|---|---:|---:|---:|---:|---:|
+| Chat | 45% | ~512 | 256 | 54 | 1.5s |
+| Agent-like | 20% | ~4096 | 512 | 24 | 2.5s |
+| Code-like | 20% | ~2048 | 512 | 24 | .75s |
+| Document | 15% | ~8192 | 256 | 18 | 12s |
 
-The optimizer maximizes `output_tokens_per_second_mean` and minimizes
-`time_to_first_token_ms_p90` and `inter_token_latency_ms_p90` at the same higher
-concurrency for every configuration. GuideLLM's **inter_token_latency_ms** is
-`(last token - first token)/(output tokens - 1)` per request, matching our decode
-TPOT definition. Its separately named `time_per_output_token_ms` includes TTFT
-and is not substituted. p50/p90/p99 and per-class target attainment are also saved.
-GuideLLM's native aggregate ITL is weighted by output-token count. We retain that
-native value but calculate the study's latency percentiles directly from request
-records with **one vote per request**, matching a user-level interpretation.
-The low-concurrency point is diagnostic; it cannot be cherry-picked as a trial's
-optimization score. Class target passes are observations, not confidence claims.
-The three objectives are raw throughput and latency. Class SLO targets are
-reported alongside them; they are not hard feasibility constraints in this
-Pareto study. An open-loop SLA-capacity campaign is a separate follow-up.
+The additional targets are p90 TPOT ≤70ms/token per class and zero observed request failures. These are approved research diagnostics, not hard Optuna constraints or established application SLAs.
 
-## Initial live checkpoint — 18 October, 11:41 UTC
+Synthetic task templates contain repeated reference material. They are not production samples, correctness tests or dependent agent sessions. Output lengths are forced with ignore-EOS; exact input counts must be within four tokens of their targets and must match the frozen row. Every block of 20 requests is balanced 9/4/4/3.
 
-Calibration completed with 168/168 valid requests, exact input/output token
-counts, and no request failures. These short cohorts select search loads:
+Development pools: `dev-a`, `dev-b`, 1200 rows each. Test pools: `test-a`, `test-b`, 400 rows each. Measurement consumes the first 120 rows of each specified pool; pool size must not be reported as the number actually benchmarked. Full prompts and prefix namespaces are disjoint between splits.
 
-| Concurrent clients | Requests | Output tokens/s | p90 TTFT ms | p90 TPOT ms |
-|---:|---:|---:|---:|---:|
-| 1 | 8 | 26.3 | 687.8 | 37.8 |
-| 4 | 40 | 88.6 | 1,200.1 | 41.4 |
-| 8 | 40 | 157.9 | 2,004.4 | 43.3 |
-| 16 | 40 | 199.6 | 3,760.6 | 51.1 |
-| 32 | 40 | 339.9 | 8,471.4 | 69.5 |
+Engineered reuse: 16 shared prefixes per class, Zipf(1.2) popularity, intended shared text fraction ~50%. Actual server prefix-hit counters are saved; shared text is not automatically an equal cache-hit percentage.
 
-The rule selected **16 and 32 concurrent clients**. Candidate scoring uses the
-32-client point. Held-out curves use 16/32/64. Achieved requests/s is measured;
-there is no fixed offered requests/s or Poisson arrival process in this
-closed-loop protocol. Each completed request frees a client slot for another.
-The initial fill and final drain are included in these finite cohorts.
-The matched search B0 is measured again with 120 requests at each search load;
-the smaller calibration numbers above are not the improvement reference.
+At each point: reset cache → one exact-token wire probe → reset cache again → warm only 64 shared prefixes (four parallel requests, one output token each) → run the fixed cohort → validate and export. Probe/warmup is outside the timed cohort.
 
-Measured prefix-hit fraction was about 39–42% of queried prompt tokens, despite
-the intended 50% shared-text prefix, because reusable cache blocks and common
-text are different quantities. Full cache counters remain in each point folder.
+**Closed-loop concurrency:** a completion frees a slot for the next request. There is no fixed offered RPS, Poisson arrival schedule or burst generator. Initial fill/final drain are included. Since the 16/32 points use different input pools, a connecting line is an operating-point summary, not a pure load-only causal sweep.
 
-The **matched search B0** completed at 11:50 UTC with 240/240 valid requests:
+## Evaluation phases
 
-| Concurrent clients | Requests | Output tokens/s | p90 TTFT ms | p90 TPOT ms |
-|---:|---:|---:|---:|---:|
-| 16 | 120 | 275.2 | 3,276.1 | 50.8 |
-| 32 | 120 | 378.9 | 5,388.3 | 69.9 |
+| Phase | Configurations | Clients | Requests | Purpose |
+|---|---|---|---|---|
+| Calibration | B0 once | 1 / 4 / 8 / 16 / 32 | 8 / 40 / 40 / 40 / 40 | Select a diagnostic load anchor |
+| Development | B0 + 24 trials | 16 / 32 | 120 / 120 each | Optimize joint configuration; score at 32 |
+| Held-out | B0 → 9 → 10 → 24 → B0 | 16 / 32 / 64 | 120 / 120 / 120 each | Unseen prompts, operating points and baseline drift |
 
-Full trial wall time: 540.6 seconds. Upstream recorded 164.2 seconds of server
-startup and 363.1 seconds of benchmark work, including preparation and client
-setup. Optuna then automatically launched candidate 1. This is the reference
-for candidate deltas; no candidate improvement was established at this checkpoint.
+The calibration rule selected the first tested concurrency ≥4 reaching 90% of the highest observed calibration throughput: 32, with lower diagnostic point 16. Calibration's smaller cohorts are not the improvement baseline.
 
-At **12:08 UTC**, B0 and two candidates had completed (720/720 measured search
-requests valid, zero failed trials); candidate 3 had started automatically.
+Search uses dev-a at 16, dev-b at 32. Held-out uses test-a at 16/64, test-b at 32. Both phases launch one server per configuration, reusing it across points with cache resets. The search has nine startup observations (B0 + eight candidates), then 16 guided TPE trials. Trials 10 and 11 happened to repeat exactly the same configuration: 25 trials, 24 unique settings.
 
-| Search trial | Output tokens/s at 32 clients | p90 TTFT ms | p90 TPOT ms | Full trial minutes |
-|---|---:|---:|---:|---:|
-| B0 / 0 | 378.9 | 5,388.3 | 69.9 | 9.0 |
-| 1 | 299.1 | 8,539.4 | 93.0 | 9.1 |
-| 2 | 322.2 | 6,970.5 | 80.7 | 7.9 |
+The frozen finalist rule chooses up to three distinct throughput/TTFT/TPOT extrema of the development three-objective Pareto frontier. It selected 9/10/24 before any held-out measurements. No test feedback enters the sampler. Confirmation trial IDs 0/1/2/3/4 map to B0/9/10/24/B0.
 
-B0 dominates both completed candidates at the scoring load. There is no
-improvement yet. These are startup exploration samples; after B0 plus eight
-startup candidates, the remaining 16 trials use guided TPE sampling. The live
-report and status files supersede this timestamped snapshot.
+## Objectives and diagnostics
 
-## Serving search
+At 32 clients: maximize output tokens/s; minimize request-weighted p90 TTFT; minimize request-weighted p90 decode TPOT. GuideLLM names the latter `inter_token_latency_ms`: `(last token time − first token time)/(output tokens − 1)`. Its separately named time-per-output-token metric includes TTFT and is not substituted.
 
-See `configs/direct-optuna-study.json` for the executable domain. Eight fields:
-batched tokens, sequence cap, GPU memory fraction, long-prefill threshold, async
-scheduling, eager mode, CUDA graph cap, and prefix caching. Multiple fields may
-change per trial. Graph cap is only sampled when graphs are enabled. There are
-9,216 nominal conditional combinations before runtime equivalences/invalidities.
-MTP, precision, model, hardware, context length and chunked-prefill enablement
-remain fixed for this study.
+GuideLLM's native aggregate ITL quantiles are token-weighted. The adapter recomputes p50/p90/p99 from individual requests, one vote each, while retaining native values separately. Logs include throughput, achieved RPS, completion counts, per-class percentiles/target checks, prefix hits, preemptions, queue/cache diagnostics, GPU utilization and phase timing. Actual per-request prefill chunk traces were not collected.
 
-## Inspection
+## Search domain and B0
 
-- Calibration tmux: `tmux attach -t iar-optuna-calibration`
-- Search tmux, once started: `tmux attach -t iar-optuna-search`
-- Its `progress` window shows state; `logs` tails the trial and chain logs.
-- This session runs `chain.sh`: search, frozen finalist selection, confirmation.
-- Report/GPU monitor: `tmux attach -t iar-optuna-monitor`
-- Status: `.artifacts/optuna-direct-v1/status.json`
-- Current workload stage: `measurement-progress.json`; actual container state
-  and heartbeat age: `monitor-health.json`. Unexpected exit/stale heartbeat
-  creates `monitor-alert.json`. The monitor reports failure; it does not silently
-  restart or change an experiment.
-- Trial history: `.artifacts/optuna-direct-v1/trials.json`
-- Phase histories: `search-trials.json` and `confirmation-trials.json`.
-- Database: `.artifacts/optuna-direct-v1/search.sqlite3`
-- Logs: `.artifacts/optuna-direct-v1/logs/`, plus phase console logs.
-- Native measurements: `.artifacts/optuna-direct-v1/{phase}/trial_N/`.
-- Report: `results/2026-10-18-direct-optuna/index.html` with points/class CSVs,
-  p50/p90/p99 curves and the matched-anchor observed Pareto plot.
+[Executable domain](../configs/direct-optuna-study.json), [readable parameter table](../README.md#search-surface). Eight fields: batching, sequence cap, GPU memory fraction, long-prefill threshold, async scheduling, eager mode, graph cap (conditional on graphs), prefix caching. All may change jointly. MTP, model, hardware, precision, context and chunked-prefill enablement stay fixed.
 
-Do not compare calibration scores against search scores as a claim of improvement:
-they have different cohort sizes. The matched reference is `search/trial_0`.
-Repetitions and independent tests are required to distinguish close apparent wins.
-This run's concurrency curves do not establish open-loop SLA capacity. AIPerf is
-not running inside this direct GuideLLM campaign.
+B0: batch8192 / seq512 / memory.92 / long-threshold0 / async-on / eager-off / graph512 / prefix-on. The generic upstream baseline sweep is disabled; this exact B0 is explicitly enqueued.
 
-The currently running container uses the pinned base image with the isolated
-benchmark environment and upstream checkout mounted read-only. The Dockerfile
-under `infra/direct_optuna/` specifies the equivalent dependency installation
-for a self-contained image; that Dockerfile has not yet been build-tested.
+## Validity and failure policy
 
-The upstream default enables its own baseline sweep; this is explicitly disabled
-because we enqueue our fixed B0 and account for its trial budget ourselves. The
-initial attempt exposing that default was stopped before measurements and retained
-under `preflight-attempt-01/`.
+Each point requires exactly 120 successful records (calibration has its declared smaller counts), zero errors/incompletes, exact frozen IDs, unique full prompts and exact measured input/output counts. Objectives must be positive finite values. Invalid evidence is not scored.
+
+A point has a 600-second watchdog; each Docker phase has an eight-hour bound. A timeout is a failure, not a successful shortened cohort. There is no performance-based early pruning in this study. One GPU configuration runs at a time under the shared GPU lock. B0 failure or three consecutive failed trials stops the controller.
+
+The search-to-confirmation shell handoff initially failed after all search results had completed. It was recovered without changing benchmark protocol or candidate selection. Both failure and recovery evidence are preserved; see [tracking](../docs/TRACKING.md). Phase completion is now independently checked from a mere live tmux session.
+
+## Results and evidence limits
+
+Search: 6,000 valid requests, ~3h26m, mean 8.17 minutes/config including startup/preparation. Confirmation: 1,800 valid requests, ~49 minutes. Plus 168 calibration requests. Trial 9's development throughput gain did not reproduce. Trial 10 improved held-out p90 TTFT at 32 clients by 29–34%, with throughput within 1% and TPOT 1.3–3.3% worse. This is a latency tradeoff, not an all-metric victory.
+
+The test suite offers one run/candidate and two B0 runs. p99 and class tails remain descriptive; repeated paired experiments are needed before a stronger repeatability claim. [Replication criteria and next checkpoint](../docs/REPLICATION.md).
+
+All raw requests, logs, databases, frozen input files and receipts are now preserved in the [checksummed evidence archive](../results/2026-10-18-direct-optuna/evidence/README.md). [Implementation / read-only commands](direct_optuna/README.md). Original chronological launch notes remain in [history](../docs/history/DIRECT_OPTUNA_CHECKPOINTS.md).

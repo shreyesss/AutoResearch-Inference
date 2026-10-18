@@ -1,76 +1,100 @@
-# AutoResearch Inference
+# Inference serving research
 
-**19 October, 00:57 IST results:** The direct Optuna search completed all 25 trials
-(6,000 valid requests). Trial 9 observed 10% higher throughput at 32 clients;
-repeatability remains unconfirmed. The failed automatic held-out handoff was
-recovered and confirmation is running. See [analysis and exact configurations](results/2026-10-18-direct-optuna/ANALYSIS.md)
-and [TTFT–TPOT Pareto plots](results/2026-10-18-direct-optuna/ttft-tpot-pareto.svg).
+Find better serving configurations through real measurements, operating curves, and held-out checks. This repository contains the experiment code, frozen configuration, results, graphs, and evidence needed to inspect the findings.
 
-**Current experiment (18 October 2026): Optuna + GuideLLM using InseeFrLab's auto-tuning-vllm.** The [direct study](infra/DIRECT_OPTUNA_RUN.md) uses multivariate TPE to vary eight serving controls together. A frozen synthetic chat/agent/code/document mix exercises real token lengths and prefix reuse. B0 and candidates receive the same two concurrency points, 120 requests each, with one server launch per configuration. The budget is B0 plus 24 candidates, followed by held-out curves for frozen finalists and a B0 repeat. There are no LLM proposals in this experiment. See the [executable configuration](configs/direct-optuna-study.json), [live status](.artifacts/optuna-direct-v1/status.json), and [measurements and curves](results/2026-10-18-direct-optuna/README.md). Results are observed tradeoffs; open-loop SLA capacity is not established by this protocol.
+## Start here
 
-**Historical v3c checkpoint (17 October 2026):** The development-input and matched-B0 chain was running; no candidate proposal had started at this checkpoint. That study used one synthetic mixed workload with four request classes, user-approved research p90 targets, a custom class-aware rate planner that runs AIPerf at each point, and a seven-control serving domain. The 36-request candidate screen selects a diagnostic rate from the valid B0 profile and compares B0 and candidates at the same rate, request bodies and Poisson seed. The two 240-request finalist windows were development data; sealed test inputs were planned but not captured. See the [launch audit](infra/V3C_LAUNCH_AUDIT.md), [exact search domain](infra/V3C_SEARCH_SPACE.md), and [run design](infra/V3C_RUN.md).
-
-**Historical v2 plan:** [Evaluation v2 design for review](EVALUATION_V2_PLAN.md), with detailed [adaptive evaluator](infra/ADAPTIVE_EVAL_PLAN.md), [serving search expansion](infra/SERVING_SEARCH_EXPANSION_PLAN.md), and [agent research](infra/AGENT_RESEARCH_PLAN.md) plans. The sections below describe earlier campaigns and remain as evidence, not the current v3c runbook.
-
-An executable, evidence-tracked harness for **Qwen/Qwen3.8-27B serving settings on one GPU**. AIPerf replays frozen requests against pinned vLLM. One Codex CLI proposer suggests bounded parameter changes; the evaluator alone starts containers, measures cells and maintains compatibility-scoped Pareto results.
-
-**Earlier short-chat state:** the short-chat B0 and manual parameter comparisons are documented in [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md). The earlier evaluator completed a real two-load B0 with full request accounting under `fresh-server-cell-v1`; results are below. Its registry also carries an engineered mixed probe and a recorded TraceLab control. Results from mock, manual shared-server and fresh-server protocols remain separate.
-
-| Frozen short-chat load | Completed | Output tokens/s | TTFT p99 | TPOT p99 | Server queue |
-|---|---:|---:|---:|---:|---:|
-| 2.56 requests/s | 154/154 | 556.2 | 209.0 ms | 56.03 ms/token | 0 |
-| 3.2 requests/s | 192/192 | 688.9 | 224.0 ms | 63.82 ms/token | 0 |
-
-Both cells used the resolved B0 `max_num_seqs=512`, `max_num_batched_tokens=8192`, `gpu_memory_utilization=0.92`, prefix caching on and MTP off. These are single 60-second dispatch observations, not confirmed p99 or capacity estimates. Raw artifacts and the generated report are under `.artifacts/vertical-slice-v3/` (ignored by Git).
-
-The Dockerized first-pass `mtp_draft_tokens=1` pilot completed the same 154/154 and 192/192 requests with zero queue. At 2.56 requests/s it measured 591.4 output tokens/s, 220.3 ms TTFT p99 and 35.26 ms TPOT p99; at 3.2 requests/s it measured 738.5, 232.63 ms and 39.29 ms respectively. Acceptance was 81.0% and 82.1%. Relative to matched B0, decode improved while TTFT worsened. The sensitivity plan still requires a second matched repeat and its inactive-axis control before calling this effect reproducible. The tracked [result snapshot](results/2026-10-17-short-chat/README.md) includes four points and graphs.
-
-## Layout
-
-| Path | Role |
+| Need | Location |
 |---|---|
-| `configs/campaign.json`, `configs/search-domain.json`, `configs/pilot-plan.json` | Frozen model/runtime/B0, conditional serving domain, predeclared sensitivity contrasts and budgets |
-| `configs/workloads/` | Versioned workload cards/manifests with asset hashes and readiness |
-| `src/inference_autoresearch/workloads/`, `benchmark/` | Workload verification and native AIPerf replay/export adapter |
-| `src/inference_autoresearch/runtime/`, `evaluation/` | Pinned Docker lifecycle, GPU lease, telemetry, cell validity/accounting |
-| `src/inference_autoresearch/search/`, `storage/` | Codex proposer, qualification gate, append-only ledger, inspection index, Pareto exports |
-| `agent/SKILL.md` | Single operational instruction file for the proposer; each attempt gets staged research files and writable notes |
-| `deploy/` | Controller and isolated proposer container recipe; pinned vLLM runs as a sibling service |
-| `infra/` | Prior real measurements and reproducible manual probes |
-| `EXPERIMENT_DESIGN.md` | Experiment policy and inspection checkpoints |
+| Results beside their baselines | [Development / held-out comparison](results/2026-10-18-direct-optuna/comparison.html) |
+| What improved and what did not | [Completed study analysis](results/2026-10-18-direct-optuna/ANALYSIS.md) |
+| Final operating curves / Pareto | [Held-out curves](results/2026-10-18-direct-optuna/heldout-operating-curves.svg) · [Held-out frontier](results/2026-10-18-direct-optuna/heldout-pareto.svg) |
+| Exact experiment protocol | [Direct Optuna runbook](infra/DIRECT_OPTUNA_RUN.md) |
+| Code and commands | [Implementation map](infra/direct_optuna/README.md) |
+| Every study, including earlier work | [Research index](docs/RESEARCH.md) · [Results index](results/README.md) |
+| Evidence / logs / reproducibility | [Tracking guide](docs/TRACKING.md) · [Evidence archive](results/2026-10-18-direct-optuna/evidence/README.md) |
+| Meaning of replication and promotion | [Replication criteria](docs/REPLICATION.md) |
+| Imported DeepSeek / B200 reference | [B200 analysis](docs/B200_REFERENCE.md) |
 
-The supplied `Deepseek_serve/` and rsynced `inference-autoresearch-handoff/` are left in their original locations. No implementation writes to them.
+## Completed experiment: direct Optuna, 18–19 October 2026
 
-## Install and inspect
+**Optimizer:** Optuna 4.5.0 multivariate TPE, using InseeFrLab's auto-tuning-vllm controller. **Evaluator:** GuideLLM 0.7.1. No LLM proposals or AIPerf load search were used in this campaign.
 
-Python 3.11+, Docker with NVIDIA GPU support, the pinned vLLM image, AIPerf 0.13.0 and the local model are needed for real evaluation. The `iar` controller and proposer can be built as containers using [deploy/README.md](deploy/README.md). For local development:
+**Serving:** Qwen/Qwen3.8-27B, BF16, TP=1, maximum context 40,960, vLLM 0.28.0, one NVIDIA RTX PRO 6000 Blackwell Server Edition GPU (96 GB class). Image, model and source hashes are in the [study manifest](results/2026-10-18-direct-optuna/study-manifest.json) and [model manifest](results/2026-10-18-direct-optuna/model-manifest.json).
+
+### Input workload
+
+One synthetic mix with engineered shared prefixes. Input lengths include the chat template; exact observed counts are validated. Output lengths are forced, temperature is zero, and thinking is disabled.
+
+| Class | Share | Input tokens | Output tokens | Requests per 120-request point |
+|---|---:|---:|---:|---:|
+| Chat | 45% | ~512 | 256 | 54 |
+| Agent-like | 20% | ~4,096 | 512 | 24 |
+| Code-like | 20% | ~2,048 | 512 | 24 |
+| Document | 15% | ~8,192 | 256 | 18 |
+
+Search measured **16 and 32 concurrent clients**, 120 requests at each point, with one server launch per configuration. Closed-loop traffic replaces completed requests; it is not a fixed offered requests/s or burst workload. Inputs and cache preparation were matched across configurations. The search scored throughput, p90 TTFT and p90 decode TPOT at 32 clients.
+
+### Search surface
+
+| Parameter | Options | B0 |
+|---|---|---:|
+| `max_num_batched_tokens` | 2048, 4096, 8192, 16384 | 8192 |
+| `max_num_seqs` | 16, 32, 64, 128, 256, 512 | 512 |
+| `gpu_memory_utilization` | .85, .90, .92, .95 | .92 |
+| `long_prefill_token_threshold` | 0, 1024, 2048, 4096 | 0 |
+| `async_scheduling` | true, false | true |
+| `enforce_eager` | false, true | false |
+| `max_cudagraph_capture_size` | 32, 64, 128, 256, 512; graph mode only | 512 |
+| `enable_prefix_caching` | true, false | true |
+
+[Executable domain](configs/direct-optuna-study.json). Chunked prefill stays enabled; MTP stays off. There are 9,216 nominal conditional combinations, not 9,216 completed experiments.
+
+### Final result
+
+Search completed **25 trials / 24 unique configurations / 6,000 valid requests**. Held-out confirmation completed **5 evaluations / 1,800 valid requests**: B0 → search trial 9 → search trial 10 → search trial 24 → B0 repeat, at 16/32/64 clients. Calibration used another 168 requests. Zero failed search or confirmation trials.
+
+At the common 32-client held-out point:
+
+| Configuration | Output tok/s ↑ | p90 TTFT s ↓ | p90 TPOT ms/token ↓ |
+|---|---:|---:|---:|
+| B0 before | 384.4 | 6.70 | 66.00 |
+| Trial 9 | 383.9 | 6.76 | 68.53 |
+| **Trial 10** | **387.5** | **4.44** | **68.18** |
+| Trial 24 | 273.4 | 27.29 | 52.76 |
+| B0 after | 386.7 | 6.26 | 67.33 |
+
+- **Useful lead:** trial 10 changes batch tokens 8192→4096, sequence cap 512→64 and GPU memory fraction .92→.95. Held-out p90 TTFT was 29–34% lower than the two baselines, with throughput within 1% and TPOT 1.3–3.3% worse.
+- **Rejected claim:** trial 9's development +10% throughput did not reproduce.
+- **Tradeoff to avoid for these targets:** trial 24 improves decode latency by admitting fewer sequences, with much worse first-token waiting and throughput.
+- **Evidence limit:** one held-out run per candidate, two baseline runs. This supports a latency tradeoff, not a statistically established universal winner or confirmed SLA capacity.
+
+The approved class p90 TTFT research targets are 1.5s chat / 2.5s agent / .75s code / 12s document, with p90 TPOT ≤70ms/token and zero observed failures. They were reported as diagnostics, **not hard optimizer constraints**. No development configuration met all class targets at either search load. See per-class test outcomes in the comparison page.
+
+## Repository structure
+
+| Directory | Purpose |
+|---|---|
+| `infra/direct_optuna/` | Current completed-study optimizer adapter, evaluator, reporting, archival and monitoring |
+| `configs/direct-optuna-study.json` | Its frozen search domain and B0 |
+| `results/` | Versioned research outputs; each study has its own protocol and evidence scope |
+| `b200-bench-analysis/` | Imported DeepSeek/B200 reference data and report; separate hardware and workload |
+| `docs/` | Research navigation, replication rules, evidence policy and historical snapshots |
+| `src/inference_autoresearch/`, `agent/`, `deploy/` | Earlier Codex/AIPerf harness and container implementation, retained for reuse |
+| `infra/`, other `configs/`, `tests/` | Earlier campaign tooling, protocols and tests; [index](infra/README.md) |
+| `.artifacts/` | Ignored local execution state; the completed direct study also has a committed evidence archive |
+
+The rsynced `inference-autoresearch-handoff/` and supplied `Deepseek_serve/` are reference inputs; this organization does not modify them. Earlier root design documents are indexed as historical in [docs/RESEARCH.md](docs/RESEARCH.md).
+
+## Inspect without running a GPU
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -e '.[test]' aiperf==0.13.0
-.venv/bin/python scripts/prepare-model.py --check-only
-.venv/bin/iar doctor --backend real
-.venv/bin/iar prepare --backend real
+python3 infra/direct_optuna/archive.py --verify
+python3 infra/direct_optuna/compare.py
+# With matplotlib installed (the local .venv already has it):
+.venv/bin/python infra/direct_optuna/final_plots.py
 ```
 
-If the model is absent, run `.venv/bin/python scripts/prepare-model.py` to download the exact pinned revision. It is an explicit bootstrap step and may require Hugging Face access and substantial disk space. `doctor` inspects hardware/image/model and loads the exact AIPerf tokenizer offline; it does not run the model. `prepare` verifies the registered immutable input assets and reports missing mixed/session qualification.
+The completed run used a pinned base Docker image with a mounted benchmark environment and upstream checkout. Its Dockerfile recipe has not been build-tested; the current launcher is tied to this host's GPU and NVMe paths. See the runbook before starting another campaign. Completed study IDs and evidence must not be overwritten.
 
-## Safe execution sequence
-
-```bash
-.venv/bin/iar baseline --backend mock
-.venv/bin/iar pilot --backend mock
-.venv/bin/iar search --backend mock --max-proposals 2
-.venv/bin/iar report --backend mock
-.venv/bin/iar qualify --backend mock
-```
-
-Mock output is labeled and stored under `.artifacts/autoresearch-codebase/`. It exercises the controller and plot path without scientific performance claims. A bounded real diagnostic can be run with `iar baseline --backend real`; each cell starts a fresh pinned server and runs the same frozen short-chat stream. `iar pilot --backend real` runs the predeclared MTP1 contrast across both cards; `iar evaluate --backend real --candidate configs/pilot-cap64.json --stage pilot` runs the inactive-axis control. The pilot plan requires both scenario IDs and matched repeats. `--scenario REGISTRY_ID` can narrow a baseline investigator run. `iar qualify --backend real` writes a sensitivity/qualification report with exact missing gates; it does not launch GPU work. Real `search` refuses to run until a matching real qualification report opens the gate. Failed evaluations return a nonzero exit code while retaining JSON artifacts.
-
-Every evaluation should leave resolved settings/argv, model and image pins, AIPerf native exports, normalized per-request records, Docker logs/state, server `/metrics`, GPU samples, cell verdicts and ledger events. `report` exports a Markdown report, JSON/CSV, feedback/proposal records and SVG Pareto plots grouped by exact compatible load/protocol. The plot is descriptive; short sample p99 points remain provisional.
-
-Use `iar inspect --backend real --output-dir .artifacts/vertical-slice-v3` to regenerate a human-readable `inspection/INDEX.md` and machine-readable `index.json` from the real ledger and proposer attempt folders. New evaluations also write per-cell and aggregate phase timings. The Codex proposer reads a small path-only prompt, inspects staged source and non-held-out run files inside its isolated container, and writes notes for later attempts. The current campaign has no opt-in fast triage; an optional one-load validity gate is available for a versioned future campaign. The fresh-server protocol still spends several minutes starting the model for each cell, so ordinary iteration speed has not yet been improved by server reuse.
-
-## Historical v1 search question
-
-The starting conditional domain covers sequence cap, batched-token budget, GPU memory fraction, prefix cache, native MTP depth and, after support checks, chunked-prefill controls. It includes the resolved B0 values **512/8192/0.92/cache on/MTP off**. AIPerf YAML rates and request mixtures are evaluator inputs, not agent parameters. The evaluator-ready performance input is mechanical short chat at **2.56 and 3.2 requests/s**; mixed and session cards are diagnostic inputs awaiting their own realization/baseline gates. The supplied mixed YAML weights are engineered controls, not measured production shares. See [EXPERIMENT_DESIGN.md](EXPERIMENT_DESIGN.md) for suite expansion, confirmation and holdout rules.
+**Next checkpoint:** preregister a focused B0-versus-trial-10 repeat, including acceptable TPOT tradeoffs and run order, before launching further GPU work. See [replication criteria](docs/REPLICATION.md). No new experiment was launched as part of repository organization.

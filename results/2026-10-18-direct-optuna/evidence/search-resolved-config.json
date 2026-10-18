@@ -1,0 +1,151 @@
+{
+  "study": {
+    "name": "qwen-direct-optuna-v1-search",
+    "storage_file": "/study/search.sqlite3"
+  },
+  "baseline": {
+    "enabled": false
+  },
+  "optimization": {
+    "approach": "multi_objective",
+    "sampler": "tpe",
+    "n_trials": 25,
+    "n_startup_trials": 9,
+    "max_concurrent_trials": 1,
+    "objectives": [
+      {
+        "metric": "output_tokens_per_second_mean",
+        "direction": "maximize"
+      },
+      {
+        "metric": "time_to_first_token_ms_p90",
+        "direction": "minimize"
+      },
+      {
+        "metric": "inter_token_latency_ms_p90",
+        "direction": "minimize"
+      }
+    ],
+    "log_metrics": [
+      "time_to_first_token_ms_median",
+      "time_to_first_token_ms_p90",
+      "time_to_first_token_ms_p99",
+      "inter_token_latency_ms_median",
+      "inter_token_latency_ms_p90",
+      "inter_token_latency_ms_p99",
+      "vllm_kv_cache_usage_perc_p90",
+      "vllm_num_requests_waiting_p90"
+    ]
+  },
+  "benchmark": {
+    "benchmark_type": "guidellm",
+    "model": "/models/Qwen3.8-27B",
+    "dataset": "/study/dev-a.jsonl",
+    "request_format": "/v1/chat/completions",
+    "max_seconds": 1380,
+    "rate": 32,
+    "sample_requests": 10000
+  },
+  "logging": {
+    "file_path": "/study/logs",
+    "log_level": "INFO"
+  },
+  "metrics_scraping": {
+    "vllm": {
+      "scrape_interval_seconds": 2,
+      "align_with_benchmark_window": false
+    }
+  },
+  "static_parameters": {
+    "tensor_parallel_size": 1,
+    "dtype": "bfloat16",
+    "max_model_len": 40960,
+    "reasoning_parser": "qwen3",
+    "max_num_seqs": 512,
+    "max_num_batched_tokens": 8192,
+    "gpu_memory_utilization": 0.92,
+    "long_prefill_token_threshold": 0,
+    "async_scheduling": true,
+    "enforce_eager": false,
+    "max_cudagraph_capture_size": 512,
+    "enable_prefix_caching": true,
+    "enable_chunked_prefill": true
+  },
+  "parameters": {
+    "max_num_batched_tokens": {
+      "enabled": true,
+      "options": [
+        2048,
+        4096,
+        8192,
+        16384
+      ]
+    },
+    "max_num_seqs": {
+      "enabled": true,
+      "options": [
+        16,
+        32,
+        64,
+        128,
+        256,
+        512
+      ]
+    },
+    "gpu_memory_utilization": {
+      "enabled": true,
+      "options": [
+        0.85,
+        0.9,
+        0.92,
+        0.95
+      ]
+    },
+    "long_prefill_token_threshold": {
+      "enabled": true,
+      "options": [
+        0,
+        1024,
+        2048,
+        4096
+      ]
+    },
+    "async_scheduling": {
+      "enabled": true,
+      "options": [
+        true,
+        false
+      ]
+    },
+    "enforce_eager": {
+      "enabled": true,
+      "options": [
+        false,
+        true
+      ]
+    },
+    "max_cudagraph_capture_size": {
+      "enabled": true,
+      "options": [
+        32,
+        64,
+        128,
+        256,
+        512
+      ]
+    },
+    "enable_prefix_caching": {
+      "enabled": true,
+      "options": [
+        true,
+        false
+      ]
+    }
+  },
+  "static_environment_variables": {
+    "VLLM_STARTUP_TIMEOUT": "900",
+    "HF_HUB_OFFLINE": "1",
+    "TOKENIZERS_PARALLELISM": "false",
+    "VLLM_SERVER_DEV_MODE": "1"
+  }
+}

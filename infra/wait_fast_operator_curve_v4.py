@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PILOT = ROOT / ".artifacts/fast-pilot-v4"
-STATUS = PILOT / "finalist-waiter-status.json"
+STATUS = PILOT / "curve-waiter-status.json"
 PILOT_STATUS = PILOT / "run-status.json"
 FOLLOWUP = PILOT / "operator-curve-32x3"
 

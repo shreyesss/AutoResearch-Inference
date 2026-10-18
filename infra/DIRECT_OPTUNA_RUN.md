@@ -120,6 +120,20 @@ startup and 363.1 seconds of benchmark work, including preparation and client
 setup. Optuna then automatically launched candidate 1. This is the reference
 for candidate deltas; no candidate improvement was established at this checkpoint.
 
+At **12:08 UTC**, B0 and two candidates had completed (720/720 measured search
+requests valid, zero failed trials); candidate 3 had started automatically.
+
+| Search trial | Output tokens/s at 32 clients | p90 TTFT ms | p90 TPOT ms | Full trial minutes |
+|---|---:|---:|---:|---:|
+| B0 / 0 | 378.9 | 5,388.3 | 69.9 | 9.0 |
+| 1 | 299.1 | 8,539.4 | 93.0 | 9.1 |
+| 2 | 322.2 | 6,970.5 | 80.7 | 7.9 |
+
+B0 dominates both completed candidates at the scoring load. There is no
+improvement yet. These are startup exploration samples; after B0 plus eight
+startup candidates, the remaining 16 trials use guided TPE sampling. The live
+report and status files supersede this timestamped snapshot.
+
 ## Serving search
 
 See `configs/direct-optuna-study.json` for the executable domain. Eight fields:

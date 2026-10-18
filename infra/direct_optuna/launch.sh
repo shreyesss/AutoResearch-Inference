@@ -5,6 +5,10 @@ PHASE="${1:?usage: launch.sh calibration|search|confirmation}"
 case "$PHASE" in calibration|search|confirmation) ;; *) exit 2 ;; esac
 RUN_NAME="iar-optuna-direct-${PHASE}-$(date -u +%Y%m%d-%H%M%S)"
 OUT="$ROOT/.artifacts/optuna-direct-v1"
+if [ -e "$OUT/$PHASE.sqlite3" ]; then
+  echo "Existing $PHASE study database; refusing to overwrite run metadata." >&2
+  exit 2
+fi
 mkdir -p "$ROOT/.artifacts/gpu-locks" /opt/dlami/nvme/iar-optuna-v1/compile-cache
 printf '%s\n' "$RUN_NAME" > "$OUT/$PHASE-container-name.txt"
 cleanup() { docker stop --time 30 "$RUN_NAME" >/dev/null 2>&1 || true; }

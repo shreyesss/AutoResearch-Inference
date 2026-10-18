@@ -1,8 +1,10 @@
 """Publish inspectable curves and observed Pareto points from native GuideLLM JSON."""
 import csv
 import html
+import hashlib
 import json
 import re
+import sqlite3
 from pathlib import Path
 
 import matplotlib
@@ -39,11 +41,31 @@ def counter_delta(directory, name):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    inputs = sorted({*STUDY.glob('*/trial_*/c*-window*/guidellm.json'),
+                     *STUDY.glob('*/trial_*/c*-window*/point.json'),
+                     *STUDY.glob('*/trial_*/validation.json'),
+                     *STUDY.glob('*-trials.json'), *STUDY.glob('*-finished.json'),
+                     *STUDY.glob('anchor-selection.json')})
+    signature = {'source': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                 'files': [[str(p), p.stat().st_size, p.stat().st_mtime_ns] for p in inputs]}
+    state_path = STUDY / 'report-state.json'
+    if state_path.exists() and json.loads(state_path.read_text()) == signature:
+        return
     rows, classes = [], []
     histories = {}
     for history in STUDY.glob('*-trials.json'):
         histories[history.name.removesuffix('-trials.json')] = {
             f'trial_{t["number"]}': t for t in json.loads(history.read_text())}
+    # Completed histories stay the primary record. The read-only database gives
+    # parameters for a running trial whose first point has already completed.
+    for database in STUDY.glob('*.sqlite3'):
+        with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as connection:
+            entries = connection.execute("SELECT t.number, t.state, a.value_json FROM trials t "
+                "JOIN trial_user_attributes a ON t.trial_id=a.trial_id WHERE a.key='resolved_parameters'")
+            for number, state, parameters in entries:
+                record = histories.setdefault(database.stem, {}).setdefault(f'trial_{number}', {})
+                record['state'] = state
+                record.setdefault('attrs', {})['resolved_parameters'] = json.loads(parameters)
     for path in sorted(STUDY.glob('*/trial_*/c*-window*/guidellm.json')):
         try:
             data = json.loads(path.read_text())
@@ -61,7 +83,8 @@ def main():
             trial_record = histories.get(phase, {}).get(trial, {})
             row['trial_state'] = trial_record.get('state', '')
             row['source_search_trial'] = trial_record.get('attrs', {}).get('search_trial', '')
-            row['parameters'] = json.dumps(trial_record.get('params', {}), sort_keys=True)
+            row['parameters'] = json.dumps(trial_record.get('attrs', {}).get(
+                'resolved_parameters', trial_record.get('params', {})), sort_keys=True)
             queries = counter_delta(path.parent, 'vllm:prefix_cache_queries_total')
             hits = counter_delta(path.parent, 'vllm:prefix_cache_hits_total')
             row['prefix_queried_tokens'] = queries
@@ -144,6 +167,22 @@ def main():
     axes[0, -1].legend(fontsize=6, loc='upper left', bbox_to_anchor=(1, 1))
     fig.suptitle('Operating curves: measured closed-loop concurrency points; no fitted capacity boundary')
     fig.tight_layout(); fig.savefig(OUT / 'operating-curves.svg', bbox_inches='tight'); plt.close(fig)
+    rates = {(r['phase'], r['trial'], r['concurrency']): r['output_tok_s'] for r in rows}
+    fig, axes = plt.subplots(2, 4, figsize=(17, 8))
+    for col, cls in enumerate(LIMITS):
+        for metric, ax in zip(('ttft', 'tpot'), axes[:, col]):
+            for phase, trial in sorted({(r['phase'], r['trial']) for r in classes}):
+                subset = sorted([r for r in classes if r['class'] == cls and
+                                 r['phase'] == phase and r['trial'] == trial], key=lambda r: r['concurrency'])
+                if subset:
+                    ax.plot([rates[(r['phase'], r['trial'], r['concurrency'])] for r in subset],
+                            [r[f'{metric}_p90_ms'] for r in subset], 'o-', label=f'{phase}/{trial}')
+            ax.axhline(LIMITS[cls] if metric == 'ttft' else 70, color='red', linestyle='--', label='Research target')
+            ax.set(title=f'{cls}: p90 {metric.upper()}', xlabel='Aggregate output tokens/s', ylabel='ms')
+            ax.grid(alpha=.25)
+    axes[0, -1].legend(fontsize=6, loc='upper left', bbox_to_anchor=(1, 1))
+    fig.suptitle('Per-class observed latency in the same mixed workload; sample counts are in class-points.csv')
+    fig.tight_layout(); fig.savefig(OUT / 'class-curves.svg', bbox_inches='tight'); plt.close(fig)
     if eligible:
         fig, axes = plt.subplots(1, 2, figsize=(12, 4))
         for ax, metric in zip(axes, ('ttft', 'tpot')):
@@ -170,9 +209,11 @@ def main():
         '<p>TPOT means (last token − first token)/(output tokens − 1), called inter_token_latency_ms by GuideLLM.</p>'
         '<img width="100%" src="ttft-curves.svg"><img width="100%" src="tpot-curves.svg">'
         '<img width="100%" src="operating-curves.svg">'
+        '<img width="100%" src="class-curves.svg">'
         + ('<img width="100%" src="pareto.svg">' if eligible else '') + table)
     (OUT / 'README.md').write_text('# Direct Optuna study\n\n'
         '[Live report](index.html) · [All points](points.csv) · [Per-class metrics](class-points.csv)\n\n'
+        '[Study manifest](study-manifest.json) · [Workload hashes](workload-card.json) · [Model hashes](model-manifest.json)\n\n'
         'Source: `.artifacts/optuna-direct-v1/`. Native GuideLLM exports and exact commands are preserved. '
         'Calibration uses 8 requests at concurrency 1 and 40 at other points; search uses 120 requests per point. '
         'Prefix warmup is separate and excluded; all measured requests complete or invalidate the point. '
@@ -180,6 +221,7 @@ def main():
         'Pareto membership at the common anchor, not proof of a repeatable improvement. '
         'Class target passes are observations, not statistically confirmed SLO attainment.\n')
     print(json.dumps(summary))
+    state_path.write_text(json.dumps(signature))
 
 
 if __name__ == '__main__':

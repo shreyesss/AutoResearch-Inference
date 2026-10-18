@@ -1,35 +1,20 @@
 ---
 name: inference-critic
-description: Independently critique vLLM and DeepEP optimization hypotheses, PR interpretations and benchmark designs against original code and measurements. Use to decide which source-level inference experiments to advance, revise or reject before implementation.
+description: Critique and improve inference optimization hypotheses and experiment designs, either within a research run or as a requested separate review. Assess mechanism, evidence, integration feasibility, correctness, serving value and experiment cost.
 ---
 
-# Independent inference critic
+# Inference critique and revision
 
-Read `research/README.md`, `research/SOURCES.md`, and the requested batch's brief, hypothesis cards and evidence links. Prefer a fresh session distinct from the researcher. If reviewing your own work, label it self-review; do not claim independence.
+Read the requested batch and `research/METHODOLOGY.md`'s rubric. This skill is an optional review entry point; the researcher already performs critique and revision in its own run. A separate role or chat is not required. Label review as self, delegated or external; do not claim independence for self-review.
 
-Use original code, benchmark files and online primary sources to check consequential claims. Do not treat citation presence, prose agreement or a PR author's speedup claim as proof. Update PR status and inspected SHAs with an access date. Make source-access limits visible.
+Check consequential claims against original measurements, pinned code and online primary sources. Inspect counterevidence, PR diffs/reviews and integration requirements. Distinguish facts, inference and predictions. Review the proposed system, not only features active in the historical configuration.
 
-For each hypothesis, answer these questions with evidence:
+For each idea assess mechanism, evidence, activation/integration, correctness/service contract, potential serving benefit, experiment discrimination and cost. A disabled feature or absent backend can be a valid integration proposal. An upstream implementation can be a useful upgrade. Identify what must change and test it fairly; don't reject these automatically. Reject contradictions, duplicate ideas with no new premise, or proposals lacking a plausible path to value after investigation.
 
-| Check | Question |
-|---|---|
-| Applicability | Is this code/backend exercised by the measured model, build, topology and workload? Is the improvement already present? |
-| Evidence | Do the exact rows, units and metric definitions support the symptom? Are raw traces needed for the proposed explanation? |
-| Mechanism | Does the code change plausibly affect that symptom? What competing explanation or cheaper setting change could account for it? |
-| Correctness | Could it change outputs, cache semantics, synchronization or numerical behavior? Is there a relevant oracle/test? |
-| Experiment | Is there a cheap falsification, fair parent control and matched workload? Are profiling overhead, warmup, drift and selection bias handled? |
-| Value and cost | Can it move a useful serving frontier? Are tradeoffs visible? Are build/hardware requirements and estimated cost justified? |
+Write `review.md` with evidence checked, strongest support, strongest objection, cheapest resolution and advance/revise/defer/reject. Explain each verdict. Defer costly or inaccessible but plausible work without calling it disproven. Rank opportunities using explicit tradeoffs rather than ungrounded precision scores.
 
-Explicitly check common errors: inferred DeepEP use from an EP flag, two replicas described as two nodes, cached-target share confused with observed hits, closed-loop concurrency confused with requests/s, aggregate ITL confused with request-level TPOT, and unrelated workloads combined into one frontier. Do not demand novelty for a useful upstream port. Do not add arbitrary sample floors or mandatory expensive sweeps.
+When invoked inside the research loop, revise cards and record substantive changes; preserve the earlier claim in a revision note or version history. When asked only for an external review, preserve the author's cards and provide revision instructions. Replacement ideas must receive the same scrutiny. Check that the requested number and breadth were addressed without splitting one mechanism into duplicates.
 
-Write `review.md`:
+Recommend the cheapest informative experiment and what result would change the decision. An isolated kernel improvement does not establish an end-to-end frontier point. Keep service quality, workload and hardware comparability explicit; allow necessary implementation and feature changes. Use causal ablations when attribution matters rather than blocking a useful integrated system comparison.
 
-1. Summary table: hypothesis, strongest support, decisive objection, **advance / revise / reject**.
-2. Per hypothesis: evidence actually checked, strengths, specific objections with source pointers, cheapest resolution, and the observation that would falsify it.
-3. Recommend one next experiment, or state that none is ready. Identify what requires human choice versus further read-only research.
-
-Advance means worth human consideration, not proven improvement or permission to run. Unknown hardware access may defer execution without invalidating an otherwise useful idea. A mechanism contradicted by the source should be rejected; missing fixable evidence should produce a concrete revision request.
-
-Do not edit the researcher's original cards or historical results. After a revision, append the verdict change and its evidence. Use plain decisions with reasons rather than fabricated numeric rigor scores. Stop before implementation/GPU execution in this stage.
-
-See `research/THIRD_PARTY.md` for adapted review principles.
+A review verdict does not authorize GPU work or prove improvement. Follow the user's current execution scope. See `research/THIRD_PARTY.md` for attribution.

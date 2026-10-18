@@ -41,7 +41,7 @@ These explain the evolution of the project. Their future-tense plans and launch 
 
 ## Current direction: source-level research
 
-The parameter study stops here. The [new plan](../research/README.md) uses B200 evidence, refreshed Deepseek_serve source, online literature and PR analysis to produce hypotheses, experiment designs and an independent critique for human review. Two [repository skills](../research/README.md#run-in-a-fresh-codex-session) support a fresh session without a new orchestration service.
+The parameter study stops here. The [new plan](../research/README.md) uses B200 evidence, refreshed Deepseek_serve source, online literature and PR analysis to produce the requested number of hypotheses, experiment designs and integrated critique/revisions for human selection. Feature activation, backend changes and new policies are valid research directions. [Meta decisions](../research/META.md) preserve process lessons and future-harness ideas. Two [repository skills](../research/README.md#run-in-a-fresh-codex-session) support a fresh session without a new orchestration service.
 
 ## Deferred parameter-study follow-ups
 

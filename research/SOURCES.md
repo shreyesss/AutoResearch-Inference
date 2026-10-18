@@ -1,5 +1,7 @@
 # Research source map
 
+This is a baseline evidence map, not a boundary on possible upgrades. For broader literature/PR discovery, feature activation and alternative integrations, follow [METHODOLOGY.md](METHODOLOGY.md). An inactive backend requires a new integration plan and comparison; it is not automatically an invalid research direction.
+
 This map was prepared after the requested reference refresh on 18 October 2026 UTC. Record the actual access date and commit again in each research batch. A latest checkout is not the source of an older measurement.
 
 ## Local evidence and reference code

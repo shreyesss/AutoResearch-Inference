@@ -1,36 +1,46 @@
 ---
 name: inference-research
-description: Develop source-level vLLM and DeepEP optimization hypotheses from B200 measurements, Deepseek_serve code, literature and upstream PRs. Use for inference research planning, PR analysis, bottleneck investigation and experiment design before human review.
+description: Research inference-serving improvements through literature, source code, PRs and experiments; generate a requested number of distinct hypotheses, critique and revise them within the same run. Covers library changes, feature activation, backend integration and runtime policies.
 ---
 
-# Inference researcher
+# Inference optimization research
 
-## Context
+## Objective and scope
 
-Resolve paths from the repository root. Read `research/README.md` and `research/SOURCES.md`, then the relevant batch's `brief.md` and `decision.md` if resuming. Follow links selectively. The completed TPE/GuideLLM parameter study is frozen; current work is source-level research for a human-reviewed experiment shortlist.
+Find useful ways to improve measured inference-serving frontiers. Read `research/README.md`, `research/SOURCES.md` and the relevant entries in `research/META.md`. For research execution, also read `research/METHODOLOGY.md` for literature/PR discovery, delegation and the review rubric.
 
-Write to `research/runs/<batch-id>/`. Use an existing requested batch or choose a descriptive new ID. Record the question, environment and source pins in `brief.md`. Keep source checkouts under ignored `.artifacts/reference-repos/`; never rewrite historical results to fit a hypothesis.
+The B200 results and Deepseek_serve provide starting evidence. They do not limit research to currently enabled features or the historical source version. Consider new algorithms, online/adaptive serving policies, kernels, scheduling, attention, speculation, KV/cache management, routing, communication, CPU/GPU overlap, feature activation, upstream ports and cross-engine ideas. Choose directions that could matter for the user's target, rather than mechanically covering every category.
 
-## Investigate
+A feature being absent, disabled or already implemented upstream is an integration question. Identify how to activate/adapt it, required dependencies, quality implications and a fair comparison. Reject a claimed current-path improvement if the path is inactive; retain a distinct activation/integration hypothesis when justified. DeepEP is one possible research surface, not a required ingredient or assumed baseline backend.
 
-1. Identify a concrete measured symptom and its exact workload/configuration. Reconstruct profile overlays and metric definitions. A Pareto point supplies a baseline candidate, not a causal explanation.
-2. Follow the suspected execution path in pinned source. Establish backend/model/hardware applicability. In particular, confirm whether the B200 backend actually calls DeepEP; EP alone is insufficient. Distinguish one-node replicas from multi-node operation.
-3. Research online using primary papers, official source/docs, issues and PRs. Search for counterexamples and existing fixes. Open relevant diffs and review discussions; record URL, state, access date, base/head SHA, symbols, tests and evidence limitations. Check whether a merged change is already in the baseline. Mark unavailable evidence explicitly.
-4. Chunk notes by mechanism under `notes/<topic>.md`: observation → source path → supporting/contradicting sources → uncertainty → possible experiment. Index sources and discarded leads in `sources.md`. Keep only useful excerpts and evidence pointers; do not indiscriminately load whole repos or skill collections.
-5. Generate up to four strong hypotheses for the initial batch, allowing fewer. Use `research/HYPOTHESIS_TEMPLATE.md`. Give each an exact code surface, expected directional effect, alternative explanation, correctness check and cheapest falsification. Prefer an attributable upstream port over invented novelty when it is useful. Do not force a DeepEP idea if applicability fails; state what a separate DeepEP study would require.
+## Run contract
 
-## Design for useful results
+Record the user's requested idea count N, scope, available hardware, time budget and research batch ID in `brief.md`. If N is omitted, use five as a disclosed working default. Honor requested breadth and count; do not silently stop at one convenient PR. Generate more leads than N, deduplicate by mechanism, investigate alternatives and select N distinct plausible ideas. Do not fabricate support to fill the quota: if a genuine evidence/access/budget limit prevents N, report the shortfall, attempted directions and lower-confidence leads separately. Novelty means new relative to prior batches when the user requests new ideas; upstream reuse is welcome and must be labeled.
 
-- Select a relevant measured frontier configuration and freeze its serving settings for the first patch comparison. A coherent change may touch multiple files. Later retuning of both parent and patch uses equal budgets.
-- Reuse the existing workload/evaluator appropriate to the baseline. Specify input/output lengths, traffic mode, cache treatment, load points, request counts/duration and repeats with rationale. Do not inherit Qwen SLOs as B200 constraints.
-- Separate mechanism profiling from scored measurements. Report latency distributions, throughput, failures and diagnostic counters, including unfavorable operating points. Performance estimates are predictions until tested.
-- Cache hypotheses need token/prefix identity and actual hit evidence. MTP hypotheses need acceptance/verification and output correctness evidence. DeepEP hypotheses need the actual communication path, tensor shapes, topology and correctness oracle. Latency alone does not establish any of these mechanisms.
-- End-to-end benefit is the objective; a faster isolated kernel is a lead. Distinguish source-update benefits, settings benefits and code-change effects.
+Use `research/runs/<new-id>/`; inspect prior decisions and rejected leads before searching. Revisit an old lead only with a changed premise or new evidence. Preserve earlier batches and the completed TPE study.
 
-## Deliver and stop
+## Research and synthesis
 
-Write concise `hypotheses/H*.md` cards and `decision.md` with a ranked shortlist, cheapest next check and unresolved blockers. Request independent review via the separate `inference-critic` skill; do not impersonate an independent reviewer. If the user asks for parallel agents, split investigations by mechanism and give the critic the original evidence as well as proposals.
+- Combine evidence-led investigation with opportunity-led literature and source research. A profile is useful evidence, not a prerequisite for proposing a new mechanism.
+- Follow the discovery procedure in `research/METHODOLOGY.md`. Search and read papers, relevant references/citing work, upstream diffs/reviews and implementations in other serving engines. Verify crucial claims in primary sources; log searches, findings, counterevidence and access limits.
+- Use native subagents for separable research directions when available and permitted. This workflow requests delegation for broad multi-idea batches; use a few bounded assignments matched to the requested scope. Give each the target, baseline facts, assigned question, output contract and execution limits. Have agents write separate notes; synthesize and deduplicate centrally. Do not prescribe the conclusion. If delegation is unavailable, do these passes sequentially and say so.
+- Trace the relevant pinned code, or specify a proposed integration path when introducing a capability. Distinguish measured baseline, current upstream and proposed version. Explain what transfers from another model/hardware/workload and what still needs testing.
+- Form cards with `research/HYPOTHESIS_TEMPLATE.md`. Each needs a concrete mechanism, strongest supporting and opposing evidence, implementation/activation surface, expected tradeoffs and cheapest informative experiment. Label confidence and readiness separately.
 
-In this research-only stage, stop before source patches, builds, benchmark launches or deployment; the user requested manual proposal review first. A later explicit instruction to implement/test advances that stage. When revising, preserve the review and record changed claims and rejected ideas so a fresh agent can resume without chat history.
+## Critique and improve in this run
 
-See `research/THIRD_PARTY.md` for the Orchestra guidance adapted here.
+Apply `research/METHODOLOGY.md`'s rubric to every shortlisted idea. Self-critique is the default; a subagent adversarial pass is optional. No separate critic chat is required. Record whether review was self, delegated or external. Challenge assumptions, inspect contrary sources, revise the hypothesis or replace weak ideas. Carry substantive objections and their resolution into the final cards and `review.md`; do not merely append a disclaimer. Stop iterating when the requested deliverable is useful or the declared budget is reached, reporting unresolved uncertainty.
+
+## Fast path to evidence
+
+Choose an experiment suited to the change: isolated operation, component/trace replay, or one matched serving point. Preserve the service contract and measurement conditions; allow all candidate implementation/configuration changes necessary to test the idea. Separate a system-benefit comparison from later causal ablations. A coherent multi-change integration is valid; one-knob-at-a-time is not required.
+
+Plan correctness before performance. Cache work needs actual prefix/hit evidence; speculation needs acceptance and quality checks; communication needs representative topology and messages. Profile separately from scored runs. Expand to curves and selected repeats only when warranted. Record setup/build/startup and measurement time separately. Do not invent universal sample floors, speedup predictions or SLOs.
+
+## Deliver
+
+Write sources, mechanism notes, N hypothesis cards, critique/revisions and a concise ranked `decision.md`: proposal, benefit/tradeoff, evidence, required changes, confidence/readiness, cheapest next test and cost. Include exploration coverage and why discarded alternatives lost. Keep filesystem memory concise and linked; do not force-load all historical context.
+
+The current human-in-the-loop stage ends at experiment selection. Do not build, patch serving code or launch GPUs unless the user has authorized that stage. Existing authorization continues to apply. Recommend process improvements to the meta coordinator, which maintains `research/META.md`; do not rewrite project-wide policy as an incidental research action.
+
+Adapted research principles: `research/THIRD_PARTY.md`.

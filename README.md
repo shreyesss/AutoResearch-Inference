@@ -99,4 +99,4 @@ python3 infra/direct_optuna/compare.py
 
 The completed run used a pinned base Docker image with a mounted benchmark environment and upstream checkout. Its Dockerfile recipe has not been build-tested; the current launcher is tied to this host's GPU and NVMe paths. See the runbook before starting another campaign. Completed study IDs and evidence must not be overwritten.
 
-**Next checkpoint:** review source-backed vLLM/DeepEP hypotheses and their cheapest falsification experiments using the B200 evidence and refreshed `Deepseek_serve`. [Start the researcher, then the independent critic](research/README.md). The TPE study is complete; additional parameter trials and B0/trial-10 repeats are deferred. No new GPU campaign is launched by this research setup.
+**Next checkpoint:** review source-backed vLLM/DeepEP hypotheses and their cheapest falsification experiments using the B200 evidence and refreshed `Deepseek_serve`. [Run broad research with integrated critique and revision](research/README.md). The TPE study is complete; additional parameter trials and B0/trial-10 repeats are deferred. No new GPU campaign is launched by this research setup.

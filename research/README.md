@@ -1,84 +1,79 @@
-# Source-level inference research
+# Inference optimization research
 
-## Decision and next checkpoint
+## Goal and current checkpoint
 
-The completed parameter study used **Optuna multivariate TPE**, the InseeFrLab auto-tuning-vLLM controller and **GuideLLM**. Leave its code, protocol and results at that stage. Grid search and more parameter trials are deferred.
+Find upgrades that improve real inference-serving operating curves and Pareto frontiers: algorithms, kernels, serving policies, feature activation, backend integration, upstream ports and new code. B200 evidence and Deepseek_serve provide a starting point. Current enabled features and historical versions do not bound the search.
 
-The next deliverable is a **human-reviewed shortlist of executable source-code hypotheses** for vLLM / DeepEP, grounded in the B200 evidence and `Deepseek_serve`. Success means a proposal worth testing, with a plausible mechanism and a cheap way to prove it wrong. No improvement is claimed until measured.
-
-Two repository skills implement this stage:
-
-| Role | Reads | Produces |
-|---|---|---|
-| [inference-research](../.agents/skills/inference-research/SKILL.md) | Benchmark evidence, pinned source, papers, PR diffs and reviews | Small evidence notes, hypotheses, concrete experiments |
-| [inference-critic](../.agents/skills/inference-critic/SKILL.md) | The proposals and original sources, independently checked | Advance / revise / reject decisions with reasons and cheapest fixes |
-
-These are instructions for a capable coding agent with filesystem and online research tools. There is no new runner, database, scheduler or model API wrapper. Files are the shared memory. The agent reads relevant records as needed. Model choice remains a session setting; the user's preferred starting model is `gpt-6-sol`, not an expensive fixed model in a launcher.
+The completed Optuna TPE / auto-tuning-vLLM / GuideLLM parameter study stays complete. The current human-in-the-loop deliverable is **the requested number of distinct plausible ideas, critiqued and revised within one research run, with cheap experiments and a ranked shortlist**. The human then selects what to implement/test. No performance improvement is established by a proposal.
 
 ## Run in a fresh Codex session
 
-Open this repository and use:
+Use this prompt, changing the number and batch ID as desired:
 
 ```text
-Use $inference-research. Read research/README.md and research/SOURCES.md.
-Start research/runs/b200-source-001. Use B200 evidence and the refreshed
-Deepseek_serve source to research vLLM and DeepEP opportunities online,
-including PR diffs and review discussions. Produce up to four grounded
-hypotheses and their cheapest falsification experiments. Prioritize useful
-improvements over novelty. Stop at a shortlist for human review.
+Use $inference-research. Read research/README.md, research/META.md and
+research/SOURCES.md. Follow research/METHODOLOGY.md.
+
+Create research/runs/b200-source-002/. Generate 6 distinct plausible
+inference-serving improvement ideas. Read b200-source-001 to avoid
+rediscovering its ideas without a new premise; retain H01 as prior work.
+
+Investigate papers and their references/citing work, open/merged/rejected
+PRs and relevant implementations in other serving systems. Use native
+subagents for distinct research directions. Explore beyond features
+currently enabled: activation, new backends, runtime policies, library
+upgrades and original adaptations are valid. Connect ideas to our target
+workload/hardware and explain requirements when proposing a new setup.
+
+Critique and revise the ideas yourself within this run; optional subagent
+review is welcome. Give each idea supporting and opposing evidence,
+required changes, confidence/readiness, a correctness check, the cheapest
+informative experiment and a route to its first measured serving point.
+Honor the requested count without duplicates or invented evidence.
+
+Finish with cards, critique/revisions, an exploration coverage table and
+a ranked decision.md. Stop for human experiment selection. Do not patch
+serving code, build images or launch GPUs in this research run.
 ```
 
-Then in a **separate fresh session**, to make the critique independent:
+The [research skill](../.agents/skills/inference-research/SKILL.md) owns discovery, synthesis and critique/revision. The [critic skill](../.agents/skills/inference-critic/SKILL.md) remains available for an optional targeted or external review. **A separate critic chat is not required.** Self-review is labeled honestly; independent review is optional.
+
+Skills live in `.agents/skills/`, the repository-local layout described in [OpenAI's skill workflow](https://developers.openai.com/blog/skills-agents-sdk). If a client does not discover them, explicitly ask it to read the linked SKILL.md. Tools and model choice come from the session; the user's preferred starting model is `gpt-6-sol`. Subagents use available session capabilities; if unavailable, perform the research passes sequentially and disclose that.
+
+## How the work flows
+
+1. Record requested idea count, scope, constraints and evidence. Read prior decisions selectively.
+2. Explore both observed bottlenecks and opportunities from literature/code; use distinct subagent questions when helpful.
+3. Synthesize different mechanisms and identify activation/integration requirements. Existing upstream work is reusable; disabled features can be opportunities.
+4. Apply the [rubric](METHODOLOGY.md), investigate counterevidence, revise or replace weak ideas and rank the requested set. Report genuine shortfalls if evidence or budget limits prevent completion.
+5. Bring the human a comparison: expected benefit/tradeoff, evidence, required changes, confidence/readiness, cheapest test and cost.
+6. After selection/authorization, test the smallest relevant component, then one matched serving point; expand promising candidates to curves and repeat/held-out confirmation as appropriate.
+
+Comparison fairness preserves the service contract and measurement conditions. It allows required candidate changes to code, features and settings. A focused patch test can freeze unrelated settings for attribution; a complete system upgrade can be tested as a combined candidate, with later ablations if needed. Keep profiles separate from scored timing. Distinguish operation speedups, provisional serving points and replicated frontier improvements.
+
+## Memory and roles
+
+The **meta coordinator** maintains goals, process lessons and future-harness decisions in [META.md](META.md). It improves skills and helps the user choose experiments. Research workers execute discovery and maintain batch evidence. This separation preserves the user's observer role without requiring another critic session.
+
+Each batch uses ordinary files:
 
 ```text
-Use $inference-critic on research/runs/b200-source-001.
-Check the original evidence, source applicability and current PR status.
-Write review.md with advance/revise/reject per hypothesis. Identify the
-single most useful next experiment, or explain why none is ready.
+brief.md             requested count, question, scope, hardware, source pins
+sources.md           searches, sources, dates, useful/rejected leads
+notes/<topic>.md     bounded evidence chunks and subagent findings
+hypotheses/H01.md    idea and experiment card; additional IDs as requested
+review.md            self/delegated/external critique and substantive revisions
+decision.md          ranked set, coverage, unresolved issues, next test
 ```
 
-Finally ask the researcher to revise once against `review.md`, preserving the original claims and the review. The human chooses the experiment. These prompts do not start builds or GPU measurements.
+Use the [hypothesis template](HYPOTHESIS_TEMPLATE.md). Create files when they have content; preserve previous batches and negative outcomes. A resumed agent starts with brief/decision and follows relevant links. No database, forced full-history injection or new execution controller is required. Save evidence and decisions, not hidden reasoning. Record available transcript locations without claiming a custom logger exists.
 
-Skills live in `.agents/skills/`, the repository-local layout described in [OpenAI's skill workflow](https://developers.openai.com/blog/skills-agents-sdk). If a client does not discover them, explicitly ask it to read the linked `SKILL.md` and follow it. Internet/tool availability comes from that session; the skill does not grant access. Record inaccessible evidence rather than filling gaps from memory.
+## Current status
 
-## Research loop
+- Completed TPE and imported B200 results remain unchanged.
+- Deepseek_serve was refreshed to `2e6fa28`; recorded source pins are in [SOURCES.md](SOURCES.md).
+- Batch `b200-source-001` contains one proposed backport and a review requesting revision; no measured improvement is claimed. It predates the broadened instructions.
+- The current skills support requested idea counts, broader discovery, delegation and integrated critique. Their research quality must be checked through actual batch outcomes, not just file validation.
+- Future autonomous-harness ideas are recorded in [META.md](META.md); this update creates instructions and documents, not a running autonomous service.
 
-1. **Choose the baseline and workload.** Start with a relevant B200 frontier configuration, reconstructing all profile overlays, router and cache settings. Keep topology comparisons separate from isolated code changes. The local Qwen study is a separate evidence track.
-2. **Find a concrete opportunity.** Read evidence and source together. Distinguish a measured symptom from a proposed cause. An upstream PR can supply an idea or implementation; record attribution and whether it already exists in the baseline.
-3. **Chunk the investigation by mechanism.** For example scheduler/prefill, routing/cache locality, or MoE communication. Each note links a measurement, code path, paper/PR, counterevidence and unresolved questions. Avoid dumping whole repositories into context.
-4. **Form hypotheses.** Up to four strong candidates for the first batch; fewer is fine. Each needs a source change, applicability argument, correctness check, cheapest falsification and matched serving test. Use the [card](HYPOTHESIS_TEMPLATE.md).
-5. **Critique and revise.** Check evidence, alternative explanations, code reachability, prior work, experiment design and expected cost. A useful upstream backport can advance without being novel. Preserve rejected ideas and why they failed.
-6. **Human checkpoint.** Choose one proposal, the target hardware and the experiment budget. This is the current endpoint.
-
-### Later, after choosing a proposal
-
-Reproduce the chosen clean source build → implement in an isolated checkout → correctness test → focused microbenchmark/profile → matched end-to-end comparison → selected repetitions and held-out inputs → operating curves and Pareto comparison. Reuse existing benchmark tooling for the selected protocol.
-
-Freeze serving settings for the first parent-versus-patch comparison. A coherent patch may change several related code sites; there is no one-line or one-knob rule. If the patch changes the best configuration, retune parent and patch with equal budgets as a separate experiment. Profile separately from scored runs. Do not force every rejected idea through the long suite.
-
-Report TTFT and request-level decode TPOT p50/p90/p99, throughput, errors, workload/cache facts and mechanism-specific counters where available. Keep full operating points and dominated configurations. State objectives and tradeoffs before collecting results; do not import Qwen SLA targets into the B200 workload. Tail estimates and causal claims must reflect the actual sample and repeat evidence.
-
-## Files and memory
-
-Each research batch is a normal directory under `research/runs/<id>/`:
-
-```text
-brief.md             question, baseline, hardware, source pins, scope
-sources.md           searched sources, URLs/commits, dates, useful/rejected leads
-notes/<topic>.md     small evidence chunks; exact paths/rows/symbols
-hypotheses/H01.md    hypothesis and experiment card (additional IDs as needed)
-review.md            independent critic decisions and evidence checks
-decision.md          shortlist, revisions, unresolved issues, human decision
-```
-
-Create files only when they have content. A resumed agent reads the brief and decision first, then follows links. Before proposing an old idea again, inspect previous decisions and the relevant evidence. No forced full-history injection or vector memory. Save findings, sources and decisions; an agent's hidden reasoning is not a research artifact. When a client exposes a session transcript, record its location alongside these files; no custom transcript collector is installed here.
-
-## Setup status
-
-- Completed TPE study and imported B200 evidence retained unchanged.
-- `Deepseek_serve` successfully fast-forwarded from `de864ee` to `2e6fa28`; checkout is clean.
-- Orchestra skills inspected and the relevant research/review principles adapted with attribution.
-- Two repository skills and the source map are ready for a fresh session. Source access is via the local reference checkout and pinned online links; vLLM and DeepEP are not built or qualified locally by this setup.
-- No hypothesis batch, independent critic session, source patch or new GPU run has been executed by this setup. Skill-format validation is not evidence of research quality.
-
-[Source map and pins](SOURCES.md) · [Attribution](THIRD_PARTY.md) · [Completed study](../results/2026-10-18-direct-optuna/ANALYSIS.md)
+[Research method](METHODOLOGY.md) · [Sources](SOURCES.md) · [Attribution](THIRD_PARTY.md) · [Completed study](../results/2026-10-18-direct-optuna/ANALYSIS.md)

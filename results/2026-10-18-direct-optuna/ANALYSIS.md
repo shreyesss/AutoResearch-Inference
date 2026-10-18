@@ -1,5 +1,33 @@
 # Direct Optuna search: findings and confirmation status
 
+[Side-by-side development, held-out and baseline comparison](comparison.html)
+
+## Final held-out result — 19 October 2026, 01:43 IST
+
+**Confirmation finished: 5/5 configurations, 15/15 points, 1,800/1,800 valid requests, zero failed trials.** Together with search: 7,800 measured requests (plus 168 calibration requests).
+
+The earlier development findings below are historical. The 10% throughput gain for search trial 9 **did not reproduce** on held-out inputs. Search trial 10 is the strongest remaining latency lead.
+
+At 32 concurrent clients, 120 held-out requests per run:
+
+| Original search configuration | Output tokens/s | p90 TTFT seconds | p90 TPOT ms/token |
+|---|---:|---:|---:|
+| B0 before | 384.39 | 6.697 | 66.00 |
+| Trial 9 | 383.86 | 6.759 | 68.53 |
+| Trial 10 | 387.48 | 4.437 | 68.18 |
+| Trial 24 | 273.43 | 27.292 | 52.76 |
+| B0 after | 386.65 | 6.263 | 67.33 |
+
+Trial 10 reduced p90 TTFT by **29–34% against both baseline runs**, with throughput within 1% and TPOT **1.3–3.3% worse**. It changed batched tokens 8192→4096, max sequences 512→64, GPU memory fraction .92→.95. All other settings matched B0. At 16 clients it also improved TTFT (2.456s vs B0 3.179/2.893s); at 64 clients the difference was smaller (13.523s vs 14.288/13.985s). This is evidence of a latency tradeoff that carries over to held-out prompts, not a universal win or proof of statistical significance. There was only one held-out run of each candidate and two B0 runs.
+
+Trial 9 has essentially baseline throughput at 32 clients, worse TPOT, and no meaningful TTFT gain. At 64 its throughput is only 0.8–1.8% above the two baselines. The original +10% result should not be used as a claimed optimization win.
+
+Trial 24 again buys faster decode with much worse queueing: p90 TTFT reaches 66.99s at 64 clients. It is unsuitable for the service goals.
+
+The full held-out values are in [points.csv](points.csv); [operating-curves.svg](operating-curves.svg) includes the confirmation runs. Confirmation IDs map to original search IDs as follows: 0=B0 before, 1=search 9, 2=search 10, 3=search 24, 4=B0 after. The dedicated TTFT–TPOT frontier plots remain development-only and are labelled accordingly.
+
+---
+
 Snapshot: 19 October 2026, approximately 00:57 IST. Search finished at 20:37 IST on 18 October. Held-out confirmation was recovered and started at 00:53 IST on 19 October; no held-out conclusion is claimed here. Live status is in `.artifacts/optuna-direct-v1/status.json` and `monitor-health.json`.
 
 ## Honest conclusion

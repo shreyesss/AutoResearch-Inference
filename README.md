@@ -6,6 +6,7 @@ Find better serving configurations through real measurements, operating curves, 
 
 | Need | Location |
 |---|---|
+| Current work: source research and hypothesis review | [Research plan and fresh-session prompts](research/README.md) |
 | Results beside their baselines | [Development / held-out comparison](results/2026-10-18-direct-optuna/comparison.html) |
 | What improved and what did not | [Completed study analysis](results/2026-10-18-direct-optuna/ANALYSIS.md) |
 | Final operating curves / Pareto | [Held-out curves](results/2026-10-18-direct-optuna/heldout-operating-curves.svg) · [Held-out frontier](results/2026-10-18-direct-optuna/heldout-pareto.svg) |
@@ -75,6 +76,7 @@ The approved class p90 TTFT research targets are 1.5s chat / 2.5s agent / .75s c
 
 | Directory | Purpose |
 |---|---|
+| `research/`, `.agents/skills/` | Current vLLM/DeepEP source-research plan, evidence map and researcher/critic skills |
 | `infra/direct_optuna/` | Current completed-study optimizer adapter, evaluator, reporting, archival and monitoring |
 | `configs/direct-optuna-study.json` | Its frozen search domain and B0 |
 | `results/` | Versioned research outputs; each study has its own protocol and evidence scope |
@@ -84,7 +86,7 @@ The approved class p90 TTFT research targets are 1.5s chat / 2.5s agent / .75s c
 | `infra/`, other `configs/`, `tests/` | Earlier campaign tooling, protocols and tests; [index](infra/README.md) |
 | `.artifacts/` | Ignored local execution state; the completed direct study also has a committed evidence archive |
 
-The rsynced `inference-autoresearch-handoff/` and supplied `Deepseek_serve/` are reference inputs; this organization does not modify them. Earlier root design documents are indexed as historical in [docs/RESEARCH.md](docs/RESEARCH.md).
+The rsynced `inference-autoresearch-handoff/` is a reference input. The separate `Deepseek_serve/` checkout was refreshed by user request; [source pins](research/SOURCES.md) distinguish it from the imported B200 measurement snapshot. Earlier root design documents are indexed as historical in [docs/RESEARCH.md](docs/RESEARCH.md).
 
 ## Inspect without running a GPU
 
@@ -97,4 +99,4 @@ python3 infra/direct_optuna/compare.py
 
 The completed run used a pinned base Docker image with a mounted benchmark environment and upstream checkout. Its Dockerfile recipe has not been build-tested; the current launcher is tied to this host's GPU and NVMe paths. See the runbook before starting another campaign. Completed study IDs and evidence must not be overwritten.
 
-**Next checkpoint:** preregister a focused B0-versus-trial-10 repeat, including acceptable TPOT tradeoffs and run order, before launching further GPU work. See [replication criteria](docs/REPLICATION.md). No new experiment was launched as part of repository organization.
+**Next checkpoint:** review source-backed vLLM/DeepEP hypotheses and their cheapest falsification experiments using the B200 evidence and refreshed `Deepseek_serve`. [Start the researcher, then the independent critic](research/README.md). The TPE study is complete; additional parameter trials and B0/trial-10 repeats are deferred. No new GPU campaign is launched by this research setup.

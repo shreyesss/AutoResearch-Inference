@@ -39,7 +39,11 @@ These explain the evolution of the project. Their future-tense plans and launch 
 | Agent and search plans | [agent research](../infra/AGENT_RESEARCH_PLAN.md), [search expansion](../infra/SERVING_SEARCH_EXPANSION_PLAN.md), [Optuna curve plan](../infra/OPTUNA_OPERATOR_CURVE_PLAN.md) |
 | Previous navigation / checkpoint prose | [old root README](history/ROOT_README.md), [old infra README](history/INFRA_README.md), [direct-study launch checkpoints](history/DIRECT_OPTUNA_CHECKPOINTS.md), [original development/held-out narrative](history/DIRECT_OPTUNA_ANALYSIS.md) |
 
-## Next work, not launched
+## Current direction: source-level research
+
+The parameter study stops here. The [new plan](../research/README.md) uses B200 evidence, refreshed Deepseek_serve source, online literature and PR analysis to produce hypotheses, experiment designs and an independent critique for human review. Two [repository skills](../research/README.md#run-in-a-fresh-codex-session) support a fresh session without a new orchestration service.
+
+## Deferred parameter-study follow-ups
 
 1. Freeze a focused repeated comparison of B0 and trial 10, with a declared throughput/TPOT tradeoff budget and primary load.
 2. Check whether the TTFT gain exceeds baseline variation across runs and request classes. Report inconclusive outcomes honestly.

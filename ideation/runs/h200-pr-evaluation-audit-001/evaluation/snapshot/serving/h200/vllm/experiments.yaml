@@ -1,0 +1,19 @@
+schema_version: 1
+experiments:
+  adaptive-dspark:
+    classification: workload-conditioned
+    args:
+      - --speculative-config
+      - '{"method":"dspark","num_speculative_tokens":5,"draft_sample_method":"probabilistic","rejection_sample_method":"block","enable_adaptive_verification":true}'
+  bounded-replay:
+    classification: output-changing
+    args: [--swa-bounded-replay]
+  prefix-off:
+    classification: workload-conditioned
+    args: [--no-enable-prefix-caching]
+  eager:
+    classification: diagnostic
+    args: [--enforce-eager]
+  higher-memory-utilization:
+    classification: workload-conditioned
+    args: [--gpu-memory-utilization, "0.95"]

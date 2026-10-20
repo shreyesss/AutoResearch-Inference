@@ -1,0 +1,27 @@
+schema_version: 1
+name: balanced
+topology:
+  tp: 4
+  dp: 1
+  ep: 1
+  expert_parallel: false
+replicas:
+  - gpu_ids: "0,1,2,3"
+    port: 8100
+  - gpu_ids: "4,5,6,7"
+    port: 8101
+scheduler:
+  max_model_len: 1048576
+  max_num_seqs: 64
+  max_num_batched_tokens: 4096
+  cuda_graph_max_bs: 64
+  chunked_prefill_size: 4096
+  max_prefill_tokens: 8192
+features:
+  dspark: false
+  prefix_caching: true
+  bounded_replay: false
+  engram_host: true
+  mm_processor_cache_gb: 8
+  hicache: false
+notes: "Two TP4 replicas balance request concurrency and per-request latency."

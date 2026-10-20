@@ -1,8 +1,19 @@
 # Verified state — October 20, 2026
 
+## H200 rerun — live deployment inspected
+
+[H200 report](../runs/h200-pr-evaluation-audit-001/REPORT.md) · [26 experiment designs](../runs/h200-pr-evaluation-audit-001/EXPERIMENT_INDEX.md) · [Full disposition ledger](../runs/h200-pr-evaluation-audit-001/PR_DISPOSITIONS.csv) · [Observed baseline](../runs/h200-pr-evaluation-audit-001/BASELINE.md).
+
+User selected the actual running layout on `217.18.55.219`: eight H200s in two TP1/DP4/EP4 groups, DSpark k5, seq64, MBT16384, graph cap512. SSH inspection found Marlin selected for MoE. Small-head TP4 kernels and TP4 padding savings are outside this layout; Blackwell-only Engram fusion is held.
+
+All 5,532 catalog identities were mechanically reclassified; 73 primary snapshots and 27 complete changed-file lists were retrieved. This is targeted source review plus a full triage ledger, not full implementation review of every item. There are 16 ranked live-layout hypotheses, three exploratory integrations, three topology alternatives and four correctness gates. Eight cached keyword/date queries returned results from a 92,050-document controller corpus; this count includes document kinds and is not a claim of 92,050 PRs.
+
+Registered 26 conditional hypotheses and planned tests, with 18 B200-parent links. Exact source quotes and card schemas passed validation. No GPU test, speedup, image build or deployment was produced. At 12:27 UTC, both containers were running but still logging weight loading and their host health ports refused connections. The native sweep launcher still hardcodes B200 paths and needs an H200 adapter before execution. Readiness and the adapter are explicit execution prerequisites.
+
+
 ## Supplied PR catalog → B200 evaluation audit
 
-[Reconstruction guide](../runs/pr-evaluation-audit-001/README.md) · [Report](../runs/pr-evaluation-audit-001/REPORT.md) · [5,532-row disposition ledger](../runs/pr-evaluation-audit-001/PR_DISPOSITIONS.csv) · [Ranked PRs](../runs/pr-evaluation-audit-001/RANKED_PRS.csv) · [23 experiment plans](../runs/pr-evaluation-audit-001/EXPERIMENT_INDEX.md) · [Existing evaluator source audit](../runs/pr-evaluation-audit-001/evaluation/EVALUATION_CAPABILITIES.md).
+[Report](../runs/pr-evaluation-audit-001/REPORT.md) · [5,532-row disposition ledger](../runs/pr-evaluation-audit-001/PR_DISPOSITIONS.csv) · [Ranked PRs](../runs/pr-evaluation-audit-001/RANKED_PRS.csv) · [23 experiment plans](../runs/pr-evaluation-audit-001/EXPERIMENT_INDEX.md) · [Existing evaluator source audit](../runs/pr-evaluation-audit-001/evaluation/EVALUATION_CAPABILITIES.md).
 
 All input rows were triaged; 94 items received primary-source review, yielding 64 candidate/dependency records and 30 exclusions/holds. Another 1,089 items remain explicitly deferred for source review. This is a complete triage ledger, not a claim that every body/diff was independently reviewed. The source catalog's B300/v0.32 assumptions differ from the actual configured B200 image (`ac9126e…`).
 

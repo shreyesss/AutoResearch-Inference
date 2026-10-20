@@ -1,0 +1,1359 @@
+[
+  {
+    "id": "H01",
+    "parents": [],
+    "operation": "generate",
+    "statement": "MXFP4 expert GEMMs currently dispatch to Marlin on this H200 host. A different Hopper GEMM implementation may reduce expert time at the same routing, weights and precision.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Startup logs prove Marlin selection; Humming 0.1.16 is installed. Confirm that the pinned model route supports explicit Humming, expert shape 5120/2304 and current all-to-all prepare/finalize interface. Backend load and numerical fixtures precede any timed run.",
+    "mechanism": "MXFP4 expert GEMMs currently dispatch to Marlin on this H200 host. A different Hopper GEMM implementation may reduce expert time at the same routing, weights and precision.",
+    "proposed_change": "A: observed auto-selected Marlin. B: explicit --moe-backend humming, BF16 activations unchanged. Freeze TP1/DP4/EP4, DSpark k5 and every scheduler setting. Confirm actual kernel dispatch; do not silently include #59488 or FP8 activations.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/52318",
+    "applicability": "Startup logs prove Marlin selection; Humming 0.1.16 is installed. Confirm that the pinned model route supports explicit Humming, expert shape 5120/2304 and current all-to-all prepare/finalize interface. Backend load and numerical fixtures precede any timed run.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:52318",
+        "quote": "Prefer Humming over Marlin for MXFP4 MoE on SM90",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/52318",
+      "specific_delta": "A: observed auto-selected Marlin. B: explicit --moe-backend humming, BF16 activations unchanged. Freeze TP1/DP4/EP4, DSpark k5 and every scheduler setting. Confirm actual kernel dispatch; do not silently include #59488 or FP8 activations."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: observed auto-selected Marlin. B: explicit --moe-backend humming, BF16 activations unchanged. Freeze TP1/DP4/EP4, DSpark k5 and every scheduler setting. Confirm actual kernel dispatch; do not silently include #59488 or FP8 activations.",
+      "metrics": "MoE GEMM and packing time per layer; EP collective time; tokens/expert distribution; HBM and available KV blocks; acceptance; qualified goodput and TTFT/ITL.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1 and E2 already exercise MoE. Add only upstream kernel/reference and fixed real-text quality fixtures because synthetic and Mooncake performance scoring cannot detect altered numerical semantics.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H02",
+    "parents": [
+      "hypothesis:189c040101ca2c809e2ed72a8e1c9354cf7c117cc055be525e60c2da88f30f49"
+    ],
+    "operation": "evolve",
+    "statement": "Target graph capacity can be reused as the drafter request count. Idle or lightly loaded DP ranks then process padded draft rows instead of only live requests.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. DP4 and DSpark k5 are active. Inspect the installed DP sync/drafter implementation for equivalent logical counts; measure padded versus real rows before porting.",
+    "mechanism": "Target graph capacity can be reused as the drafter request count. Idle or lightly loaded DP ranks then process padded draft rows instead of only live requests.",
+    "proposed_change": "A: pinned runtime. B: isolated #58984 equivalent after source-inclusion check. Preserve startup capture capacity and coherent dummy-rank metadata.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/58984",
+    "applicability": "DP4 and DSpark k5 are active. Inspect the installed DP sync/drafter implementation for equivalent logical counts; measure padded versus real rows before porting.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:58984",
+        "quote": "When a target FULL CUDA graph pads its request count, `DPSyncState.num_reqs` describes graph capacity rather than the number",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/58984",
+      "specific_delta": "A: pinned runtime. B: isolated #58984 equivalent after source-inclusion check. Preserve startup capture capacity and coherent dummy-rank metadata."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: pinned runtime. B: isolated #58984 equivalent after source-inclusion check. Preserve startup capture capacity and coherent dummy-rank metadata.",
+      "metrics": "Per-rank live/padded requests, dummy draft rows, draft graph bucket, draft GPU time and EP waits; acceptance and low-load/loaded ITL.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse E1/E2, emphasizing burst and rank imbalance. Add existing upstream DP/dummy tests and short rank-idle/cancel fixtures; no new load generator.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H03",
+    "parents": [
+      "hypothesis:e865c9bfa20cd3c835610b75b3231a4c2a186226556b02b3da40d5164aa57dba"
+    ],
+    "operation": "evolve",
+    "statement": "Per-step CPU metadata synchronization may delay GPU dispatch even when the GPU collective itself is fast.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. DP4 is live. Identify actual transport and separate rank arrival skew from transport time; require CPU synchronization on the critical path.",
+    "mechanism": "Per-step CPU metadata synchronization may delay GPU dispatch even when the GPU collective itself is fast.",
+    "proposed_change": "A: existing CPU transport. B: isolated #61767 implementation, same participant groups, affinity and workload.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/61767",
+    "applicability": "DP4 is live. Identify actual transport and separate rank arrival skew from transport time; require CPU synchronization on the critical path.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:61767",
+        "quote": "This is a refactored version of https://github.com/vllm-project/vllm/pull/60267 from @hjjq.",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/61767",
+      "specific_delta": "A: existing CPU transport. B: isolated #61767 implementation, same participant groups, affinity and workload."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: existing CPU transport. B: isolated #61767 implementation, same participant groups, affinity and workload.",
+      "metrics": "Collective wall time after last rank arrives; rank skew; CPU utilization; GPU idle gaps; p99 ITL/TTFT and goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1/E2 suffice. Add CPU spans and upstream distributed stateful/stateless group tests, including orderly shutdown.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H04",
+    "parents": [
+      "hypothesis:b0c9b0fec43e085d8cefe85ec8f657db513893abc42f22777518bb00d9938b5d"
+    ],
+    "operation": "evolve",
+    "statement": "Prefix restoration and draft-group junction rules can either veto usable target hits or expose draft KV that was never written, lowering acceptance and increasing repeated prefill.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Record target/draft group IDs, cache-hit boundaries, actual final DP rank and acceptance on warm hits. Verify annotation ownership and existing equivalent fixes before selecting a patch.",
+    "mechanism": "Prefix restoration and draft-group junction rules can either veto usable target hits or expose draft KV that was never written, lowering acceptance and increasing repeated prefill.",
+    "proposed_change": "Diagnose first. Compare A versus exactly one matching fix: restored-context masking (#47926), reachable sibling junction positions (#62278), or appropriate DSpark group handling (#57110). Never stack all three as the first arm.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/47926; https://github.com/vllm-project/vllm/pull/62278; https://github.com/vllm-project/vllm/pull/57110",
+    "applicability": "Record target/draft group IDs, cache-hit boundaries, actual final DP rank and acceptance on warm hits. Verify annotation ownership and existing equivalent fixes before selecting a patch.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:47926",
+        "quote": "DFlash/DSpark drafters build their context KV from the target's auxiliary hidden states, which only exist for tokens that",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:62278",
+        "quote": "Fixes the shared-prefix junction under per-group EAGLE flags (#61455): with a dropping EAGLE group in the lookup, siblings",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:57110",
+        "quote": "Fix a DSpark prefix-cache regression caused by sharing EAGLE's hidden-state scheduling path.",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/47926; https://github.com/vllm-project/vllm/pull/62278; https://github.com/vllm-project/vllm/pull/57110",
+      "specific_delta": "Diagnose first. Compare A versus exactly one matching fix: restored-context masking (#47926), reachable sibling junction positions (#62278), or appropriate DSpark group handling (#57110). Never stack all three as the first arm."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Diagnose first. Compare A versus exactly one matching fix: restored-context masking (#47926), reachable sibling junction positions (#62278), or appropriate DSpark group handling (#57110). Never stack all three as the first arm.",
+      "metrics": "Token-weighted hits per KV group; computed prefill tokens; acceptance by draft position and hit length; TTFT; output/reference correctness.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Existing E1 prefixes and Mooncake cache-heavy measure benefit. If existing samples miss exact sibling/unaligned-block boundaries, add small two-turn/sibling fixtures using the same client; this is the documented correctness coverage gap.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H05",
+    "parents": [
+      "hypothesis:51929214d5c301a0d3b5bd6b8c516b2a420ec54c6c20752b5f134f6cd2797e2e"
+    ],
+    "operation": "evolve",
+    "statement": "Python scans of long null SWA block-table prefixes and repeated unchanged partial-prefix registration may consume scheduler time before GPU work can begin.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Verify live stack samples and absent equivalent implementation. #61724 needs long null heads; #51333 needs repeated same block/hash registration. Current seq64/rank is smaller than the source high-concurrency profile.",
+    "mechanism": "Python scans of long null SWA block-table prefixes and repeated unchanged partial-prefix registration may consume scheduler time before GPU work can begin.",
+    "proposed_change": "A versus #61724; separately A versus #51333. Combine only individually confirmed fixes in a later integration arm.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/61724; https://github.com/vllm-project/vllm/pull/51333",
+    "applicability": "Verify live stack samples and absent equivalent implementation. #61724 needs long null heads; #51333 needs repeated same block/hash registration. Current seq64/rank is smaller than the source high-concurrency profile.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:61724",
+        "quote": "A sliding-window KV group keeps one null block per out-of-window block, so a long request's block table is",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:51333",
+        "quote": "- memoize full-attention partial-tail registration while its owning block/hash is unchanged",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/61724; https://github.com/vllm-project/vllm/pull/51333",
+      "specific_delta": "A versus #61724; separately A versus #51333. Combine only individually confirmed fixes in a later integration arm."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A versus #61724; separately A versus #51333. Combine only individually confirmed fixes in a later integration arm.",
+      "metrics": "Scheduler CPU samples and step time; scanned entries; repeated registration count; GPU idle gaps; long-context TTFT/ITL and qualified goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse E1/E2; stratify existing long-context requests. Only add long synthetic lengths through the existing driver if the frozen trace lacks this cohort. Upstream release/promotion/preemption tests guard cache correctness.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H06",
+    "parents": [],
+    "operation": "generate",
+    "statement": "The fused mHC post/pre-norm split configuration was tuned on Blackwell. A Hopper-specific split can reduce repeated per-layer cost for 1\u20138 query tokens.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Confirm the delayed mHC variant for hidden size5120 and actual per-rank query rows1\u20138. DSpark k5 at one active request can produce six rows, but DP padding must be observed.",
+    "mechanism": "The fused mHC post/pre-norm split configuration was tuned on Blackwell. A Hopper-specific split can reduce repeated per-layer cost for 1\u20138 query tokens.",
+    "proposed_change": "A: existing tile configuration. B: #61461 SM90 specialization; all larger-token paths unchanged.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/61461",
+    "applicability": "Confirm the delayed mHC variant for hidden size5120 and actual per-rank query rows1\u20138. DSpark k5 at one active request can produce six rows, but DP padding must be observed.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:61461",
+        "quote": "The fused mHC post + pre-norm kernel runs twice per decoder layer in DeepSeek-V4/V4.1 and GLM-5.3-Flash. Its split",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/61461",
+      "specific_delta": "A: existing tile configuration. B: #61461 SM90 specialization; all larger-token paths unchanged."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: existing tile configuration. B: #61461 SM90 specialization; all larger-token paths unchanged.",
+      "metrics": "mHC kernel microseconds at rows1,2,6,8 and negative control16; per-rank shape histogram; low-load ITL and full-node qualified goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Use existing clients at total concurrency1/2/8, then normal E1/E2. Add upstream numerical tests because FP32 reduction order changes; no new benchmark service.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H07",
+    "parents": [],
+    "operation": "generate",
+    "statement": "After Humming is selected, Hopper EP can use grouped GEMM even though the indexed implementation better matches DeepSeek V4.1 expert execution.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Requires Humming, SM90 V4.1 MXFP4 experts and no all2all kernels or allgather_reducescatter. Inspect actual prepare/finalize backend. If existing env override selects indexed, test that before source changes.",
+    "mechanism": "After Humming is selected, Hopper EP can use grouped GEMM even though the indexed implementation better matches DeepSeek V4.1 expert execution.",
+    "proposed_change": "Use correctness-qualified H01 Humming/BF16 control. B: indexed dispatch only, retaining BF16 activations. Separate later arm for supported per-token FP8 activation with its own quality gate.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/59488",
+    "applicability": "Requires Humming, SM90 V4.1 MXFP4 experts and no all2all kernels or allgather_reducescatter. Inspect actual prepare/finalize backend. If existing env override selects indexed, test that before source changes.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:59488",
+        "quote": "With `--moe-backend humming` and expert parallelism, Humming runs DeepSeek-V4.1's MXFP4 experts on its grouped GEMM. On Hopper the",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/59488",
+      "specific_delta": "Use correctness-qualified H01 Humming/BF16 control. B: indexed dispatch only, retaining BF16 activations. Separate later arm for supported per-token FP8 activation with its own quality gate."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Use correctness-qualified H01 Humming/BF16 control. B: indexed dispatch only, retaining BF16 activations. Separate later arm for supported per-token FP8 activation with its own quality gate.",
+      "metrics": "Actual grouped/indexed dispatch; GEMM/packing/collective time; HBM; acceptance; numerical error and E1/E2 goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1/E2 sufficient for performance. Upstream kernel checks and real-text quality are required for activation-format changes; they cannot be replaced by throughput tests.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H08",
+    "parents": [
+      "hypothesis:b9d6bd109a166973458f4c9c97e527761e69da89ee1c5d031ac30391bfea41d1"
+    ],
+    "operation": "evolve",
+    "statement": "Hopper can materialize scores over the entire compressed context before consuming only the selected candidate pool. Candidate-only FP8 paged scoring may cut memory traffic at very long context.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Verify actual text-indexer backend and absence of candidate-only path. Model uses2048 candidate blocks \u00d78 positions =16384 compact columns; measure actual compressed context and candidate coverage. Require contexts where dense work exceeds useful pool.",
+    "mechanism": "Hopper can materialize scores over the entire compressed context before consuming only the selected candidate pool. Candidate-only FP8 paged scoring may cut memory traffic at very long context.",
+    "proposed_change": "A: dense Hopper decode indexer. B: #62463 direct paged-K candidate-only path, explicitly enabled. C: #62000 gather-based alternative as a separate arm. Keep candidate producer, prefill and top-k semantics fixed.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/62463; https://github.com/vllm-project/vllm/pull/62000; https://github.com/vllm-project/vllm/issues/61830",
+    "applicability": "Verify actual text-indexer backend and absence of candidate-only path. Model uses2048 candidate blocks \u00d78 positions =16384 compact columns; measure actual compressed context and candidate coverage. Require contexts where dense work exceeds useful pool.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:62463",
+        "quote": "Add a Triton candidate-only decode scoring path for DeepSeek V4.1 on SM90,",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:62000",
+        "quote": "> **Status: draft.** Opened early to get direction feedback before investing in",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:61830",
+        "quote": "> **Scope:** this is a CUDA / SM90 (Hopper) request. ROCm is referenced only as prior art \u2014",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/62463; https://github.com/vllm-project/vllm/pull/62000; https://github.com/vllm-project/vllm/issues/61830",
+      "specific_delta": "A: dense Hopper decode indexer. B: #62463 direct paged-K candidate-only path, explicitly enabled. C: #62000 gather-based alternative as a separate arm. Keep candidate producer, prefill and top-k semantics fixed."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: dense Hopper decode indexer. B: #62463 direct paged-K candidate-only path, explicitly enabled. C: #62000 gather-based alternative as a separate arm. Keep candidate producer, prefill and top-k semantics fixed.",
+      "metrics": "Scored columns and bytes; candidate gather/intermediate allocation; indexer GPU time; selected top-k agreement/ties; context-stratified ITL and goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1 fixed8K cannot establish long-context benefit. Inspect frozen Mooncake length histogram first. If insufficient, use existing synthetic/AIPerf client at32K/128K/512K/1M feasible lengths, exact output lengths, matched cache states and explicit OOM reporting; no new harness.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H09",
+    "parents": [
+      "hypothesis:b9d6bd109a166973458f4c9c97e527761e69da89ee1c5d031ac30391bfea41d1"
+    ],
+    "operation": "evolve",
+    "statement": "Candidate-block selection may scan max-context-width scores even when live contexts are short. Valid block counts plus a Hopper-compatible selector can avoid the padded tail.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Installed _has_deep_select is SM100-only; candidate_blocks still lacks valid_blocks. #59204 is draft; validate actual FP32 SM90 extension, not just the library BF16 benchmark. Check workspace/capture safety.",
+    "mechanism": "Candidate-block selection may scan max-context-width scores even when live contexts are short. Valid block counts plus a Hopper-compatible selector can avoid the padded tail.",
+    "proposed_change": "A: current full-width selector. B: correctness-qualified SM90 DeepSelect build/integration. C: B plus #61039 valid-block selection; isolate extension replacement from length-awareness.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/59204; https://github.com/vllm-project/vllm/pull/61039; https://github.com/deepseek-ai/DeepSelect/pull/14",
+    "applicability": "Installed _has_deep_select is SM100-only; candidate_blocks still lacks valid_blocks. #59204 is draft; validate actual FP32 SM90 extension, not just the library BF16 benchmark. Check workspace/capture safety.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:59204:diff:b4800c5f591988413c9d5a201c727d407f58bf18",
+        "quote": "or current_platform.is_device_capability(90)",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:61039",
+        "quote": "DeepSeek-V4.1's decode indexer writes its logits into a `[rows, max_model_len]` buffer, a width that must stay static for",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:deepseek-ai/DeepSelect:14",
+        "quote": "This PR adds an optimized SM90 build and runtime path for Hopper GPUs such as H20 and H100,",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/59204; https://github.com/vllm-project/vllm/pull/61039; https://github.com/deepseek-ai/DeepSelect/pull/14",
+      "specific_delta": "A: current full-width selector. B: correctness-qualified SM90 DeepSelect build/integration. C: B plus #61039 valid-block selection; isolate extension replacement from length-awareness."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: current full-width selector. B: correctness-qualified SM90 DeepSelect build/integration. C: B plus #61039 valid-block selection; isolate extension replacement from length-awareness.",
+      "metrics": "Allocated versus valid block count; top-k time and memory traffic; FP32 top-k agreement/ties, out-of-range/NaN handling; E1/E2 goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse E1/E2 plus upstream exact selector tests and graph-replay tests. Include short-context/large-max-context cases; fixed8K request is appropriate for padded-work diagnosis.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H10",
+    "parents": [
+      "hypothesis:78662ac3d43497518e40ba0f87f6d3b04236921cbbce2f71c63835cf3274ace2"
+    ],
+    "operation": "evolve",
+    "statement": "CPU-offloaded Engram tables may waste pinned host capacity or suffer remote-NUMA reads and translation overhead. H200 host topology differs from GB200 coherent CPU/GPU systems.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Engram offload and embedding_across_dp are on. Verify shared physical backing, per-group NUMA ownership, page size, actual host-memory path and existing allocation code. Do not duplicate shared tables blindly.",
+    "mechanism": "CPU-offloaded Engram tables may waste pinned host capacity or suffer remote-NUMA reads and translation overhead. H200 host topology differs from GB200 coherent CPU/GPU systems.",
+    "proposed_change": "A: existing allocation and affinity. B: NUMA-local allocation/worker placement only. Separate C: exact registered allocation #59849. Separate D: measured H200 thresholds for sorting/inline lookups based on #59327, never copied GB200 thresholds.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/59849; https://github.com/vllm-project/vllm/pull/59327",
+    "applicability": "Engram offload and embedding_across_dp are on. Verify shared physical backing, per-group NUMA ownership, page size, actual host-memory path and existing allocation code. Do not duplicate shared tables blindly.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:59849",
+        "quote": "Same fix as #59848, for DSv4.1. Default `cpu_offload` Engram tables use `pin_memory=True`, which rounds each table up to",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:59327",
+        "quote": "Speed up DeepSeek-V4.1 Engram lookups from CPU-offloaded tables. On GB200 they are bound by GPU address translation, not",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/59849; https://github.com/vllm-project/vllm/pull/59327",
+      "specific_delta": "A: existing allocation and affinity. B: NUMA-local allocation/worker placement only. Separate C: exact registered allocation #59849. Separate D: measured H200 thresholds for sorting/inline lookups based on #59327, never copied GB200 thresholds."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: existing allocation and affinity. B: NUMA-local allocation/worker placement only. Separate C: exact registered allocation #59849. Separate D: measured H200 thresholds for sorting/inline lookups based on #59327, never copied GB200 thresholds.",
+      "metrics": "Host RSS/PSS, locked bytes, NUMA locality, lookup latency by row count, PCIe traffic, CPU/GPU overlap and EP rank waits; prefill TTFT and goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1/E2 already use Engram. Add read-only NUMA/host-memory counters and short Nsight diagnostic capture. Correct allocation lifetime/sharing tests precede runs.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H11",
+    "parents": [
+      "hypothesis:9103386bd1c2612fccd0d9e9ca07880919bf4c4582aaa3a49c03c318be47988a"
+    ],
+    "operation": "evolve",
+    "statement": "A prefill-heavy rank can delay synchronized decode peers. Bounded cross-DP coordination may improve decode tails while risking prefill starvation.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Observe mixed prefill/decode steps and peer waits first. Existing prefill interval controls must not overlap. All dummy, pause, cancellation and shutdown participants must remain synchronized.",
+    "mechanism": "A prefill-heavy rank can delay synchronized decode peers. Bounded cross-DP coordination may improve decode tails while risking prefill starvation.",
+    "proposed_change": "A: existing scheduler. B and C: separate #51199/#61834 proposals, only after protocol review. Train one bounded policy on discovery trace and freeze it for held-out windows.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/51199; https://github.com/vllm-project/vllm/pull/61834",
+    "applicability": "Observe mixed prefill/decode steps and peer waits first. Existing prefill interval controls must not overlap. All dummy, pause, cancellation and shutdown participants must remain synchronized.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:51199",
+        "quote": "Decode continues while prefill\r\n  is delayed, with bounded fail-open and recovery behavior to guarantee progress.",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:61834",
+        "quote": "On: one 6-int CPU all-reduce per step.",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/51199; https://github.com/vllm-project/vllm/pull/61834",
+      "specific_delta": "A: existing scheduler. B and C: separate #51199/#61834 proposals, only after protocol review. Train one bounded policy on discovery trace and freeze it for held-out windows."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: existing scheduler. B and C: separate #51199/#61834 proposals, only after protocol review. Train one bounded policy on discovery trace and freeze it for held-out windows.",
+      "metrics": "Per-rank backlog, oldest-prefill age, mixed-step time, accepted output tokens/step, collective wait, TTFT and ITL tails.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Existing E1/E2 burst and cache-heavy suffice; add distributed protocol/deadlock fixtures, not a new load generator.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H12",
+    "parents": [
+      "hypothesis:eec425d1421edd68662de747e33e1739be3d9d2654f1d19ef77a2896b3aed7ab"
+    ],
+    "operation": "evolve",
+    "statement": "Endpoint/session affinity can be lost when API processes independently select internal DP ranks. A load-aware tie-break can recover warm prefix locality.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Trace endpoint, API PID and final DP rank; verify current selector lacks equivalent tie-break and actual requests traverse it. Preserve cache salt/tenant boundaries and load priority.",
+    "mechanism": "Endpoint/session affinity can be lost when API processes independently select internal DP ranks. A load-aware tie-break can recover warm prefix locality.",
+    "proposed_change": "A: existing endpoint router and internal selector. B: #52464 internal tie-break only. API1 is diagnostic, not the production comparator.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/52464",
+    "applicability": "Trace endpoint, API PID and final DP rank; verify current selector lacks equivalent tie-break and actual requests traverse it. Preserve cache salt/tenant boundaries and load priority.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:52464",
+        "quote": "only when scores tie",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/52464",
+      "specific_delta": "A: existing endpoint router and internal selector. B: #52464 internal tie-break only. API1 is diagnostic, not the production comparator."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: existing endpoint router and internal selector. B: #52464 internal tie-break only. API1 is diagnostic, not the production comparator.",
+      "metrics": "Final-rank affinity, token-weighted hits, queue skew, CPU routing overhead, TTFT tails and qualified goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse E1 shared-prefix and E2 cache-heavy/burst, plus existing session client at low load. No new harness.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H13",
+    "parents": [
+      "hypothesis:fa77270d59b0941715dd7bd0da5cf71ca59fe9318c1a265bf8cbe1c754e9a725"
+    ],
+    "operation": "evolve",
+    "statement": "Scheduler accounting can charge K\u22121 draft slots even though DSpark drafts outside the target batch, reducing usable target tokens when the token budget binds.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Confirm MRV2 route, missing change and counters showing token budget prevents otherwise feasible work. At seq64, k5, the live16384 budget may make this irrelevant.",
+    "mechanism": "Scheduler accounting can charge K\u22121 draft slots even though DSpark drafts outside the target batch, reducing usable target tokens when the token budget binds.",
+    "proposed_change": "A: current accounting. B: #59468, unchanged seq64, MBT16384 and k5. A later smaller-budget diagnostic is a separate config study.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/59468",
+    "applicability": "Confirm MRV2 route, missing change and counters showing token budget prevents otherwise feasible work. At seq64, k5, the live16384 budget may make this irrelevant.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:59468",
+        "quote": "DFlash and DSpark reserve `max_num_new_slots_for_drafting` draft slots per request in the scheduler token budget (K for DFlash, K",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/59468",
+      "specific_delta": "A: current accounting. B: #59468, unchanged seq64, MBT16384 and k5. A later smaller-budget diagnostic is a separate config study."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: current accounting. B: #59468, unchanged seq64, MBT16384 and k5. A later smaller-budget diagnostic is a separate config study.",
+      "metrics": "Scheduled target tokens versus charged tokens; budget-bound steps; active sequences; prefill/decode mix; E1/E2 goodput and tails.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1/E2 and upstream scheduler buffer-bound tests suffice. Do not lower MBT just to manufacture a production gain.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H14",
+    "parents": [
+      "hypothesis:3775f18994aaf263dcd4dd1f53a51a593846207ec0a40a923b1962a04da152a9"
+    ],
+    "operation": "evolve",
+    "statement": "Rounding target-derived capture sizes to draft query length can omit a full draft batch even when nominal graph capacity is sufficient.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Inspect generated target and draft bucket sets and eager fallback counters. Here64\u00d76=384 fits512; the earlier B200 seq128\u00d76 argument does not apply. Prove a rounded missing bucket at actual shapes.",
+    "mechanism": "Rounding target-derived capture sizes to draft query length can omit a full draft batch even when nominal graph capacity is sufficient.",
+    "proposed_change": "A: current manager. B: #62040 boundary clamp, unchanged cap512/seq64/k5. No blind cap increase.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/62040",
+    "applicability": "Inspect generated target and draft bucket sets and eager fallback counters. Here64\u00d76=384 fits512; the earlier B200 seq128\u00d76 argument does not apply. Prove a rounded missing bucket at actual shapes.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:62040",
+        "quote": "A full `max_num_seqs` uniform-decode batch can end up with no FULL CUDA graph when the manager's query length",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/62040",
+      "specific_delta": "A: current manager. B: #62040 boundary clamp, unchanged cap512/seq64/k5. No blind cap increase."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: current manager. B: #62040 boundary clamp, unchanged cap512/seq64/k5. No blind cap increase.",
+      "metrics": "Requested/selected graph sizes, eager fallback fraction, launch overhead, graph HBM/KV blocks and ITL.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse E1/E2 with graph counters and upstream boundary tests. No new load generator.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H15",
+    "parents": [
+      "hypothesis:4e0ee7a16a23ee9e32dd60d3cb724f1d57c0afe5182349f5e931662f624d7572"
+    ],
+    "operation": "evolve",
+    "statement": "At long contexts, an unsuitable drafter context may increase draft time or reduce accepted tokens. A bounded draft window could improve useful tokens per engine step.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Measure acceptance versus context while controlling cache-hit/restoration and workload domain. Inspect drafter training context and RoPE. Stop if no degradation or draft bottleneck.",
+    "mechanism": "At long contexts, an unsuitable drafter context may increase draft time or reduce accepted tokens. A bounded draft window could improve useful tokens per engine step.",
+    "proposed_change": "A: fixed k5/full draft context. B: bounded draft_context_window selected on discovery data; keep adaptive verification off.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/61261",
+    "applicability": "Measure acceptance versus context while controlling cache-hit/restoration and workload domain. Inspect drafter training context and RoPE. Stop if no degradation or draft bottleneck.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:61261",
+        "quote": "Adds an opt-in `draft_context_window` to `--speculative-config` for DFlash and DSpark (MRV2). When set, the drafter only attends to",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/61261",
+      "specific_delta": "A: fixed k5/full draft context. B: bounded draft_context_window selected on discovery data; keep adaptive verification off."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: fixed k5/full draft context. B: bounded draft_context_window selected on discovery data; keep adaptive verification off.",
+      "metrics": "Acceptance by position/context, draft time, accepted tokens/step, ITL, real-text quality and goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse existing long-context/session and Mooncake cohorts; add lengths through existing client only when missing. SPEEDBench/SpecBench supplies domain coverage if current synthetic/trace texts cannot represent draft acceptance.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "H16",
+    "parents": [],
+    "operation": "generate",
+    "statement": "The SM90 contiguous MQA logits epilogue may use a costlier reduction/clamp sequence than needed. A revised epilogue could reduce prefill indexer work.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Resolve actual vendored library/header commit and prove the changed contiguous kernel is called by this model. Paged decode is not changed.",
+    "mechanism": "The SM90 contiguous MQA logits epilogue may use a costlier reduction/clamp sequence than needed. A revised epilogue could reduce prefill indexer work.",
+    "proposed_change": "A: exact vendored DeepGEMM. B: #452 at the same build options, isolated from other library updates.",
+    "code_surface": "https://github.com/deepseek-ai/DeepGEMM/pull/452",
+    "applicability": "Resolve actual vendored library/header commit and prove the changed contiguous kernel is called by this model. Paged decode is not changed.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:deepseek-ai/DeepGEMM:452",
+        "quote": "Replace `fmaxf(x, 0)` with `x + fabsf(x)` in the SM90 FP8 MQA logits epilogue, recovering the 2\u00d7 throughput",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/deepseek-ai/DeepGEMM/pull/452",
+      "specific_delta": "A: exact vendored DeepGEMM. B: #452 at the same build options, isolated from other library updates."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: exact vendored DeepGEMM. B: #452 at the same build options, isolated from other library updates.",
+      "metrics": "Contiguous MQA kernel time and launch shapes, prefill fraction, TTFT, indexer top-k agreement and output quality.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1/E2 prefill cohorts suffice for performance; upstream finite/edge numerical tests including overflow/NaN/ties are additional correctness coverage.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "X01",
+    "parents": [],
+    "operation": "generate",
+    "statement": "Overlapping coefficient work with attention may shorten the critical path if H200 has spare concurrent resources.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Installed supports_mhc_overlap is SM100-only. SM90 port is draft; register-operand lifetime correctness must pass first.",
+    "mechanism": "Overlapping coefficient work with attention may shorten the critical path if H200 has spare concurrent resources.",
+    "proposed_change": "A: current no-overlap SM90 dispatch. B: opt-in #60768 only, after #59129/DeepGEMM448 equivalence is confirmed.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/60768; https://github.com/vllm-project/vllm/pull/59129; https://github.com/deepseek-ai/DeepGEMM/pull/448",
+    "applicability": "Installed supports_mhc_overlap is SM100-only. SM90 port is draft; register-operand lifetime correctness must pass first.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "adaptation",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:60768",
+        "quote": "Draft: add an experimental, explicit opt-in for DeepSeek-V4.1 mHC coefficient overlap on Hopper (SM90), reusing the stream path",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:59129",
+        "quote": "Package the SM90 mHC prenorm GEMM register-lifetime fix from [deepseek-ai/DeepGEMM#448](https://github.com/deepseek-ai/DeepGEMM/pull/448), authored by jason (leevan). In a multi-stage K",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:deepseek-ai/DeepGEMM:448",
+        "quote": "Fix a WGMMA register reuse race in SM90 tf32_hc_prenorm_gemm by waiting for completion before reusing A registers.",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/60768; https://github.com/vllm-project/vllm/pull/59129; https://github.com/deepseek-ai/DeepGEMM/pull/448",
+      "specific_delta": "A: current no-overlap SM90 dispatch. B: opt-in #60768 only, after #59129/DeepGEMM448 equivalence is confirmed."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: current no-overlap SM90 dispatch. B: opt-in #60768 only, after #59129/DeepGEMM448 equivalence is confirmed.",
+      "metrics": "Nsight overlap timeline, occupancy, coefficient and attention time, EP waits, model quality and ITL.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1/E2 plus upstream synchronization/numerical fixtures; short diagnostic profile explains mechanism, unprofiled runs decide.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "X02",
+    "parents": [
+      "hypothesis:e3100621232016609bf5aab023207c5c7eed0f9d8f3fac2ba45ed0bca4470ae7"
+    ],
+    "operation": "evolve",
+    "statement": "A native Hopper expert kernel could avoid Marlin/Humming overhead, but existing proposals use different expert layouts and precisions.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. DeepGEMM473 evidence uses H20 EP8 and4096/2048; #62603 requires FlashInfer0.7.2 versus installed0.7.0.post1 and block-FP8 weights. Reject unsupported shape/layout before full-model runs.",
+    "mechanism": "A native Hopper expert kernel could avoid Marlin/Humming overhead, but existing proposals use different expert layouts and precisions.",
+    "proposed_change": "First integrate and validate one MXFP4 route for hidden5120/intermediate2304/EP4. #62603 block-FP8 and #53709 weight conversion are separate alternatives, never interchangeable prerequisites.",
+    "code_surface": "https://github.com/deepseek-ai/DeepGEMM/pull/473; https://github.com/vllm-project/vllm/pull/62603; https://github.com/vllm-project/vllm/pull/53709",
+    "applicability": "DeepGEMM473 evidence uses H20 EP8 and4096/2048; #62603 requires FlashInfer0.7.2 versus installed0.7.0.post1 and block-FP8 weights. Reject unsupported shape/layout before full-model runs.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "adaptation",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:deepseek-ai/DeepGEMM:473",
+        "quote": "This PR adds optimized **SM90 MXFP4 MegaMoE** to `nv_dev`. Derived from [#440](https://github.com/deepseek-ai/DeepGEMM/pull/440), with MXFP4 format and decoder foundations",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:62603",
+        "quote": "vLLM has no MegaMoE that runs on Hopper today:",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:53709",
+        "quote": "DeepSeek-V4 Instruct checkpoints (e.g. `DeepSeek-V4-Flash-0731`) ship MXFP4",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/deepseek-ai/DeepGEMM/pull/473; https://github.com/vllm-project/vllm/pull/62603; https://github.com/vllm-project/vllm/pull/53709",
+      "specific_delta": "First integrate and validate one MXFP4 route for hidden5120/intermediate2304/EP4. #62603 block-FP8 and #53709 weight conversion are separate alternatives, never interchangeable prerequisites."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "First integrate and validate one MXFP4 route for hidden5120/intermediate2304/EP4. #62603 block-FP8 and #53709 weight conversion are separate alternatives, never interchangeable prerequisites.",
+      "metrics": "Expert kernel parity/time, packing and communication, weight/HBM expansion, KV capacity, quality and SLO goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse E1/E2 only after kernel/reference and task-quality gates. Weight-conversion route requires capacity and precision evaluation that performance traces cannot provide.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "X03",
+    "parents": [
+      "hypothesis:fd0f99bb4c1790fc91c93163cff1a799a94b05e088e38dc8d928e5f1c4c3e94e"
+    ],
+    "operation": "evolve",
+    "statement": "A larger reusable KV working set could avoid recomputation under cache pressure if transfer cost is lower than repeated prefill.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. No KV offload tier is enabled in observed command. Prove cache pressure, compatible DSpark group ownership, save/restore lifetime and transport availability first.",
+    "mechanism": "A larger reusable KV working set could avoid recomputation under cache pressure if transfer cost is lower than repeated prefill.",
+    "proposed_change": "A: current GPU-only cache. B: one qualified offload connector with explicit dependency set and fixed host budget. Compare alternative restore paths independently.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/59096; https://github.com/vllm-project/vllm/pull/59140; https://github.com/vllm-project/vllm/pull/62041; https://github.com/vllm-project/vllm/pull/47891; https://github.com/vllm-project/vllm/pull/61375; https://github.com/vllm-project/vllm/pull/61961",
+    "applicability": "No KV offload tier is enabled in observed command. Prove cache pressure, compatible DSpark group ownership, save/restore lifetime and transport availability first.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "adaptation",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:59096",
+        "quote": "When a slow KV offload tier (the filesystem or object-store tier) fails to load a block, it records",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:59140",
+        "quote": "`ThrottledDropPolicy` calculates what fraction of store attempts should be dropped based on pressure. This PR fixes how it",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:62041",
+        "quote": "With a speculator, collect the KV connector's transfer results right after sampling and defer only `wait_for_save()` and `clear_connector_metadata()`",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:47891",
+        "quote": "Fixes #47890",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:61375",
+        "quote": "After a load that ends in a partial tail, the OffloadingConnector scheduler never stores the chunk that holds",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:61961",
+        "quote": "On wide-EP MoE prefill (such as GLM-5.3), a step takes 0.3 to 0.5 s. Almost every request has",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/59096; https://github.com/vllm-project/vllm/pull/59140; https://github.com/vllm-project/vllm/pull/62041; https://github.com/vllm-project/vllm/pull/47891; https://github.com/vllm-project/vllm/pull/61375; https://github.com/vllm-project/vllm/pull/61961",
+      "specific_delta": "A: current GPU-only cache. B: one qualified offload connector with explicit dependency set and fixed host budget. Compare alternative restore paths independently."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A: current GPU-only cache. B: one qualified offload connector with explicit dependency set and fixed host budget. Compare alternative restore paths independently.",
+      "metrics": "GPU versus host hit tokens; transfer bytes/latency; eviction/recompute; host memory; acceptance and TTFT tails.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Existing cache-heavy replay tests benefit. Add eviction/restore, cancellation and stale-KV fixtures because ordinary warm traces do not prove connector correctness.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "T01",
+    "parents": [],
+    "operation": "generate",
+    "statement": "Pure TP4 shards expert width2304 to576; rounding to128 pads it to640, whereas64 alignment keeps576.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Current TP1/EP4 retains expert width2304, already divisible by128: no padding reduction in the requested live layout.",
+    "mechanism": "Pure TP4 shards expert width2304 to576; rounding to128 pads it to640, whereas64 alignment keeps576.",
+    "proposed_change": "Only in a separately qualified two-TP4 baseline, compare alignment128 versus64 for SM90 BF16 Marlin without A8.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/56697",
+    "applicability": "Current TP1/EP4 retains expert width2304, already divisible by128: no padding reduction in the requested live layout.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "adaptation",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:56697",
+        "quote": "Reduce DeepSeek-V4.1-Flash MXFP4 expert padding on SM90 Marlin. At TP8,",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/56697",
+      "specific_delta": "Only in a separately qualified two-TP4 baseline, compare alignment128 versus64 for SM90 BF16 Marlin without A8."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Only in a separately qualified two-TP4 baseline, compare alignment128 versus64 for SM90 BF16 Marlin without A8.",
+      "metrics": "Padded weight bytes, allocated HBM, KV blocks, expert kernel time and goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Same E1/E2 plus kernel/loading tests after a separate TP4 baseline. Do not attribute a topology change to the PR.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "T02",
+    "parents": [],
+    "operation": "generate",
+    "statement": "With64 attention heads, TP4 has16 local heads; padding to64 wastes work. Native16-head prefill/decode can avoid that work.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Live TP1 has64 local heads: small-head gates do not apply. Decode eligibility also uses query rows, not client concurrency.",
+    "mechanism": "With64 attention heads, TP4 has16 local heads; padding to64 wastes work. Native16-head prefill/decode can avoid that work.",
+    "proposed_change": "Separate TP4 baseline: prefill #61615 plus required FlashMLA26; independently decode #59418; broader #57673 is an alternative backend, not a stacked first arm.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/61615; https://github.com/vllm-project/vllm/pull/59418; https://github.com/vllm-project/vllm/pull/57673; https://github.com/vllm-project/FlashMLA/pull/26",
+    "applicability": "Live TP1 has64 local heads: small-head gates do not apply. Decode eligibility also uses query rows, not client concurrency.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "adaptation",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:61615",
+        "quote": "Enable SM90 small-head FlashMLA sparse prefill for DeepSeek V4.1 by passing the actual TP-local query heads instead of",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:59418",
+        "quote": "On SM90, FlashMLA's sparse decode tiles query heads by 64 (the WGMMA M dimension). A DeepSeek V4.1 TP8",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:57673",
+        "quote": "Rework this as an opt-in SM90 backend with centralized selection and separate Triton prefill/decode, as requested in review.",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/FlashMLA:26",
+        "quote": "Tensor-parallel deployments can leave only 8, 16, or 32 query heads per rank. SM90 sparse prefill previously required",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/61615; https://github.com/vllm-project/vllm/pull/59418; https://github.com/vllm-project/vllm/pull/57673; https://github.com/vllm-project/FlashMLA/pull/26",
+      "specific_delta": "Separate TP4 baseline: prefill #61615 plus required FlashMLA26; independently decode #59418; broader #57673 is an alternative backend, not a stacked first arm."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Separate TP4 baseline: prefill #61615 plus required FlashMLA26; independently decode #59418; broader #57673 is an alternative backend, not a stacked first arm.",
+      "metrics": "Local head count, query rows, prefill/decode kernel time, temporary buffers, quality, TTFT/ITL and goodput.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Reuse E1/E2 and low-query-row cases; add upstream attention numerical tests. Separate model/compiler/backend manifests per alternative.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "T03",
+    "parents": [],
+    "operation": "generate",
+    "statement": "At sufficient prefill tokens, sharding replicated fused_wqa_wkv projection across TP ranks can outweigh an all-gather.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. TP1 cannot benefit from TP sharding. Requires custom AR availability and no SP/LoRA/ubatching/batch-invariant conflicts.",
+    "mechanism": "At sufficient prefill tokens, sharding replicated fused_wqa_wkv projection across TP ranks can outweigh an all-gather.",
+    "proposed_change": "Separate TP4 control versus #58872; measure a Hopper threshold before fixing it.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/58872",
+    "applicability": "TP1 cannot benefit from TP sharding. Requires custom AR availability and no SP/LoRA/ubatching/batch-invariant conflicts.",
+    "predicted_direction": "Lower qualified serving cost or latency if active; no numerical gain forecast.",
+    "classification": "adaptation",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:58872",
+        "quote": "Without sequence parallelism, every TP rank computes DeepSeek-V4.1's `fused_wqa_wkv` (5120 \u2192 1280 + 512) for all tokens, so",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/58872",
+      "specific_delta": "Separate TP4 control versus #58872; measure a Hopper threshold before fixing it."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Separate TP4 control versus #58872; measure a Hopper threshold before fixing it.",
+      "metrics": "Projection and all-gather time versus prefill rows; TTFT and mixed-load decode tails.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1/E2 prefill cohorts suffice; upstream collective/numerical tests required.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "Q01",
+    "parents": [
+      "hypothesis:892352b045cea709d735ffbd5eead689c04ee2ed25bf01c4928be89cbab01857"
+    ],
+    "operation": "evolve",
+    "statement": "Reusing random draws across verification rounds can bias the generated distribution even when throughput looks normal.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Live DSpark uses probabilistic drafts and block rejection, so this semantic path is relevant. Confirm actual RNG implementation.",
+    "mechanism": "Reusing random draws across verification rounds can bias the generated distribution even when throughput looks normal.",
+    "proposed_change": "Check source inclusion; if missing, reproduce upstream tiny target/draft distribution test then apply #61161 before comparing speculative performance.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/61161",
+    "applicability": "Live DSpark uses probabilistic drafts and block rejection, so this semantic path is relevant. Confirm actual RNG implementation.",
+    "predicted_direction": "Scoped correctness improvement",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:61161",
+        "quote": "Fixes #61114. Give block verification fresh acceptance and draft random draws when an uncommitted position is revisited in",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/61161",
+      "specific_delta": "Check source inclusion; if missing, reproduce upstream tiny target/draft distribution test then apply #61161 before comparing speculative performance."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Check source inclusion; if missing, reproduce upstream tiny target/draft distribution test then apply #61161 before comparing speculative performance.",
+      "metrics": "Output marginals with confidence intervals, seed repeatability, request-order/batch-splitting behavior; no throughput win claimed.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "E1 temperature0 and throughput traces cannot detect stochastic distribution bias. Reuse upstream nonzero-temperature statistical fixtures and real-text quality checks.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "Q02",
+    "parents": [
+      "hypothesis:32f371b46377cf8a2c13e99f0fc830b2f71b262ff6cf0665dd7988a1aab0b47c"
+    ],
+    "operation": "evolve",
+    "statement": "Vectorized top-k tail lanes or asynchronous WGMMA register lifetimes can expose invalid values and silently alter computation.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Top-k gate requires actual persistent kernel; WGMMA gate requires actual DeepGEMM mHC call. Resolve vendored source version instead of assuming every installed path uses these kernels.",
+    "mechanism": "Vectorized top-k tail lanes or asynchronous WGMMA register lifetimes can expose invalid values and silently alter computation.",
+    "proposed_change": "Inspect each active kernel independently; apply only missing relevant fixes. Repeat graph and eager numerical tests with tail lengths and repeated calls.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/62467; https://github.com/vllm-project/vllm/pull/59129; https://github.com/deepseek-ai/DeepGEMM/pull/448",
+    "applicability": "Top-k gate requires actual persistent kernel; WGMMA gate requires actual DeepGEMM mHC call. Resolve vendored source version instead of assuming every installed path uses these kernels.",
+    "predicted_direction": "Scoped correctness improvement",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:62467",
+        "quote": "FIX #62466",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:59129",
+        "quote": "Package the SM90 mHC prenorm GEMM register-lifetime fix from [deepseek-ai/DeepGEMM#448](https://github.com/deepseek-ai/DeepGEMM/pull/448), authored by jason (leevan). In a multi-stage K",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:deepseek-ai/DeepGEMM:448",
+        "quote": "Fix a WGMMA register reuse race in SM90 tf32_hc_prenorm_gemm by waiting for completion before reusing A registers.",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/62467; https://github.com/vllm-project/vllm/pull/59129; https://github.com/deepseek-ai/DeepGEMM/pull/448",
+      "specific_delta": "Inspect each active kernel independently; apply only missing relevant fixes. Repeat graph and eager numerical tests with tail lengths and repeated calls."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Inspect each active kernel independently; apply only missing relevant fixes. Repeat graph and eager numerical tests with tail lengths and repeated calls.",
+      "metrics": "Reference output/indices, invalid reads, nondeterministic differences, repeated graph correctness; no perf score.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Performance tests cannot prove memory safety. Upstream small shape/tail/replay fixtures and bounded sanitizer run are necessary additions.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "Q03",
+    "parents": [
+      "hypothesis:2e224f01acfbfa5267c018b205e72f2d4a951caafd2e8523cc62438a34ba0f52"
+    ],
+    "operation": "evolve",
+    "statement": "Multiple API processes can race DP wake-up; separately, improperly inherited draft replica indices can select another replica compile cache.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. API2 is active. #62062 evidence is dense independent DP; applicability to coordinated EP4 is not established and requires inspecting data_parallel_index.",
+    "mechanism": "Multiple API processes can race DP wake-up; separately, improperly inherited draft replica indices can select another replica compile cache.",
+    "proposed_change": "A/B only when exact bug is present: idle/pause/resume API2 fixture for59559; cold/cached-start fixture for62062 after confirming independent-DP index semantics.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/59559; https://github.com/vllm-project/vllm/pull/62062",
+    "applicability": "API2 is active. #62062 evidence is dense independent DP; applicability to coordinated EP4 is not established and requires inspecting data_parallel_index.",
+    "predicted_direction": "Scoped correctness improvement",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:59559",
+        "quote": "Fix a DP hang and simplify DP wave control. After this change, the engines alone start DP waves,",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:62062",
+        "quote": "With dense (independent) data parallelism, every DFlash/DSpark drafter on a node shares one torch.compile cache directory, so a",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/59559; https://github.com/vllm-project/vllm/pull/62062",
+      "specific_delta": "A/B only when exact bug is present: idle/pause/resume API2 fixture for59559; cold/cached-start fixture for62062 after confirming independent-DP index semantics."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "A/B only when exact bug is present: idle/pause/resume API2 fixture for59559; cold/cached-start fixture for62062 after confirming independent-DP index semantics.",
+      "metrics": "All-rank progress, timeout/hang count, restart success, draft cache paths and time-to-ready.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Steady-state E1/E2 omit idle/restart transitions. Add small lifecycle fixtures; preserve live production services until a separate test deployment is available.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  },
+  {
+    "id": "Q04",
+    "parents": [
+      "hypothesis:29b23e0704e7b7fa9b90f0782e567b18da487bf0b7c5b100a923f08198a2035e"
+    ],
+    "operation": "evolve",
+    "statement": "Incorrect tool-turn boundaries or truncated DSML streaming can produce invalid model inputs/outputs while token throughput remains plausible.",
+    "observed_bottleneck": "Launch and selected source eligibility observed; runtime bottleneck unmeasured. Observed parser is deepseek_v41; checkpoint revision is pinned. Decide intentional encoding-version migration explicitly rather than silently changing workload tokens.",
+    "mechanism": "Incorrect tool-turn boundaries or truncated DSML streaming can produce invalid model inputs/outputs while token throughput remains plausible.",
+    "proposed_change": "Golden tool conversations versus the intended checkpoint encoding; separate parser fixtures for truncated/closed streamed arguments, one patch at a time.",
+    "code_surface": "https://github.com/vllm-project/vllm/pull/62199; https://github.com/vllm-project/vllm/pull/62259",
+    "applicability": "Observed parser is deepseek_v41; checkpoint revision is pinned. Decide intentional encoding-version migration explicitly rather than silently changing workload tokens.",
+    "predicted_direction": "Scoped correctness improvement",
+    "classification": "upstream_port",
+    "alternatives": [
+      {
+        "explanation": "Apparent improvement comes from cache, routing skew, precision, graph memory, logging, output lengths or a dependency change.",
+        "distinguishing_test": "Freeze manifest, isolate arms, match workload/cache state, inspect mechanism counters and confirm unprofiled held-out result."
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "github:vllm-project/vllm:62199",
+        "quote": "Match the Python DeepSeek V4.1 encoder to the updated reference [`encoding/`](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/encoding). Rust counterpart: #62200.",
+        "relation": "supports"
+      },
+      {
+        "source_id": "github:vllm-project/vllm:62259",
+        "quote": "Part of #62051 (the truncated/unclosed-parameter rows only; the block with no invoke, the cut inside a tool name,",
+        "relation": "supports"
+      }
+    ],
+    "novelty": {
+      "scientific": "Not required.",
+      "implementation": "Existing upstream implementation or explicit H200 adaptation.",
+      "workload": "Untested relative to observed H200 baseline.",
+      "nearest_prior_art": "https://github.com/vllm-project/vllm/pull/62199; https://github.com/vllm-project/vllm/pull/62259",
+      "specific_delta": "Golden tool conversations versus the intended checkpoint encoding; separate parser fixtures for truncated/closed streamed arguments, one patch at a time."
+    },
+    "prior_art_query": "Full5532-row catalog triage,73 refreshed primary snapshots,27 selected diffs, inherited generic reviews and cached keyword/date retrieval.",
+    "experiment": {
+      "control": "Attested live H200 launch, then common correctness-qualified C1; resolve source membership and readiness first.",
+      "treatment": "Golden tool conversations versus the intended checkpoint encoding; separate parser fixtures for truncated/closed streamed arguments, one patch at a time.",
+      "metrics": "Exact encoded token IDs, reference reasoning retention, JSON validity and streaming assembly.",
+      "supports_if": "Eligibility, correctness, predicted mechanism and held-out useful SLO outcome pass PROTOCOL.md. Correctness lanes establish only scoped correctness.",
+      "rejects_if": "Confirmed active mechanism with adequate measurement yields no practical benefit, or correctness/SLO regression.",
+      "inconclusive_if": "Absent/unknown path, unavailable integration, insufficient requests, noisy interval or replay invalidity.",
+      "held_out_condition": "Other existing workload and untuned Mooncake window; paired seeds/cache states.",
+      "correctness": "Synthetic and Mooncake text traces are not tool-role correctness suites. Reuse upstream golden fixtures; a new performance harness is unnecessary.",
+      "cost": "One diagnostic pair then >=5 paired confirmation blocks if justified. H200 node price unknown; normalized cost or explicit supplied price. No GPU spend incurred."
+    },
+    "revision_reason": "H200 and actual live TP1/DP4/EP4 eligibility reassessment; not a fabricated hypothesis.run or benchmark result."
+  }
+]

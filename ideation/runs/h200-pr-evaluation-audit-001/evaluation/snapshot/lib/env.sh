@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+  declare -A _caller_env_values=()
+  while IFS= read -r _env_key; do
+    case "$_env_key" in
+      MODEL_STORAGE_ROOT|HF_HOME|ENGINE_CACHE_ROOT|PROFILER_CACHE_ROOT|\
+      RESULTS_ROOT|RESULTS_ARCHIVE_ROOT|MODEL_LOCAL_DIR|AWS_REGION|\
+      AWS_DEFAULT_REGION|AWS_SHARED_CREDENTIALS_FILE|S3_BUCKET|S3_PREFIX|\
+      S3_ENGINE_CACHE_PREFIX|\
+      S3_AUTO_RESTORE|S3_RESTORE_RESULTS|S3_SYNC_ENGINE_CACHE|\
+      NVFP4_ECR_REGISTRY|NVFP4_ECR_REPOSITORY|NVFP4_ECR_TAG|\
+      NVFP4_ECR_IMAGE)
+        continue
+        ;;
+    esac
+    if [[ -v "$_env_key" ]]; then
+      _caller_env_values["$_env_key"]="${!_env_key}"
+    fi
+  done < <(
+    awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ { print $1 }' "$PROJECT_ROOT/.env"
+  )
+
+  set -a
+  # shellcheck disable=SC1091
+  source "$PROJECT_ROOT/.env"
+  set +a
+
+  for _env_key in "${!_caller_env_values[@]}"; do
+    printf -v "$_env_key" '%s' "${_caller_env_values[$_env_key]}"
+    export "$_env_key"
+  done
+  unset _caller_env_values _env_key
+fi
+
+MODEL="${MODEL:-deepseek-ai/DeepSeek-V4.1-Flash}"
+SERVED_MODEL="${SERVED_MODEL:-deepseek-v4.1-flash}"
+MODEL_REVISION="${MODEL_REVISION:-2cba9e42aa026125f3ed06c6d98c1db82f7ca027}"
+MODEL_STORAGE_ROOT="${MODEL_STORAGE_ROOT:-/models/deepseek-v4.1-flash}"
+HF_HOME="${HF_HOME:-$MODEL_STORAGE_ROOT/huggingface}"
+ENGINE_CACHE_ROOT="${ENGINE_CACHE_ROOT:-$MODEL_STORAGE_ROOT/engine-cache}"
+PROFILER_CACHE_ROOT="${PROFILER_CACHE_ROOT:-$MODEL_STORAGE_ROOT/profiler-cache}"
+RESULTS_ROOT="${RESULTS_ROOT:-$MODEL_STORAGE_ROOT/results}"
+RESULTS_ARCHIVE_ROOT="${RESULTS_ARCHIVE_ROOT:-$MODEL_STORAGE_ROOT/results-archive}"
+MODEL_LOCAL_DIR="${MODEL_LOCAL_DIR:-$MODEL_STORAGE_ROOT/models/DeepSeek-V4.1-Flash}"
+AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-$AWS_REGION}"
+AWS_SHARED_CREDENTIALS_FILE="${AWS_SHARED_CREDENTIALS_FILE:-/dev/null}"
+S3_BUCKET="${S3_BUCKET:-b200-bench-results}"
+S3_PREFIX="${S3_PREFIX:-deepseek-v4.1-flash}"
+S3_ENGINE_CACHE_PREFIX="${S3_ENGINE_CACHE_PREFIX:-$S3_PREFIX/_shared/engine-cache}"
+S3_AUTO_RESTORE="${S3_AUTO_RESTORE:-1}"
+S3_RESTORE_RESULTS="${S3_RESTORE_RESULTS:-1}"
+S3_SYNC_ENGINE_CACHE="${S3_SYNC_ENGINE_CACHE:-1}"
+NVFP4_VLLM_BASE_IMAGE="${NVFP4_VLLM_BASE_IMAGE:-dsv41/vllm-openai:nvfp4-engram-1800929}"
+NVFP4_VLLM_IMAGE="${NVFP4_VLLM_IMAGE:-dsv41/vllm-openai:nvfp4-engram-moeep-1800929}"
+NVFP4_ECR_REGISTRY="${NVFP4_ECR_REGISTRY:-641134885443.dkr.ecr.us-east-1.amazonaws.com}"
+NVFP4_ECR_REPOSITORY="${NVFP4_ECR_REPOSITORY:-deepseek-v4-1-flash/vllm-nvfp4-engram}"
+NVFP4_ECR_TAG="${NVFP4_ECR_TAG:-sm100-vllm-1800929-model-c48dca0-moeep-nvshmem4py040}"
+NVFP4_ECR_IMAGE="${NVFP4_ECR_IMAGE:-$NVFP4_ECR_REGISTRY/$NVFP4_ECR_REPOSITORY:$NVFP4_ECR_TAG}"
+unset HF_TOKEN HF_TOKEN_FILE
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE
+GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
+PORT="${PORT:-8000}"
+ROUTER_PORT="${ROUTER_PORT:-9000}"
+PROFILE="${PROFILE:-balanced}"
+PATH="$HOME/.local/bin:$MODEL_STORAGE_ROOT/tools/nvbandwidth/build:$MODEL_STORAGE_ROOT/tools/nccl-tests/build:$PATH"
+
+export PROJECT_ROOT MODEL SERVED_MODEL MODEL_REVISION MODEL_STORAGE_ROOT
+export HF_HOME ENGINE_CACHE_ROOT PROFILER_CACHE_ROOT RESULTS_ROOT
+export RESULTS_ARCHIVE_ROOT MODEL_LOCAL_DIR
+export AWS_REGION AWS_DEFAULT_REGION AWS_SHARED_CREDENTIALS_FILE
+export S3_BUCKET S3_PREFIX
+export S3_ENGINE_CACHE_PREFIX S3_AUTO_RESTORE S3_RESTORE_RESULTS
+export S3_SYNC_ENGINE_CACHE
+export NVFP4_VLLM_BASE_IMAGE NVFP4_VLLM_IMAGE
+export NVFP4_ECR_REGISTRY NVFP4_ECR_REPOSITORY NVFP4_ECR_TAG
+export NVFP4_ECR_IMAGE
+export GPU_IDS PORT ROUTER_PORT PROFILE PATH
+
+ensure_storage_dirs() {
+  install -d -m 0750 \
+    "$MODEL_STORAGE_ROOT" \
+    "$HF_HOME" \
+    "$ENGINE_CACHE_ROOT" \
+    "$PROFILER_CACHE_ROOT" \
+    "$(dirname "$MODEL_LOCAL_DIR")" \
+    "$RESULTS_ROOT" \
+    "$RESULTS_ARCHIVE_ROOT"
+}

@@ -1,0 +1,99 @@
+schema_version: 1
+name: b200-aiperf-workload-suites
+description: "Isolated AIPerf synthetic search and production-trace qualification."
+aiperf_version: "0.13.0"
+results_subdirectory: b200/vllm/aiperf-campaign
+data_subdirectory: datasets/aiperf
+serving_profiles_mutable: false
+
+common:
+  endpoint_type: chat
+  streaming: true
+  use_server_token_count: true
+  per_chunk_usage: true
+  export_level: records
+  ui: none
+  random_seed: 42
+  benchmark_grace_period_s: 300
+  workload_repetitions:
+    discovery: 1
+    confirmation: 3
+    final: 5
+
+hard_gates:
+  minimum_completion_ratio: 0.995
+  maximum_error_rate: 0.001
+  minimum_good_request_fraction: 0.95
+  minimum_requests: 100
+  reject_replay_degraded: true
+  maximum_replay_schedule_lag_p99_ms: 500
+  require_server_token_usage: true
+  require_complete_artifact: true
+
+output_speed_sla:
+  minimum_output_tokens: 50
+  minimum_tokens_per_second: 30
+  minimum_attainment_fraction: 0.95
+  tiers:
+    economy:
+      p50_tokens_per_second: 60
+      p10_tokens_per_second: 25
+    standard:
+      p50_tokens_per_second: 100
+      p10_tokens_per_second: 50
+    fast:
+      p50_tokens_per_second: 150
+      p10_tokens_per_second: 80
+
+slo:
+  default:
+    ttft_ms: 4000
+    inter_token_latency_ms: 33.333
+    request_latency_ms: 75000
+  chat:
+    request_latency_ms: 30000
+  document:
+    ttft_ms: 15000
+    request_latency_ms: 60000
+
+synthetic:
+  order: [chat, agent, code, document, mixed, mixed-bursty]
+  configs:
+    chat: testing/workloads/aiperf/synthetic-chat.yaml
+    agent: testing/workloads/aiperf/synthetic-agent.yaml
+    code: testing/workloads/aiperf/synthetic-code.yaml
+    document: testing/workloads/aiperf/synthetic-document.yaml
+    mixed: testing/workloads/aiperf/synthetic-mixed.yaml
+    mixed-bursty: testing/workloads/aiperf/synthetic-mixed-bursty.yaml
+
+production:
+  order: [mooncake-median, mooncake-burst, mooncake-cache-heavy, exgentic, agentx]
+  mooncake:
+    revision: d750cddafa4b62387ca135949595008c51e05815
+    source_url: https://raw.githubusercontent.com/kvcache-ai/Mooncake/d750cddafa4b62387ca135949595008c51e05815/FAST25-release/arxiv-trace/mooncake_trace.jsonl
+    source_sha256: b434f1816a707f4bac697235588184ebc374c9907cb981bb65fb0643471fe711
+    window_duration_s: 600
+    minimum_requests: 250
+    subsets: [median, burst, cache-heavy]
+    fixed_schedule: true
+    concurrency: null
+    workers_max: 256
+  exgentic:
+    public_dataset: exgentic_v2
+    filters:
+      benchmark: swebench
+      harness: openai_solo
+      source_model: gpt-5.2-2025-12-11
+    conversations: 48
+    fixed_schedule: true
+    concurrency: null
+    random_seed: 42
+  agentx:
+    scenario: inferencex-agentx-mvp
+    public_dataset: semianalysis_cc_traces_weka_062126
+    concurrency: 16
+    benchmark_duration_s: 900
+    max_context_length: 1048576
+    random_seed: 20261017
+    finalist_only: true
+

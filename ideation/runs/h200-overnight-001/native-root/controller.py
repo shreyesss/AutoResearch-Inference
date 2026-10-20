@@ -206,11 +206,22 @@ def run(manifest_path,review):
             if active_names or router: record['emergency_cleanup']=cleanup(active_names,router,hard_deadline)
             record['wall_seconds']=time.monotonic()-start;record['allocated_GPU_hours']=record['wall_seconds']*8/3600
             record['finished_at_utc']=now();record['changed_inputs']=unchanged(hashes);record['gpu_processes_after']=processes();record['running_containers_after']=cmd(['docker','ps','--format','{{.Names}}']);record['hard_cap_exceeded']=time.monotonic()>hard_deadline
-            watchdog.terminate()
-            try:watchdog.wait(timeout=5)
-            except subprocess.TimeoutExpired:watchdog.kill();watchdog.wait(timeout=5)
+            record['owned_children_alive']=[]
+            for child in owned_processes:
+                proc=Path('/proc')/str(child['pid'])/'stat'
+                try:
+                    if proc.exists() and proc.read_text().rsplit(')',1)[1].split()[19]==child['start_ticks']:record['owned_children_alive'].append(child)
+                except FileNotFoundError:pass
+            safe_to_disarm=not record['gpu_processes_after'] and not record['running_containers_after'] and not record['owned_children_alive']
+            record['watchdog_disarmed_after_verified_idle']=safe_to_disarm
+            if safe_to_disarm:
+                watchdog.terminate()
+                try:watchdog.wait(timeout=5)
+                except subprocess.TimeoutExpired:watchdog.kill();watchdog.wait(timeout=5)
+            else:
+                record['watchdog_retained_for_emergency_cleanup']=True
             write(out/'execution.json',record);journal('native_pilot_finished',state=record['state'],GPU_hours=record['allocated_GPU_hours'],receipt=str(out/'execution.json'))
         print(json.dumps(record,indent=2),flush=True)
-        return 0 if record['state']=='completed' and not record['changed_inputs'] and not record['gpu_processes_after'] and not record['hard_cap_exceeded'] else 1
+        return 0 if record['state']=='completed' and not record['changed_inputs'] and not record['gpu_processes_after'] and not record['hard_cap_exceeded'] and record['watchdog_disarmed_after_verified_idle'] else 1
 if __name__=='__main__':
     ap=argparse.ArgumentParser();ap.add_argument('--manifest',type=Path,required=True);ap.add_argument('--review',type=Path,required=True);a=ap.parse_args();raise SystemExit(run(a.manifest.resolve(),a.review.resolve()))

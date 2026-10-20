@@ -10,7 +10,7 @@ PKG='/usr/local/lib/python3.12/dist-packages/'
 DS=PKG+'vllm/v1/worker/gpu/spec_decode/dspark/speculator.py'
 def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--observer-manifest',required=True,type=Path);ap.add_argument('--traffic-manifest',required=True,type=Path);ap.add_argument('--id',default='native-pair-001');args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('--observer-manifest',required=True,type=Path);ap.add_argument('--traffic-manifest',required=True,type=Path);ap.add_argument('--id',default='native-pair-001');ap.add_argument('--manifest-output',type=Path);args=ap.parse_args()
     if not args.id.replace('-','').isalnum():raise ValueError('Simple run ID required')
     base_path=ROOT/'native-root/baseline-inputs-v2.json';dev_path=ROOT/'developer/integration/manifest.json'
     base=json.loads(base_path.read_text());dev=json.loads(dev_path.read_text());obs=json.loads(args.observer_manifest.read_text());traffic=json.loads(args.traffic_manifest.read_text())
@@ -55,7 +55,7 @@ def main():
     for path in obs.get('review_inputs',[]):inputs.append(Path(path))
     for path in [ROOT/'evaluator/C25_COMPONENT_RESULT_REVIEW.md',ROOT/'meta-critic/CONTRACT_REVIEW_003.md']:inputs.append(path)
     result={'run_id':args.id,'output':str(out),'base_manifest':str(base_path),'observer_manifest':str(args.observer_manifest.resolve()),'traffic_manifest':str(args.traffic_manifest.resolve()),'arms':arms,'router_command':traffic['router_command'],'router_url':'http://127.0.0.1:8000','backend_urls':['http://127.0.0.1:8100','http://127.0.0.1:8101'],'gpu_inventory':subprocess.check_output(['nvidia-smi','--query-gpu=index,uuid,name','--format=csv,noheader'],text=True).strip(),'input_sha256':{str(p.resolve()):sha(p) for p in inputs}}
-    path=ROOT/'native-root'/('launch-'+args.id+'.json')
+    path=args.manifest_output.resolve() if args.manifest_output else ROOT/'native-root'/('launch-'+args.id+'.json')
     with path.open('x') as f:json.dump(result,f,indent=2);f.write('\n')
     print(path)
 if __name__=='__main__':main()

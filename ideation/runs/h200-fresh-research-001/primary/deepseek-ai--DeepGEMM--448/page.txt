@@ -1,0 +1,367 @@
+Conversation
+leevan
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Fix a WGMMA register reuse race in SM90 tf32_hc_prenorm_gemm by waiting for completion before reusing A registers.
+Add a regression test covering split-K, PDL, and side streams, with reference and repeatability checks.
+Validation: tests/test_hyperconnection.py passed on an SM90 GPU.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+bug fix
+…
+6bc1ce3
+Fix a WGMMA register reuse race in tf32_hc_prenorm_gemm and add a regression test.
+ds-review-bot
+reviewed
+Sep 15, 2026
+View reviewed changes
+Comment thread
+deep_gemm/include/deep_gemm/impls/sm90_tf32_hc_prenorm_gemm.cuh
+}
+ptx::warpgroup_commit_batch();
+// Keep register A operands live until the asynchronous WGMMA completes.
+ptx::warpgroup_wait<0>();
+ds-review-bot
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: Placing
+ptx::warpgroup_wait<0>()
+after
+warpgroup_commit_batch()
+is the correct minimal fix: it keeps the single-buffered register operands
+a[...]
+live until the async WGMMA has consumed them. Consequence is that every K stage now fully drains its WGMMA before the next A load, so WGMMA and the next stage's A-load/reduction cannot overlap. This is not a regression versus the buggy code (which already waited each iteration) and correctness must come first, but it is worth a short follow-up note: if the kernel is compute bound, double-buffering
+a
+and using
+warpgroup_wait<1>()
+would restore overlap while still protecting the register source.
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_gemm/include/deep_gemm/impls/sm90_tf32_hc_prenorm_gemm.cuh
+ptx::warpgroup_wait<0>();
+if (s > 0)
+empty_barriers[(s - 1) % kNumStages]->arrive();
+ds-review-bot
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: With the wait moved to the end of the loop body,
+empty_barriers[(s - 1) % kNumStages]->arrive()
+no longer has an explicit preceding
+warpgroup_wait<0>()
+in this iteration; it relies on the wait performed at the end of the previous iteration (i.e. the stage
+s-1
+WGMMA is already complete). That is correct today, but the dependency is now implicit and a future refactor could silently reintroduce the race. Please add a one-line comment next to the arrive stating that stage
+s-1
+'s WGMMA has already been waited on, so it is safe to release
+smem_a/smem_b
+of that stage.
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+tests/test_hyperconnection.py
+# repeatability across repeated launches (a correct deterministic kernel
+# must produce identical results every time).
+previous_pdl = deep_gemm.get_pdl()
+previous_tf32 = torch.backends.cuda.matmul.allow_tf32
+ds-review-bot
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: The test saves/restores
+torch.backends.cuda.matmul.allow_tf32
+, but
+test_hc_prenorm_gemm()
+(line 18) sets
+torch.backends.cudnn.allow_tf32 = True
+and never restores it. As a result the pre-existing test still leaks global cudnn TF32 state to the rest of the suite, and the new test does not fully isolate the backend flags either. Since the new test intentionally disables TF32 for the reference, please save/restore both
+torch.backends.cuda.matmul.allow_tf32
+and
+torch.backends.cudnn.allow_tf32
+(ideally in
+test_hc_prenorm_gemm()
+as well) so the two tests cannot affect each other.
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+tests/test_hyperconnection.py
+deep_gemm.set_pdl(enable_pdl)
+stream = torch.cuda.Stream() if use_side_stream else torch.cuda.current_stream()
+with torch.cuda.stream(stream):
+generator = torch.Generator(device='cuda').manual_seed(123)
+ds-review-bot
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+:
+generator
+is recreated with
+manual_seed(123)
+inside all four nested loops, so each (pdl, side_stream) configuration runs on the exact same
+a
+/
+b
+values. That is fine for the repeatability assertion, but it means the sweep never exercises different data across configurations. Since the race is timing/data-order sensitive, deriving the seed from the loop variables (or using a different seed per configuration) would broaden coverage without hurting determinism.
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+tests/test_hyperconnection.py
+torch.testing.assert_close(sqr_sum, ref_s, rtol=1e-5, atol=2e-3)
+if previous_d is not None:
+# A correct deterministic kernel is bit-exact across launches.
+torch.testing.assert_close(d, previous_d, rtol=0, atol=0)
+ds-review-bot
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+:
+assert_close(d, previous_d, rtol=0, atol=0)
+asserts bit-exact determinism across launches. The SM90 kernel is currently deterministic (outputs are partitioned per split with no atomics), so this holds, but the assertion is stronger than typical GEMM tests and would become a false failure if split-K reduction is ever changed to a non-deterministic scheme. Please add a brief rationale comment or a named helper (
+assert_bit_exact
+) so the intent and fragility are explicit.
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+⚠️
+未完成评审（budget_exceeded：模型额度已用尽）
+v5
+⚠️
+未完成评审（budget_exceeded：模型额度已用尽）
+v4
+The MR fixes a real SM90 register-source WGMMA race in sm90_tf32_hc_prenorm_gemm. Previously the kernel loaded the FP32 A fragment into single-buffered
+a[...]
+registers BEFORE waiting for the previous stage's asynchronous WGMMA to complete, so the in-flight WGMMA could read A registers that had already been overwritten. The fix moves
+ptx::warpgroup_wait&lt;0&gt;()
+from the top of the K loop (after the A load) to the end of the loop body, immediately after
+warpgroup_commit_batch()
+, guaranteeing the prior WGMMA is done before the next iteration reloads
+a[...]
+. This is correct and matches the wait discipline used by other SM90 kernels (e.g. sm90_bf16_gemm.cuh), and the
+empty_barriers[(s-1)]-&gt;arrive()
+ordering remains safe because the previous stage's WGMMA has now been drained. The new regression test is well targeted: it sweeps split-K, large K, PDL on/off and side streams, validates per-split results against a full-precision (TF32-disabled) reference, and asserts bit-exact repeatability across launches. I could not execute the test (no SM90 GPU in this environment), but the patch is logically sound. The A-operand wait at line 206 no longer has an explicit preceding wait because it now relies on the wait at the end of the previous iteration, which is correct but implicit. Remaining feedback is minor/non-blocking.
+Files reviewed
+: 2
+Issues found
+: 🟡 1 warning | 🔵 4 suggestion
+Inline comments posted
+: 5
+⚠️
+Parse warning: [v6] budget_exceeded：模型额度已用尽; [v5] budget_exceeded：模型额度已用尽
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+leevan
+mentioned this pull request
+Sep 16, 2026
+[Bug] non-deterministic results in sm90 tf32_hc_prenorm_gemm
+#449
+Open
+mengziheng
+mentioned this pull request
+Sep 28, 2026
+[Bugfix][GLM-5.3-Flash] Integrate SM90 mHC race fix on v0.30
+mengziheng/vllm#3
+Open
+mengziheng
+added a commit
+        to mengziheng/vllm
+      that referenced
+      this pull request
+Sep 28, 2026
+[Bugfix] Package the SM90 DeepGEMM mHC register lifetime fix
+…
+d076c1f
+Integrate leevan's
+deepseek-ai/DeepGEMM#448
+into the vendored JIT
+header until the pinned dependency includes the fix. Preserve custom
+source trees and keep standalone installs consistent. Add split-K and
+side-stream regressions against independent FP32 references.
+
+Co-authored-by: Codex <noreply@openai.com>
+Signed-off-by: mengziheng <121283369+mengziheng@users.noreply.github.com>
+This was referenced
+Sep 28, 2026
+[Perf] Tune GLM-5.3-Flash block-FP8 MoE for H20
+vllm-project/vllm#58986
+Open
+[Bugfix] Package the SM90 DeepGEMM mHC register lifetime fix
+vllm-project/vllm#59129
+Open
+xijiaat
+mentioned this pull request
+Oct 9, 2026
+[WIP][DSv4.1] Opt in to mHC coefficient overlap on SM90
+vllm-project/vllm#60768
+Draft
+4 of 11 tasks
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

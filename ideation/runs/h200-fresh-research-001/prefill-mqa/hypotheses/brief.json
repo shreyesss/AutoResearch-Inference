@@ -1,0 +1,97 @@
+{
+  "name": "H200 contiguous prefill MQA epilogue",
+  "mode": "source_research",
+  "count": 1,
+  "target": {
+    "model": "DeepSeek-V4.1-Flash",
+    "gpu": "8x NVIDIA H200 SM90, 143771 MiB per GPU",
+    "topology": "two independent four-GPU TP1/DP4/EP4 replicas, API2 each",
+    "workload": "Preserve native agent-f75 8K/1K prefix workload and fixed-schedule Mooncake anchors, adapted explicitly to H200 seq64; separate 1K/1K cache-isolated diagnostic and long-context, ragged, mixed, cold/warm held-out diagnostics.",
+    "metrics": [
+      "TTFT",
+      "TPOT",
+      "throughput",
+      "cost per token",
+      "quality"
+    ]
+  },
+  "baseline": {
+    "vllm_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+    "deepseek_serve_commit": "11c249d28b2962f7384b4ab1fd7c1664704e7524",
+    "note": "Read-only live image/args attested. No measured bottleneck or new GPU result. Attention/MoE route needs source and dispatch proof. H200 cost unknown; do not copy B200 price. Allgather_reducescatter reported in prior H200 inventory; recheck source/logs.",
+    "runtime_attested_at": "2026-10-20T12:12:07Z",
+    "image": "sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c",
+    "model_revision": "2cba9e42aa026125f3ed06c6d98c1db82f7ca027",
+    "profile": "seq64 MBT16384 context1048576 graphcap512 FP8KV block64 hostEngram embedding_across_dp prefixON DSpark k5 probabilistic draft/block rejection adaptiveOFF no-swa-bounded-replay; verbose request/output/delta telemetry ON"
+  },
+  "after": "2026-01-01",
+  "seed_numbers": [],
+  "code_sources": [],
+  "queries": [
+    "deepseek-v4.1-flash b200",
+    "speculation tpot",
+    "moe communication",
+    "kv-cache ttft",
+    "nvfp4"
+  ],
+  "paper_queries": [
+    "speculative decoding adaptive draft length inference",
+    "mixture of experts inference communication overlap",
+    "prefix caching routing serving"
+  ],
+  "prior_decisions": [
+    "runs/pr-evaluation-audit-001/h200/RANKING.md"
+  ],
+  "constraints": [
+    "No GPU execution",
+    "No invented speedup estimates",
+    "Investigate negative evidence and branch/deployment applicability"
+  ],
+  "instructions": "Freshly research all 13 CSV repositories, PRs, issues, discussions and primary literature for useful H200 deployment improvements. Reopen B200 exclusions; do not use B200 ranking as selection prior. Known flags, ports, kernels, topology, routing and negative results welcome; novelty not required. Separate source claim, source fix and our transfer hypothesis. Every candidate needs concrete baseline delta, strongest simple comparator, activation signal and denominator, competing explanations, scoped correctness, held-out test, and support/reject/inconclusive decisions. Select a diverse, practical shortlist; do not invent gains or assume API endpoints establish kernel dispatch. GPU experiments and server modifications are outside this research run.",
+  "selection": {
+    "require_novelty": false
+  },
+  "repos": [
+    "SemiAnalysisAI/InferenceX",
+    "deepseek-ai/DeepEP",
+    "deepseek-ai/DeepGEMM",
+    "deepseek-ai/DeepJIT",
+    "deepseek-ai/DeepSelect",
+    "deepseek-ai/DeepSpec",
+    "deepseek-ai/Engram",
+    "deepseek-ai/FlashMLA",
+    "deepseek-ai/TileKernels",
+    "deepseek-ai/deepseek-recipe",
+    "flashinfer-ai/flashinfer",
+    "vllm-project/recipes",
+    "vllm-project/vllm"
+  ],
+  "evaluator_contract": {
+    "version": "h200-evalset-v1-research",
+    "baseline": "live H200 seq64; seq128 is a separate configuration arm",
+    "stages": [
+      "attestation",
+      "activation",
+      "correctness",
+      "unprofiled screen",
+      "separate mechanism diagnostic",
+      "paired confirmation and held-out frontier"
+    ],
+    "activation": "record path hits and eligible opportunities; zero only interpretable with adequate coverage; missing telemetry is unverified",
+    "metrics": "request TPOT=(last-first token time)/(server output tokens-1), TTFT tails, exact tokens, all-rank draft/verify/accepted counters, KV blocks and preemption, qualified request goodput, replay lag",
+    "statistics": "matched full-run A/B units; >=5 paired confirmation blocks for small gains, alternating order; baseline drift and intervals; never request-level pseudoreplication",
+    "cost": "full eight-GPU node price remains unset; parameterized cost only",
+    "slo": "preserve historical scorer definitions but H200 product SLO not supplied; diagnostic 2s TTFT/50ms TPOT is provisional, not production",
+    "telemetry": "all replicas/ranks; raw counter deltas, resets/missing coverage, request-to-final-rank join where needed; Nsight profiled results excluded from frontier",
+    "correctness": "relevant G01-G05, numerical/graph-cache branch tests; quality subset for changed math, SPEED-Bench acceptance diagnostic for speculation is not a correctness score",
+    "capability_gaps": [
+      "AIPerf local 0.11 versus planned 0.13 needs separate environment verification",
+      "profiler requires instrumented launch and clean-marker integration",
+      "historical B200 seq128 and node pricing cannot transfer unchanged"
+    ]
+  },
+  "focus": "DeepGEMM #452 is a separate contiguous prefill MQA epilogue optimization, not the paged candidate-only decode patches. The live header still uses fmaxf and unhalved KV scales. Compare source-author H200 microbenchmarks against actual invocation/shape and exposed prefill time. The source claim that x+abs(x)=2relu(x) is exact for all finite float32 is too broad: finite x can overflow when doubled, and NaN behavior differs; require range/scaling/reference and top-k-set checks. H200 serving gain unmeasured. Prefer the smallest reversible JIT-header integration and a cold-prefill versus warm-cache discriminator.",
+  "prior_decision_text": {
+    "runs/pr-evaluation-audit-001/h200/RANKING.md": "# H200 experiment order\n\nAssessed 2026-10-20 against the running eight-H200 node. These are **untested\nH200 hypotheses**. Rank means expected learning/useful improvement per unit of\nintegration and GPU time. It does not mean largest possible eventual speedup.\nNumerical ranges below are engineering planning scenarios, not measurements or\nconfidence intervals; zero and regressions remain possible.\n\n## Actual scope\n\n- Model: DeepSeek-V4.1-Flash revision `2cba9e42aa026125f3ed06c6d98c1db82f7ca027`.\n- Two independent TP1/DP4/EP4 replicas; API2 each; eight H200s total.\n- vLLM `0.30.1rc1.dev493+gac9126e58`, image `sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c`.\n- Installed serving checkout `11c249d28b2962f7384b4ab1fd7c1664704e7524`, branch\n  `more_metrics`. This is newer than the audit's serving snapshot.\n- **64 sequences per DP engine**, not the audit's 128-sequence R7b override.\n  MBT16384, context1048576, FP8 KV/block64, host Engram, prefix cache enabled,\n  real DSpark k5/block rejection/adaptive OFF. Verbose request/output/delta\n  logging and graph/speculation metrics are enabled. Keep these identical in A/B.\n- H200 is SM90; the audit's MegaAttention/MegaMoE/SM100 assumptions do not carry\n  over. `nvidia-smi` reports 143771 MiB per GPU and driver580.126.20.\n\n## Ranked Queue\n\n| Rank | Candidate | H200 validity and cheapest falsification | Potential end-to-end delta and effort |\n|---:|---|---|---|\n| 1 | **Share FlashMLA plans, PR58818**; reopened B200 exclusion | Installed MRV2/SWA code creates per-group holders, and the three-file patch applies cleanly. Same SM90 mechanism has H20 evidence. Verify redundant planner launches on this TP1/DP4 path; TP8's exact counts are not guaranteed. | Planning range: **0-3% lower low-load decode TPOT**, often **0-1% at saturation**. Three Python files, no dependency rebuild. Best first cheap test, modest ceiling. |\n| 2 | **E02: logical drafter rows, PR58984** | Installed `_build_uniform_batch_dp_sync` uses target graph capacity (`target_dp_sync.num_reqs`). With adaptive OFF, count real requests versus padded drafter rows under ragged arrivals. Stop if equal. | **0-10%** is a broad test scenario only where padding wastes material work; likely near zero at aligned full batches. Four-file patch, DP correctness tests and an older-base port review. |\n| 3 | **E04: CPU DP collectives, PR61767** | New `cpu_all_reduce_` is absent in inspected installed files. Both replicas synchronize four DP ranks. Measure exposed CPU collective time, excluding rank-arrival skew. | **0-5%** scenario if dispatch gaps dominate; zero if hidden by GPU work. More distributed correctness risk than #1. No kernel/toolchain rebuild expected. |\n| 4 | **E07: draft token-budget accounting, PR59468** | Check reservations and budget-limited prefill admission at existing MBT16384. Real bound here is **64*(5-1)=256 tokens/rank**, only **1.5625%** of the budget. | Usually near-zero decode gain; potentially small burst TTFT improvement. Budget fraction is **not** a speedup bound or prediction. A lower-MBT experiment would be a different arm. |\n| 5 | **E10: host Engram allocation/placement** | Offload and DP sharing/sharding exist, but resolve the actual branch before choosing #59849, #59923 or #62359. Verify NUMA locality and allocator capabilities. | No defensible numeric serving estimate yet. Most plausible in prefill/host-memory stalls. Registration/NUMA branches differ; GB200 cuMem results are not H200 guarantees. |\n| 6 | **E11/E14: prefix-group and final-rank locality** | Measure actual prefix misses per rank on agent-f75/sessions. API2 matters; endpoint affinity is already different from DP-rank affinity. | Could improve TTFT substantially on demonstrated misses; **zero expected benefit on the selected cache-isolated first diagnostic**. Do not adopt older-V4 patches unchanged. |\n| 7 | **E12/E13: scheduler work and prefill alignment** | Measure host scheduling spans and rank skew under mixed prefill/decode. Revalidate source membership per patch. | Profile-dependent; no justified percentage yet. More likely to affect tails than short homogeneous decode. |\n| 8 | **SM90 candidate-only indexer scoring, issue61830** | Real Hopper gap: candidate consumers compute dense logits then mask them. Existing SM100 sparse-MQA route cannot be enabled on H200. Needs an actual Hopper implementation. | Larger long-context ceiling, but poor first-test time-to-value. H20 report puts four consumer layers at **20% of a 1M-context step** at one tested load: even perfect removal implies at most **25% throughput** there before other effects. This says nothing comparable about 1K/8K traffic. |\n| 9 | **E15/E18: fusion or alternate Hopper MoE/communication backend** | TP1 may expose useful fusion/communication changes; kernel and precision eligibility must be established first. Current MoE all-to-all config is `allgather_reducescatter`. | Potentially larger gains but integration, numerical and memory risk. Separate backend/precision/topology arms; no percentage justified from the current audit. |\n\nPrimary evidence: [#58818](https://github.com/vllm-project/vllm/pull/58818),\n[#58984](https://github.com/vllm-project/vllm/pull/58984),\n[#61767](https://github.com/vllm-project/vllm/pull/61767),\n[#59468](https://github.com/vllm-project/vllm/pull/59468),\n[SM90 indexer request #61830](https://github.com/vllm-project/vllm/issues/61830).\nThe remaining source links and restrictions are in the original experiment cards.\n\n## Important Rejections\n\n| Audit direction | H200 disposition |\n|---|---|\n| E01 / #61039 length-aware candidate selection | **Do not cherry-pick as a ready H200 win.** `has_deep_select()` in installed `sparse_mqa_logits.py:43` requires SM100. Upstream's length-aware route uses it; the fallback keeps full-width scoring/top-k. A Hopper port is separate work. |\n| E06 / #60802 DeepSelect dispatch | Installed `IndexerTopKDispatcher` also gates DeepSelect to SM100. The proposed route is unavailable on this H200 build. |\n| E03 / graph cap512 ->768/1024 and #62040 | **No immediate experiment at seq64.** Live startup captured target FULL(384 tokens,64 requests,q6) and draft FULL(320,64,q5). The specific largest-batch hole is absent. Reopen on runtime fallback or a later seq128 arm, not by copying B200 settings. |\n| E05 MegaMoE JIT warmup | Separate startup objective; Blackwell MegaMoE patch is not a steady-state Hopper improvement. Existing startup was already in progress. |\n| E08 packed MX activation chain, E09 B200 FlashMLA#227, SM100 routes in E18 | Not eligible as direct Hopper changes. These need architecture-specific ports or a different backend hypothesis. |\n| E16 KV tier, E17 draft-context/adaptive changes | Offload tier is inactive; short-context pilot does not trigger long-draft degradation. Added features/output changes have lower first-experiment ROI. |\n\nThe source-level H200 exclusions are supported by the installed code and\n[#61039's implementation](https://github.com/vllm-project/vllm/blob/7c3f7e5500c85aacb72aab50bd1ce05485b1d73a/vllm/model_executor/kernels/attention/dsa/candidate_blocks.py).\nThe graph-hole mechanism is documented in\n[#62040](https://github.com/vllm-project/vllm/pull/62040).\n\n## Why #58818 First\n\nThe upstream H20 author reports +2.5% output TPS at C1 and +0.5% at C64, with\nsynthetic acceptance in the performance runs. We will use real rejection and\nthe actual H200 TP1/DP4 topology. Those differences limit transferability. The\nupstream correctness runs used real verification, but their unit tests did\n**not** exercise the newly shared-cache branch. Our candidate is unqualified\nuntil that branch and actual decode behavior are checked.\n\nFor intuition, if duplicate plans cost 0.3 ms on a 15 ms critical-path step,\nremoving them saves 2% step latency and raises ideal throughput by about 2.04%.\nThe H200 planner count/time and exposed fraction must be measured. Neither\nGPU bandwidth ratios nor the PR's microbenchmark multiplier predicts serving\nthroughput.\n\nKeep a measured no-win outcome: a 0.5% effect below boot/run variation is a\nreason to move to #58984, not to keep running until a favorable sample appears.\n"
+  }
+}

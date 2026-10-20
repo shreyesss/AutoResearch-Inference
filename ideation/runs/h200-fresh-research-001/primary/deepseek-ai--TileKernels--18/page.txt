@@ -1,0 +1,74 @@
+Conversation
+quanliu1991
+commented
+Jun 2, 2026
+Copy link
+Copy Markdown
+Hand-written CUDA kernels for the Manifold HyperConnection (MHC) pipeline, targeting NVIDIA H20-3e (SM 90) with bf16/f32 mixed precision.
+Four fused kernels:
+mhc_expand: [M,H] -> [M,4,H] with vectorized uint4 loads
+mhc_pre_fused: GEMM + RMSNorm + Split + Sinkhorn + ApplyMix in one launch
+mhc_post: residual update with per-token comb/post_mix
+mhc_head: LM head preprocessing (thin GEMM + RMSNorm + sigmoid + mix)
+All correctness tests pass against PyTorch reference. Build via torch.utils.cpp_extension, exposed through pybind11 bindings.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Add CUDA MHC inference kernels for SM 90 (Hopper)
+…
+59dada4
+Hand-written CUDA kernels for the Manifold HyperConnection (MHC) pipeline,
+targeting NVIDIA H20-3e (SM 90) with bf16/f32 mixed precision.
+
+Four fused kernels:
+- mhc_expand: [M,H] -> [M,4,H] with vectorized uint4 loads
+- mhc_pre_fused: GEMM + RMSNorm + Split + Sinkhorn + ApplyMix in one launch
+- mhc_post: residual update with per-token comb/post_mix
+- mhc_head: LM head preprocessing (thin GEMM + RMSNorm + sigmoid + mix)
+
+All correctness tests pass against PyTorch reference. Build via
+torch.utils.cpp_extension, exposed through pybind11 bindings.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+quanliu1991
+closed this
+Jun 2, 2026
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

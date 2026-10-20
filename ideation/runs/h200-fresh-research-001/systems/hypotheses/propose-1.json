@@ -1,0 +1,354 @@
+{
+  "hypotheses": [
+    {
+      "id": "h200-systems-001",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Separate the DP-wide maximum real request count from target CUDA-graph capacity when constructing DSpark draft batches. First inspect the installed uniform-batch helper and complete patch revision: the supplied excerpts establish DFlash inheritance and the proposed unpadded-count mechanism, but not the complete deployed dispatch path. If target padding makes the drafter select larger graphs, port the execution-shape fix while retaining startup capture capacity and coherent dummy-rank metadata. The predicted benefit is less draft work during ragged or partially occupied traffic, with little benefit when both counts select the same graph. H20 results motivate testing but do not predict H200 gains: acceptance changed, adaptive verification was enabled, and TTFT regressed at one reported load.",
+      "observed_bottleneck": "Unknown on H200. Observed supplied code shows DSpark inheriting DFlash machinery; supplied patch hunks add num_reqs_unpadded. Author-reported H20 DP8 tests used seq96, MBT2048, adaptive verification ON and random 3500/1500 traffic. At concurrency 64, reported throughput improved 1.06% while TTFT increased 2.84% and acceptance fell 4.97 percentage points. These are source reports, not independently observed results.",
+      "mechanism": "Source fix: preserve a DP-wide real-request maximum separately from padded target capacity and use it for uniform drafting. Transfer inference: removing target-induced excess rows can reduce actual draft execution only when it changes graph selection or executed work; padding required by DP imbalance remains.",
+      "proposed_change": "Check baseline presence and effective anchor/fill-in layout first. If absent and activated by real traffic, adapt the complete four-commit patch, including dummy-input preparation, attention metadata, EPLB preparation and autoregressive capacity safeguards. Keep k5, adaptiveOFF, seq64 and graphcap512.",
+      "code_surface": "vllm/v1/worker/gpu/dp_utils.py; vllm/v1/worker/gpu/spec_decode/speculator.py; dflash/speculator.py; target_dependent_ar/speculator.py; inherited DSpark path. The supplied patch is incomplete, so final constructors and call sites require inspection before a port.",
+      "applicability": "Plausible SM90 Python/dispatch change without a new GPU kernel. Required gates remain deferred until installed helper behavior, checkpoint query width, complete patch correctness and smaller-graph opportunities are established.",
+      "predicted_direction": "Conditionally lower TPOT and higher throughput on ragged arrivals; unknown effect on TTFT and saturated aligned batches. H200 effect size is unknown.",
+      "classification": "upstream_port",
+      "alternatives": [
+        {
+          "explanation": "Acceptance changes or different node behavior explain the reported serving improvement.",
+          "distinguishing_test": "Use alternating full-run comparisons on the same node with real rejection sampling. Separately replay matched shapes and controlled proposals to isolate execution cost; keep this diagnostic out of the serving frontier."
+        },
+        {
+          "explanation": "A smaller logical batch still selects the same draft graph, or static capture-size refinement removes the waste equally well.",
+          "distinguishing_test": "Record actual graph descriptors and executed rows. Compare against a supported, preselected static capture-size refinement within graphcap512, with its additional capture memory included."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "code:h200-excerpts:systems",
+          "quote": "class DSparkSpeculator(DFlashSpeculator):",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:58984:patch",
+          "quote": "num_reqs_unpadded: int",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:58984:live-page",
+          "quote": "Acceptance varies between the two arms",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:deepseek-ai/DeepSpec:48:live-page",
+          "quote": "Exactness is the core claim of speculative decoding",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known execution-shape optimization; no novelty claim.",
+        "implementation": "Port and qualify existing logical-row accounting for this pinned DSpark implementation.",
+        "workload": "Test DP4, adaptiveOFF and native prefix traffic rather than extrapolating DP8 adaptive-verification results.",
+        "nearest_prior_art": "vLLM PR #58984. BASS supplies only general batched-execution context here; its mechanism sections are absent from the supplied excerpt.",
+        "specific_delta": "Replace target-capacity-derived draft sizing only where the installed path still uses it."
+      },
+      "prior_art_query": "drafter padding logical requests",
+      "experiment": {
+        "control": "Attested baseline with all settings preserved. Include the strongest supported static graph-size refinement within cap512 as a separate comparator, without increasing seq64 or changing speculation.",
+        "treatment": "First inspect source/configuration and existing logs. After eligibility and correctness qualification, change logical-row propagation alone. Follow attestation, activation, correctness, unprofiled screening, separate mechanism diagnosis, paired confirmation and held-out evaluation.",
+        "metrics": "Across both replicas and every rank: real requests, DP-wide maximum, target capacity, draft query width, selected graph and executed rows. Denominator: uniform draft dispatches following target FULL graphs with capacity above the DP-wide real maximum; numerator: those selecting fewer executed rows. Also collect exact output tokens, draft/verify/accepted deltas, TTFT tails, request TPOT=(last-first token time)/(server output tokens-1), throughput, qualified goodput, KV blocks, preemptions and replay lag.",
+        "supports_if": "The port reduces actual draft execution on eligible events and improves unprofiled serving metrics beyond drift without quality or predeclared TTFT-tail regressions. Confirm small gains with at least five alternating paired full-run blocks, intervals and held-out replication.",
+        "rejects_if": "Complete inspection finds equivalent behavior already active; adequate eligible coverage shows no graph/work reduction; or correctness fails or serving performance regresses against the strongest comparator.",
+        "inconclusive_if": "The complete patch is unavailable, graph telemetry is missing, eligible events are rare, acceptance differences remain unexplained, or full-run intervals cannot distinguish benefit from drift.",
+        "held_out_condition": "Primary native agent-f75 8K/1K and fixed-schedule Mooncake anchors at seq64. Hold out different ragged arrival patterns, mixed long prompts and cold/warm phases. Keep cache-isolated 1K/1K results separate.",
+        "correctness": "Test unequal and idle ranks, startup capture versus online dummy batches, graph boundaries, metadata agreement, buffer bounds, KV rollback, EOS and cancellation. Validate actual conditional DSpark proposals against declared probabilities and committed-token distributions with an independent reference and a negative control. Acceptance and GSM8K nonsignificance are insufficient. Map these tests to the supplied G01-G05 contract once its definitions are available.",
+        "cost": "Low-to-moderate port effort; distributed and sampler validation dominate. No execution performed. Parameterized node cost per qualified output token is C8*T/(3600*Nqualified), with C8 unknown."
+      },
+      "revision_reason": "Initial candidate narrowed to execution-shape savings; scheduler reservation changes and adaptive verification are separate mechanisms."
+    },
+    {
+      "id": "h200-systems-002",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Replace eligible small CPU DP reductions with the recursive-doubling implementation from PR #61767, conditional on exposed synchronization cost. The supplied installed excerpt contains a distributed all-reduce call, while the patch shows the replacement algorithm and engine-state caller. For each four-rank replica, the power-of-two branch requires two exchange rounds; this arithmetic says nothing about serving speed. First confirm the actual process groups, call sites and whether an equivalent implementation is already active. Compare against stock Gloo under matched CPU placement, separating rank-arrival skew from collective service time. The prediction is shorter dispatch gaps when transport overhead is exposed, with negligible benefit when GPU work or late ranks dominate.",
+      "observed_bottleneck": "Unknown on H200. Observed supplied code includes dist.all_reduce in DP metadata synchronization. Author-reported GB200/Ethernet microbenchmarks reduced four-rank, 6×N int32 p50 from 780 to 224 microseconds. This is a collective microbenchmark, not a serving result. Local host CPU, transport behavior, contention and p99 effects are unknown.",
+      "mechanism": "Source fix: recursive doubling within power-of-two rank blocks, with group-local send/recv and explicit completion waits. Transfer inference: reducing exposed small-message synchronization time can shorten iteration dispatch without changing GPU MoE communication.",
+      "proposed_change": "Inspect both worker metadata and post-step engine-state callers. Port cpu_all_reduce_ only to eligible Gloo CPU SUM paths, retaining fallback behavior. Attribute worker and engine-state contributions separately before combining them.",
+      "code_surface": "vllm/distributed/utils.py; vllm/distributed/parallel_state.py; vllm/config/parallel.py; vllm/v1/worker/gpu/dp_utils.py; distributed collective and DP integration tests.",
+      "applicability": "Independent of SM90 GPU arithmetic. DP4 directly exercises the power-of-two branch. Exact deployed process-group backend, threading/order constraints and post-step membership remain unknown; qualification is deferred. This does not activate DeepEP or replace GPU AG/RS.",
+      "predicted_direction": "Conditionally lower TPOT and improve throughput through reduced CPU dispatch gaps. No H200 effect size is known.",
+      "classification": "upstream_port",
+      "alternatives": [
+        {
+          "explanation": "Most apparent collective time is waiting for a rank delayed by prefill or host scheduling.",
+          "distinguishing_test": "Use aligned host timestamps to separate first-to-last arrival from last-arrival-to-completion; correlate both with per-rank prefill and CPU scheduling spans."
+        },
+        {
+          "explanation": "CPU placement or contention from two simultaneous replicas explains the benefit.",
+          "distinguishing_test": "Hold placement, thread settings and telemetry fixed; compare isolated-replica diagnostics with the required simultaneous two-replica run. Include an existing supported CPU/NUMA placement configuration as the simple comparator."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "code:h200-excerpts:systems",
+          "quote": "dist.all_reduce(tensor, group=group)",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61767:patch",
+          "quote": "block_size = world_size & -world_size",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61767:patch",
+          "quote": "recv_work.wait()",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61767:live-page",
+          "quote": "ray backend not tested",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "Established collective algorithm; no novelty claim.",
+        "implementation": "Port an existing generic CPU collective to the pinned worker and engine-state paths.",
+        "workload": "Determine exposed cost with two concurrent DP4 replicas rather than extrapolating larger multi-node groups.",
+        "nearest_prior_art": "vLLM PR #61767 and its described predecessor #60267.",
+        "specific_delta": "Change the small CPU reduction implementation while preserving collective semantics, GPU backend and scheduling policy."
+      },
+      "prior_art_query": "small tensor CPU allreduce",
+      "experiment": {
+        "control": "Attested baseline using current Gloo reductions with matched CPU affinity, thread configuration and telemetry. Compare against supported static CPU-placement tuning before crediting algorithmic gains.",
+        "treatment": "Inspect call-site membership and process groups first. Then qualify and test the replacement at worker metadata synchronization, followed by a separately attributed engine-state arm. Use the required staged evaluation sequence.",
+        "metrics": "All-rank call counts and eligible opportunities at each site, including skipped coordination. Activation numerator: replacement calls; denominator: eligible contiguous CPU SUM calls on the intended Gloo group. Record arrival skew, collective completion latency, exposed CPU-to-GPU gaps, host utilization, TTFT tails, request TPOT, exact tokens, throughput, qualified goodput, draft/verify/accepted counters, KV/preemption and replay lag.",
+        "supports_if": "The replacement reduces collective service time and exposed dispatch gaps, then improves unprofiled serving metrics without distributed failures or tail regressions. Require at least five alternating paired full-run confirmation blocks for small effects, with drift checks, intervals and held-out confirmation.",
+        "rejects_if": "Equivalent behavior is already active; supported eligible calls show no useful exposed-time reduction; the strongest static comparator matches or beats it; or ordering, correctness or serving regressions occur.",
+        "inconclusive_if": "Rank timestamps cannot separate arrival skew, process-group compatibility is unresolved, activation coverage is missing, or measured differences remain within full-run uncertainty.",
+        "held_out_condition": "Primary agent-f75 and fixed Mooncake schedules at seq64. Hold out mixed prefill/decode bursts, highly uneven rank arrivals, pause/resume waves and simultaneous host contention from both replicas.",
+        "correctness": "Check exact int32 SUM equivalence, group-local rank mapping, stateless groups, idle/dummy participation, pause transitions and termination. Audit reserved tags and overlapping invocations; prove call ordering or serialize safely and include its cost. Exercise fallback and failure paths. Map to relevant G01-G05 definitions when supplied; unchanged GPU math does not remove distributed correctness requirements.",
+        "cost": "Moderate distributed validation effort without a GPU-kernel rebuild. Microbenchmark gains do not estimate serving savings. Use C8*T/(3600*Nqualified); eight-GPU node price is unknown."
+      },
+      "revision_reason": "Initial candidate explicitly separates collective transport from rank-arrival skew and from the unrelated GPU communication backend."
+    },
+    {
+      "id": "h200-systems-003",
+      "parents": [
+        "hypothesis:9ea2ed3a2aa40010bff0a8ebec9108067bba603b0fdcf542efd1be9ff9fcf8fc"
+      ],
+      "operation": "repair",
+      "statement": "Test prefix affinity at the final DP-rank decision, with affinity information shared across the two API workers within each replica. First inspect existing routing and join requests to replica, API worker and final rank; endpoint affinity alone cannot establish reusable KV locality. Narrow the earlier queue-skew proposal to preferring a remembered compatible destination only among equally loaded ranks, preserving lower-load decisions. Compare shared state with both the existing process-local tie-break proposal and a stateless deterministic tie-break. The expected benefit is avoided prefill for retained exact prefixes. Reported throughput regressions and fragmented API-local maps make cache-hit improvement insufficient evidence; useful selection requires better serving results without unacceptable queue concentration.",
+      "observed_bottleneck": "Unknown on H200. Author-reported PR #52464 tests used H100, DeepSeek-V4-Flash-0731, DP4/EP, API4 and a high-reuse Mooncake trace. At concurrency 1, reported hit rate increased from 37.6% to 61.5%; throughput fell at several other loads, including 23% at concurrency 16. The author's variance explanation is unverified. Live final-rank routing and recoverable prefix work are unknown.",
+      "mechanism": "Source mitigation: remember a prefix's prior engine and prefer it only on tied load scores. Transfer inference: sharing that hint across API2 can avoid process-local map fragmentation, but remembered placement is not proof of current residency. Queue load, exact-prefix retention and eviction determine value.",
+      "proposed_change": "After presence and opportunity checks, use a bounded per-replica affinity table at final internal DP selection, accessible to both API workers. Key hints by compatible cache namespace, LoRA identity and token-prefix identity. Preserve explicit-rank bypass, lower-load routing and load-only fallback; initially keep external replica routing unchanged.",
+      "code_surface": "vllm/v1/engine/core_client.py and test_dp_lb_prefix_affinity.py are identified by PR #52464. Shared-table or coordinator integration is a proposed adaptation, not supplied implementation evidence. The serving checkout's outer router path requires inspection.",
+      "applicability": "CPU routing change with no SM90 kernel dependency. Baseline inclusion, shared-state API, outer-router behavior and useful tied opportunities are unresolved; required gates remain deferred. Benefits across replicas cannot be claimed from a within-replica intervention.",
+      "predicted_direction": "Potentially lower TTFT and higher goodput for warm exact-prefix traffic. Little benefit on cache-isolated traffic; queue imbalance and overhead can reduce capacity.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "A deterministic stateless tie-break provides the same locality without shared state.",
+          "distinguishing_test": "Compare shared hints against consistent prefix hashing among minimum-score tied ranks, using identical keys and preserving lower-load precedence."
+        },
+        {
+          "explanation": "Misses arise from eviction, changed retrieval content or cross-replica movement rather than API-map fragmentation.",
+          "distinguishing_test": "Join full token-prefix hashes, cache residency/eviction observations and final destinations. Attribute recoverable missed blocks separately to each cause."
+        },
+        {
+          "explanation": "Higher hit rate merely concentrates queues and worsens serving capacity.",
+          "distinguishing_test": "Measure avoided prefill tokens together with rank queue tails, TTFT tails and qualified goodput at identical offered-load schedules."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:52464:live-page",
+          "quote": "only when scores tie",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:52464:live-page",
+          "quote": "each frontend process has its own client and affinity map",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "fulltext:2608.19677",
+          "quote": "affinity can reduce capacity when the recoverable prefix work is small.",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known locality/load-balancing tradeoff; no novelty claim.",
+        "implementation": "Adapt process-local tie affinity to shared visibility at API2 final-rank selection.",
+        "workload": "Preserve native exact prefixes and measure actual reusable work instead of assuming all multi-turn traffic is cacheable.",
+        "nearest_prior_art": "vLLM PR #52464; CacheRoute provides mechanism and negative-workload context, not a drop-in implementation.",
+        "specific_delta": "Resolve API-worker fragmentation while narrowing the previous proposal to tied decisions and testing against a stateless comparator."
+      },
+      "prior_art_query": "prefix affinity tied routing",
+      "experiment": {
+        "control": "Attested load-aware routing with prefix caching ON and unchanged external routing. Compare current behavior, PR #52464-style local hints and deterministic prefix hashing among tied ranks before qualifying shared state.",
+        "treatment": "First inspect routing membership and collect final-destination joins. Then introduce bounded shared hints within each replica only, following activation and correctness qualification before unprofiled comparisons.",
+        "metrics": "Denominator: tied routing opportunities for repeated compatible prefixes of at least block64; separately count the subset with observed retained reusable KV. Numerator: shared-hint decisions reaching that destination. Record API-worker crossings, served cached blocks, avoided prefill tokens, table overhead, rank queue distributions, KV evictions/preemptions, TTFT tails, request TPOT, exact tokens, qualified goodput and replay lag across both replicas.",
+        "supports_if": "Shared visibility recovers attributable prefill work and improves unprofiled TTFT or qualified goodput beyond both simple comparators without predeclared queue-tail or TPOT regressions. Confirm small gains with at least five alternating paired full-run blocks and held-out intervals.",
+        "rejects_if": "Equivalent final-rank affinity is already active; adequate coverage finds negligible recoverable work; stateless/local comparators match the result; or higher hit rate accompanies worse qualified serving performance.",
+        "inconclusive_if": "Request-to-final-rank joins or residency evidence are missing, warmup differs, tied opportunities are insufficient, or intervals cannot distinguish cache benefit from run variation.",
+        "held_out_condition": "Primary native agent-f75 8K/1K prefixes and fixed Mooncake anchors. Hold out hot-key skew, changed retrieval prefixes, eviction pressure, connection churn across API2 and cold/warm transitions. Cache-isolated 1K/1K is a separate negative control.",
+        "correctness": "Preserve exact cache validation rather than trusting routing hints. Test cache_salt and LoRA isolation, block boundaries, stale entries, bounded eviction, explicit-rank bypass, fairness for unrelated ties, cancellation and concurrent updates. Validate outputs and tool-call behavior on a quality subset; map cache/distributed checks to G01-G05 once defined.",
+        "cost": "Moderate routing integration cost; inexpensive source and trace falsification first. Shared-map overhead must be charged to the treatment. Use unknown node price C8 and measured qualified tokens for parameterized cost."
+      },
+      "revision_reason": "Repairs the earlier broad routing proposal using supplied API-map fragmentation evidence, a narrower tie-only policy, stronger static comparison and explicit treatment of negative throughput reports. Current deployment eligibility remains deferred."
+    },
+    {
+      "id": "h200-systems-004",
+      "parents": [
+        "hypothesis:cb6e7f22cde120b51176c9fe66da87f67906fdc0da75e09e3c1ee36857b30bee"
+      ],
+      "operation": "evolve",
+      "statement": "Test coordinated prefill release only if measured mixed-step interference survives tuning the existing scheduler and static prefill interval. PR #61834 supplies a concrete per-step coordination protocol, but its reported interactivity gains come from an earlier MI355X branch and include substantial TTFT penalties; PR #51199 reinforces the need for a static comparator. Adapt the policy to each DP4 replica with MBT16384 and add an agreed wall-clock escape so protected decode periods cannot indefinitely postpone expensive chunks. Keep the CPU collective implementation fixed during this experiment. The prediction is fewer disruptive mixed steps, not an automatic throughput gain; promotion requires a better TTFT/TPOT frontier after accounting for queueing and coordination overhead.",
+      "observed_bottleneck": "Unknown on H200. Author-reported earlier-branch MI355X DP8 AgentX results at concurrency 64 increased TTFT p50 from 3.76 to 8.63 seconds while total throughput changed from 22.0K to 22.2K tokens/s/GPU. The supplied upstream branch has no GPU runs. PR #51199's cross-framework comparisons do not isolate its own implementation. CPU simulation results are not serving measurements.",
+      "mechanism": "Source proposal: coordinate prefill FIRE/HOLD decisions and protect subsequent decode steps. Transfer inference: concentrating required prefills can reduce repeated lockstep decode interruption, but deferred chunks and an added CPU collective can erase the benefit.",
+      "proposed_change": "Inspect current static interval and any equivalent alignment logic first. If a useful delta remains, adapt the opt-in #61834 protocol with a globally agreed overdue flag based on each rank's local oldest-prefill waiting age. Give the wall-clock escape priority over protected steps. Tune bounds only on development traffic; retain disabled-policy fallback.",
+      "code_surface": "vllm/config/scheduler.py; vllm/engine/arg_utils.py; vllm/v1/core/sched/prefill_delayer.py; scheduler.py; vllm/v1/engine/core.py. The wall-clock escape is a proposed adaptation, not verified source behavior.",
+      "applicability": "Plausible host-scheduler adaptation for fixed DP4/EP4. Confirm compatible scheduler and process groups; the source excludes custom schedulers and elastic EP. Installed membership, mixed-step exposure and acceptable latency bounds remain unknown, so qualification is deferred.",
+      "predicted_direction": "Potentially lower TPOT tails and higher qualified goodput under mixed agentic traffic, with a clear risk of worse TTFT. H200 effect size and production tradeoff are unknown.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "An existing static interval or scheduler/MBT setting achieves the same frontier with less complexity.",
+          "distinguishing_test": "Prespecify a small static-interval sweep at MBT16384. Evaluate MBT tuning in separately labeled arms before accepting added policy complexity."
+        },
+        {
+          "explanation": "The policy improves decode metrics simply by withholding prefill and moving latency into the queue.",
+          "distinguishing_test": "Use unchanged arrival schedules and exact request accounting; include deferred and unfinished requests, TTFT tails, replay lag and qualified goodput."
+        },
+        {
+          "explanation": "CPU synchronization overhead or KV pressure dominates rather than prefill misalignment.",
+          "distinguishing_test": "Measure mixed-step frequency, rank-arrival skew, additional collective service time, KV-triggered releases and preemptions separately."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:51199:live-page",
+          "quote": "This adds multiple extra tuning knobs and additional complexity to the scheduler.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61834:live-page",
+          "quote": "No GPU runs on this branch yet.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61834:live-page",
+          "quote": "On: one 6-int CPU all-reduce per step.",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61834:live-page",
+          "quote": "The trade-off is TTFT:",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known prefill-alignment policy family; no novelty claim.",
+        "implementation": "Adapt an existing protocol to DP4 and a wall-clock progress requirement.",
+        "workload": "Resolve the reported interactivity/TTFT conflict on native H200 seq64 traffic.",
+        "nearest_prior_art": "vLLM PRs #61834 and #51199; existing --prefill-schedule-interval is the mandatory simple comparator.",
+        "specific_delta": "Replace the earlier scheduler-local budget idea with explicitly coordinated release, conditional on static tuning failing to remove the interference."
+      },
+      "prior_art_query": "DP prefill alignment delayer",
+      "experiment": {
+        "control": "Attested baseline and the best prespecified static prefill interval at unchanged MBT16384. Also evaluate an explicitly separate scheduler/MBT tuning comparator. Keep CPU collective implementation, routing and draft accounting identical across policy arms.",
+        "treatment": "Inspect existing policy and exposure first. Qualify the adapted coordinated delayer, then compare at the same offered schedule and seq64. Do not combine it initially with h200-systems-002.",
+        "metrics": "Denominator: non-idle DP steps with pending prefill and active decodes; count eligible requests/chunks as well. Numerators: HOLD decisions, synchronized releases and avoided mixed steps. Record release reason, waiting age, per-rank actual prefill tokens, collective overhead, queue tails, TTFT tails, request TPOT, exact tokens, throughput, qualified goodput, KV/preemption, all-rank draft counters and replay lag.",
+        "supports_if": "Compared with the strongest static policy, coordinated release reduces attributable mixed-step interference and improves the unprofiled serving frontier while satisfying preregistered TTFT and maximum-wait limits. Confirm small effects with at least five alternating paired full-run blocks, drift checks and held-out intervals.",
+        "rejects_if": "Static tuning matches or dominates; purported gains depend on delayed or unfinished requests; TTFT/wait limits fail; added collective overhead cancels savings; or distributed progress fails.",
+        "inconclusive_if": "No agreed TTFT tradeoff exists, mixed-step exposure is insufficient, the branch remains unqualified, required counters are missing, or intervals leave a latency tradeoff unresolved. Provisional diagnostic SLOs cannot establish production suitability.",
+        "held_out_condition": "Primary agent-f75 8K/1K and fixed Mooncake anchors. Hold out long chunked prompts, correlated and uncorrelated bursts, a rank with no local decodes, high KV occupancy and repeated idle-to-active waves.",
+        "correctness": "Test identical all-rank decisions, real/dummy/pause participation, chunk continuation, overdue release before protected-step rules, high-KV release, cancellation, wave reset and bounded progress. Ensure policy-off behavior is unchanged and both static interval and delayer cannot be enabled inconsistently. Check graph/KV state and output quality; obtain G01-G05 definitions before qualification.",
+        "cost": "Highest scheduler integration and validation cost in this shortlist; stop after static-policy screening if it dominates. No GPU execution performed. Cost remains C8*T/(3600*Nqualified), with unfinished work charged to elapsed time."
+      },
+      "revision_reason": "Evolves the previous local prefill-budget lead using concrete DP protocols and contrary TTFT evidence. Adds a mandatory static comparator and an explicit wall-clock progress condition rather than treating decode interactivity as sufficient."
+    },
+    {
+      "id": "h200-systems-005",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Test exact-size registration of CPU-offloaded Engram tables only after resolving whether this deployment uses private DP shards or shared host storage. The launch arguments establish offload and embedding_across_dp, but do not establish allocation ownership, rounding or backing. PR #59849 separates two effects: exact sizing reduces host allocation, while registration type changes lookup performance in its GB10 experiment. If the live private-table path still rounds allocations, port that allocation change with safe fallback and unchanged sorting and NUMA placement. Compare against exact-size cudaHostAlloc and supported existing THP settings. Predict serving benefit only if host pressure or exposed lookup latency falls; memory savings alone do not establish lower H200 cost per token.",
+      "observed_bottleneck": "Unknown on H200. Author-reported GB10 TP4, 32K-token measurements reduced host allocation from 33.1 to 24.3 GiB with registration. Exact cudaHostAlloc used 24.9 GiB but retained the same 41.4 ms unsorted lookup time; registered storage reported 22.7 ms. End-to-end offload validation was still outstanding. These sizes and timings do not establish TP1/DP4 behavior.",
+      "mechanism": "Source fix: reuse the registration helper without huge pages for exact-sized private offloaded tables, falling back on registration failure. Transfer inference: less allocation waste may relieve real host pressure, while a different backing/registration path may independently alter exposed lookup latency.",
+      "proposed_change": "Inspect effective defaults, storage ownership, allocator calls, physical/shared bytes and NUMA placement across both replicas. Only for an eligible rounded private-table path, adapt #59849. Keep table values, sorting thresholds, partitioning and communication unchanged; do not bundle packed exchange or shared cuMem backing.",
+      "code_surface": "vllm/models/deepseek_v41/common/engram.py; tests/kernels/test_engram.py; distributed Engram tests. The supplied PR describes the helper change and tests but does not supply its implementation diff.",
+      "applicability": "CUDA-host allocation path is plausibly portable to H200, but registration capability and effective allocation mode are unknown. Shared or already exact-sized tables may have no delta. Required gates remain deferred until source and backing inspection.",
+      "predicted_direction": "Lower physical host allocation if rounding exists; potentially lower TTFT or higher throughput only with demonstrable pressure or exposed lookup savings. Decode benefit and all H200 effect sizes are unknown.",
+      "classification": "upstream_port",
+      "alternatives": [
+        {
+          "explanation": "Exact sizing saves memory but registration type, not byte reduction, causes lookup improvement.",
+          "distinguishing_test": "Compare current allocation, exact-size cudaHostAlloc and exact-size registered storage under identical sorting, page policy and NUMA placement."
+        },
+        {
+          "explanation": "The live tables are already shared/exact-sized, or lookup work is hidden by overlap.",
+          "distinguishing_test": "Inspect ownership and physical backing before porting; then measure exposed lookup time rather than standalone kernel duration. Reject this delta if the relevant allocation branch is absent."
+        },
+        {
+          "explanation": "Existing THP or NUMA placement delivers the practical benefit more simply.",
+          "distinguishing_test": "Compare supported existing configurations. Record their sorting and page-policy differences explicitly rather than attributing all changes to registration."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:59849:live-page",
+          "quote": "Exact size gives the memory saving; the registered memory type gives the speed.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:59849:live-page",
+          "quote": "Draft: GB10 only.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62359:live-page",
+          "quote": "Decode lookups already overlap on the side stream.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "runtime:h200:runtime-inventory",
+          "quote": "--engram-config",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known exact-allocation and registration techniques; no novelty claim.",
+        "implementation": "Port an existing private-table allocator change only after resolving the actual storage branch.",
+        "workload": "Separate host-memory accounting from serving impact on real prefixes and speculation-expanded row counts.",
+        "nearest_prior_art": "vLLM PR #59849. PR #62359 addresses a different shared-storage branch; PR #59923 addresses packed sharded exchange.",
+        "specific_delta": "Remove demonstrated private allocation rounding and change its registration path without changing ownership, precision or exchange."
+      },
+      "prior_art_query": "Engram exact host registration",
+      "experiment": {
+        "control": "Attested allocation with matched NUMA placement and sorting. Include exact-size cudaHostAlloc as an attribution control and the strongest supported existing THP/placement configuration as a practical comparator.",
+        "treatment": "First inspect effective allocation and source presence. If eligible, change only exact-size registration and fallback handling; qualify before unprofiled serving tests.",
+        "metrics": "Denominator: private offloaded table allocations eligible for exact registration; numerator: successful exact registrations, with fallback counts. Track logical bytes, actual registered bytes, physical host usage without double-counting shared mappings, faults, pressure and NUMA traffic. Measure lookup rows and exposed lookup time, TTFT tails, request TPOT, exact tokens, qualified goodput, KV/preemption, draft counters and replay lag on all ranks.",
+        "supports_if": "The eligible branch activates and reduces actual allocation waste; serving qualification additionally requires lower exposed stalls or lookup time and better unprofiled metrics than the strongest comparator. Confirm small effects with at least five alternating paired full-run blocks and held-out checks.",
+        "rejects_if": "Tables are already exact/shared with no relevant delta; registration is unsupported; lookup gains remain entirely hidden; no serving value appears under adequately covered relevant conditions; or lifetime/correctness failures occur. Record memory-only savings separately.",
+        "inconclusive_if": "Storage ownership, physical-memory accounting or registration telemetry is unresolved, host pressure is unrepresentative, or serving differences remain within drift.",
+        "held_out_condition": "Primary native agent-f75 and Mooncake at seq64. Hold out cold/warm allocation phases, long and ragged prefills, repeated versus random row IDs, and simultaneous memory pressure from both replicas. Keep random-row microbenchmarks separate.",
+        "correctness": "Check exact table bytes and lookup outputs at shard and allocation boundaries, sorted/unsorted paths, empty and uneven batches, registration fallback, teardown and repeated allocation/free. Exercise graph replay and distributed storage lifetime. If outputs or math change unexpectedly, require numerical and quality qualification rather than acceptance statistics. Map relevant cases to G01-G05 once supplied.",
+        "cost": "Cheap allocation inspection, then moderate allocator/lifetime validation. Host-memory savings are not GPU KV savings or an automatic node-price reduction. Use C8*T/(3600*Nqualified), with C8 unknown."
+      },
+      "revision_reason": "Initial candidate deliberately isolates exact private-table registration from packed exchange and shared-memory backing, whose eligibility and mechanisms differ."
+    }
+  ],
+  "gaps": [
+    "No tools, file changes, agents or experiments were used. These are prospective candidates derived only from supplied material; unresolved required gates remain deferred, not qualified passes or demonstrated failures.",
+    "All controls refer to vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516, serving checkout 11c249d28b2962f7384b4ab1fd7c1664704e7524, the supplied image/model revision, and two independent H200 TP1/DP4/EP4 replicas with API2 each. Preserve seq64, MBT16384, context1048576, graphcap512, FP8 KV/block64, prefix caching, host Engram, k5 probabilistic/block rejection, adaptiveOFF, disabled SWA replay and enabled telemetry except explicitly labeled comparator factors.",
+    "The inventory and installed excerpts are supplied observations, not independently re-attested execution. PR benchmark numbers are author reports. No measured H200 bottleneck, serving effect, final attention/MoE dispatch, effective Engram allocation or complete patch membership is established. Source and patch hashes do not substitute for missing implementation text or activation traces.",
+    "Every future confirmation must use matched full-run units, not request-level pseudoreplication; track all replicas/ranks, missing counters and resets. Use unprofiled runs for the serving frontier and separate instrumented mechanism diagnostics. A zero-hit result needs adequate eligible coverage. Runtime graph selections and effective query widths must be measured rather than inferred from seq64.",
+    "G01-G05 definitions and production H200 SLOs are not supplied. Preserve historical scorer definitions; the 2-second TTFT/50-ms TPOT diagnostic is provisional. Preregister quality and tail-latency tolerances before confirmation. H200 node price is unknown; no B200 price or numerical speedup prediction is used.",
+    "Packed Engram exchange remains a conditional follow-up, not a direct SM100 activation: #59923 requires private DP-sharded tables, compatible F8_128x4 wkv, TP1 and other gates. Its peer exchange requires SM100; the all-to-all fallback needs explicit H200 eligibility proof. The author describes prefill improvement over THP/all-gather as within end-to-end noise. Decode results are truncated in the supplied excerpt.",
+    "Shared Engram cuMem backing is a separate alternative if shared storage is confirmed. #62359 reports GB200 prefill gains but zero decode change at its tested shapes. H200 host-NUMA/FABRIC support, mapping behavior and sharing across replicas are unknown. A capability/backing inspection should precede any proposed port.",
+    "DeepEP #693 reopens Hopper communication as a lead, but current AG/RS is a supplied premise requiring dispatch verification. Adoption would need staged comparisons of current AG/RS, a compatible stock DeepEP integration, then patched DeepEP. H100 direct-NVLink bandwidth reports do not establish EP4 serving value. Full adapter compatibility and the reviewed buffer-reuse invariant remain unresolved; the supplied excerpt does not prove final review resolution.",
+    "Draft-budget PR #59468 is not selected ahead of these mechanisms: if the live scheduler still charges K−1, the maximum removable reservation is 64×4=256 tokens/rank, or 1.5625% of MBT16384. This arithmetic is neither a speedup estimate nor evidence of extra decode admission. Inspect actual budget-limited prefill opportunities before reconsideration.",
+    "Decoder SWA replay remains a separate approximation/quality experiment because #56752 explicitly changes computation. Acceptance diagnostics cannot establish sampler correctness. Larger graph caps and planner sharing are not promoted from prior ranking prose: no current graph-hole activation or supplied #58818 implementation artifact establishes their incremental value here.",
+    "BASS and CacheRoute are mechanism context only. Despite fulltext metadata, supplied excerpts omit most methods and evaluation detail. Their abstract/conclusion claims do not establish transferable algorithms or implementation behavior.",
+    "The brief requests coverage of 13 repositories but enumerates 16. Supplied engineering bodies concentrate on vLLM, DeepEP and DeepSpec; exhaustive repository, review and discussion coverage cannot be claimed. The supplied HTML coverage is explicitly incomplete. AIPerf version compatibility and profiler/clean-marker integration also remain unverified."
+  ]
+}

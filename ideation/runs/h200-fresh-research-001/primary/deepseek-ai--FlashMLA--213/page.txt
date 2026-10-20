@@ -1,0 +1,98 @@
+Conversation
+FrankMinions
+commented
+Aug 24, 2026
+Copy link
+Copy Markdown
+Summary
+Reduce dynamic shared memory in
+get_mla_metadata_kernel
+from
+5*b+1
+to
+3*b+1
+by dropping redundant
+first_block_idx
+/
+last_block_idx
+buffers.
+Since
+first_token_idx
+is always 0,
+first_block_idx
+is always 0 and
+last_block_idx + 1
+equals
+num_blocks
+, so block range bounds can be derived from
+num_blocks
+and the local split offset (
+now_block
+) instead of being cached in shared memory.
+Update
+begin_block_idx
+/
+end_block_idx
+/
+is_last_req_splitted
+computation accordingly; scheduling semantics are unchanged.
+Motivation
+The decode scheduling metadata kernel previously reserved shared memory for five
+int
+arrays of size roughly proportional to batch size. Two of those arrays were redundant given the current dense/sparse indexing assumptions (
+first_token_idx == 0
+). Removing them lowers shared-memory pressure for large batches and simplifies the kernel.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+FrankMinions
+added
+2
+commits
+August 24, 2026 10:49
+opt smem alloc
+0e1bdd4
+fix bug
+56d0a00
+FrankMinions
+closed this by deleting the head repository
+Aug 24, 2026
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

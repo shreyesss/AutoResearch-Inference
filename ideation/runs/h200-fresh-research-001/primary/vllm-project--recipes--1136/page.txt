@@ -1,0 +1,483 @@
+Conversation
+esmeetu
+commented
+Oct 17, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Member
+Summary
+Adds
+deepseek-ai/DeepSeek-V4.1-Flash-1017
+(2026-10-17 weight update) to the DeepSeek-V4.1-Flash recipe and makes it the default variant, mirroring how DeepSeek-V4-Pro rolled its 0813 release forward.
+default
+→
+deepseek-ai/DeepSeek-V4.1-Flash-1017
+, pill
+FP8 (1017)
+new
+fp8
+variant → the 2026-09-09 launch checkpoint (recipe's own repo), pill
+FP8 (0909)
+, kept for reproducing earlier results
+Both variants share the H100 (Engram CPU offload) and DGX Station (expert offload) per-GPU overrides via a YAML anchor
+Guide: new
+Checkpoints
+section; client examples (reasoning snippet, Verifying curl) use the 1017 model id; 1017 model card added to References
+date_updated: 2026-10-17
+Why a variant swap is safe
+Compared the two HF repos:
+config.json
+,
+tokenizer_config.json
+,
+encoding/
+and
+inference/config.json
+are byte-identical
+model.safetensors.index.json
+: same 96,085 tensors, same 510.3 GB total
+1017 ships no
+chat_template.jinja
+— not needed, since
+--tokenizer-mode deepseek_v41
+(already in
+base_args
+) encodes prompts in vLLM's Python encoder
+So the generated commands are identical apart from the model id (checked on H100, GB200, DGX Station GB300, MI355X).
+Install: pip wheel, no nightly
+vLLM 0.30.0 registers
+DeepseekV41ForCausalLM
+and the
+deepseek_v41
+tokenizer; 0.31.0 adds the KV-offload fix (#57145) and the ROCm Engram host-memory gate (#57491). Checked against the
+v0.31.0
+tree: every flag the NVIDIA commands emit (
+--engram-config
+,
+FLASHINFER_MLA_SPARSE_DSV41
+/
+FLASHMLA_MEGA_ATTN_DSV41
+,
+--kernel-config
+,
+--prefill-schedule-interval
+,
+--offload-backend
+/
+--cpu-offload-params
+, the DSpark adaptive-verification config) is present, and the Rust frontend registers the
+deepseek_v41
+parsers.
+min_vllm_version: "0.31.0"
+; drop
+nightly_required
+and
+install.pip: false
+→ pip tab +
+vllm/vllm-openai:latest
+on NVIDIA
+AMD Docker stays on
+nightly-rocm100
+(the verified image).
+MI355X hides pip
+(
+install.pip: false
+per GPU):
+--monokernel
+(#60397/#61082), the ROCm MXFP4 indexer (#58671) and Gluon sparse MLA (#53492) are on main but not in 0.31.0. MI300X/MI325X/MI350X can use the ROCm wheel — 0.31.0 force-disables SWA bounded replay on ROCm, so the pre-#59039 prefix-hit fault does not apply.
+Prerequisites, KV offloading and the DGX Station note updated accordingly
+Caveat
+meta.hardware
+verified badges and the measured numbers in the guide (MI355X benchmark, KV offloading validation) were taken on the 0909 checkpoint; the guide states this explicitly. The 1017 weights have not been separately re-run.
+Validation
+node scripts/build-recipes-api.mjs
+— ✓ 213 models
+pnpm test:schema
+— pass
+pnpm test:overlay
+— pass
+🤖 Generated with
+Claude Code
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👀
+1
+gemini-code-assist[bot] reacted with eyes emoji
+All reactions
+👀
+1 reaction
+DeepSeek-V4.1-Flash: default to the 1017 checkpoint
+…
+0d013eb
+Add deepseek-ai/DeepSeek-V4.1-Flash-1017 (2026-10-17 weight update) as the
+default variant and keep the 2026-09-09 launch checkpoint selectable as
+"FP8 (0909)". config.json, tokenizer files and encoding/ are byte-identical
+between the two repos and the index holds the same 96,085 tensors
+(510.3 GB), so both variants share the H100 and DGX Station per-GPU
+overrides through a YAML anchor.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: esmeetu <jasonailu87@gmail.com>
+vercel
+Bot
+commented
+Oct 17, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+The latest updates on your projects. Learn more about
+Vercel for GitHub
+.
+Project
+Deployment
+Actions
+Updated
+vllm-recipes
+Ready
+Preview
+Oct 17, 2026 9:09am UTC
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+chatgpt-codex-connector
+Bot
+commented
+Oct 17, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Codex Review Summary
+This comment shows the latest Codex review activity on this pull request.
+Review
+Status
+Commit
+Review trigger
+📝
+Code Review
+✅
+Completed
+2026-10-17T09:03:18.689972Z
+0d013eb
+PR opened
+ℹ️ About Codex in GitHub
+Your team has set up Codex to review pull requests in this repo
+. Reviews are triggered when you
+Open a pull request for review
+Mark a draft as ready
+Comment "
+@codex
+review" or "
+@codex
+security review".
+Codex reacts with 👀 while any review is running, comments if it has suggestions, and reacts with 👍 once all reviews finish with no findings.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+gemini-code-assist
+Bot
+reviewed
+Oct 17, 2026
+View reviewed changes
+gemini-code-assist
+Bot
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Code Review
+This pull request updates the DeepSeek-V4.1-Flash model configuration to use the 2026-10-17 weight refresh (deepseek-ai/DeepSeek-V4.1-Flash-1017) as the default variant. It also preserves the original 2026-09-09 launch checkpoint as an alternative fp8 variant to allow for reproducibility. The documentation, examples, and references have been updated accordingly. There are no review comments, and I have no feedback to provide.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+vercel
+Bot
+deployed
+to
+Preview
+October 17, 2026 09:00
+View deployment
+chatgpt-codex-connector
+Bot
+reviewed
+Oct 17, 2026
+View reviewed changes
+chatgpt-codex-connector
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+💡 Codex Review
+Here are some automated review suggestions for this pull request.
+Reviewed commit:
+0d013eb7fc
+ℹ️ About Codex in GitHub
+Your team has set up Codex to review pull requests in this repo
+. Reviews are triggered when you
+Open a pull request for review
+Mark a draft as ready
+Comment "
+@codex
+review".
+If Codex has suggestions, it will comment; otherwise it will react with 👍.
+Codex can also answer questions or update the PR. Try commenting "
+@codex
+address that feedback".
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+models/deepseek-ai/DeepSeek-V4.1-Flash.yaml
+# so it keeps the launch checkpoint's per-GPU memory layout below. The repo
+# ships no chat_template.jinja; the deepseek_v41 tokenizer mode in base_args
+# encodes prompts in Python, so none is needed.
+model_id: "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+chatgpt-codex-connector
+Bot
+Oct 17, 2026
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Keep untested 1017 out of the verified default path
+When the page/API opens without
+?variant=
+, this line makes 1017 the active checkpoint, but every
+meta.hardware
+entry and both fail-closed
+kv_offload_support
+entries still retain
+verified
+from the 0909 run.
+CommandBuilder.jsx:1718-1725
+renders the former as “Verified on …”, and
+CONTRIBUTING.md:109-111
+defines that status as an end-to-end test, while the new guide explicitly says 1017 has not been rerun (lines 471-473). Default users therefore see the plain 1017 command labeled verified and can enable offloading paths gated on verification even though neither path was tested on these weights; rerun 1017 before defaulting it or avoid transferring the recipe-wide verified claims to this variant.
+Useful? React with 👍 / 👎.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+DeepSeek-V4.1-Flash: serve from the 0.31.0 pip wheel
+…
+448bda0
+The architecture shipped in vLLM 0.30.0, and 0.31.0 adds the KV-offload
+fix (#57145) and the ROCm Engram host-memory gate (#57491); every flag the
+NVIDIA commands generate is in the 0.31.0 wheel. Drop nightly_required and
+install.pip: false, and set min_vllm_version to 0.31.0.
+
+MI355X keeps Docker only: its --monokernel and ROCm MXFP4 indexer path are
+on main but not in 0.31.0. AMD keeps the nightly-rocm100 image the AMD rows
+were verified on.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: esmeetu <jasonailu87@gmail.com>
+esmeetu
+changed the title
+DeepSeek-V4.1-Flash: default to the 1017 checkpoint
+DeepSeek-V4.1-Flash: default to 1017, install from the 0.31.0 pip wheel
+Oct 17, 2026
+vercel
+Bot
+deployed
+to
+Preview
+October 17, 2026 09:09
+View deployment
+Hide details
+View details
+esmeetu
+merged commit
+d5fc1f5
+into
+vllm-project
+:
+main
+Oct 17, 2026
+4 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+This was referenced
+Oct 17, 2026
+[Doc] Sync DeepSeek-V4.1-Flash recipe with vllm-project/recipes#1136, #1137
+vllm-project/vllm#62179
+Merged
+[Infra] Render the vLLM recipes from vllm-project/vllm
+#1095
+Merged
+Recipes for vLLM-served models are moving to vllm-project/vllm
+#1107
+Open
+esmeetu
+added a commit
+        to vllm-project/vllm
+      that referenced
+      this pull request
+Oct 17, 2026
+[Doc] Sync DeepSeek-V4.1-Flash recipe with
+vllm-project/recipes#1136
+,
+#…
+…
+21e09ea
+…1137
+(
+#62179
+)
+
+Signed-off-by: esmeetu <jasonailu87@gmail.com>
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+michael-gpu
+pushed a commit
+        to practical-inference/vllm-ampere-extended
+      that referenced
+      this pull request
+Oct 20, 2026
+[Doc] Sync DeepSeek-V4.1-Flash recipe with
+vllm-project/recipes#1136
+,
+v…
+…
+6eb827a
+…llm-project#1137
+(
+vllm-project#62179
+)
+
+Signed-off-by: esmeetu <jasonailu87@gmail.com>
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+Hide environments
+Show environments
+This branch was successfully deployed
+1 active
+        deployment
+Preview
+—
+448bda0e
+Deployed
+Oct 17, 2026
+by
+vercel[bot]
+View deployment
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+chatgpt-codex-connector[bot]
+chatgpt-codex-connector[bot] left review comments
++1 more reviewer
+gemini-code-assist[bot]
+gemini-code-assist[bot] left review comments
+Reviewers whose approvals may not affect merge requirements
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,85 @@
+Conversation
+initial-d
+commented
+Oct 18, 2026
+Copy link
+Copy Markdown
+Problem and change
+Engram.__init__
+currently always constructs a dense
+MultiHeadEmbedding
+. Experimenting with a frozen mmap/host-storage gather therefore requires allocating the default table first and replacing it afterward.
+Add an optional
+embedding_factory
+argument to
+Engram
+. The callable receives the original
+list_of_N
+and
+D
+and returns an
+nn.Module
+. The default is still
+MultiHeadEmbedding
+, retaining the original state-dict keys, initialization and trainable weights. Hash addressing and downstream gates/projections/ShortConv are unchanged. This avoids the default table allocation when a caller supplies an alternate backend.
+The hook does not add a library dependency, implement offloading/compression, or change default training/inference. Backends own loading, shape/dtype/device compatibility, training behavior and resource cleanup. README documents the contract and an example.
+Validation
+python -m unittest discover -s tests -v
+: 3 tests passed.
+Default and explicit original factory have identical state dictionaries and retain trainable embedding parameters.
+An injected frozen gather receives the expected original head sizes/dimension, avoids default-table allocation, and produces byte-identical full Engram output through the existing gates and ShortConv.
+A factory returning a non-module fails clearly.
+Tests use tiny local IDs and original
+_get_ngram_hashes
+; only tokenizer/hash-map construction is substituted to avoid downloads. No trained checkpoint, tokenizer fidelity, backbone logits, quality or GPU-performance claim is made.
+Separately, I tested a native mmap backend through this hook: default table allocation was avoided and full CPU module output matched byte-for-byte. A pinned unchanged-source integration harness also checks Python/native storage × float32/float16/bfloat16 (six cases):
+source-linked report
+. Those random-weight checks are interface evidence, not learned Engram compression results. No external backend code is required for this PR's tests.
+Local environment: Python3.12.14, PyTorch2.14.1, NumPy2.5.4, sympy1.14.0, transformers5.20.1, tokenizers0.23.3, macOS26.6.2 arm64/Apple M5, CPU.
+git diff --check
+and semantic Ruff on the added tests passed.
+Opening as a draft for feedback on whether this small extension point fits the demonstration API.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Allow an optional multi-head embedding factory in the Engram demo
+8b4155c
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,238 @@
+From 682c088b0cb7399629e5eb5db8a80a663f35ec76 Mon Sep 17 00:00:00 2001
+From: zhangwenhe1007 <zhangwenhe1007@gmail.com>
+Date: Wed, 8 Jul 2026 00:39:10 +0000
+Subject: [PATCH] [DFlash/DSpark] Long-context training via RoPE scaling +
+ config
+
+Adds optional rope_scaling / max_position_embeddings config fields that extend the
+target/drafter RoPE for long-context finetuning, where draft acceptance drops most.
+The drafter attention is built from target_config, so the extension flows through.
+For transformers>=5 it is merged into rope_parameters, keeping the base rope_theta.
+No effect when unset.
+
+- deepspec/trainer/base_trainer.py: merge rope_scaling into target_config.rope_parameters, bump max_position_embeddings
+- config/dflash/dflash_qwen3_8b_longctx.py: long-context config (YaRN 4x to 128k, max_length 32768)
+- scripts/test_long_context_rope.py: CPU test that the extension reaches the drafter rotary (YaRN applied, finite at 128k)
+- README: long-context note
+
+Implementation prepared with AI assistance.
+---
+ README.md                                |  2 +
+ config/dflash/dflash_qwen3_8b_longctx.py | 71 +++++++++++++++++++
+ deepspec/trainer/base_trainer.py         | 16 +++++
+ scripts/test_long_context_rope.py        | 88 ++++++++++++++++++++++++
+ 4 files changed, 177 insertions(+)
+ create mode 100644 config/dflash/dflash_qwen3_8b_longctx.py
+ create mode 100644 scripts/test_long_context_rope.py
+
+diff --git a/README.md b/README.md
+index dbb79990..c067c35a 100644
+--- a/README.md
++++ b/README.md
+@@ -38,6 +38,8 @@ bash scripts/train/train.sh
+ 
+ Hardware: the default configs and scripts assume a single node with 8 GPUs. For fewer GPUs, reduce `CUDA_VISIBLE_DEVICES`.
+ 
++**Long-context training (optional).** Set `rope_scaling` (and optionally `max_position_embeddings`) in a config's `model` block to extend the target/drafter RoPE, and raise `data.max_length`, to train a drafter for long context (the regime where draft acceptance degrades most). See [`config/dflash/dflash_qwen3_8b_longctx.py`](./config/dflash/dflash_qwen3_8b_longctx.py) for a YaRN-4x (32k->128k) example; generate the target cache at the same long context.
++
+ 
+ ## Evaluation
+ 
+diff --git a/config/dflash/dflash_qwen3_8b_longctx.py b/config/dflash/dflash_qwen3_8b_longctx.py
+new file mode 100644
+index 00000000..e9f0b24d
+--- /dev/null
++++ b/config/dflash/dflash_qwen3_8b_longctx.py
+@@ -0,0 +1,71 @@
++import os
++from deepspec.trainer import Qwen3DSparkTrainer
++BASE_TB_DIR = os.path.expanduser("~/tensorboard")
++BASE_CKPT_DIR = os.path.expanduser("~/checkpoints")
++project_name = "deepspec"
++exp_name = "dflash_block7_qwen3_8b_longctx32k"
++seed = 42
++
++model = dict(
++    target_model_name_or_path="Qwen/Qwen3-8B",
++    block_size=7,
++    num_draft_layers=5,
++    target_layer_ids=[1, 9, 17, 25, 33],
++    mask_token_id=151669,
++    num_anchors=512,
++
++    # Disable markov head.
++    markov_rank=0,
++
++    # Disable confidence head.
++    confidence_head_alpha=0.0,
++
++    # CE-only loss.
++    loss_decay_gamma=4.0,
++    ce_loss_alpha=1.0,
++    l1_loss_alpha=0.0,
++
++    # Long-context training: extend the target/drafter RoPE (YaRN 4x -> 128k)
++    # and train on longer sequences (data.max_length below). Generate the
++    # target cache at the same long context (scripts/data/prepare_target_cache.py).
++    rope_scaling=dict(rope_type="yarn", factor=4.0, original_max_position_embeddings=32768),
++    max_position_embeddings=131072,
++)
++
++train = dict(
++    trainer_cls=Qwen3DSparkTrainer,
++    lr=6.0e-4,
++    warmup_ratio=0.04,
++    weight_decay=0.0,
++    precision="bf16",
++    local_batch_size=1,
++    global_batch_size=512,
++    num_train_epochs=10,
++    max_train_steps=None,
++    max_grad_norm=1.0,
++    sharding_strategy="no_shard",
++    torch_compile=True,
++)
++
++logging = dict(
++    logging_steps=10,
++    checkpointing_steps=3000,
++)
++
++data = dict(
++    target_cache_path=None,
++    chat_template="qwen",
++    max_length=32768,
++    num_workers=4,
++)
++
++
++def finalize_cfg(cfg):
++    logging_cfg = dict(cfg["logging"])
++    project_name=str(cfg['project_name'])
++    exp_name = str(cfg["exp_name"])
++    logging_cfg["checkpoint_dir"] = os.path.join(BASE_CKPT_DIR, project_name, exp_name)
++    logging_cfg["tensorboard_dir"] = os.path.join(BASE_TB_DIR, project_name, exp_name)
++    cfg["logging"] = logging_cfg
++    
++    return cfg
+diff --git a/deepspec/trainer/base_trainer.py b/deepspec/trainer/base_trainer.py
+index 6b2eef1d..d21d4b15 100644
+--- a/deepspec/trainer/base_trainer.py
++++ b/deepspec/trainer/base_trainer.py
+@@ -251,6 +251,22 @@ def build_models(self):
+             model_args.target_model_name_or_path,
+         )
+ 
++        # Optional long-context training: extend the target/draft RoPE so the
++        # drafter's attention (built from target_config below) covers long
++        # sequences. Zero-regression when unset.
++        rope_scaling = getattr(model_args, "rope_scaling", None)
++        if rope_scaling is not None:
++            # transformers>=5 unifies RoPE config under rope_parameters; merge
++            # the extension in while keeping the base rope_theta.
++            rope_parameters = dict(getattr(target_config, "rope_parameters", None) or {})
++            rope_parameters.update(rope_scaling)
++            target_config.rope_parameters = rope_parameters
++        max_position_embeddings = getattr(
++            model_args, "max_position_embeddings", None
++        )
++        if max_position_embeddings is not None:
++            target_config.max_position_embeddings = int(max_position_embeddings)
++
+         draft_model = self._build_draft_model(
+             target_config=target_config,
+             model_args=model_args,
+diff --git a/scripts/test_long_context_rope.py b/scripts/test_long_context_rope.py
+new file mode 100644
+index 00000000..75fa2269
+--- /dev/null
++++ b/scripts/test_long_context_rope.py
+@@ -0,0 +1,88 @@
++"""CPU test that the optional long-context RoPE recipe reaches the drafter's attention.
++
++No GPU needed (a real Qwen3 config is fetched if the Hub is reachable, else a faithful
++synthetic one is used). It checks:
++  (1) the rope extension (merged into rope_parameters, transformers>=5) propagates through
++      build_qwen3_draft_config into the draft config (via deepcopy of target_config);
++  (2) the resulting Qwen3RotaryEmbedding applies YaRN: attention_scaling != 1, finite at
++      128k positions, and rescaled vs the unscaled rotary.
++
++Usage: python scripts/test_long_context_rope.py
++"""
++import os
++import sys
++
++import torch
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++from transformers import AutoConfig, Qwen3Config  # noqa: E402
++from transformers.models.qwen3.modeling_qwen3 import Qwen3RotaryEmbedding  # noqa: E402
++from deepspec.modeling.dspark.qwen3.config import build_draft_config  # noqa: E402
++from deepspec.utils.config import ConfigNode  # noqa: E402
++
++ROPE = dict(rope_type="yarn", factor=4.0, original_max_position_embeddings=32768)
++
++
++def _model_args(rope_scaling=None, max_position_embeddings=None):
++    d = dict(num_draft_layers=2, target_layer_ids=[0], confidence_head_alpha=0.0,
++             markov_rank=0, block_size=4, mask_token_id=0, num_anchors=8)
++    if rope_scaling is not None:
++        d["rope_scaling"] = rope_scaling
++    if max_position_embeddings is not None:
++        d["max_position_embeddings"] = max_position_embeddings
++    return ConfigNode(d)
++
++
++def _target_config():
++    try:
++        return AutoConfig.from_pretrained("Qwen/Qwen3-8B")
++    except Exception:
++        c = Qwen3Config(num_hidden_layers=4, hidden_size=256, num_attention_heads=8,
++                        num_key_value_heads=4, head_dim=128, max_position_embeddings=40960,
++                        vocab_size=1000)
++        c.rope_parameters = {"rope_theta": 1000000, "rope_type": "default"}
++        return c
++
++
++def _apply_rope(cfg, model_args):
++    # mirrors deepspec/trainer/base_trainer.build_models
++    rs = getattr(model_args, "rope_scaling", None)
++    if rs is not None:
++        rope_parameters = dict(getattr(cfg, "rope_parameters", None) or {})
++        rope_parameters.update(rs)
++        cfg.rope_parameters = rope_parameters
++    mpe = getattr(model_args, "max_position_embeddings", None)
++    if mpe is not None:
++        cfg.max_position_embeddings = int(mpe)
++    return cfg
++
++
++def main():
++    tgt = _apply_rope(_target_config(), _model_args(ROPE, 131072))
++    draft = build_draft_config(target_config=tgt, model_args=_model_args(ROPE, 131072))
++    assert draft.rope_parameters.get("rope_type") == "yarn", draft.rope_parameters
++    assert draft.rope_parameters.get("factor") == 4.0
++    assert "rope_theta" in draft.rope_parameters, "base rope_theta must be preserved"
++    assert draft.max_position_embeddings == 131072
++    print("(1) rope extension propagates into the draft config:", draft.rope_parameters)
++
++    base = build_draft_config(target_config=_target_config(), model_args=_model_args())
++    rb_base = Qwen3RotaryEmbedding(base)
++    rb_scaled = Qwen3RotaryEmbedding(draft)
++    assert rb_scaled.attention_scaling != rb_base.attention_scaling, (
++        rb_base.attention_scaling, rb_scaled.attention_scaling)
++    pos = torch.arange(0, 131072, 8192).unsqueeze(0)
++    x = torch.zeros(1, pos.shape[1], base.hidden_size)
++    cos_b, _ = rb_base(x, pos)
++    cos_s, sin_s = rb_scaled(x, pos)
++    assert torch.isfinite(cos_s).all() and torch.isfinite(sin_s).all()
++    assert not torch.allclose(cos_b, cos_s)
++    print(f"(2) YaRN applied to the drafter rotary: attention_scaling "
++          f"{rb_base.attention_scaling:.4f} -> {rb_scaled.attention_scaling:.4f}, "
++          f"max rope delta at positions up to 128k = {(cos_b - cos_s).abs().max().item():.4f}")
++
++    print("\nALL PASS")
++
++
++if __name__ == "__main__":
++    main()

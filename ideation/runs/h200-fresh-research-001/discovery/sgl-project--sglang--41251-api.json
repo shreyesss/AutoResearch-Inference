@@ -1,0 +1,87 @@
+{
+  "document": {
+    "id": "github:sgl-project/sglang:41251",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/sgl-project/sglang/pull/41251",
+    "title": "[Perf] Optimize DeepSeek V4.1 Flash Hopper paths and Blackwell prefill selection",
+    "body": "## Motivation\n\nDeepSeek-V4.1-Flash on Hopper spends substantial decode time in group32 dense GEMMs, capacity-sized indexer work, mHC statistics, and padded Marlin MoE projections. This PR tunes those paths. On Blackwell, flattened prefill selection also launches separate mask, sort, slot-map and raw-offset operations; the added integer kernel combines them.\n\n## Changes\n\n- Tune Hopper group32 GEMMs and reuse exact BF16 expansions of eligible FP8 weights, preserving activation quantization boundaries and the original fallbacks.\n- Use live paged indexer lengths and variable-length top-k; fuse masking, sorting and slot mapping.\n- Enable guarded Hopper mHC combine/norm and compensated BF16 projection paths, with decode statistics overlap.\n- Preserve intermediate activation rounding in fused clipped SwiGLU; defer MXFP4 padding until Marlin repacking.\n- On SM100-family CUDA GPUs, fuse flattened prefill selection into one integer kernel. Keep the changing visible slot count as a non-specialized runtime argument, so new context lengths do not create new JIT variants. Hopper retains its existing Torch selection path.\n\n## Pinned validation\n\nCheckpoint `dba1be0a40aa45a94ad051997016db3960a90277`; PyTorch 2.13.0+cu130 and sgl-kernel 0.4.8; sgl-bench commit `a9da34ad1f997ca05878d858d3d01970e4a49af9`; sgl-eval 0.1.2. Both machines were allocated exclusively for these comparisons. All paired datasets, request counts, input/output lengths and API errors were validated from the request records. Timings exclude profiling and correctness instrumentation.\n\n### H200: upstream main versus original PR runtime\n\n8\u00d7H200, TP8/EP1, Marlin MoE, static memory fraction 0.8, bounded SWA replay, decode graph maximum batch64, Engram host table disabled. Main `ef867fa40d` versus PR `22e352d873`; `94d21e3162` differs from the measured PR only by a test mock accessor. Random8192 input /1024 output, seed42, temperature0, thinking disabled,64 warmup requests and cache flush. Request counts30/40/80/80/160/320 at concurrency1/4/8/16/32/64; three alternating paired sweeps. Ratios below are medians of the three paired ratios.\n\n|Concurrency|User-speed ratio|Output-throughput/GPU ratio|TTFT speedup|\n|---:|---:|---:|---:|\n|1|2.2067\u00d7|2.1515\u00d7|1.3398\u00d7|\n|4|2.4842\u00d7|2.3498\u00d7|1.5062\u00d7|\n|8|2.3599\u00d7|2.2322\u00d7|1.5551\u00d7|\n|16|2.1674\u00d7|2.0574\u00d7|1.5555\u00d7|\n|32|2.2540\u00d7|2.1077\u00d7|1.5658\u00d7|\n|64|2.3975\u00d7|2.1929\u00d7|1.5583\u00d7|\n\nThe final Blackwell addition was checked separately against the original PR on the same H200 node: one complete paired six-point sweep and full GSM8K/AIME24 at4096/32768 output caps. User-speed ratios are0.9990\u20131.0029 and output-throughput/GPU ratios0.9989\u20131.0013. This additional check is one paired sweep, not the three-sweep main comparison above. Full GSM8K is1277/1319 on both arms; AIME24 is456/480\u2192457/480, with23 truncations each. Hopper continues to use its Torch fallback; equal aggregate scores do not imply identical generations.\n\n### GB300: added flattened prefill fusion versus ordinary PR\n\n4\u00d7NVIDIA GB300/SM103, ARM64, TP4/EP1, flashinfer_mxfp4 MoE and flashinfer_cutedsl FP8 GEMM. Ordinary PR `94d21e3162` versus candidate `179b1ab2d3` (identical tested file hashes). Both arms use16384 for chunked-prefill-size and max-prefill-tokens. Three rotated paired sweeps; seed42, temperature0, thinking disabled,16 warmups and cache flush. Each shape uses64 requests at concurrency1 and128 at concurrency16.\n\n|Input tokens|Output tokens|Concurrency|Median TTFT speedup|Individual paired ratios|\n|---:|---:|---:|---:|---|\n|8192|32|1|1.0170\u00d7|1.0227\u00d7, 1.0170\u00d7, 0.9902\u00d7|\n|8192|32|16|1.0277\u00d7|1.0266\u00d7, 1.0485\u00d7, 1.0277\u00d7|\n|32768|32|1|1.0209\u00d7|1.0209\u00d7, 1.0282\u00d7, 0.9794\u00d7|\n|32768|32|16|1.0200\u00d7|1.0200\u00d7, 1.0239\u00d7, 1.0168\u00d7|\n\nBoth concurrency16 shapes improve in all three pairs. Each concurrency1 shape has one regressing pair, so this is a small prefill improvement, not a claim of universal or statistically proven acceleration. In the8192-input/1024-output suite, median output-throughput/GPU ratios are only1.0009\u20131.0081. The standalone selection helper improves5.45\u201314.33\u00d7; that microbenchmark is not an end-to-end speedup.\n\n### Accuracy\n\nFull GSM8K1319 problems, thinking disabled; full AIME24 is30 problems\u00d716 repeats, thinking enabled. Seed42, temperature0,32 evaluation threads, no API errors. Repeats are not480 independent questions. Results are paired by question ID, problem text and expected answer.\n\n|Machine|Dataset/output cap|Upstream main|Ordinary PR|Blackwell candidate|\n|---|---|---:|---:|---:|\n|H200|GSM8K/2048|1278/1319|1278/1319|Not rerun at this cap|\n|H200|AIME24/16384|440/480|437/480|Not rerun at this cap|\n|H200|GSM8K/4096|1276/1319|1274/1319|See fresh paired run below|\n|H200|AIME24/32768|451/480|454/480|See fresh paired run below|\n|H200, fresh paired run|GSM8K/4096|Not rerun|1277/1319|1277/1319|\n|H200, fresh paired run|AIME24/32768|Not rerun|456/480|457/480|\n|GB300|GSM8K/2048|1277/1319|1278/1319|1279/1319|\n|GB300|AIME24/16384|438/480|437/480|434/480|\n|GB300, fresh paired run|GSM8K/4096|Not rerun|1279/1319|1277/1319|\n|GB300, fresh paired run|AIME24/32768|Not rerun|456/480|453/480|\n\nGB300 accuracy uses2048 prefill budgets, because upstream main's FlashMLA scheduling metadata exceeds its48KB shared-memory implementation limit on a GSM8K batch at the default16K budget. Performance comparisons use the same16K budget on every arm and are kept separate. AIME24 candidate versus ordinary PR changes by\u22120.625 percentage points; truncations40\u219242,14 correct\u2192wrong and11 wrong\u2192correct. There is also one additional wrong nontruncated answer. The higher-cap paired run still has AIME24 \u22120.625 percentage points (456\u2192453 correct; truncations22\u219224;7 correct\u2192wrong,4 reverse), and GSM8K \u22120.1516 percentage points (1279\u21921277; neither arm truncated). These scores do not prove identical generation or statistical accuracy equivalence.\n\n### Correctness coverage\n\n- Existing H200 focused regression:582 passed,60 skipped,16 subtests passed on the rebased runtime.\n- New integer selection/CUDA Graph/cache-reuse cases:34 passed on real GB300 SM100 dispatch, and34 passed on H200 with the SM100 entry mocked to exercise the integer helper.\n- Full GB300 indexer test file:133 passed,2 skipped.\n- Real-model8K/32K prefill audit at concurrency1/16:1908 calls across four ranks, with both page and raw indices exactly equal to the original Torch operations. Rows1\u201316384, visible slots1\u201348900. This is integer-mapping evidence, not a substitute for generation-quality evaluation.\n- A second actual-model audit dispatches fusion before any reference GPU work:1908 calls,477 per rank, with exact page/raw index agreement. Padding is separately covered by the unit tests.\n- Actual model GPU traces contain40 `_finish_flat_indexer_topk_kernel` events per rank; all four original trace files are retained with source hashes.\n- Pinned pre-commit and diff whitespace checks passed. CI is not fully green: the existing AMD raw-draft-metadata test still needs alignment with main's deferred metadata API; no ROCm validation is claimed.\n\n## Memory and weight updates\n\nThe Hopper derived caches trade GPU memory for throughput. In the original weight-load measurement, memory increased72.71\u219275.43GB/GPU and max_total_num_tokens fell16,012,800\u219214,223,104 at the same static memory fraction. These are the original configuration's measurements, not newly measured final-commit memory numbers.\n\nOnline weight updates require disabling both derived caches with `SGLANG_OPT_HOPPER_BLOCK_FP8_BF16=0` and `SGLANG_OPT_DEEPGEMM_HC_PRENORM=0`; otherwise updates fail before writing weights. Other TP/EP layouts are not covered by the reported serving comparisons.\n\n<!-- pr-states:start -->\n---\n### CI States\n\nLatest PR Test (Base): <!-- slot:pr-test:start -->:white_check_mark: [Run #37035950158](https://github.com/sgl-project/sglang/actions/runs/37035950158)<!-- slot:pr-test:end -->\nLatest PR Test (Extra): <!-- slot:pr-test-extra:start -->:x: [Run #37035949974](https://github.com/sgl-project/sglang/actions/runs/37035949974)<!-- slot:pr-test-extra:end -->\nLatest PR Test (AMD ROCm 10): <!-- slot:pr-test-amd:start -->:x: [Run #37035950474](https://github.com/sgl-project/sglang/actions/runs/37035950474)<!-- slot:pr-test-amd:end -->\n<!-- pr-states:end -->\n",
+    "created_at": "2026-09-25T14:16:46Z",
+    "updated_at": "2026-10-03T02:04:54Z",
+    "fetched_at": "2026-10-20T12:21:37Z",
+    "state": "merged",
+    "merged_at": "2026-10-03T02:04:49Z",
+    "parent": null,
+    "tags": [
+      "b200",
+      "h100",
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "moe",
+      "ttft",
+      "throughput",
+      "performance",
+      "speculation"
+    ],
+    "metadata": {
+      "number": 41251,
+      "labels": [
+        {
+          "id": 8072782154,
+          "node_id": "LA_kwDOLCAjRs8AAAAB4SzhSg",
+          "url": "https://api.github.com/repos/sgl-project/sglang/labels/deepseek",
+          "name": "deepseek",
+          "description": "",
+          "color": "c2e0c6",
+          "default": false,
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9283445059,
+          "node_id": "LA_kwDOLCAjRs8AAAACKVYhQw",
+          "url": "https://api.github.com/repos/sgl-project/sglang/labels/run-ci",
+          "name": "run-ci",
+          "description": "CI: run the baseline test suite on this PR",
+          "color": "9FE30D",
+          "default": false,
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10414858054,
+          "node_id": "LA_kwDOLCAjRs8AAAACbMYfRg",
+          "url": "https://api.github.com/repos/sgl-project/sglang/labels/jit-kernel",
+          "name": "jit-kernel",
+          "description": null,
+          "color": "ededed",
+          "default": false,
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 1,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "ef867fa40d2e7e006377e76330ca5a8f218b1d18",
+        "label": "sgl-project:main"
+      },
+      "head": {
+        "ref": "perf/dsv41-h200-core-ops",
+        "sha": "179b1ab2d330edf979f8e349a441592ff767ab25",
+        "label": "BBuf:perf/dsv41-h200-core-ops"
+      },
+      "merge_commit_sha": "391e665dab9b3d00f0a614a9a0f36306c279aea3",
+      "draft": false,
+      "changed_files": 32,
+      "additions": 2096,
+      "deletions": 189,
+      "pr_detail_fetched_at": "2026-10-20T12:21:37Z"
+    },
+    "content_hash": "ff1d0f3d6cd7c539f1a547adb920aa17e02abb4c745e45a75d09b9da404a7903"
+  },
+  "cached": false,
+  "discussion_complete": false,
+  "next_step": "Use github.hydrate only when discussion, reviews or patches can change the decision."
+}

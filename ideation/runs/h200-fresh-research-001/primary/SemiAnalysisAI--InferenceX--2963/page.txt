@@ -1,0 +1,2684 @@
+Conversation
+Oseltamivir
+commented
+Sep 10, 2026
+•
+edited by cursor
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+Add H200 TP8 DSv4.1 Flash AgentX at concurrency 1–128, using the full
+semianalysis_cc_traces_weka_062126
+corpus. Five-token DSpark throughput uses
+golden AL 3.51
+(thinking on), with adaptive verification disabled; accuracy evals retain real block verification. Engram stays in host DRAM through UVA; KV stays on GPU. Validation: Bash, exact-key matrix, changelog, launcher/eval tests, and both serving-mode command checks pass. GPU validation pending.
+新增 H200 TP8 DSv4.1 Flash AgentX，并发 1–128，使用完整
+semianalysis_cc_traces_weka_062126
+语料。五 token DSpark 吞吐测试采用 thinking 开启时的黄金 AL 3.51，并关闭自适应验证；准确率 eval 保留真实块验证。Engram 通过 UVA 访问主机 DRAM，KV 保留在 GPU。验证：Bash、精确配置矩阵、changelog、launcher/eval 测试及两种服务模式的命令检查通过；GPU 验证待完成。
+Note
+Medium Risk
+New cluster benchmark recipe and Slurm launcher behavior for a model prefix, plus shared port-selection helper used at serve time; GPU validation is still pending.
+Overview
+Adds
+DeepSeek-V4.1-Flash
+(
+dsv41flash
+) to the model matrix and introduces the
+H200 TP8 AgentX
+recipe
+dsv41flash-fp4-h200-vllm-agentic-dspark
+in
+nvidia-master.yaml
+, with perf-changelog and EN/zh configuration docs (including rationale for no H100 arm).
+The new vLLM agentic launcher serves
+1M context
+with
+Engram CPU UVA offload
+,
+GPU-resident KV
+,
+five-token DSpark
+(throughput pins golden AL
+3.51
+; eval keeps real verification), and replays the
+uncapped
+semianalysis_cc_traces_weka_062126
+corpus via the existing
+dsv4*
+trace default.
+Infrastructure:
+select_available_server_port()
+in
+benchmark_lib.sh
+avoids host-network port collisions; H200 Slurm launcher mounts the repo at
+/ix
+for
+dsv41flash
+so AgentX runtime dirs stay out of
+/workspace
+. Tests cover launcher mounts, trace corpus selection, and port probing.
+Reviewed by
+Cursor Bugbot
+for commit
+5de26e3
+. Bugbot is set up for automated code reviews on this repo. Configure
+here
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Oseltamivir
+requested a review
+  from
+a team
+September 10, 2026 10:02
+Oseltamivir
+requested review from
+Ankur-singh
+,
+chunfangamd
+and
+kedarpotdar-nv
+as
+code owners
+September 10, 2026 10:02
+github-project-automation
+Bot
+added this to
+InferenceX Board
+Sep 10, 2026
+Oseltamivir
+added
+  the
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+label
+Sep 10, 2026
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 similar comments
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-advanced-security
+Bot
+found potential problems
+Sep 10, 2026
+View reviewed changes
+Comment thread
+utils/evals/test_run_eval_dispatch.py
+@pytest.mark.parametrize("occupied", [False, True])
+def test_select_available_server_port_avoids_an_existing_listener(occupied: bool) -> None:
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+listener.bind(("0.0.0.0", 0))
+Comment thread
+utils/evals/test_run_eval_dispatch.py
+else:
+assert selected == preferred
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+server.bind(("0.0.0.0", selected))
+claude
+Bot
+reviewed
+Sep 10, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Beyond the inline finding, I also checked the new
+select_available_server_port()
+helper in
+benchmarks/benchmark_lib.sh
+for the same class of check-then-act issue — it does have a bind-then-release TOCTOU window before the caller's
+vllm serve
+rebinds the port, but this is a pre-existing pattern shared byte-identically with sibling PR
+#2960
+and the window is negligible for single-node exclusive benchmark launches, so I'm not flagging it as a separate blocker.
+Extended reasoning...
+A confirmed, CI-blocking bug was already reported inline:
+perf-changelog.yaml:7080
+sets
+pr-link: TBD
+, which
+utils/validate_perf_changelog.py
+'s
+PR_LINK_PLACEHOLDERS
+set (only
+XXX
+or
+pull/XXX
+) does not accept, so
+validate_added_pr_link
+will raise on any CI run until the author swaps in the real PR link or the
+XXX
+placeholder. I independently verified this by reading the validator source, confirming the claim is accurate. Given a confirmed finding exists, approval is not appropriate here, and the inline comment already signals that human review is needed, so my body is limited to the narrow ruled-out exception: I additionally examined the new
+select_available_server_port()
+function added in
+benchmarks/benchmark_lib.sh
+for a similar race-condition class of bug (binding a socket, closing it, then relying on the freed port remaining free for
+vllm serve
+). This is a real TOCTOU window, but it is inherent to this common "find a free port" pattern, the risk window is small in the context of exclusive single-node benchmark launches, and per the PR description this code is byte-identical to sibling PR
+#2960
+'s already-reviewed helper, so I did not treat it as a new blocking issue for this PR.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+perf-changelog.yaml
+Outdated
+description:
+- "Add Hopper AgentX arms for DeepSeek-V4.1-Flash at TP8 with native five-token DSpark and adaptive real verification"
+- "Engram tables offload to host DRAM through UVA while the KV cache stays GPU-resident; H200 runs concurrency 1-128 and H100 stops at 16 on its smaller KV headroom"
+pr-link: TBD
+claude
+Bot
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴 The new changelog entry uses
+pr-link: TBD
+, but
+utils/validate_perf_changelog.py
+only accepts the canonical
+.../pull/<N>
+link or the literal placeholder
+XXX
+(or
+pull/XXX
+) for PR-time entries —
+TBD
+matches neither, so
+validate_added_pr_link
+raises
+ChangelogValidationError
+and the changelog gate (run in
+run-sweep.yml
+) fails on this PR as-is. Fix: change the placeholder to
+XXX
+(or the actual PR number) to match
+PR_LINK_PLACEHOLDERS
+.
+Extended reasoning...
+utils/validate_perf_changelog.py defines
+PR_LINK_PLACEHOLDERS = {"XXX", ".../pull/XXX"}
+and
+validate_added_pr_link
+raises when
+link not in PR_LINK_PLACEHOLDERS and link != expected
+. The new entry at perf-changelog.yaml:7080 sets
+pr-link: TBD
+, which is not in that set, so any CI run of validate_perf_changelog.py (wired into run-sweep.yml) on this PR fails the changelog gate, blocking merge/sweep until the author swaps TBD for XXX or the real PR number.
+Verification:
+normal (with a corrected enforcement point). The defect is real: perf-changelog.yaml:7080 uses
+pr-link: TBD
+, which is neither the canonical
+.../pull/<N>
+link nor a member of
+PR_LINK_PLACEHOLDERS = {"XXX", ".../pull/XXX"}
+(utils/validate_perf_changelog.py:27-30).
+validate_added_pr_link
+(line 159) raises
+ChangelogValidationError
+for any link that is not a placeholder and not the…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/inference?unofficialRun=34463999964
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/evaluation?unofficialRun=34463999964
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/inference?unofficialRun=34467029236
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/evaluation?unofficialRun=34467029236
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oseltamivir
+changed the title
+[Klaud Cold] Add H200/H100 DeepSeek V4.1 Flash AgentX / 新增 H200/H100 配方
+[Klaud Cold] Add H200 DeepSeek V4.1 Flash AgentX / 新增 H200 配方
+Sep 10, 2026
+Oseltamivir
+mentioned this pull request
+Sep 10, 2026
+[Klaud Cold] Add H100 DeepSeek V4.1 Flash AgentX / 新增 H100 配方
+#2974
+Merged
+Oseltamivir
+and others
+added
+5
+commits
+September 11, 2026 00:41
+feat: add H200/H100 DeepSeek-V4.1-Flash AgentX recipes
+…
+623196f
+Add the Hopper arms of the DeepSeek-V4.1-Flash DSpark AgentX recipe at TP8,
+sharing the text-only vLLM serving script with the Blackwell arms. Engram
+tables offload to host DRAM through UVA while the KV cache stays GPU-resident,
+which is what brings the 511 GB checkpoint under 8x80 GB on H100. The H100
+launcher now prefers the framework-tagged benchmark script name, as the H200
+launchers already did.
+
+新增 DeepSeek-V4.1-Flash DSpark AgentX 配方的 Hopper 分支，采用 TP8，并与
+Blackwell 分支共用纯文本 vLLM 服务脚本。Engram 表通过 UVA 卸载到主机 DRAM，
+KV cache 仍驻留 GPU，这使 511 GB 的检查点得以放入 8x80 GB 的 H100。H100
+launcher 现在优先解析带 framework 的基准脚本名称，与 H200 launcher 保持一致。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+chore: fill perf-changelog pr-link
+…
+dec706b
+补充 perf-changelog 的 pr-link。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+test: pin the uncapped trace corpus for the Flash Hopper arms
+…
+4cdebe5
+DeepSeek-V4.1-Flash serves 1M context and must replay
+semianalysis_cc_traces_weka_062126, not the 256k-capped variant. The recipe
+inherits that only because resolve_trace_source's dsv4* case arm also matches
+the dsv41flash prefix, which is invisible at the call site, so pin it with a
+test and document the dependency.
+
+DeepSeek-V4.1-Flash 服务 1M 上下文，必须回放
+semianalysis_cc_traces_weka_062126，而非 256k 截断的变体。配方获得该语料仅仅
+是因为 resolve_trace_source 的 dsv4* 分支同时匹配了 dsv41flash 前缀，而这一
+依赖在调用处并不可见，因此用测试固定并补充文档说明。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+feat: scope the Flash Hopper recipe to H200
+…
+e2fc12f
+The first sweep OOMed on H100 at concurrency 1: at 1M context the sparse
+attention indexer allocates a [max-num-batched-tokens, max-model-len] logits
+buffer in fp8_fp4_paged_mqa_logits, exactly 16 GiB at the default 8192 batched
+tokens. That is a fixed startup cost paid during memory profiling, independent
+of concurrency, so an 80 GB card cannot host it alongside the weights even
+though the Engram offload leaves them fitting. H200 eval passed on the same
+commit, so drop the H100 arm here and track it separately.
+
+首次 sweep 在 H100 并发 1 时 OOM：在 1M 上下文下，稀疏注意力 indexer 会在
+fp8_fp4_paged_mqa_logits 中分配 [max-num-batched-tokens, max-model-len] 的
+logits 缓冲区，在默认 8192 batched tokens 下恰好为 16 GiB。这是显存 profiling
+阶段固定支付的启动开销，与并发无关，因此尽管 Engram 卸载后权重放得下，80 GB
+的卡仍无法同时容纳。同一 commit 上 H200 的 eval 已通过，故在此移除 H100 分支
+并另行跟踪。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+config: use golden synthetic AL for DSv4.1 Flash
+…
+5c5a5a6
+DSv4.1 Flash 吞吐测试使用 thinking 开启、五个草稿 token 对应的黄金合成 AL 3.51，关闭自适应验证；准确率评测保留真实验证。同步中英文文档并追加性能变更记录。
+Oseltamivir
+added
+full-sweep-enabled
+Full sweep with canary gate; matrix jobs run to completion despite failures
+and removed
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+labels
+Sep 10, 2026
+Oseltamivir
+added a commit
+      that referenced
+      this pull request
+Sep 10, 2026
+feat: add the H100 DeepSeek-V4.1-Flash AgentX arm
+…
+a0bdb88
+Follow-up to
+#2963
+, which dropped this arm after it OOMed at concurrency 1.
+The blocker is the sparse attention indexer's
+[max-num-batched-tokens, max-model-len] buffer, 16 GiB at 1M context with the
+shared script's 8192 batched tokens. Give H100 its own script that caps batched
+tokens at 4096, sets max-num-seqs from the trajectory concurrency instead of
+vLLM's default 1024, and enables expandable_segments. Also teach the h100
+launcher to resolve framework-tagged script names, which it never could.
+
+承接
+#2963
+（该 PR 在此分支于并发 1 OOM 后将其移除）。瓶颈是稀疏注意力 indexer 的
+[max-num-batched-tokens, max-model-len] 缓冲区，在 1M 上下文下按共享脚本的 8192
+batched tokens 计为 16 GiB。为 H100 提供独立脚本：将 batched tokens 限制为 4096、
+依轨迹并发设置 max-num-seqs（而非 vLLM 默认的 1024）、启用 expandable_segments。
+同时让 h100 launcher 能够解析带 framework 的脚本名，此前它完全无法解析。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Oseltamivir
+force-pushed
+the
+config/dsv41flash-hopper
+branch
+    from
+2defaf7
+to
+5c5a5a6
+Compare
+September 10, 2026 16:46
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/inference?unofficialRun=34485011650
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/evaluation?unofficialRun=34485011650
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oseltamivir
+and others
+added
+2
+commits
+September 11, 2026 00:50
+fix: restore the changelog entry the rebase dropped
+…
+9c02c50
+perf-changelog.yaml is append-only, and the rebase onto main dropped PR
+#2969
+'s
+dsv4-fp4-gb300-dynamo-sglang-agentic-agg entry, which fails check-changelog.
+Rebuild the file as main's content plus this branch's own appended entries.
+
+perf-changelog.yaml 为只可追加文件，而向 main 的 rebase 丢掉了 PR
+#2969
+的
+dsv4-fp4-gb300-dynamo-sglang-agentic-agg 条目，导致 check-changelog 失败。
+将该文件重建为 main 的内容加上本分支自身追加的条目。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+chore: sync main and resolve changelog conflict
+…
+f943039
+同步最新 main，保留性能变更日志历史字节，并在末尾保留本 PR 的变更记录。
+cursor
+Bot
+reviewed
+Sep 10, 2026
+View reviewed changes
+cursor
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Cursor Bugbot has reviewed your changes using default effort and found 1 potential issue.
+❌ Bugbot Autofix is OFF. To automatically fix reported issues with cloud agents, enable autofix in the
+Cursor dashboard
+.
+Reviewed by
+Cursor Bugbot
+for commit
+f943039
+. Configure
+here
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+perf-changelog.yaml
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Contributor
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/inference?unofficialRun=34504985992
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/evaluation?unofficialRun=34504985992
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oseltamivir
+commented
+Sep 11, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/reuse-sweep-run
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oseltamivir
+added
+2
+commits
+September 11, 2026 09:26
+chore: resolve main merge conflict in performance changelog
+…
+84d82b0
+Preserve main changelog history byte-for-byte, append only the two H200 Flash entries from this PR, and remove the duplicate PR
+#2969
+entry introduced by the previous merge.
+
+中文：解决与 main 的性能变更日志合并冲突，逐字节保留主分支历史，仅追加本 PR 的两条 H200 Flash 记录，并移除上次合并重复引入的 PR
+#2969
+记录。
+Merge branch 'main' into config/dsv41flash-hopper
+5de26e3
+Hide details
+View details
+Oseltamivir
+merged commit
+66d593c
+into
+main
+Sep 11, 2026
+31 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-project-automation
+Bot
+moved this to
+Done
+in
+InferenceX Board
+Sep 11, 2026
+Oseltamivir
+deleted the
+config/dsv41flash-hopper
+branch
+September 11, 2026 09:52
+Oseltamivir
+added a commit
+      that referenced
+      this pull request
+Sep 11, 2026
+chore: merge main into GB300 DSv4.1 Flash AgentX
+…
+597c06a
+Resolve conflicts with the H200 AgentX arm (
+#2963
+): keep both master-config
+entries and both docs sections, take main's Chinese wording in MODELS_zh.md,
+keep the overridable engine-readiness default in the shared script, and append
+this branch's changelog entries at the tail.
+
+将 main 合并入 GB300 DSv4.1 Flash AgentX 分支，解决与 H200 分支（
+#2963
+）的冲突：
+保留两个 master 配置条目与两段文档，MODELS_zh.md 采用 main 的中文表述，共享脚本
+保留可覆盖的引擎就绪默认值，并将本分支的 changelog 条目追加到文件末尾。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Oseltamivir
+added a commit
+      that referenced
+      this pull request
+Sep 11, 2026
+chore: merge main into B200 DSv4.1 Flash AgentX
+…
+052a811
+Resolve conflicts with the merged H200 (
+#2963
+) and GB300 (
+#2961
+) arms: keep all
+three master-config entries, take main's docs and MODELS_zh.md wording, keep the
+overridable engine-readiness default in the shared script, and append this
+branch's changelog entries at the tail.
+
+将 main 合并入 B200 DSv4.1 Flash AgentX 分支，解决与已合入的 H200（
+#2963
+）和
+GB300（
+#2961
+）分支的冲突：保留三个 master 配置条目，文档与 MODELS_zh.md 采用 main
+的表述，共享脚本保留可覆盖的引擎就绪默认值，并将本分支的 changelog 条目追加到末尾。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Oseltamivir
+added a commit
+      that referenced
+      this pull request
+Sep 11, 2026
+chore: merge main into B300 DSv4.1 Flash AgentX
+…
+b627b60
+Resolve conflicts with the merged H200 (
+#2963
+), GB300 (
+#2961
+), and B200 (
+#2960
+)
+arms: keep all four master-config entries, take main's docs and MODELS_zh.md
+wording, keep the overridable engine-readiness default in the shared script, and
+append this branch's changelog entries at the tail.
+
+将 main 合并入 B300 DSv4.1 Flash AgentX 分支，解决与已合入的 H200（
+#2963
+）、
+GB300（
+#2961
+）和 B200（
+#2960
+）分支的冲突：保留四个 master 配置条目，文档与
+MODELS_zh.md 采用 main 的表述，共享脚本保留可覆盖的引擎就绪默认值，并将本分支的
+changelog 条目追加到末尾。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Oseltamivir
+added a commit
+      that referenced
+      this pull request
+Sep 11, 2026
+chore: merge main into GB200 DSv4.1 Flash AgentX
+…
+bf75484
+Resolve conflicts with the merged H200 (
+#2963
+), GB300 (
+#2961
+), and B200 (
+#2960
+)
+arms: keep all four master-config entries, take main's docs and MODELS_zh.md
+wording, keep the overridable engine-readiness default in the shared script, and
+append this branch's changelog entries at the tail.
+
+将 main 合并入 GB200 DSv4.1 Flash AgentX 分支，解决与已合入的 H200（
+#2963
+）、
+GB300（
+#2961
+）和 B200（
+#2960
+）分支的冲突：保留四个 master 配置条目，文档与
+MODELS_zh.md 采用 main 的表述，共享脚本保留可覆盖的引擎就绪默认值，并将本分支的
+changelog 条目追加到末尾。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Fangzhou-Ai
+mentioned this pull request
+Sep 21, 2026
+config(dsv41flash): offload MI325X Engram tables to host DRAM / 将 MI325X Engram 表卸载到主机 DRAM
+#3339
+Closed
+Fangzhou-Ai
+added a commit
+      that referenced
+      this pull request
+Sep 21, 2026
+config(dsv41flash): fix the MI355X KV split at high concurrency
+…
+42bb4f5
+Concurrency 64 collapsed on both arms of run 35574132719 because the KV
+pool was too small to hold the AgentX working set. TP=2 fell to a 17.6%
+prefix cache hit rate, 187 s TTFT and 150 tok/s, against 94.8%, 1.3 s and
+957 tok/s at c32.
+
+Two settings were spending device memory that the KV pool needed.
+
+The Engram tables stayed resident at TP=4.
+vllm-project/vllm#57491
+widened the two ROCm is_cuda() gates to is_cuda_alike(), so gfx950 can
+now offload them to pinned host memory as every NVIDIA arm has since
+#2963
+. Measured here at TP=4 with 16384 batched tokens, resident tables
+leave 37.96 GiB of KV cache and 14.15x maximum concurrency at 1M
+context, against 84.54 GiB and 31.52x offloaded.
+
+The sparse-attention indexer and its companion per-rank buffers scale at
+roughly 4.4 MiB per batched token, so the upstream 16384 was the larger
+cost. Size it per TP instead, 4096 at TP=2 and 8192 at TP=4, and cap
+max_num_seqs at the shape graph capture already covers rather than the
+MI355X API-server default of 1024. TP=2 then keeps 79.34 GiB (39.44x)
+and TP=4 keeps 121.03 GiB (54.15x), against the B300 arm's 132.48 GiB
+(60.17x). B300 runs 8192 at TP=4 and the Blackwell TP=2 arms run 4096
+(
+#3320
+,
+#3321
+).
+
+Sweep concurrency 64 and 128 to confirm the high end first. Concurrency
+1-32 is backfilled once those land, since every point now runs the new
+memory split.
+
+Co-authored-by: Cursor Agent <cursoragent@cursor.com>
+Signed-off-by: Fangzhou Ai <fangzhou.ai@amd.com>
+chunfangamd
+added a commit
+      that referenced
+      this pull request
+Sep 22, 2026
+config(dsv41flash): sweep MI355X at TP=2 and TP=4 through concurrency…
+…
+3b4c050
+… 128 / MI355X DSv4.1-Flash 在 TP=2 与 TP=4 下扫描至并发 128 (
+#3326
+)
+
+* config(dsv41flash): sweep MI355X at TP=2 and TP=4 through concurrency 128
+
+Add a TP=2 search space next to TP=4 for the MI355X DSv4.1-Flash AgentX
+entry, and extend both rows to concurrency 128. TP=2 became feasible once
+the Engram tables moved to host memory: at 47.2 GiB of device memory per
+rank they previously forced four GPUs per server, and two GPUs per server
+doubles the servers per node.
+
+The image moves to the ROCm 10 nightly and carries a placeholder tag until
+that build is published. The digest is pinned before the sweep runs, which
+is why the PR opens as a draft.
+
+中文：为 MI355X DSv4.1-Flash AgentX 配置在 TP=4 之外新增 TP=2 搜索空间，并将两者
+的并发扩展到 128。Engram 表已驻留主机内存，不再占用每 rank 47.2 GiB 设备内存
+（此前这迫使每个服务器使用四张 GPU），因此 TP=2 可行，且每节点可容纳的服务器数
+量翻倍。镜像切换到 ROCm 10 nightly，在该构建发布前暂用占位 tag；digest 固定后再
+运行 sweep，因此本 PR 以 draft 形式提交。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): record the sweep PR link in the changelog
+
+中文：在 changelog 中记录本次 sweep 的 PR 链接。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): let vLLM pick max_num_seqs for the MI355X AgentX recipe
+
+A fixed max_num_seqs of 128 caps in-flight sequences at the outer
+concurrency once the sweep reaches c128, leaving no headroom for AgentX
+subagent fan-out. Use the MI355X API-server default of 1024 instead, and
+derive the CUDA graph ceiling from max(2 * CONC, 128): 1024 through c64,
+2048 at c128.
+
+Supersedes PR
+#3111
+, which carried this recipe change and was closed in
+favour of this sweep.
+
+中文：扫描到 c128 时，固定的 max_num_seqs 128 会把在途序列数限制在外层并发上，
+使 AgentX 子代理扇出没有余量。改用 MI355X API server 默认值 1024，并由
+max(2 * CONC, 128) 推导 CUDA graph 上限：c64 及以下为 1024，c128 为 2048。
+本次提交取代已关闭的 PR
+#3111
+（该 PR 原本包含此 recipe 改动）。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): keep the placeholder on the existing ROCm nightly channel
+
+Per
+#3215
+, the MI355X DSv4.1-Flash entry stays on the existing upstream
+ROCm nightly channel rather than moving to nightly-rocm100. Drop the
+rocm10 marker from the placeholder tag; the pin is filled in with the
+nightly this sweep actually runs on before dispatch.
+
+中文：依据
+#3215
+，MI355X DSv4.1-Flash 条目继续使用现有的上游 ROCm nightly 渠道，
+不切换到 nightly-rocm100。占位 tag 去掉 rocm10 标记；派发前再填入本次 sweep
+实际运行的 nightly。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* Revert "config(dsv41flash): keep the placeholder on the existing ROCm nightly channel"
+
+This reverts commit
+039194e
+.
+
+The MI355X DSv4.1-Flash AgentX sweep runs on the ROCm 10 nightly after
+all, so restore the nightly-rocm100 placeholder. The pin is filled in
+with the published nightly before dispatch.
+
+中文：还原提交
+039194e
+。
+
+MI355X DSv4.1-Flash AgentX sweep 最终仍在 ROCm 10 nightly 上运行，因此恢复
+nightly-rocm100 占位 tag。派发前再填入已发布的 nightly。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): pin the MI355X AgentX sweep to the ROCm 10 nightly
+
+Replace the placeholder with
+vllm/vllm-openai-rocm:nightly-rocm100-3df4ae153eb385e27b52f26c81f8edb9e20b9984,
+published 2026-09-21T05:50:03Z with digest
+sha256:eccb72b74b8c04ce7406d9212e200b129f58e24be642795a857f755a94fdb3a1.
+The tag is active and linux/amd64, and its manifest resolves from
+registry-1.docker.io at that digest.
+
+This sweep qualifies the new image; the previous green run on
+nightly-eed1f3d0 is not evidence for it.
+
+将占位 tag 替换为
+vllm/vllm-openai-rocm:nightly-rocm100-3df4ae153eb385e27b52f26c81f8edb9e20b9984，
+该镜像于 2026-09-21T05:50:03Z 发布，digest 为
+sha256:eccb72b74b8c04ce7406d9212e200b129f58e24be642795a857f755a94fdb3a1。
+该 tag 状态为 active、架构为 linux/amd64，其 manifest 可从
+registry-1.docker.io 按该 digest 解析。
+
+本次 sweep 用于验证新镜像；此前在 nightly-eed1f3d0 上的绿色运行不能作为其证据。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): offload Engram to host memory at TP=2 on MI355X
+vllm-project/vllm#57491
+widened the two ROCm is_cuda() gates to
+is_cuda_alike(), so the pinned nightly resolves an Engram config on
+gfx950 and offloads the tables to pinned host memory by default. Set
+cpu_offload explicitly per TP instead of taking that default.
+
+TP=2 needs the offload: the tables cost 47.2 GiB per rank at TP=4, so
+94.4 GiB at TP=2, which does not fit beside half of the 511 GB
+checkpoint on a 288 GiB card. TP=4 keeps them resident so it stays
+comparable with the validated concurrency 1-32 run.
+vllm-project/vllm#57491
+将 ROCm 上的两处 is_cuda() 判断放宽为
+is_cuda_alike()，因此所固定的 nightly 在 gfx950 上会解析 Engram 配置，
+并默认将表下放到锁页主机内存。这里按 TP 显式设置 cpu_offload，而不是
+沿用该默认值。
+
+TP=2 需要该下放：表在 TP=4 时每 rank 占用 47.2 GiB，TP=2 时为 94.4 GiB，
+无法与 511 GB 检查点的一半同时放入 288 GiB 的单卡。TP=4 保持表常驻 GPU，
+以便与已验证的并发 1-32 运行保持可比。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): disable SWA bounded replay on MI355X
+
+Every TP=2 and TP=4 point of run 35567570539 died with
+HSA_STATUS_ERROR_MEMORY_FAULT, taking the worker and then the engine core
+down and aborting AgentX warmup. The fault follows the first launch of
+_pad_replayed_slots_kernel in all 16 server logs, which is the first
+prefix hit carrying a replay start.
+vllm-project/vllm#56227
+added SWA bounded replay, default on, after the
+eed1f3d0 pin and before nightly-rocm100-3df4ae153. It pads the replayed
+tokens' slots in the prefix-cacheable groups, but the window clamp it
+relies on landed in the FlashInfer and FlashMLA kernels; the ROCm sparse
+SWA path only gained the replay_start kwarg, and consumes it on the
+decode path while the fault is in prefill. Pass --no-swa-bounded-replay
+until ROCm clamps too. Prefix caching itself stays on.
+
+运行 35567570539 的所有 TP=2 与 TP=4 数据点都以
+HSA_STATUS_ERROR_MEMORY_FAULT 崩溃，先后带崩 worker 与 engine core，
+并中止 AgentX warmup。16 份 server 日志中，该故障均紧随
+_pad_replayed_slots_kernel 的首次启动，即首个带 replay start 的前缀命中。
+vllm-project/vllm#56227
+在 eed1f3d0 与 nightly-rocm100-3df4ae153 之间
+引入了默认开启的 SWA bounded replay。它会填充被重放 token 在可前缀缓存
+分组中的 slot，但其依赖的窗口钳制只落在 FlashInfer 与 FlashMLA 内核中；
+ROCm 稀疏 SWA 路径仅新增了 replay_start 参数，且只在 decode 路径消费它，
+而故障发生在 prefill。在 ROCm 同样实现钳制之前传入
+--no-swa-bounded-replay。前缀缓存本身保持开启。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): fix the MI355X KV split at high concurrency
+
+Concurrency 64 collapsed on both arms of run 35574132719 because the KV
+pool was too small to hold the AgentX working set. TP=2 fell to a 17.6%
+prefix cache hit rate, 187 s TTFT and 150 tok/s, against 94.8%, 1.3 s and
+957 tok/s at c32.
+
+Two settings were spending device memory that the KV pool needed.
+
+The Engram tables stayed resident at TP=4.
+vllm-project/vllm#57491
+widened the two ROCm is_cuda() gates to is_cuda_alike(), so gfx950 can
+now offload them to pinned host memory as every NVIDIA arm has since
+#2963
+. Measured here at TP=4 with 16384 batched tokens, resident tables
+leave 37.96 GiB of KV cache and 14.15x maximum concurrency at 1M
+context, against 84.54 GiB and 31.52x offloaded.
+
+The sparse-attention indexer and its companion per-rank buffers scale at
+roughly 4.4 MiB per batched token, so the upstream 16384 was the larger
+cost. Size it per TP instead, 4096 at TP=2 and 8192 at TP=4, and cap
+max_num_seqs at the shape graph capture already covers rather than the
+MI355X API-server default of 1024. TP=2 then keeps 79.34 GiB (39.44x)
+and TP=4 keeps 121.03 GiB (54.15x), against the B300 arm's 132.48 GiB
+(60.17x). B300 runs 8192 at TP=4 and the Blackwell TP=2 arms run 4096
+(
+#3320
+,
+#3321
+).
+
+Sweep concurrency 64 and 128 to confirm the high end first. Concurrency
+1-32 is backfilled once those land, since every point now runs the new
+memory split.
+
+Co-authored-by: Cursor Agent <cursoragent@cursor.com>
+Signed-off-by: Fangzhou Ai <fangzhou.ai@amd.com>
+
+* config(dsv41flash): change the MI355X memory split only where KV ran short
+
+The previous commit applied one memory split per TP across every
+concurrency. Concurrency 1-32 never ran short of KV, so it paid for
+changes it did not need: offloaded Engram lookups go to pinned host
+memory over UVA, and a smaller prefill chunk costs TTFT. Scope each
+change to the points that were actually starved, which also leaves
+concurrency 1-32 and TP=4 c64 byte-identical to the settings run
+35574132719 already measured on this image and flag set, so those
+points are combined with this sweep rather than re-run.
+
+Dividing measured KV tokens by concurrency gives the per-request budget
+and separates the failures cleanly. Every point that held had 232K or
+more; TP=2 c64 collapsed at 122K.
+
+  TP=4 c1-c64   resident, 16384   14.83M tokens   232K and up
+  TP=4 c128     offload,   8192   49.63M           388K
+  TP=2 c1-c32   offload,  16384    7.84M           245K and up
+  TP=2 c64      offload,   8192   24.68M           386K
+  TP=2 c128     offload,   4096   33.34M           260K
+
+Probing the configurations directly also turned up two things. TP=2 c128
+at 4096 with the API-server default of 1024 sequences faults during
+profiling with HSA_STATUS_ERROR_EXCEPTION at M=1024, N=129280, K=256,
+reproduced on two GPU pairs: DSpark verifies 1+5 tokens per sequence, so
+a decode batch of max_num_seqs needs six times that many token slots and
+4096 leaves four. Cap max_num_seqs at the graph-capture shape wherever
+the chunk falls below that bound, which is TP=2 c128 alone. And the
+reason c128 never completed before is that at 16384 with capture at
+2048, TP=2 c128 held 7.72 GiB, 3.02M tokens, 23.6K per request.
+
+Co-authored-by: Cursor Agent <cursoragent@cursor.com>
+Signed-off-by: Fangzhou Ai <fangzhou.ai@amd.com>
+
+* config(dsv41flash): measure the full MI355X concurrency range on the new pin
+
+* docs(dsv41flash): retire the MI355X draft status and repoint GPU validation
+
+The MI355X section still described a draft recipe at TP4 concurrency
+1-32 and cited run 34710937012 on nightly-eed1f3d0 as the pinned image.
+Both predate this branch: the arm now sweeps TP4 and TP2 at concurrency
+1-128 on nightly-rocm100-3df4ae15. Lead with the current pin, keep the
+earlier run only as the superseded-pin note explaining why its points do
+not carry onto this image, and add the merged upstream recipe
+#1006
+beside
+#968
+.
+MODELS.md and MODELS_zh.md carried a second DeepSeek-V4.1-Flash row
+holding the MI355X arm as pending GPU validation. Drop it; the active
+row already covers the model.
+
+---------
+
+Signed-off-by: Fangzhou Ai <fangzhou.ai@amd.com>
+Co-authored-by: Cursor <cursoragent@cursor.com>
+Co-authored-by: functionstackx <47992694+functionstackx@users.noreply.github.com>
+Co-authored-by: Chun Fang <chun.fang@amd.com>
+adibarra
+added a commit
+      that referenced
+      this pull request
+Sep 25, 2026
+[Klaud Cold] Update dsv4-fp4-b200-sglang-agentic-hicache-mtp SGLang i…
+…
+b7bff8b
+…mage to v0.5.20-cu130 / 将 dsv4-fp4-b200-sglang-agentic-hicache-mtp 的 SGLang 镜像更新至 v0.5.20-cu130 (
+#3334
+)
+
+* feat(dsv4): update B200 SGLang AgentX HiCache MTP image to v0.5.20-cu130
+
+Update dsv4-fp4-b200-sglang-agentic-hicache-mtp from lmsysorg/sglang:v0.5.19-cu130
+to lmsysorg/sglang:v0.5.20-cu130 (sglang v0.5.20, build commit 94602c9c). SGLang
+v0.5.20 removed the deprecated --cuda-graph-max-bs alias (sgl-project/sglang#38375),
+so the recipe passes the same value through --cuda-graph-max-bs-decode. Model,
+topology, DSpark settings, HiCache settings and all points are unchanged.
+
+将 dsv4-fp4-b200-sglang-agentic-hicache-mtp 的镜像从 lmsysorg/sglang:v0.5.19-cu130
+更新为 lmsysorg/sglang:v0.5.20-cu130（sglang v0.5.20，构建提交 94602c9c）。SGLang
+v0.5.20 移除了已弃用的 --cuda-graph-max-bs 别名（sgl-project/sglang#38375），因此配方改用
+--cuda-graph-max-bs-decode 传入同一数值。模型、拓扑、DSpark 设置、HiCache 设置及所有测试点保持不变。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* chore(changelog): record the B200 DeepSeek-V4-Pro SGLang AgentX image update
+
+Append the perf-changelog entry for dsv4-fp4-b200-sglang-agentic-hicache-mtp
+moving to lmsysorg/sglang:v0.5.20-cu130 (PR #3334).
+
+为 dsv4-fp4-b200-sglang-agentic-hicache-mtp 更新至 lmsysorg/sglang:v0.5.20-cu130
+追加 perf-changelog 条目（PR #3334）。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* fix(ci): verify only newly submitted signoffs (#3340)
+
+仅对新提交的签核自动运行验证，编辑清单后需手动重试，并修正文档及验证器提示。
+
+* perf(amd): enable ATOM DSpark K6 with RCCL DEP / ATOM 全并发启用 DSpark K6 与 RCCL DEP (#2912)
+
+* perf(amd): switch DSV4 AgentX to native RCCL DEP
+
+将 DeepSeek-V4-Pro MI355X ATOM AgentX 的 c48 及以上测试切换到本地验证过的原生 RCCL DEP 配置，并保持低并发 TP 测试不变。
+
+同步固定的 post-merge ATOM 镜像、EP8 元数据、关闭 TBO/EPLB、真实 MTP 接受率以及本地验证过的路由和 AIPerf 参数。
+
+* docs(perf): link DSV4 RCCL DEP pull request
+
+将 DeepSeek-V4-Pro RCCL DEP 性能变更记录中的占位链接替换为实际的 InferenceX PR 链接。
+
+* fix(amd): trim DSV4 AgentX DEP overrides
+
+精简 DeepSeek-V4-Pro AgentX RCCL DEP 配置，移除与 CLI 或公共默认值重复的环境变量，并补齐本地验证使用的 3600 秒 warmup grace。
+
+* fix(amd): restore DSV4 AgentX scheduling controls
+
+Restore the request-equivalent weight, prefill delayer, and decode interval requested for the AgentX run. Remove the newly introduced terminal MTP overrides while keeping the rest of the cleanup unchanged.
+
+* fix(amd): remove redundant AgentX timeout overrides
+
+Keep the 3600-second agentic warmup allowance, but rely on the server keep-alive setting and AIPerf default benchmark grace period.
+
+* fix(amd): keep DSV4 state checkpoints at 8K
+
+Remove the DEP-only 32K override so both TP and DEP retain the original 8192-token state checkpoint interval.
+
+* perf(amd): capture dense DSV4 DEP decode graphs
+
+为 DSV4-Pro 的 DPA/DEP 路径补齐小 batch CUDA graph，避免非二次幂 decode batch 向上填充造成的 attention、MoE 和 RCCL 无效计算。保留 TP 路径默认行为，并为高并发配置保留大 batch graph。
+
+* perf(amd): include upstream DSV4 DEP fixes in AgentX
+
+Pin the September 12 ATOM nightly containing the RCCL EP sentinel fix and AITER stage2 tuning fix. Record the server's installed sources and bundled tuning rows in the AgentX artifacts while retaining dense decode graphs, FP8 KV, and the current scheduler settings.
+
+固定到包含 RCCL EP sentinel 与 AITER stage2 调优修复的 9 月 12 日 ATOM nightly；保存服务端实际源码版本及镜像内 tuning 行，保留 dense decode graph、FP8 KV 和现行调度设置。镜像包含 AITER#4159，但本配方不启用其 BF16 FlyDSL paged SWA 分支。
+
+* fix(ci): provide exact PR context to priority classifier
+
+Supply immutable base/head revisions and the permitted diff command, document read-only tool use, and allow 16 turns for structured classification.
+
+为优先级分类器提供确切的 Base/Head 版本及允许执行的 Diff 命令，明确只读工具用法，并将结构化分类的轮数上限调整为 16。
+
+* perf(amd): enable DSpark K6 across the ATOM AgentX sweep
+
+将 PR #2912 的十个 ATOM AgentX 性能点切换为固定版本 0813 checkpoint、
+DSpark K6/q7 和 golden AL 3.77；C256 全量 GSM8K 保留真实验证。
+修复 draft_model 路由与共享缓存挂载，统一服务与客户端 tokenizer，
+增加 DSpark head、66 个分片及 tokenizer 检查并记录运行身份。
+保留既有镜像优化、原生 RCCL DEP 和 dense FULL graph 配置。
+
+* fix(amd): preserve inference mode in DSpark TP MoE callbacks
+
+修复 DSpark q7 触发 AITER TP 通信融合 MoE 补齐路径时的 inference tensor 原地写入错误。仅对固定源码应用 InferenceMode callback 补丁，保留通信融合与 graph，保存补丁哈希，并覆盖原始失败、补齐、对齐和重复应用场景。
+
+* fix(amd): use upstream ATOM inference-mode fix
+
+将 MI355X ATOM AgentX 配方切换到包含 ROCm/ATOM#2233 的 pr2233-4f3a808 镜像，并移除运行时 AITER 源码补丁、对应测试和补丁清单记录。
+
+* perf(amd): use BF16 KV through concurrency 16
+
+将 MI355X ATOM AgentX 的 C1、C2、C4、C8 和 C16 任务切换为 BF16 KV cache；C48 及以上 DEP 任务继续使用 FP8 KV cache。
+
+* perf(amd): pin DSv4 ATOM AgentX to official nightly_202609161445
+
+Restore run-sweep.yml to the PR base and replace the temporary
+rocm/atom-dev:pr2233-4f3a808 image with official nightly_202609161445,
+which includes the merged ROCm/ATOM#2233 inference-mode fix.
+
+将 run-sweep.yml 还原到 PR base，并把临时镜像 pr2233-4f3a808 换成
+包含已合入 ATOM#2233 修复的官方 nightly_202609161445。
+
+* fix: restore missing config-keys in perf-changelog merge
+
+The main merge left the first PR #2912 changelog entry without its
+- config-keys: header, so process_changelog could not parse the added YAML.
+
+修复合并后第一条 2912 changelog 条目缺少 - config-keys: 导致的 YAML 解析失败。
+
+* docs: drop unrelated CI procedure changes
+
+将两份 CI 流程文档恢复为 main 版本，使其不再出现在本 PR 的变更中。
+
+* docs: align CI procedures with PR base
+
+将中英文 CI 流程文档恢复为 PR 当前基础版本，确保它们不再出现在本 PR 的变更中。
+
+* docs(perf): correct DSv4-Pro ATOM AgentX changelog image to nightly_202609161445
+
+Align the perf-changelog entry with the recipe's actual image
+(rocm/atom-dev:nightly_202609161445 in configs/amd-master.yaml),
+replacing the stale nightly_202609071454 reference and its now-mismatched
+digest and build-commit details.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* docs(perf): align dsv4-fp4-mi355x-atom-agentic-mtp changelog with PR 2912
+
+Rewrite the dsv4-fp4-mi355x-atom-agentic-mtp entry to match the final
+recipe: EAGLE MTP -> DSpark (draft_model) on the DeepSeek-V4-Pro-0813
+checkpoint, NUM_SPEC_TOKENS 3 -> 6 (K6), SPEC_DECODE_AL 2.49 -> 3.77,
+and the RCCL DEP band on TP8/DPA8/EP8. Correct the state checkpoint
+interval to STATE_CHECKPOINT_INTERVAL_TOKENS=8192 (was mis-stated as
+32768) and note eval verifies real DSpark drafts, not MTP.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* docs(perf): align dsv4-fp4-mi355x-atom-agentic-mtp changelog with PR 2912
+
+Rewrite the dsv4-fp4-mi355x-atom-agentic-mtp entry to match the final
+recipe: EAGLE MTP -> DSpark (draft_model) on the DeepSeek-V4-Pro-0813
+checkpoint, NUM_SPEC_TOKENS 3 -> 6 (K6), SPEC_DECODE_AL 2.49 -> 3.77,
+and the RCCL DEP band on TP8/DPA8/EP8. Correct the state checkpoint
+interval to STATE_CHECKPOINT_INTERVAL_TOKENS=8192 (was mis-stated as
+32768) and note eval verifies real DSpark drafts, not MTP.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+---------
+
+Co-authored-by: seungrokj <144636725+seungrokj@users.noreply.github.com>
+Co-authored-by: Chun Fang <chun.fang@amd.com>
+Co-authored-by: seungrokj <seungrok.jung@amd.com>
+Co-authored-by: Claude Opus 4.6 <noreply@anthropic.com>
+
+* docs: define draft precision as serve-the-draft-as-it-ships (#3348)
+
+Rewrite the Draft-model precision rule in CONTRIBUTING.md, its Chinese
+mirror, the checklist item, and verifier Check 13 so the baseline is the
+draft that ships with the served checkpoint, at its stored precision,
+through the pinned upstream image's default handling. Forbid only
+submission-side changes that lower draft precision below that default.
+Add the Qwen FP8 embedded MTP head and the SGLang DSpark wo_a FP8-to-BF16
+load conversion as worked examples of what is compliant.
+
+将 CONTRIBUTING.md 中的 Draft 模型精度规则、其中文镜像、审阅清单条目以及
+验证器检查 13 重写为：基线是随所服务 checkpoint 一同发布的 draft，保持其
+存储精度，并采用锁定上游镜像的默认加载处理。仅禁止提交方将 draft 精度降到
+该默认值以下的改动。新增 Qwen FP8 内嵌 MTP head 与 SGLang DSpark wo_a
+FP8 转 BF16 加载转换两个合规示例。
+
+* Fix MI300X AMD partition and match its eight-node runner pool (#3350)
+
+Submit to compute-0 and retire mi300x-amd_08 from both inventory groups. Benchmark commands and resource settings are unchanged.
+
+* Consolidate deprecated configs and remove retired runtime support (#3349)
+
+* chore: consolidate deprecated configs by vendor
+
+* style: separate deprecated configs with blank lines
+
+* chore: remove retired model routing and stale agent guidance
+
+* chore: archive retired server registry entries and fix deprecation guidance
+
+* chore: archive remaining retired disaggregated registry variants
+
+* chore: remove retired DSV4 fixed-sequence helper branches
+
+* docs: correct remaining GLM AgentX policy comment
+
+* Add B300 Qwen3.5 397B FP8 disaggregated AgentX recipes (#3268)
+
+* feat: add B300 Qwen3.5 FP8 disaggregated AgentX starter
+
+* chore: link B300 starter performance changelog
+
+* perf: colocate B300 Qwen3.5 prefill and decode workers
+
+* fix: match B300 Mamba cache flag to pinned SGLang
+
+* perf: use latest SGLang nightly for B300 Qwen3.5 FP8
+
+* fix: use Dynamo compatibility with latest SGLang
+
+* fix: use intra-node NVLink for colocated B300 PD
+
+* perf: select measured B300 FP8 HiCache PD candidate
+
+* fix: propagate failed B300 Slurm runs after collecting artifacts
+
+* Prepare expanded measured B300 FP8 qualification curve
+
+* perf(b300): qualify measured concurrency 48 PD point
+
+* perf(b300): preserve existing aggregate publication scopes
+
+* style(b300): normalize final config newline
+
+* fix: require validated B300 Qwen3.5 AgentX power telemetry
+
+* fix: bind B300 power windows to matrix concurrency
+
+* perf: qualify B300 FP8 write-through PD at concurrency 96
+
+* style: format B300 power contract fixture
+
+* fix: declare the B300 AgentX formal power window contract
+
+* docs: consolidate the B300 FP8 performance changelog
+
+* Avoid unverified host-memory pressure for B300 H298 recipes
+
+* fix: allow complete B300 AgentX runs on eligible nodes
+
+* perf: retain B300 FP8 candidates supported by canonical qualification
+
+* feat(models): acquire verified original BF16 MTP shards atomically
+
+* test(models): reject corrupted provenance and unexpected asset files
+
+* feat(b300): stage original BF16 MTP assets for Qwen FP8 recipes
+
+* feat(b300): prepare C48 disaggregation with 64 decode slots
+
+* perf(b300): add screened TP2 EP2 write-through candidate
+
+* perf(b300): select measured C24 decode capacity
+
+* perf: expand B300 FP8 disaggregated AgentX frontier
+
+* fix: allow full B300 TP2 sweep startup and drain time
+
+* perf: select B300 1P2D throughput frontier point
+
+* perf: select B300 1P2D C32 frontier point
+
+* perf: add B300 1P2D C64 frontier point
+
+* perf: refine B300 FP8 disaggregation frontier candidates
+
+* Refine B300 FP8 frontier with decode cache and DP attention
+
+* perf: refine B300 FP8 disaggregated frontier
+
+* perf(b300): qualify six FP8 disaggregated frontier candidates
+
+* perf(b300): qualify C4 latency endpoint and drop regressed C40
+
+* perf(b300): select basic DCGM counters for Qwen AgentX
+
+* perf(b300): add higher-capacity C48 FP8 disaggregation candidate
+
+* perf: expand B300 FP8 sweep with screened C12 and C44 points
+
+* perf: add screened B300 FP8 C56 ReplaySSM capacity point
+
+* test: remove B300 SRT status test
+
+* test: remove MTP acquisition test
+
+* fix(b300): use the official FP8 embedded MTP head
+
+* fix(b300): disable inherited AgentX power collection
+
+* fix(b300): narrow node exclusion and simplify recipe metadata
+
+* [Klaud Cold] Update qwen3.5-fp8-h200-sglang-agentic-hicache-mtp SGLang image to nightly-dev-cu13-20260916-c9a8fba9 / 将 qwen3.5-fp8-h200-sglang-agentic-hicache-mtp 的 SGLang 镜像更新至 nightly-dev-cu13-20260916-c9a8fba9 (#3200)
+
+* perf: update qwen3.5-fp8-h200-sglang-agentic-hicache-mtp SGLang image to nightly-dev-cu13-20260916-c9a8fba9
+
+Move the H200 Qwen3.5 FP8 AgentX HiCache MTP recipe from
+lmsysorg/sglang:nightly-dev-cu13-20260914-4358a161 to
+lmsysorg/sglang:nightly-dev-cu13-20260916-c9a8fba9 (sgl-project/sglang@c9a8fba9,
+index digest sha256:509c2742b9441fe9182ae3dd7dac8840ba48e03d2d44b7b24e80d428f117fd85).
+The 09-16 nightly is the first cu13 build carrying sgl-project/sglang#39516, the
+HiCache startup fallback for the pinned sglang-kernel 0.4.7 wheel that broke every
+registered host pool on the 09-15 build. Recipe script, MTP settings, HiCache arms
+and the concurrency grid are unchanged.
+
+将 H200 Qwen3.5 FP8 AgentX HiCache MTP 配方的 SGLang 镜像从
+lmsysorg/sglang:nightly-dev-cu13-20260914-4358a161 更新为
+lmsysorg/sglang:nightly-dev-cu13-20260916-c9a8fba9（sgl-project/sglang@c9a8fba9）。
+09-16 nightly 是首个包含 sgl-project/sglang#39516 的 cu13 构建，该修复为固定的
+sglang-kernel 0.4.7 wheel 提供 HiCache 启动回退，09-15 构建中所有已注册主机池因此无法启动。
+配方脚本、MTP 设置、HiCache 分支及并发网格保持不变。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* perf: add changelog entry for the qwen3.5-fp8-h200-sglang-agentic-hicache-mtp image bump
+
+Append the perf-changelog entry for moving qwen3.5-fp8-h200-sglang-agentic-hicache-mtp
+to lmsysorg/sglang:nightly-dev-cu13-20260916-c9a8fba9 after the targeted smoke run
+(35135979333) passed the c2 throughput point and the c24 gsm8k eval.
+
+为 qwen3.5-fp8-h200-sglang-agentic-hicache-mtp 更新至
+lmsysorg/sglang:nightly-dev-cu13-20260916-c9a8fba9 追加 perf-changelog 条目；
+定向冒烟运行（35135979333）已通过 c2 吞吐点与 c24 gsm8k 评测。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+---------
+
+Co-authored-by: claude[bot] <41898282+claude[bot]@users.noreply.github.com>
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+Co-authored-by: adibarra <93070681+adibarra@users.noreply.github.com>
+
+* [Klaud Cold] Update minimaxm3-fp8-mi300x-vllm-agentic-mtp vLLM ROCm image to v0.29.0 / 将 minimaxm3-fp8-mi300x-vllm-agentic-mtp 的 vLLM ROCm 镜像更新至 v0.29.0 (#3063)
+
+* feat: update minimaxm3-fp8-mi300x-vllm-agentic-mtp vLLM ROCm image to v0.29.0
+
+Move the MI300X MiniMax-M3 MXFP8 AgentX EAGLE3 recipe from the unstable
+commit nightly vllm/vllm-openai-rocm:nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+to the v0.29.0 release image vllm/vllm-openai-rocm:v0.29.0
+(digest sha256:e5e47f6aaab675c252c381f0dac237b31b10d87bb74d092b07fb4065efd7f5a1).
+Recipe, search space and evals are unchanged.
+
+将 MI300X MiniMax-M3 MXFP8 AgentX EAGLE3 配方的镜像从不稳定的提交 nightly
+vllm/vllm-openai-rocm:nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+更新为 v0.29.0 发布镜像 vllm/vllm-openai-rocm:v0.29.0
+（digest sha256:e5e47f6aaab675c252c381f0dac237b31b10d87bb74d092b07fb4065efd7f5a1）。
+配方、搜索空间与评测保持不变。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* docs: add perf-changelog entry for the minimaxm3-fp8-mi300x-vllm-agentic-mtp v0.29.0 image bump
+
+Record the vLLM ROCm image move from nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+to the v0.29.0 release image for PR #3063 after the smoke run passed.
+
+为 PR #3063 记录 vLLM ROCm 镜像从 nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+更新至 v0.29.0 发布镜像的 perf-changelog 条目（冒烟运行已通过）。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* docs: shorten PR 3063 performance changelog
+
+缩短 PR 3063 的性能变更日志条目。
+
+* docs: keep PR 3063 changelog concise
+
+保持 PR 3063 性能变更日志简洁。
+
+---------
+
+Co-authored-by: claude[bot] <41898282+claude[bot]@users.noreply.github.com>
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+Co-authored-by: adibarra <93070681+adibarra@users.noreply.github.com>
+
+* [Klaud Cold] Update minimaxm3-fp8-mi300x-vllm-agentic-mtp vLLM ROCm image to v0.29.0 / 将 minimaxm3-fp8-mi300x-vllm-agentic-mtp 的 vLLM ROCm 镜像更新至 v0.29.0 (#3063)
+
+* feat: update minimaxm3-fp8-mi300x-vllm-agentic-mtp vLLM ROCm image to v0.29.0
+
+Move the MI300X MiniMax-M3 MXFP8 AgentX EAGLE3 recipe from the unstable
+commit nightly vllm/vllm-openai-rocm:nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+to the v0.29.0 release image vllm/vllm-openai-rocm:v0.29.0
+(digest sha256:e5e47f6aaab675c252c381f0dac237b31b10d87bb74d092b07fb4065efd7f5a1).
+Recipe, search space and evals are unchanged.
+
+将 MI300X MiniMax-M3 MXFP8 AgentX EAGLE3 配方的镜像从不稳定的提交 nightly
+vllm/vllm-openai-rocm:nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+更新为 v0.29.0 发布镜像 vllm/vllm-openai-rocm:v0.29.0
+（digest sha256:e5e47f6aaab675c252c381f0dac237b31b10d87bb74d092b07fb4065efd7f5a1）。
+配方、搜索空间与评测保持不变。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* docs: add perf-changelog entry for the minimaxm3-fp8-mi300x-vllm-agentic-mtp v0.29.0 image bump
+
+Record the vLLM ROCm image move from nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+to the v0.29.0 release image for PR #3063 after the smoke run passed.
+
+为 PR #3063 记录 vLLM ROCm 镜像从 nightly-d9105ea8001e0a6d77a96327d17515bb5791fb36
+更新至 v0.29.0 发布镜像的 perf-changelog 条目（冒烟运行已通过）。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* docs: shorten PR 3063 performance changelog
+
+缩短 PR 3063 的性能变更日志条目。
+
+* docs: keep PR 3063 changelog concise
+
+保持 PR 3063 性能变更日志简洁。
+
+---------
+
+Co-authored-by: claude[bot] <41898282+claude[bot]@users.noreply.github.com>
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+Co-authored-by: adibarra <93070681+adibarra@users.noreply.github.com>
+
+* [Klaud Cold] Update glm5.2-fp8-mi325x-sglang-agentic-mtp SGLang ROCm image to v0.5.19-rocm720-mi30x / 将 glm5.2-fp8-mi325x-sglang-agentic-mtp 的 SGLang ROCm 镜像更新至 v0.5.19-rocm720-mi30x (#2980)
+
+* chore: bump glm5.2-fp8-mi325x-sglang-agentic-mtp SGLang image to v0.5.19-rocm720-mi30x
+
+Update the GLM-5.2 FP8 MI325X SGLang AgentX MTP family from
+lmsysorg/sglang:v0.5.16-rocm720-mi30x to the v0.5.19 release image
+lmsysorg/sglang:v0.5.19-rocm720-mi30x (Docker Hub digest
+sha256:a0ffcdd013af6d79c9b7c4348c42b14a79a48f6c43dd3ca0235ec3802da45f75).
+Model, precision, topology, speculative settings, workloads and recipe
+script are unchanged.
+
+将 GLM-5.2 FP8 MI325X SGLang AgentX MTP 配方的镜像从
+lmsysorg/sglang:v0.5.16-rocm720-mi30x 更新为 v0.5.19 发布镜像
+lmsysorg/sglang:v0.5.19-rocm720-mi30x。模型、精度、拓扑、投机解码参数、
+工作负载与配方脚本保持不变。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* chore: add perf-changelog entry for glm5.2-fp8-mi325x-sglang-agentic-mtp image bump
+
+Append the changelog entry for updating the GLM-5.2 FP8 MI325X SGLang
+AgentX MTP image to lmsysorg/sglang:v0.5.19-rocm720-mi30x (PR #2980).
+
+为 glm5.2-fp8-mi325x-sglang-agentic-mtp 镜像更新至
+lmsysorg/sglang:v0.5.19-rocm720-mi30x 追加性能变更日志条目（PR #2980）。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+* docs: shorten PR 2980 performance changelog
+
+缩短 PR 2980 的性能变更日志条目。
+
+---------
+
+Co-authored-by: Klaud-Cold <klaud-cold@users.noreply.github.com>
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+Co-authored-by: adibarra <93070681+adibarra@users.noreply.github.com>
+
+* [Klaud Cold] Add MI325X TP4 and TP2 DeepSeek-V4.1-Flash vLLM AgentX arms with Engram host offload / 新增 Engram 主机卸载的 MI325X TP4 与 TP2 DeepSeek-V4.1-Flash vLLM AgentX 臂 (#3337)
+
+* [Klaud Cold] Add MI325X TP4 and TP2 DeepSeek-V4.1-Flash vLLM AgentX arms with Engram host offload / 新增 Engram 主机卸载的 MI325X TP4 与 TP2 DeepSeek-V4.1-Flash vLLM AgentX 臂
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* Repin dsv41flash-mi325x-tp2-tp4-engram-offload to the ROCm 10.0 nightly channel / 将镜像重新固定到 ROCm 10.0 nightly 渠道
+
+Match SemiAnalysisAI/InferenceX#3326, which moved MI355X to nightly-rocm100-3df4ae15 on
+the ROCm 10.0 channel. Same vLLM commit, different ROCm runtime.
+
+与 SemiAnalysisAI/InferenceX#3326 保持一致：相同的 vLLM commit，ROCm 10.0 运行时。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* chore: refresh PR #3337 for sweep reuse [skip-sweep]
+
+Sync with origin/main after the green sweep run 35637516947; the reuse gate
+authorizes that run on this head.
+
+在绿色 sweep 运行 35637516947 之后与 origin/main 同步；reuse gate 在此 head 上授权该运行。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+---------
+
+Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* chore(ci): run the priority classifier on Opus 5 at low effort [skip-sweep] (#3360)
+
+* chore: bump srt-slurm to v2.18.0 and stream benchmark output (#3367)
+
+Move the utils/srt-slurm submodule from 984180e (#448) to v2.18.0
+(2ac4eb1), 28 commits ahead, which adds benchmark.stream_output
+(NVIDIA/srt-slurm#483). Enable it for every srt-slurm recipe through
+setup_srt_slurm so benchmark.out is mirrored into the Actions job log
+while the client runs. The TileRT fork pin predates the option and is
+left unchanged.
+
+* Add DSV4 B200 Dynamo+SGLang AgentX configs / 添加 DSV4 B200 Dynamo+SGLang AgentX 配置 (#3257)
+
+* feat(dsv4): add B200 Dynamo SGLang AgentX configs
+
+* docs(perf): link DSV4 B200 AgentX PR
+
+* fix(dsv4): expand c256 decode KV headroom
+
+---------
+
+Co-authored-by: hshrivastava-droid <hshrivastava@nvidia.com>
+Co-authored-by: Rohit Nagraj <rohitnagraj.99@gmail.com>
+
+* [Klaud Cold] Add MI300X TP4 DeepSeek-V4.1-Flash vLLM AgentX arm with Engram host offload / 新增 Engram 主机卸载的 MI300X TP4 DeepSeek-V4.1-Flash vLLM AgentX 臂 (#3336)
+
+* [Klaud Cold] Add MI300X TP4 and TP2 DeepSeek-V4.1-Flash vLLM AgentX arms with Engram host offload / 新增 Engram 主机卸载的 MI300X TP4 与 TP2 DeepSeek-V4.1-Flash vLLM AgentX 臂
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* Repin dsv41flash-mi300x-tp2-tp4-engram-offload to the ROCm 10.0 nightly channel / 将镜像重新固定到 ROCm 10.0 nightly 渠道
+
+Match SemiAnalysisAI/InferenceX#3326, which moved MI355X to nightly-rocm100-3df4ae15 on
+the ROCm 10.0 channel. Same vLLM commit, different ROCm runtime.
+
+与 SemiAnalysisAI/InferenceX#3326 保持一致：相同的 vLLM commit，ROCm 10.0 运行时。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* Drop the MI300X TP2 arm: measured infeasible on a 192 GB card / 移除 MI300X TP2 臂：在 192 GB 卡上实测不可行
+
+Run 35671005506 reported "Available KV cache memory: -13.51 GiB" at TP2
+concurrency 1 and the engine refused to start, even with the indexer
+buffer already halved to 4096 batched tokens. TP8 and TP4 are unaffected;
+TP4 passed at concurrency 1 and 32 in the same run.
+
+运行 35671005506 在 TP2 并发 1 下报告 "Available KV cache memory: -13.51 GiB"
+并拒绝启动，此时 indexer 缓冲区已减半至 4096。TP8 与 TP4 不受影响。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* chore: refresh PR #3336 for sweep reuse [skip-sweep]
+
+Sync with origin/main after the green sweep run 35678619120; the reuse gate
+authorizes that run on this head.
+
+在绿色 sweep 运行 35678619120 之后与 origin/main 同步；reuse gate 在此 head 上授权该运行。
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+---------
+
+Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* fix: warn when sign-off lacks a reuse command (#3368)
+
+中文：签署审核缺少授权复用命令时改为警告，同步裁定发布逻辑、双语文档和回归测试。
+
+* [PowerX] retain healthy window measurements in audit sidecars / 在审计文件中保留健康窗口测量 (#3357)
+
+* fix: retain healthy power windows in audit sidecars
+
+保留健康窗口的独立测量和逐点失败证据，保持包完整性检查、required-power 及发布判定不变。
+
+* docs: clarify retained power diagnostics
+
+精简中英文窗口保留说明，明确审计顶层逐 GPU 诊断字段不构成发布许可。
+
+* [B200][SGLang][AgentX] Improve DeepSeek V4.1 Flash performance (#3346)
+
+* perf(b200): tune DeepSeek V4.1 host Engram layout on latest SGLang
+
+* chore(b200): link performance candidate to PR 3346
+
+* perf(b200): add STP and retain native DSpark FP8 projections
+
+* fix(b200): import pinned images and handle strided draft inputs
+
+* perf(b200): compare GPU-resident Engram tables for STP
+
+* fix(b200): use shipped default DSpark implementation
+
+* perf(b200): service STP decodes between long prefills
+
+* perf(b200): probe TP2 DSpark with bounded prefill memory
+
+* perf(b200): schedule DSpark decode between long prefills
+
+* perf(b200): compare GPU-resident Engram for TP4 DSpark
+
+* fix(b200): release completed MXFP4 loader temporaries
+
+* fix(b200): mark loader patch utility executable
+
+* perf(b200): test more DSpark SWA prefix tails
+
+* fix(b200): avoid TP2 loader allocation fragmentation
+
+* perf(b200): compare DSpark prefill service at interval four
+
+* perf(b200): compare host DSpark with larger SWA retention
+
+* perf(b200): qualify TP2 DSpark across concurrency
+
+* perf(b200): test more TP2 SWA prefix retention
+
+* docs(b200): document TP2 loader memory patch waiver
+
+* perf(b200): select DSpark curve with concurrency-scaled SWA capacity
+
+* perf(b200): qualify stock TP2 loader with expandable allocator
+
+* Test stock B200 loader on latest SGLang nightly
+
+AI-assisted by gpt-6-astra with high reasoning.
+
+* Document latest-nightly stock B200 loader qualification
+
+* refactor: remove redundant B200 recipe startup checks
+
+* [B300][SGLang][AgentX] Improve DeepSeek V4.1 Flash performance (#3342)
+
+* feat(b300): add DeepSeek V4.1 SGLang nightly AgentX recipe
+
+* fix(b300): record recipe pull request provenance
+
+* feat(b300): add non-speculative SGLang AgentX arm
+
+* docs: consolidate performance changelog into one PR entry
+
+* fix(b300): preserve native DSpark FP8 draft projections
+
+* fix(b300): normalize strided native FP8 projection inputs
+
+* fix: restore default SGLang DSpark precision
+
+* perf(b300): expand DSpark parallelism and interleave decode
+
+* Launch B300 SGLang AgentX through an owned Slurm batch job
+
+* Match B300 batch PMI environment to non-MPI container step
+
+* Use supported PMIx container steps for B300 AgentX batch jobs
+
+* perf(b300): scope final AgentX sweep to DSpark candidates
+
+* Test B300 low-concurrency prefix retention and checkpoint prefetch
+
+* Scale B300 TP4 prefix retention within measured KV budget
+
+* Pin B300 to the September 22 SGLang nightly
+
+* Test larger B300 TP2 KV budget for high concurrency
+
+* Increase high-concurrency TP2 cache memory on B300
+
+* Screen higher prefill duty for B300 TP2 DSpark
+
+* perf(amd): tune MiniMax-M3 ATOM AgentX memory, graphs, indexer CP, and offload / 调优 MiniMax-M3 ATOM AgentX 显存、图捕获、Indexer CP 与卸载 (#3189)
+
+* perf(minimaxm3-atom): raise util, capture the real batch sizes, add indexer CP and a TP2 offload curve
+
+Six changes to the MiniMax-M3 MXFP4 ATOM agentic recipe, all measured on
+8xMI355X against the same cc-traces replay:
+
+- gpu-memory-utilization 0.90 -> 0.95.
+- Declare cudagraph capture sizes. The stock list pads a running batch of 9 to
+  16 and 17 to 32; this workload keeps only 22-41% of the offered concurrency
+  in decode at any instant, so those are the batches that actually replay.
+- Enable ATOM_M3_INDEXER_CP on TP4 past CONC=24. Each rank scores all four
+  index heads over 1/TP of the blocks instead of one head over all of them.
+- Restore EAGLE3 on the CONC=40/48 bands. The forward step is 37-41 ms with or
+  without it, so dropping it handed back the whole acceptance-length multiplier.
+- Route CONC=20/25/30 to the chunk-256 + ATOM_SLRU offload tier and derive
+  LMCACHE_LOOKUP_SERVER_WORKER_IDS from TP instead of hardcoding four ranks.
+- Spread TP2 offload ranks across NUMA nodes; pinning 256 GB/rank takes 45 min
+  with both ranks on node 0 and 21 s with one per node.
+
+Matrix: drop TP2 c5, add the TP2 c20/25/30 offload curve.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* refactor(minimaxm3-atom): drop the dead per-band knobs
+
+The per-CONC case set MAX_NUM_SEQS, MAX_NUM_BATCHED_TOKENS and GPU_MEM_UTIL in
+all seven bands and two lines later overwrote all three unconditionally: 21 of
+its 49 assignments could never be read. What actually survived it was
+NUM_SPEC_TOKENS, SPEC_DECODE_AL and STATE_OFFLOAD_CPU_GIB, and after restoring
+EAGLE3 on 40/48 only CONC=56 differs on the first two. Collapsed to defaults
+plus three overrides; STATE_OFFLOAD_CPU_GIB keeps its exact per-band values.
+
+ATOM_ENABLE_REPLAYSSM is removed rather than collapsed: it is only read by
+gdn_attn, which gates the gated-delta-net path, and MiniMax-M3 is pure
+attention with no SSM layers, so the value never reached anything.
+
+Verified by replaying every point in the amd-master matrix (19 combinations of
+TP, CONC and offload) through a stubbed benchmark_lib and diffing the resulting
+server argv plus every exported env var: byte-identical apart from the removed
+variable.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* refactor(minimaxm3-atom): one table per concurrency, and drop the tier M3 cannot use
+
+The hybrid offload tier is unreachable for this model. ATOM's M3 connector is
+PAGE-only -- the docstring says MiniMax-M3 has no recurrent state and no SLOT
+sidecar, and it raises if slot_regions is non-empty -- so OFFLOAD_STATE and the
+staging knobs behind STATE_OFFLOAD_CPU_GIB never applied. Its LMCACHE_CHUNK_SIZE
+is justified by "block-size(128) x dcp(8)", but this model's search space sets
+no dcp-size at all. Removed, along with the comment claiming M3 carries a
+per-request recurrent state. An unlisted concurrency now fails instead of
+silently taking a tier that does not fit.
+
+CONC=56 is removed for the same reason: nothing in the matrix runs it here (the
+56 in this file's neighbourhood belongs to Kimi K3, which has its own script),
+and it was the only band that disabled the draft model. With it gone
+NUM_SPEC_TOKENS is constant, so the guard around SPEC_ARGS goes too.
+
+The remaining per-concurrency facts now live in one table. Previously the CP
+gate was a numeric comparison and the offload tier an enumeration, so adding a
+concurrency above 24 would silently enable indexer CP on a point nobody
+measured, while forgetting the tier failed loudly. Both are declared per band
+now: the loud failure is kept, the silent one becomes a missing speedup.
+
+Verified the same way as the previous cleanup: all 19 matrix points replayed
+through a stubbed benchmark_lib, server argv and every exported env var
+byte-identical.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* perf(minimaxm3-atom): spread TP4 offload ranks across NUMA nodes, move to the rocm7 nightly
+
+Pinning 256 GB/rank with all four TP4 ranks on NUMA node 0 takes 27m08s
+(12:13:10 "NUMA mapping" -> 12:40:18 "Created backend: LocalCPUBackend"); the
+same pinning with TP2 split one rank per node takes 21 s. TP4 now selects
+0,1,4,5 for the same reason TP2 selects 0,4. Only applied when the caller has
+not already pinned a device set, and only on the offload path -- a run without
+the CPU tier pins no host memory.
+
+The image moves to the rocm7 line of ATOM's nightly release (232f62e3), which
+carries the M3 dense-split work. Checked against the measured baseline rather
+than assumed: triton 3.7.0 and torch 2.10.0+rocm7.2.4.git3d3aa833 are identical
+to the image every number in this PR was measured on, which matters because the
+rocm10.0 line of the same build carries triton 3.8.0 and that version regresses
+this model's Gluon kernels. LMCache in the new image is 0.5.5rc3, not the 0.4.5
+the matrix declared, so the two MiniMax-M3 offload rows are corrected; the other
+models keep their own versions.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* docs(perf): record MiniMax-M3 AgentX tuning sweep
+
+记录 MiniMax-M3 ATOM AgentX 调优、矩阵变化、测试结果与已知 CPU DRAM 元数据限制，以便上游 PR 启动完整 AgentX sweep。
+
+* docs(perf): link MiniMax-M3 tuning pull request
+
+将 MiniMax-M3 ATOM AgentX 性能 changelog 的占位链接替换为上游 PR #3189。
+
+* fix(ci): provide exact PR context to priority classifier
+
+Supply immutable base/head revisions and the permitted diff command, document read-only tool use, and allow 16 turns for structured classification.
+
+为优先级分类器提供确切的 Base/Head 版本及允许执行的 Diff 命令，明确只读工具用法，并将结构化分类的轮数上限调整为 16。
+
+* ci(agentx): run MiniMax-M3 throughput only
+
+禁用本次 changelog 的自动 vendor eval，只保留 19 个 AgentX 吞吐任务，避免为每个并发额外展开评测。
+
+* perf(minimaxm3-atom): extend indexer CP down to CONC=15 on TP4
+
+The gate was CONC > 24, chosen from a kernel microbenchmark over uniform
+contexts. Three same-commit A/B pairs (1800 s per arm, TP4 + EAGLE3) put the
+real crossover below 15:
+
+  CONC 15   interactivity p90 +3.7%    ISL-normalised throughput +0.67%
+  CONC 24                    +12.3%                              +0.24%
+  CONC 28                    +16.7%                              +2.7%
+
+Monotone and never negative. Throughput is neutral everywhere (only CONC=28
+clears the 0.6% noise floor) while interactivity rises with the running batch,
+which is what CP actually shortens. Prefix hit rates are identical within each
+pair (96.7/96.7, 97.5/97.5, 97.2/97.3), so the gain is not a caching artifact.
+
+CONC=20 is interpolated between the two measured points, not run on its own.
+Nothing below 15 is measured and the microbenchmark is negative at batch ~2,
+so the band stops there.
+
+CONC=20 appears in both search-space rows, so it is split out of the offload
+enumeration: TP4 gets CP without a tier, and the tp_size == 4 gate keeps CP off
+the TP2 offload curve. 25 and 30 are TP2-only and stay without a CP
+declaration, which would never take effect but would misreport the point.
+
+Verified with the 19-point argv+env replay: the only difference against the
+previous revision is ATOM_M3_INDEXER_CP="1" on tp4_c15, tp4_c20 and tp4_c24.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+* docs(perf): record expanded MiniMax-M3 indexer CP band
+
+记录 TP4 C15/C20/C24 新增 indexer-only CP 的 A/B 证据，并说明 TP2 C20 仍由 TP-size gate 保持关闭。
+
+* ci: restore default PR priority classifier
+
+Revert the 16-turn exact-diff prompt so this recipe PR does not change shared sweep CI.
+
+还原默认的优先级分类器配置，避免本配方 PR 修改共享 sweep workflow。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* perf(minimaxm3-atom): switch to official nightly_202609170640_minimax_m3 image
+
+Replace the developer-named ATOM nightly so this submission uses an official tag.
+
+将 ATOM 镜像替换为不含开发者用户名的官方 tag nightly_202609170640_minimax_m3。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* switch to 0917 nightly atom image
+
+* perf(minimaxm3): enable agentic eval by removing no-evals opt-out
+
+Drop `no-evals: true` from the minimaxm3-fp4-mi355x-atom-agentic-mtp
+changelog entry so plan generation no longer skips eval rows; the
+model's automatic minimax-vendor (minimax_m3_full) agentic eval then runs.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* docs(perf): correct MiniMax-M3 ATOM AgentX changelog image to nightly_202609171455
+
+Align the perf-changelog entry with the recipe's actual image
+(rocm/atom-dev:nightly_202609171455 in configs/amd-master.yaml),
+replacing the stale nightly_202609170640_minimax_m3 reference in both
+the English and Chinese descriptions.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* fix(minimaxm3): size LMCache CPU pool per-rank from TOTAL_CPU_DRAM_GB/TP
+
+The cpu256 offload tier hardcoded LMCACHE_MAX_LOCAL_CPU_SIZE=256 per rank,
+independent of the matrix generator's TOTAL_CPU_DRAM_GB budget. Derive it
+as TOTAL_CPU_DRAM_GB / TP so the per-rank pool respects the declared budget
+and is TP-independent (node_DRAM * dram-utilization / 8). Bump the atom
+arm's dram-utilization 0.20 -> 0.687 so the offload arms land ~256 GB/rank.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* Update perf-changelog.yaml
+
+* docs(minimaxm3): expand ATOM AgentX changelog and record EAGLE3-GQA draft online-quant finding
+
+Update the minimaxm3-fp4-mi355x-atom-agentic-mtp changelog entry to reflect
+every change in SemiAnalysisAI/InferenceX#3189 and to record the EAGLE3-GQA
+draft online-quant verification:
+
+- Raise ATOM GPU memory utilization 0.90 -> 0.95 and declare a fine-grained CUDA
+  graph ladder (capture sizes 1-64) sized for the 22-41%-of-CONC running batch,
+  trimmed by ModelRunner to min(2*CONC, 8192). TP4 C24 A/B: throughput +9.2%,
+  interactivity +50.7%, unchanged estimated graph memory.
+- Enable ATOM_M3_INDEXER_CP for TP4 C15/C20/C24/C28/C32/C40/C48; the TP-size gate
+  (tp_size == sparse_num_index_heads == 4) keeps it off the TP2 C20 offload point.
+  Restore EAGLE3 K3 (golden AL 2.78) at C40/C48.
+- Collapse per-band knobs into one case; add the TP2 LMCache DRAM-offload curve at
+  C20/C25/C30 on the chunk-256 ATOM_SLRU tier; size LMCACHE_MAX_LOCAL_CPU_SIZE as
+  TOTAL_CPU_DRAM_GB/TP; cover every rank in LMCACHE_LOOKUP_SERVER_WORKER_IDS.
+  Remove TP2 C5 and the unreachable hybrid/state-offload and C56 branches.
+- NUMA-spread offload GPUs (0,4 for TP2; 0,1,4,5 for TP4), cutting TP2 host-memory
+  pinning from 45 min to 21 s. Move to rocm/atom-dev:nightly_202609171455 and
+  LMCache 0.5.5rc3+rocm7.2.4 on both offload arms.
+- Set dram-utilization to 0.687 so the recorded budget matches the real ~256 GB
+  per-rank pinning (512 GB total TP2, 1,024 GB TP4), independent of TP, replacing
+  the earlier 0.20 metadata that under-described the allocation.
+- Verified against ATOM commit b6e2a39433d73b586c366ca90e661f098eb463e3 that
+  --online_quant_config ptpc_fp8 does not change the Inferact/MiniMax-M3-EAGLE3-GQA
+  draft precision: eagle3_llama.py builds every draft linear (qkv_proj, o_proj,
+  gate_up_proj, down_proj, fc) with no quant_config, so should_stream_online_quant
+  short-circuits to False and OnlineQuantStreamer.maybe_create finds no candidates.
+  The draft runs at native bf16; only the target MiniMax-M3 weights are online-
+  quantized to ptpc_fp8, and exclude_layer applies to the target alone.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+---------
+
+Co-authored-by: Wang Yiting <yitiwang@amd.com>
+Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Co-authored-by: Cursor <cursoragent@cursor.com>
+Co-authored-by: billishyahao <bill.he@amd.com>
+Co-authored-by: seungrokj <144636725+seungrokj@users.noreply.github.com>
+Co-authored-by: seungrokj <seungrok.jung@amd.com>
+
+* feat(agentx): retune GLM5.2 FP4 MI355X ATOM recipe on _0921 docker (#3359)
+
+* feat(agentx): retune GLM5.2 FP4 MI355X ATOM recipe on _0921 docker
+
+Signed-off-by: zhuyuhua-v <yuhzhu@amd.com>
+
+* docs(glm5.2): note MTP block stays BF16 under --online_quant_config (PR #3359)
+
+Changelog for the GLM-5.2 FP4 MI355X ATOM AgentX recipe retune:
+
+- Track the updated GLM-5.2 standalone recipe (ROCm/ATOM PR 2345) on the MI355X
+  ATOM AgentX config.
+- Bump the image from rocm/atom-dev:nightly_202609151450 to
+  rocm/atom-dev:nightly_202609211553, which carries ROCm/ATOM PR 2345.
+- Drop the LMCache DRAM offload from the small-concurrency TP4 arm: conc
+  [2, 4, 8, 10] moves from kv-offloading dram with the lmcache 0.4.5 backend to
+  kv-offloading none, so those points serve off the native GPU prefix cache alone
+  and no longer start an LMCache CPU tier. The TP4+DCP4 arm at conc
+  [16, 24, 32, 40, 48] keeps LMCache at 256 GiB per rank (dram-utilization 0.171
+  unchanged), and the TP8 arm stays GPU-resident as before.
+- Add --index_cache_dtype fp4 and --block-size 64 to the ATOM server launch on
+  every point. Neither flag was set before, so both took the ATOM default.
+- Drop ATOM_USE_FLYDSL_GATHER_KV_B_PROJ=0, which pinned gather_kv_b_proj to the
+  Triton path on the DCP prefill-context and MTP verify paths; the updated recipe
+  no longer sets it.
+- The MTP block data precision is not touched by --online_quant_config: the
+  exclude_layer list adds "model.layers.78.*" so layer 78 (the GLM-5.2 MTP head)
+  is skipped by online quantization and stays in native BF16, as it ships
+  unquantized in amd/GLM-5.2-MXFP4. The expert excludes only reach layers 0-77,
+  so without this exclude the whole MTP block would be online-quantized to
+  ptpc_fp8 while the target's experts stay MXFP4.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+---------
+
+Signed-off-by: zhuyuhua-v <yuhzhu@amd.com>
+Co-authored-by: seungrokj <144636725+seungrokj@users.noreply.github.com>
+Co-authored-by: seungrokj <seungrok.jung@amd.com>
+Co-authored-by: Claude Opus 4.6 <noreply@anthropic.com>
+
+* config(dsv41flash): sweep MI355X at TP=2 and TP=4 through concurrency 128 / MI355X DSv4.1-Flash 在 TP=2 与 TP=4 下扫描至并发 128 (#3326)
+
+* config(dsv41flash): sweep MI355X at TP=2 and TP=4 through concurrency 128
+
+Add a TP=2 search space next to TP=4 for the MI355X DSv4.1-Flash AgentX
+entry, and extend both rows to concurrency 128. TP=2 became feasible once
+the Engram tables moved to host memory: at 47.2 GiB of device memory per
+rank they previously forced four GPUs per server, and two GPUs per server
+doubles the servers per node.
+
+The image moves to the ROCm 10 nightly and carries a placeholder tag until
+that build is published. The digest is pinned before the sweep runs, which
+is why the PR opens as a draft.
+
+中文：为 MI355X DSv4.1-Flash AgentX 配置在 TP=4 之外新增 TP=2 搜索空间，并将两者
+的并发扩展到 128。Engram 表已驻留主机内存，不再占用每 rank 47.2 GiB 设备内存
+（此前这迫使每个服务器使用四张 GPU），因此 TP=2 可行，且每节点可容纳的服务器数
+量翻倍。镜像切换到 ROCm 10 nightly，在该构建发布前暂用占位 tag；digest 固定后再
+运行 sweep，因此本 PR 以 draft 形式提交。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): record the sweep PR link in the changelog
+
+中文：在 changelog 中记录本次 sweep 的 PR 链接。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): let vLLM pick max_num_seqs for the MI355X AgentX recipe
+
+A fixed max_num_seqs of 128 caps in-flight sequences at the outer
+concurrency once the sweep reaches c128, leaving no headroom for AgentX
+subagent fan-out. Use the MI355X API-server default of 1024 instead, and
+derive the CUDA graph ceiling from max(2 * CONC, 128): 1024 through c64,
+2048 at c128.
+
+Supersedes PR #3111, which carried this recipe change and was closed in
+favour of this sweep.
+
+中文：扫描到 c128 时，固定的 max_num_seqs 128 会把在途序列数限制在外层并发上，
+使 AgentX 子代理扇出没有余量。改用 MI355X API server 默认值 1024，并由
+max(2 * CONC, 128) 推导 CUDA graph 上限：c64 及以下为 1024，c128 为 2048。
+本次提交取代已关闭的 PR #3111（该 PR 原本包含此 recipe 改动）。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): keep the placeholder on the existing ROCm nightly channel
+
+Per #3215, the MI355X DSv4.1-Flash entry stays on the existing upstream
+ROCm nightly channel rather than moving to nightly-rocm100. Drop the
+rocm10 marker from the placeholder tag; the pin is filled in with the
+nightly this sweep actually runs on before dispatch.
+
+中文：依据 #3215，MI355X DSv4.1-Flash 条目继续使用现有的上游 ROCm nightly 渠道，
+不切换到 nightly-rocm100。占位 tag 去掉 rocm10 标记；派发前再填入本次 sweep
+实际运行的 nightly。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* Revert "config(dsv41flash): keep the placeholder on the existing ROCm nightly channel"
+
+This reverts commit 039194e50d92a80c847d770729e106237e2b36c4.
+
+The MI355X DSv4.1-Flash AgentX sweep runs on the ROCm 10 nightly after
+all, so restore the nightly-rocm100 placeholder. The pin is filled in
+with the published nightly before dispatch.
+
+中文：还原提交 039194e50d92a80c847d770729e106237e2b36c4。
+
+MI355X DSv4.1-Flash AgentX sweep 最终仍在 ROCm 10 nightly 上运行，因此恢复
+nightly-rocm100 占位 tag。派发前再填入已发布的 nightly。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): pin the MI355X AgentX sweep to the ROCm 10 nightly
+
+Replace the placeholder with
+vllm/vllm-openai-rocm:nightly-rocm100-3df4ae153eb385e27b52f26c81f8edb9e20b9984,
+published 2026-09-21T05:50:03Z with digest
+sha256:eccb72b74b8c04ce7406d9212e200b129f58e24be642795a857f755a94fdb3a1.
+The tag is active and linux/amd64, and its manifest resolves from
+registry-1.docker.io at that digest.
+
+This sweep qualifies the new image; the previous green run on
+nightly-eed1f3d0 is not evidence for it.
+
+将占位 tag 替换为
+vllm/vllm-openai-rocm:nightly-rocm100-3df4ae153eb385e27b52f26c81f8edb9e20b9984，
+该镜像于 2026-09-21T05:50:03Z 发布，digest 为
+sha256:eccb72b74b8c04ce7406d9212e200b129f58e24be642795a857f755a94fdb3a1。
+该 tag 状态为 active、架构为 linux/amd64，其 manifest 可从
+registry-1.docker.io 按该 digest 解析。
+
+本次 sweep 用于验证新镜像；此前在 nightly-eed1f3d0 上的绿色运行不能作为其证据。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): offload Engram to host memory at TP=2 on MI355X
+
+vllm-project/vllm#57491 widened the two ROCm is_cuda() gates to
+is_cuda_alike(), so the pinned nightly resolves an Engram config on
+gfx950 and offloads the tables to pinned host memory by default. Set
+cpu_offload explicitly per TP instead of taking that default.
+
+TP=2 needs the offload: the tables cost 47.2 GiB per rank at TP=4, so
+94.4 GiB at TP=2, which does not fit beside half of the 511 GB
+checkpoint on a 288 GiB card. TP=4 keeps them resident so it stays
+comparable with the validated concurrency 1-32 run.
+
+vllm-project/vllm#57491 将 ROCm 上的两处 is_cuda() 判断放宽为
+is_cuda_alike()，因此所固定的 nightly 在 gfx950 上会解析 Engram 配置，
+并默认将表下放到锁页主机内存。这里按 TP 显式设置 cpu_offload，而不是
+沿用该默认值。
+
+TP=2 需要该下放：表在 TP=4 时每 rank 占用 47.2 GiB，TP=2 时为 94.4 GiB，
+无法与 511 GB 检查点的一半同时放入 288 GiB 的单卡。TP=4 保持表常驻 GPU，
+以便与已验证的并发 1-32 运行保持可比。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): disable SWA bounded replay on MI355X
+
+Every TP=2 and TP=4 point of run 35567570539 died with
+HSA_STATUS_ERROR_MEMORY_FAULT, taking the worker and then the engine core
+down and aborting AgentX warmup. The fault follows the first launch of
+_pad_replayed_slots_kernel in all 16 server logs, which is the first
+prefix hit carrying a replay start.
+
+vllm-project/vllm#56227 added SWA bounded replay, default on, after the
+eed1f3d0 pin and before nightly-rocm100-3df4ae153. It pads the replayed
+tokens' slots in the prefix-cacheable groups, but the window clamp it
+relies on landed in the FlashInfer and FlashMLA kernels; the ROCm sparse
+SWA path only gained the replay_start kwarg, and consumes it on the
+decode path while the fault is in prefill. Pass --no-swa-bounded-replay
+until ROCm clamps too. Prefix caching itself stays on.
+
+运行 35567570539 的所有 TP=2 与 TP=4 数据点都以
+HSA_STATUS_ERROR_MEMORY_FAULT 崩溃，先后带崩 worker 与 engine core，
+并中止 AgentX warmup。16 份 server 日志中，该故障均紧随
+_pad_replayed_slots_kernel 的首次启动，即首个带 replay start 的前缀命中。
+
+vllm-project/vllm#56227 在 eed1f3d0 与 nightly-rocm100-3df4ae153 之间
+引入了默认开启的 SWA bounded replay。它会填充被重放 token 在可前缀缓存
+分组中的 slot，但其依赖的窗口钳制只落在 FlashInfer 与 FlashMLA 内核中；
+ROCm 稀疏 SWA 路径仅新增了 replay_start 参数，且只在 decode 路径消费它，
+而故障发生在 prefill。在 ROCm 同样实现钳制之前传入
+--no-swa-bounded-replay。前缀缓存本身保持开启。
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* config(dsv41flash): fix the MI355X KV split at high concurrency
+
+Concurrency 64 collapsed on both arms of run 35574132719 because the KV
+pool was too small to hold the AgentX working set. TP=2 fell to a 17.6%
+prefix cache hit rate, 187 s TTFT and 150 tok/s, against 94.8%, 1.3 s and
+957 tok/s at c32.
+
+Two settings were spending device memory that the KV pool needed.
+
+The Engram tables stayed resident at TP=4. vllm-project/vllm#57491
+widened the two ROCm is_cuda() gates to is_cuda_alike(), so gfx950 can
+now offload them to pinned host memory as every NVIDIA arm has since
+ #2963. Measured here at TP=4 with 16384 batched tokens, resident tables
+leave 37.96 GiB of KV cache and 14.15x maximum concurrency at 1M
+context, against 84.54 GiB and 31.52x offloaded.
+
+The sparse-attention indexer and its companion per-rank buffers scale at
+roughly 4.4 MiB per batched token, so the upstream 16384 was the larger
+cost. Size it per TP instead, 4096 at TP=2 and 8192 at TP=4, and cap
+max_num_seqs at the shape graph capture already covers rather than the
+MI355X API-server default of 1024. TP=2 then keeps 79.34 GiB (39.44x)
+and TP=4 keeps 121.03 GiB (54.15x), against the B300 arm's 132.48 GiB
+(60.17x). B300 runs 8192 at TP=4 and the Blackwell TP=2 arms run 4096
+(#3320, #3321).
+
+Sweep concurrency 64 and 128 to confirm the high end first. Concurrency
+1-32 is backfilled once those land, since every point now runs the new
+memory split.
+
+Co-authored-by: Cursor Agent <cursoragent@cursor.com>
+Signed-off-by: Fangzhou Ai <fangzhou.ai@amd.com>
+
+* config(dsv41flash): change the MI355X memory split only where KV ran short
+
+The previous commit applied one memory split per TP across every
+concurrency. Concurrency 1-32 never ran short of KV, so it paid for
+changes it did not need: offloaded Engram lookups go to pinned host
+memory over UVA, and a smaller prefill chunk costs TTFT. Scope each
+change to the points that were actually starved, which also leaves
+concurrency 1-32 and TP=4 c64 byte-identical to the settings run
+35574132719 already measured on this image and flag set, so those
+points are combined with this sweep rather than re-run.
+
+Dividing measured KV tokens by concurrency gives the per-request budget
+and separates the failures cleanly. Every point that held had 232K or
+more; TP=2 c64 collapsed at 122K.
+
+  TP=4 c1-c64   resident, 16384   14.83M tokens   232K and up
+  TP=4 c128     offload,   8192   49.63M           388K
+  TP=2 c1-c32   offload,  16384    7.84M           245K and up
+  TP=2 c64      offload,   8192   24.68M           386K
+  TP=2 c128     offload,   4096   33.34M           260K
+
+Probing the configurations directly also turned up two things. TP=2 c128
+at 4096 with the API-server default of 1024 sequences faults during
+profiling with HSA_STATUS_ERROR_EXCEPTION at M=1024, N=129280, K=256,
+reproduced on two GPU pairs: DSpark verifies 1+5 tokens per sequence, so
+a decode batch of max_num_seqs needs six times that many token slots and
+4096 leaves four. Cap max_num_seqs at the graph-capture shape wherever
+the chunk falls below that bound, which is TP=2 c128 alone. And the
+reason c128 never completed before is that at 16384 with capture at
+2048, TP=2 c128 held 7.72 GiB, 3.02M tokens, 23.6K per request.
+
+Co-authored-by: Cursor Agent <cursoragent@cursor.com>
+Signed-off-by: Fangzhou Ai <fangzhou.ai@amd.com>
+
+* config(dsv41flash): measure the full MI355X concurrency range on the new pin
+
+* docs(dsv41flash): retire the MI355X draft status and repoint GPU validation
+
+The MI355X section still described a draft recipe at TP4 concurrency
+1-32 and cited run 34710937012 on nightly-eed1f3d0 as the pinned image.
+Both predate this branch: the arm now sweeps TP4 and TP2 at concurrency
+1-128 on nightly-rocm100-3df4ae15. Lead with the current pin, keep the
+earlier run only as the superseded-pin note explaining why its points do
+not carry onto this image, and add the merged upstream recipe #1006
+beside #968.
+MODELS.md and MODELS_zh.md carried a second DeepSeek-V4.1-Flash row
+holding the MI355X arm as pending GPU validation. Drop it; the active
+row already covers the model.
+
+---------
+
+Signed-off-by: Fangzhou Ai <fangzhou.ai@amd.com>
+Co-authored-by: Cursor <cursoragent@cursor.com>
+Co-authored-by: functionstackx <47992694+functionstackx@users.noreply.github.com>
+Co-authored-by: Chun Fang <chun.fang@amd.com>
+
+* [AMD] Update GLM-5.2 MI355X image, HiCache capacity, and sweep / 更新 GLM-5.2 MI355X 镜像、HiCache 容量与 sweep (#3329)
+
+* perf: update GLM-5.2 ROCm image and HiCache path
+
+将 GLM-5.2 ROCm 镜像更新到 20260920，切换 HiCache kernel/page_first，并调整并发矩阵。
+
+* perf: split GLM-5.2 low and high concurrency points
+
+TP8/EP1 仅保留并发 1、2、4；TP4/EP4 HiCache 仅运行并发 12、14、16，并补充实际 PR 链接。
+
+* Keep existing GLM-5.2 HiCache settings
+
+* Use default GLM-5.2 HiCache backend and layout
+
+* Add missing GLM-5.2 concurrency points
+
+* perf: increase GLM-5.2 HiCache capacity
+
+将 GLM-5.2 TP4/EP4 HiCache 调整为每 rank 180 GB，并将 SA DRAM 利用率提高到 0.85。
+
+* fix changelog
+
+---------
+
+Co-authored-by: Chun Fang <chun.fang@amd.com>
+
+* fix(review): bind verifier verdicts to signoffs (#3371)
+
+让清单编辑触发验证，并按签署资源隔离验证评论。
+
+* [TileRT] GLM-5.3 MI355X AgentX parallel KV inject experiments, reverted pending tile-ai/TileRT#66 / GLM-5.3 MI355X AgentX 并行 KV 注入实验（已回退，待 tile-ai/TileRT#66） (#3376)
+
+* [GB300][SGLang][AgentX] Improve DeepSeek V4.1 Flash performance (#3344)
+
+* perf(gb300): add nightly SGLang V4.1 Flash DSpark candidates
+
+* chore(gb300): link performance changelog to PR 3344
+
+* perf(gb300): add non-speculative SGLang AgentX candidates
+
+* chore(gb300): consolidate performance changelog entry
+
+* perf(gb300): resolve local SGLang checkpoint for Engram cache advice
+
+* perf(gb300): retain native FP8 DSpark draft projections
+
+* fix(gb300): make native draft FP8 inputs contiguous
+
+* perf(gb300): test GPU-resident Engram tables on TP4
+
+* Use shipped nightly DSpark precision on GB300
+
+* Interleave GB300 STP decode with long prefills
+
+* perf(gb300): prioritize DSpark across the AgentX curve
+
+* perf(gb300): test larger SWA prefix cache for DSpark
+
+* Test larger SWA cache on GB300 TP2 DSpark
+
+* Select DSpark and scale SWA retention for the GB300 sweep
+
+* perf(gb300): select qualified prefill capacity on latest nightly
+
+* chore(gb300): remove documentation changes from performance PR
+
+* [H200][SGLang][AgentX] Improve DeepSeek V4.1 Flash performance (#3341)
+
+* perf(h200): qualify DeepSeek V4.1 Flash on latest SGLang nightly
+
+* chore(h200): link performance qualification PR
+
+* perf(h200): enable huge pages for Engram host shards
+
+* perf(h200): add native non-speculative SGLang throughput arm
+
+* chore(h200): consolidate performance changelog entry
+
+* fix(sglang): retain native FP8 DSpark attention projections
+
+* style(sglang): sort native projection patch imports
+
+* chore(sglang): store context-free native projection patch
+
+* fix(h200): make native draft FP8 inputs contiguous
+
+* perf(h200): test GPU-resident Engram for non-speculative serving
+
+* perf(h200): interleave STP decode with long prefix prefill
+
+* fix: restore default SGLang DSpark precision
+
+* perf(h200): add TP4 host Engram throughput comparison
+
+* perf(h200): prioritize TP4 DSpark and prevent prefill starvation
+
+* perf(h200): tune block32 kernels and extend DSpark concurrency
+
+* perf(h200): compare native Marlin MoE with stock DSpark
+
+* perf(h200): retain DSpark after non-speculative comparisons
+
+* perf(h200): retain more SWA prefixes within the KV budget
+
+* perf(h200): select measured DSpark MoE backends by TP
+
+* perf: consolidate H200 DSpark topology and launch tuning
+
+* perf: qualify H200 DSpark with exact EP1 baseline topologies
+
+* perf: select complete H200 EP1 qualification grid
+
+* fix(h200): allow full high-concurrency AgentX warmup
+
+* [CI] select Python 3.12 for result processing / 固定结果处理 Python 3.12 (#3397)
+
+* fix: select Python 3.12 for result processing
+
+中文：在分配 GPU 前准备独立的结果处理 Python，并在固定序列和 AgentX 路径中显式使用；配置缺失时仍保留失败产物。
+
+* fix: use managed Python for H200 AgentX power results
+
+在 H200 AgentX DCGM 结果处理路径中校验并使用受管 Python 解释器，保留失败产物；补充回归测试和中英文恢复说明。
+
+* docs(review): explicitly ban FP8 NextN MoE flag (#3403)
+
+明确禁止启用 SGLANG_NVFP4_CKPT_FP8_NEXTN_MOE，并同步中英文贡献指南及审阅清单。
+
+* [TileRT] Bump GLM-5.3 FP8 MI355X AgentX to tilert 0.1.6.post2 / GLM-5.3 FP8 MI355X AgentX 升级至 tilert 0.1.6.post2 (#3389)
+
+* [TileRT] Bump GLM-5.3 FP8 MI355X AgentX to tilert 0.1.6.post2
+
+* Set changelog pr-link
+
+* [MI355X][SGLang][AgentX] Improve DeepSeek V4.1 Flash performance
+
+Add the native SGLang DeepSeek V4.1 Flash DSpark recipe for MI355X, with radix caching enabled and supported long-context memory limits.
+
+Validated by official sweep 35943469224: six canonical performance cells and six full GSM8K evaluations. Reuse this sweep for production publication.
+
+* [GB200][SGLang][AgentX] Improve DeepSeek V4.1 Flash performance
+
+Qualify the native SGLang DeepSeek V4.1 Flash DSpark recipe on GB200 with radix caching and full context.
+
+Official sweep 35876607563 passed sixteen canonical performance cells and sixteen full GSM8K evaluations across TP2/EP1 and TP4/EP1 at C1 through C128. Reuse the qualified sweep for production publication.
+
+* [H200][SGLang][AgentX] Qualify DSpark decoder SWA bounded replay (#3392)
+
+Enable decoder SWA bounded replay and pin the qualified SGLang nightly for H200 DSpark. Reuse full sweep 35893977246: 16 canonical performance cells and 16 complete GSM8K evaluations passed; final staging verified.
+
+* [H100][SGLang][AgentX] Improve DeepSeek V4.1 Flash performance (#3345)
+
+Restore the first fully qualified H100 SGLang recipe and pinned September 22 image, including TP8/EP8 and DP8 coverage. Reuse successful full sweep 35690159495. Preserve native context, prefix caching and shipped DSpark precision.
+
+* refactor: migrate fixed-sequence recipes to SRT-Slurm / 将定长配方迁移至 SRT-Slurm (#3352)
+
+* refactor: start native single-node SRT-Slurm migration
+
+开始原生单节点 SRT-Slurm 迁移，添加 H200 SGLang 8k1k 并行候选配方并复用现有基准客户端；生产路由保持不变。
+
+* docs: link single-node migration changelog to draft PR
+
+为单节点迁移的 changelog 条目补充草稿 PR 链接。
+
+* feat: wire native H200 SRT pilot into end-to-end workflow
+
+将原生 H200 SRT 试点接入端到端工作流，显式校验配方、保留结果和功耗产物，并保持生产路由不变。
+
+* test: cover native single-node job failures and artifacts
+
+覆盖原生单节点作业的提交失败、Slurm 失败、产物保留及定向取消行为。
+
+* fix: drop unused AIPerf inputs from SRT setup
+
+删除 SRT 准备阶段未使用的 AIPerf 排空参数要求，使固定序列工作流能进入实际提交；新增缺省参数回归覆盖。
+
+* fix: let native SRT stage the pilot container image
+
+将配方指定镜像直接交给原生 SRT/Pyxis，移除试点对旧 squash 缓存就绪状态的依赖，保留模型预检查。
+
+* fix: bootstrap native SRT binaries before pilot submission
+
+在试点提交前执行原生 SRT 二进制准备，并覆盖准备失败时不提交作业的行为。
+
+* feat: port H200 MTP and Qwen recipes to native SRT
+
+将 H200 DeepSeek-R1 MTP 与 Qwen3.5 EP8 配方迁移到并行原生 SRT 试点，保留聊天模板及随并发变化的图捕获，并使用 4/16/64 逐点验证回归。
+
+* docs: remove migration guide
+
+移除独立迁移指南及入口链接，迁移范围与验证证据保留在 PR 中。
+
+* feat: migrate fixed-sequence SGLang recipes to native SRT
+
+将 H100、H200、B200 和 B300 的 21 个活跃 SGLang 定长配方及全部 181 个配置点切换到原生 SRT-Slurm。共享提交、eval 和产物处理，并保留逐点拓扑与推测解码设置。
+
+* feat: migrate fixed-sequence TRT recipes to native SRT
+
+将八个定长 TRT 配方迁移至原生 SRT，保留 63 个测试点的引擎参数、客户端和 eval token 预算。
+
+* feat: convert remaining fixed-sequence recipes to native SRT
+
+将剩余 AMD SGLang/ATOM 与 RTX 定长配方切换到原生 SRT 配置，保留测试点及服务参数；固定直接 ATOM 服务草稿依赖并扩展行为验证。
+
+* fix: forward native Docker eval model identity
+
+为 RTX 原生 Docker 路径显式传递 eval 模型名称，并验证实际启动器的命令、失败传播及容器清理。
+
+* fix: apply AMD container options as native leaf overrides
+
+按原生 SRT 语义逐项传递容器选项，增加映射行为回归测试并输出提交失败原因。
+
+* refactor: reuse native job workspace for AMD scratch files
+
+复用作业检出目录存放 AMD 原生运行时临时文件，由现有 runner 清理流程回收，移除额外 scratch-root 配置。
+
+* fix: complete AMD native launch and terminal status handling
+
+修复 AMD 原生启动命令的尾部换行，在 accounting 不可用时通过 Slurm 控制器验证终态，并等待启动失败的日志进程退出。
+
+* refactor: require native recipes for the Slurm fixed-sequence cutover
+
+移除 Docker 迁移支持和 50 个已被原生配方替代的定长 Bash 实现。Slurm 定长作业必须提供 SRT 配方，保留 AgentX、多节点和显式采集器的独立执行路径。
+
+* refactor: make single-node fixed-sequence coverage SRT-only
+
+归档仅支持 Docker 的 RTX 定长配置及脚本，移除无调用方的 runner 路由；保留历史 changelog 条目，但不为已归档的精确配置键生成作业。
+
+* fix: allow client dependencies in container virtual environments
+
+修复容器虚拟环境中的客户端依赖安装，移除不兼容的用户目录安装参数。
+
+* fix: limit native single-node steps to serving GPUs
+
+保留节点独占预留，同时将原生单节点服务和客户端步骤限制为配方指定的 GPU 数量，避免采集空闲设备功耗。
+
+* fix: restore repository workdir for native container steps
+
+原生容器步骤从已有仓库挂载目录启动，避免 Python 动态模块在根目录下导入失败，并保留调用方运行时覆盖。
+
+* fix: stream AMD power samples without input buffering
+
+逐行写出 AMD 功耗 CSV，避免 awk 输入缓冲在采样器关闭时丢失末尾数据；新增真实流式读取回归测试。
+
+* fix: match registered H200 runner labels
+
+将 H200 DGXC runner 清单对齐到实际注册的两位数字标签，恢复精确 smoke 选择和 sweep 调度。
+
+* chore: pin srt-slurm submodule to main [skip ci]
+
+* refactor(srt): return single-node migration to NVIDIA upstream
+
+将单节点迁移切回 NVIDIA 上游 srt-slurm。ATOM 使用原生 AToMesh 及单独固定的官方路由器镜像；TRT-LLM 使用原生模型名称转发。保留 worker 镜像、服务参数、并发范围与拓扑，不增加 Bash 分支。
+
+* chore: bump srt-slurm submodule to v2.23.2
+
+Move the shared SRT submodule from v2.22.1 (3cbc5dd) to upstream release
+v2.23.2 (8dace5f). Upstream delta is three additive changes: vllm-router
+multi-node hybrid-DP rank offsets, SGLang leader IP honoring the cluster
+network interface, and nsys/DSight coverage for SGLang and Dynamo. No
+recipe or connector changes required; utils/ and runners/ tests pass.
+
+* refactor(srt): check MI300X firmware in a setup hook
+
+Replace the MI300X container preamble with a host setup hook that fails on MEC
+firmware older than 177 instead of exporting HSA_NO_SCRATCH_RECLAIM in every
+container.
+
+* fix(srt): apply pending upstream srt-slurm patches at setup
+
+Post-eval steps dropped the recipe's srun_options, so ATOM evals on
+MI355X ran in a read-on…
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+cursor[bot]
+cursor[bot] left review comments
+claude[bot]
+claude[bot] left review comments
+Ankur-singh
+Awaiting requested review from Ankur-singh
+chunfangamd
+Awaiting requested review from chunfangamd
+kedarpotdar-nv
+Awaiting requested review from kedarpotdar-nv
++1 more reviewer
+github-advanced-security[bot]
+github-advanced-security[bot] left review comments
+Reviewers whose approvals may not affect merge requirements
+Assignees
+No one assigned
+Labels
+full-sweep-enabled
+Full sweep with canary gate; matrix jobs run to completion despite failures
+Projects
+InferenceX Board
+Status: Done
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

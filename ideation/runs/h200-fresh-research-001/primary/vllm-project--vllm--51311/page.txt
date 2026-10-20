@@ -1,0 +1,1098 @@
+Conversation
+yewentao256
+commented
+Aug 6, 2026
+Copy link
+Copy Markdown
+Member
+Purpose
+Use workspace manager to preallocate the memory for
+_flashkda_prefill
+, avoid re-allocate each time when we call the kernel.
+Test
+Acc covered in unit tests
+Perf can be seen in this AI generated script
+import
+statistics
+import
+time
+import
+torch
+import
+vllm
+.
+_flashkda_C
+# noqa: F401
+from
+vllm
+.
+models
+.
+kimi_k3
+.
+nvidia
+.
+kda
+import
+_flashkda_prefill
+TOKENS
+=
+(
+1
+,
+32
+,
+64
+,
+128
+,
+256
+,
+512
+,
+1024
+,
+2048
+)
+H
+,
+D
+,
+N
+=
+12
+,
+128
+,
+8
+WARMUP
+,
+ITERATIONS
+,
+REPEATS
+=
+10
+,
+100
+,
+5
+DEVICE
+=
+torch
+.
+device
+(
+"cuda"
+)
+def
+benchmark
+(
+fn
+)
+->
+float
+:
+for
+_
+in
+range
+(
+WARMUP
+):
+fn
+()
+torch
+.
+accelerator
+.
+synchronize
+()
+samples
+=
+[]
+for
+_
+in
+range
+(
+REPEATS
+):
+start
+=
+time
+.
+perf_counter
+()
+for
+_
+in
+range
+(
+ITERATIONS
+):
+fn
+()
+torch
+.
+accelerator
+.
+synchronize
+()
+samples
+.
+append
+((
+time
+.
+perf_counter
+()
+-
+start
+)
+*
+1000
+/
+ITERATIONS
+)
+return
+statistics
+.
+median
+(
+samples
+)
+def
+run_case
+(
+T
+:
+int
+)
+->
+tuple
+[
+float
+,
+float
+]:
+num_seqs
+=
+min
+(
+N
+,
+T
+)
+q
+,
+k
+,
+v
+,
+g
+=
+[
+torch
+.
+randn
+(
+1
+,
+T
+,
+H
+,
+D
+,
+dtype
+=
+torch
+.
+bfloat16
+,
+device
+=
+DEVICE
+)
+for
+_
+in
+range
+(
+4
+)
+    ]
+beta
+=
+torch
+.
+randn
+(
+1
+,
+T
+,
+H
+,
+dtype
+=
+torch
+.
+bfloat16
+,
+device
+=
+DEVICE
+)
+A_log
+=
+torch
+.
+randn
+(
+H
+,
+dtype
+=
+torch
+.
+float32
+,
+device
+=
+DEVICE
+)
+dt_bias
+=
+torch
+.
+randn
+(
+H
+,
+D
+,
+dtype
+=
+torch
+.
+float32
+,
+device
+=
+DEVICE
+)
+initial_state
+=
+torch
+.
+randn
+(
+num_seqs
+,
+H
+,
+D
+,
+D
+,
+dtype
+=
+torch
+.
+float32
+,
+device
+=
+DEVICE
+)
+cu_seqlens
+=
+torch
+.
+arange
+(
+num_seqs
++
+1
+,
+dtype
+=
+torch
+.
+int32
+,
+device
+=
+DEVICE
+)
+*
+(
+T
+//
+num_seqs
+)
+workspace_size
+=
+torch
+.
+ops
+.
+_flashkda_C
+.
+get_workspace_size
+(
+T
+,
+H
+,
+num_seqs
+)
+core_out
+=
+torch
+.
+empty_like
+(
+v
+)
+state_cache
+=
+torch
+.
+empty_like
+(
+initial_state
+)
+final_state
+=
+torch
+.
+empty_like
+(
+initial_state
+)
+workspace
+=
+torch
+.
+empty
+(
+workspace_size
+,
+dtype
+=
+torch
+.
+uint8
+,
+device
+=
+DEVICE
+)
+def
+before
+()
+->
+None
+:
+out
+=
+torch
+.
+empty_like
+(
+v
+)
+final
+=
+torch
+.
+empty_like
+(
+initial_state
+)
+ws
+=
+torch
+.
+empty
+(
+workspace_size
+,
+dtype
+=
+torch
+.
+uint8
+,
+device
+=
+DEVICE
+)
+torch
+.
+ops
+.
+_flashkda_C
+.
+fwd
+(
+q
+,
+k
+,
+v
+,
+g
+,
+beta
+,
+D
+**
+-
+0.5
+,
+out
+,
+ws
+,
+A_log
+,
+dt_bias
+,
+-
+3.0
+,
+initial_state
+,
+final
+,
+cu_seqlens
+,
+        )
+core_out
+.
+copy_
+(
+out
+)
+state_cache
+.
+copy_
+(
+final
+)
+def
+after
+()
+->
+None
+:
+_
+,
+final
+=
+_flashkda_prefill
+(
+q
+,
+k
+,
+v
+,
+g
+,
+beta
+,
+A_log
+,
+dt_bias
+,
+-
+3.0
+,
+initial_state
+,
+cu_seqlens
+,
+core_out
+,
+final_state
+,
+workspace
+,
+        )
+state_cache
+.
+copy_
+(
+final
+)
+return
+benchmark
+(
+before
+),
+benchmark
+(
+after
+)
+@
+torch
+.
+inference_mode
+()
+def
+main
+()
+->
+None
+:
+print
+(
+f"
+{
+'tokens'
+:>8
+}
+{
+'before (ms)'
+:>12
+}
+{
+'after (ms)'
+:>11
+}
+{
+'speedup'
+:>9
+}
+"
+)
+for
+tokens
+in
+TOKENS
+:
+before_ms
+,
+after_ms
+=
+run_case
+(
+tokens
+)
+print
+(
+f"
+{
+tokens
+:>8
+}
+{
+before_ms
+:>12.3f
+}
+{
+after_ms
+:>11.3f
+}
+"
+f"
+{
+before_ms
+/
+after_ms
+:>8.3f
+}
+x"
+)
+if
+__name__
+==
+"__main__"
+:
+main
+()
+And we can get
+tokens  before (ms)  after (ms)   speedup
+       1        0.037       0.026    1.406x
+      32        0.042       0.034    1.263x
+      64        0.044       0.033    1.307x
+     128        0.042       0.033    1.278x
+     256        0.043       0.033    1.285x
+     512        0.043       0.033    1.324x
+    1024        0.042       0.033    1.283x
+    2048        0.048       0.044    1.113x
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+1
+depthfirst-app[bot] reacted with thumbs up emoji
+👀
+1
+depthfirst-app[bot] reacted with eyes emoji
+All reactions
+👍
+1 reaction
+👀
+1 reaction
+flash kda out kernel
+…
+0318f4a
+Signed-off-by: yewentao256 <zhyanwentao@126.com>
+claude
+Bot
+reviewed
+Aug 6, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This repository is configured for manual code reviews. Comment
+@claude review
+for a one-time review, or
+@claude review always
+to subscribe this PR to a review on every future push.
+Tip: disable this comment in your organization's
+Code Review settings
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+yewentao256
+added
+  the
+ready
+ONLY add when PR is ready to merge/full CI is needed
+label
+Aug 6, 2026
+yewentao256
+commented
+Aug 6, 2026
+View reviewed changes
+yewentao256
+left a comment
+Copy link
+Copy Markdown
+Member
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+/ci run
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+kimi
+k3
+labels
+Aug 6, 2026
+yewentao256
+mentioned this pull request
+Aug 6, 2026
+[Feature]: Kimi K3 Performance Optimization
+#50587
+Open
+33 of 47 tasks
+Merge branch 'main' into wentao-flash-kda-out-kernel
+7c7d49f
+yewentao256
+commented
+Aug 7, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Aug 7, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #82874
+for commit
+7c7d49f0389b
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into wentao-flash-kda-out-kernel
+7a116dc
+yewentao256
+commented
+Aug 10, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Aug 10, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #83165
+for commit
+7a116dccb56c
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into wentao-flash-kda-out-kernel
+d0d3d24
+yewentao256
+commented
+Aug 11, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Aug 11, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #83350
+for commit
+d0d3d24b7b22
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+fix ci
+…
+3880076
+Signed-off-by: yewentao256 <zhyanwentao@126.com>
+yewentao256
+commented
+Aug 11, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Aug 11, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #83424
+for commit
+3880076b3f1d
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+sfeng33
+approved these changes
+Aug 11, 2026
+View reviewed changes
+Merge branch 'main' into wentao-flash-kda-out-kernel
+16288d9
+yewentao256
+commented
+Aug 12, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Aug 12, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #83561
+for commit
+16288d9c6f60
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Hide details
+View details
+yewentao256
+merged commit
+fe889ac
+into
+main
+Aug 12, 2026
+64 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yewentao256
+deleted the
+wentao-flash-kda-out-kernel
+branch
+August 12, 2026 18:51
+randomvariable
+mentioned this pull request
+Aug 13, 2026
+Track upstream spec-decode and sparse-MLA performance stack
+randomvariable/vllm#20
+Open
+gau-nernst
+reviewed
+Aug 14, 2026
+View reviewed changes
+Comment thread
+vllm/models/kimi_k3/nvidia/kda.py
+Comment on lines
++713
+to
++715
+flashkda_out
+=
+(
+workspace_out
+if
+has_spec_decode
+else
+core_attn_out
+)[:, :
+q_ns
+.
+shape
+[
+1
+]]
+gau-nernst
+Aug 14, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+FlashKDA requires contiguous output buffer
+https://github.com/vllm-project/FlashKDA/blob/053de1b716ef3255873e02d2d28f4adf09951978/csrc/flash_kda.cpp#L49
+The slicing here might cause runtime errors.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+michael-gpu
+pushed a commit
+        to practical-inference/vllm-ampere-extended
+      that referenced
+      this pull request
+Oct 20, 2026
+[K3 Perf] Flash kda out kernel for prefill, 1.1~1.4x kernel performan…
+…
+fa6bbe6
+…ce improvement (
+vllm-project#51311
+)
+
+Signed-off-by: yewentao256 <zhyanwentao@126.com>
+Co-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+gau-nernst
+gau-nernst left review comments
+claude[bot]
+claude[bot] left review comments
+sfeng33
+sfeng33 approved these changes
+Assignees
+No one assigned
+Labels
+k3
+kimi
+ready
+ONLY add when PR is ready to merge/full CI is needed
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,550 @@
+Conversation
+AIExplorer7
+commented
+Oct 14, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+1. Overview
+This PR adds optimized
+SM90 MXFP4 MegaMoE
+to
+nv_dev
+. Derived from
+#440
+, with MXFP4 format and decoder foundations from
+#411
+(referencing Humming). Our additions include tiled register decoding, specialized small-M buckets, direct swap epilogues, MXFP4 split-M and tail optimization, and optional single-token split-K.
+EP8 speedups across M=1--8192:
+EP8 shape
+vs
+#383
+FP8
+vs
+#440
+FP8
+vs
+#411
+MXFP4
+Flash
+1.08--1.52x
+1.08--2.04x
+1.10--1.44x
+Pro
+1.12--1.48x
+1.32--1.89x
+1.11--1.44x
+2. Two key optimizations
+Small M: tiled register decoding + RS WGMMA.
+Pack each 256-row x K128 weight stage into a contiguous 16 KiB tile and decode directly into register A fragments, avoiding expanded-weight shared-memory traffic and associated synchronization. Extend
+feat: add SM90 FP8 x MXFP4 MegaMoE support
+#411
+'s swapAB with N8/16/24/32/40/48 buckets, selected double buffering, and direct SwiGLU/quantization epilogues.
+Large M and tails: MXFP4 split-M.
+Use 128x256 tiles with two math warpgroups sharing decoded weights; specialize partial tiles with RS buckets, a dual N96 swap path, and empty-half WGMMA skipping. Order dynamic tails by valid rows and preserve the scaling chain for bitwise repeatability.
+3. Performance against
+#411
+,
+#383
+, and
+#440
+: M=1--8192
+Hardware:
+H20-3e, 78 SMs/GPU, CUDA 13, PyTorch 2.13.0+cu130.
+Precision:
+FP8 activations; FP8 weights for
+[SM90] Add FP8 MegaMoE support
+#383
+/
+Add a fused SM90 FP8 MegaMoE: one kernel, a lag-ordered schedule and a ring activation pool
+#440
+, MXFP4 weights for
+feat: add SM90 FP8 x MXFP4 MegaMoE support
+#411
+/this PR; common source weights, routing, FP8 inputs, and fixed RNE MXFP4 quantization.
+Timing:
+CUDA Graph, seed0, 3 interleaved rounds x 50 samples.
+Speedup:
+baseline latency / this PR latency.
+EP8, Flash
+(hidden=4096, intermediate=2048, experts/GPU=32, top-k=6) (us)
+M
+#383
+FP8
+#440
+FP8
+#411
+MXFP4
+This PR MXFP4
+Speedup vs
+#411
+1
+50.2
+88.9
+66.8
+46.4
+1.44x
+2
+63.8
+89.6
+67.5
+53.0
+1.27x
+4
+83.3
+127.6
+92.5
+69.1
+1.34x
+8
+102.7
+148.8
+106.2
+78.8
+1.35x
+16
+151.7
+227.1
+159.4
+117.0
+1.36x
+32
+196.1
+300.9
+202.5
+151.5
+1.34x
+64
+219.1
+340.6
+227.0
+169.2
+1.34x
+128
+270.0
+420.4
+276.4
+206.3
+1.34x
+256
+282.0
+423.8
+290.4
+211.3
+1.37x
+512
+321.9
+427.2
+313.7
+233.0
+1.35x
+1024
+412.0
+429.1
+376.8
+270.2
+1.39x
+2048
+467.6
+454.8
+456.2
+410.7
+1.11x
+4096
+880.6
+800.1
+840.3
+739.1
+1.14x
+8192
+1485.5
+1549.4
+1445.0
+1316.9
+1.10x
+EP8, Pro
+(hidden=7168, intermediate=3072, experts/GPU=48, top-k=6) (us)
+M
+#383
+FP8
+#440
+FP8
+#411
+MXFP4
+This PR MXFP4
+Speedup vs
+#411
+1
+98.3
+122.6
+98.3
+83.9
+1.17x
+2
+110.9
+152.7
+114.0
+99.1
+1.15x
+4
+133.1
+191.4
+135.1
+117.0
+1.15x
+8
+230.3
+316.6
+213.5
+184.8
+1.16x
+16
+346.1
+505.6
+323.5
+280.9
+1.15x
+32
+507.3
+782.8
+482.5
+424.5
+1.14x
+64
+693.4
+1065.2
+642.5
+568.2
+1.13x
+128
+957.8
+1476.5
+897.3
+782.2
+1.15x
+256
+1024.6
+1523.1
+957.1
+806.7
+1.19x
+512
+1065.8
+1530.3
+989.2
+832.7
+1.19x
+1024
+1203.1
+1539.4
+1125.4
+899.7
+1.25x
+2048
+1603.6
+1555.3
+1560.4
+1085.0
+1.44x
+4096
+2475.8
+2964.8
+2441.8
+2060.5
+1.19x
+8192
+3915.4
+4511.0
+3803.5
+3425.6
+1.11x
+Single-GPU results: M=1--8192
+M = total active tokens; cap = max(128, align(M,128)); split-K disabled.
+Flash/Pro run on separate GPUs, with the same GPU for all variants of each shape.
+Single GPU, Flash
+(hidden=4096, intermediate=2048, experts/GPU=32, top-k=6) (us)
+M
+#383
+FP8
+#440
+FP8
+#411
+MXFP4
+This PR MXFP4
+Speedup vs
+#411
+1
+79.0
+118.1
+79.5
+66.2
+1.20x
+2
+115.1
+158.5
+110.6
+84.0
+1.32x
+4
+166.0
+250.4
+155.4
+124.4
+1.25x
+8
+218.8
+330.9
+211.5
+160.8
+1.32x
+16
+253.1
+402.7
+241.2
+190.2
+1.27x
+32
+274.5
+407.3
+266.7
+196.8
+1.36x
+64
+312.1
+410.2
+292.8
+215.2
+1.36x
+128
+387.1
+412.0
+341.9
+247.6
+1.38x
+256
+451.1
+422.0
+427.2
+377.9
+1.13x
+512
+854.5
+776.6
+826.1
+699.4
+1.18x
+1024
+1399.6
+1506.0
+1375.7
+1268.4
+1.08x
+2048
+2575.2
+2539.8
+2504.3
+2339.9
+1.07x
+4096
+4939.7
+4874.9
+4861.2
+4584.8
+1.06x
+8192
+9625.7
+9328.1
+9575.6
+9050.8
+1.06x
+Single GPU, Pro
+(hidden=7168, intermediate=3072, experts/GPU=48, top-k=6) (us)
+M
+#383
+FP8
+#440
+FP8
+#411
+MXFP4
+This PR MXFP4
+Speedup vs
+#411
+1
+163.7
+215.7
+140.8
+111.5
+1.26x
+2
+251.7
+375.9
+237.4
+176.8
+1.34x
+4
+433.5
+646.9
+392.0
+291.1
+1.35x
+8
+646.7
+985.1
+585.5
+428.9
+1.37x
+16
+850.5
+1308.9
+788.0
+563.3
+1.40x
+32
+979.0
+1496.5
+921.9
+643.6
+1.43x
+64
+1017.5
+1502.2
+955.0
+668.7
+1.43x
+128
+1132.3
+1510.2
+1092.7
+754.9
+1.45x
+256
+1571.6
+1528.2
+1540.4
+945.7
+1.63x
+512
+2348.3
+2888.3
+2280.1
+1951.5
+1.17x
+1024
+3773.1
+4337.0
+3704.7
+3482.8
+1.06x
+2048
+6756.4
+7086.2
+6630.1
+6216.6
+1.07x
+4096
+12725.8
+12860.9
+12596.9
+11960.8
+1.05x
+8192
+24868.9
+24766.9
+24639.8
+23700.7
+1.04x
+Validation and reproduction
+Correctness:
+single-GPU/EP8 reference and repeatability checks pass (MXFP4 tolerance 0.002; FP8 0.01); 96 per-rank outputs match the accepted pre-port implementation bitwise.
+SASS:
+six FP8 checks unchanged; 30 measured MXFP4 cubins have STACK <=16 B and no CALL.ABS.
+Reproduction:
+frozen commits, commands, maximum-rank timings, and per-round data are in
+docs/sm90-fused-mxfp4-benchmarks.md
+and
+docs/benchmarks/sm90-fused-mxfp4-h20.csv
+.
+4. Follow-up work
+Shared experts:
+integrate and benchmark overlap with routed experts.
+vLLM:
+validate the upstream implementation and measure end-to-end latency and throughput.
+Scheduler:
+improve dispatch/compute overlap, load balancing, and tail scheduling.
+H100/H200:
+validate correctness and performance and tune hardware-specific heuristics.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Add optimized fused FP8 x MXFP4 MegaMoE for SM90
+…
+724a799
+Derive the fused SM90 framework from PR
+deepseek-ai#440
+(
+8cf8180
+) and build on
+PR
+deepseek-ai#411
+(
+5d32216
+, referencing Humming) for MXFP4 format and decoding.
+
+Add tiled register decoding, specialized RS WGMMA buckets and direct
+swap epilogues, MXFP4 split-M and tail paths, and optional split-K.
+Adapt the required fused infrastructure to nv_dev DeepJIT while
+preserving existing non-fused API defaults.
+
+Include correctness tests and H20 four-way Graph benchmarks against
+PRs
+deepseek-ai#383
+,
+deepseek-ai#411
+, and
+deepseek-ai#440
+for Flash/Pro at M=1 through 8192.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

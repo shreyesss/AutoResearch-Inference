@@ -1,0 +1,310 @@
+From c502eaec1653b146e7d164e5f831230f22bdcca9 Mon Sep 17 00:00:00 2001
+From: kfastino <kelton@fastino.ai>
+Date: Sat, 15 Aug 2026 10:58:10 -0700
+Subject: [PATCH] [Core][DP] Prefix-affinity tie-break in the internal DP load
+ balancer
+
+#47420 made tied load-balancing decisions rotate across engines to remove
+a systematic tie-break bias. With prefix caching enabled this also rotates
+consecutive turns of one conversation across DP ranks, so every turn
+misses the prefix the previous turn left in KV cache. Measured on
+DeepSeek-V4-Flash (DP=4+EP, 8xH100, multi-turn mooncake trace designed for
+81.7% prefix reuse): hit rate 81.6% on pre-rotation v0.23.0, 8-53% on
+current main, costing 2-13% per-user output throughput.
+
+Remember which engine served a prompt's first-block prefix (LRU, keyed on
+cache_salt + LoRA id + first block_size token ids) and prefer that engine
+when scores tie. Load-aware decisions are unchanged, and unrelated tied
+requests still rotate, preserving #47420's fairness.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Signed-off-by: kfastino <kelton@fastino.ai>
+---
+ tests/v1/engine/test_dp_lb_prefix_affinity.py | 175 ++++++++++++++++++
+ vllm/v1/engine/core_client.py                 |  55 +++++-
+ 2 files changed, 227 insertions(+), 3 deletions(-)
+ create mode 100644 tests/v1/engine/test_dp_lb_prefix_affinity.py
+
+diff --git a/tests/v1/engine/test_dp_lb_prefix_affinity.py b/tests/v1/engine/test_dp_lb_prefix_affinity.py
+new file mode 100644
+index 000000000000..afb16b64eb59
+--- /dev/null
++++ b/tests/v1/engine/test_dp_lb_prefix_affinity.py
+@@ -0,0 +1,175 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Prefix-affinity tie-breaking in the internal DP load balancer.
++
++#47420 made tied load-balancing decisions rotate across engines to fix a
++fairness bias, which also destroyed prefix-cache locality: consecutive turns
++of one conversation rotate across DP ranks, and every turn misses the prefix
++the previous turn left in KV cache. Measured on DeepSeek-V4-Flash (DP=4, a
++multi-turn trace designed for 81.7% prefix reuse), the hit rate fell from
++81.6% (v0.23.0, pre-rotation) to 8-53%.
++
++The fix: remember which engine served a prompt's first-block prefix and
++prefer that engine when scores tie. Load-aware decisions and the fairness
++rotation for unrelated requests are unchanged. These tests drive
++``get_core_engine_for_request`` directly with synthetic state; no engines or
++GPUs involved.
++"""
++
++from collections import Counter, OrderedDict
++from types import SimpleNamespace
++
++from vllm.v1.engine import EngineCoreRequest
++from vllm.v1.engine.core_client import PREFIX_AFFINITY_LRU_SIZE, DPLBAsyncMPClient
++
++BLOCK_SIZE = 16
++
++
++def _make_client(num_engines: int = 4, client_count: int = 1, client_index: int = 0):
++    """A DPLBAsyncMPClient with just the state the LB decision reads."""
++    client = object.__new__(DPLBAsyncMPClient)
++    client.vllm_config = SimpleNamespace(
++        cache_config=SimpleNamespace(block_size=BLOCK_SIZE)
++    )
++    client.core_engines = [bytes([i]) for i in range(num_engines)]
++    client.lb_engines = [[0, 0, 0.0] for _ in range(num_engines)]
++    client.client_count = client_count
++    client.client_index = client_index
++    client.eng_start_index = (num_engines * client_index) // client_count
++    client.engine_inflight = Counter()
++    client.reqs_in_flight = {}
++    client.prefix_affinity = OrderedDict()
++    return client
++
++
++def _request(
++    request_id: str,
++    prompt_token_ids: list[int] | None,
++    cache_salt: str | None = None,
++    data_parallel_rank: int | None = None,
++) -> EngineCoreRequest:
++    return EngineCoreRequest(
++        request_id=request_id,
++        prompt_token_ids=prompt_token_ids,
++        mm_features=None,
++        sampling_params=None,
++        pooling_params=None,
++        arrival_time=0.0,
++        lora_request=None,
++        cache_salt=cache_salt,
++        data_parallel_rank=data_parallel_rank,
++    )
++
++
++def _finish(client: DPLBAsyncMPClient, request_id: str) -> None:
++    """Mark a request finished and refresh idle coordinator stats."""
++    engine = client.reqs_in_flight.pop(request_id)
++    client.engine_inflight[engine] -= 1
++    client.lb_engines = [[0, 0, 0.0] for _ in client.core_engines]
++
++
++def _engine_index(client: DPLBAsyncMPClient, engine: bytes) -> int:
++    return client.core_engines.index(engine)
++
++
++def test_same_prefix_sticks_across_sequential_turns():
++    """Turns of one conversation keep landing on the same engine on ties."""
++    client = _make_client()
++    prompt = list(range(BLOCK_SIZE * 2))
++
++    first = client.get_core_engine_for_request(_request("t0", prompt))
++    _finish(client, "t0")
++
++    # Each later turn extends the conversation; the first block is unchanged.
++    for turn in range(1, 6):
++        grown = prompt + list(range(BLOCK_SIZE * 2, BLOCK_SIZE * 2 + 8 * turn))
++        chosen = client.get_core_engine_for_request(_request(f"t{turn}", grown))
++        assert chosen is first, f"turn {turn} left its prefix's engine"
++        _finish(client, f"t{turn}")
++
++
++def test_unrelated_tied_requests_still_rotate():
++    """#47420's fairness is preserved for requests with distinct prefixes."""
++    client = _make_client()
++    chosen = []
++    for i in range(4):
++        prompt = [1000 * (i + 1) + t for t in range(BLOCK_SIZE)]
++        engine = client.get_core_engine_for_request(_request(f"r{i}", prompt))
++        chosen.append(engine)
++        _finish(client, f"r{i}")
++    assert len(set(chosen)) == len(client.core_engines), (
++        "tied unrelated requests should spread across all engines"
++    )
++
++
++def test_load_beats_affinity():
++    """A loaded affinity engine loses to an idle one; affinity re-learns."""
++    client = _make_client()
++    prompt = list(range(BLOCK_SIZE))
++
++    first = client.get_core_engine_for_request(_request("a0", prompt))
++    _finish(client, "a0")
++    first_index = _engine_index(client, first)
++
++    # Pile synthetic load onto the affinity engine.
++    client.lb_engines[first_index] = [5, 5, 0.0]
++
++    second = client.get_core_engine_for_request(_request("a1", prompt))
++    assert second is not first, "load-aware routing must beat affinity"
++    # The mapping now points at the engine that actually holds the newer
++    # prefix instance.
++    key = client._prefix_affinity_key(_request("probe", prompt))
++    assert client.prefix_affinity[key] == _engine_index(client, second)
++
++
++def test_sub_block_prompt_has_no_affinity():
++    """Prompts shorter than one KV block cannot hit the cache: no key."""
++    client = _make_client()
++    short = list(range(BLOCK_SIZE - 1))
++    assert client._prefix_affinity_key(_request("s0", short)) is None
++
++    client.get_core_engine_for_request(_request("s0", short))
++    assert not client.prefix_affinity
++
++
++def test_cache_salt_separates_affinity():
++    """Same tokens, different cache_salt: distinct keys (salted requests
++    cannot share cache entries)."""
++    client = _make_client()
++    prompt = list(range(BLOCK_SIZE))
++    key_a = client._prefix_affinity_key(_request("x", prompt, cache_salt="a"))
++    key_b = client._prefix_affinity_key(_request("x", prompt, cache_salt="b"))
++    assert key_a != key_b
++
++
++def test_explicit_data_parallel_rank_bypasses_affinity():
++    """A pinned data_parallel_rank is honored verbatim."""
++    client = _make_client()
++    prompt = list(range(BLOCK_SIZE))
++    client.prefix_affinity[client._prefix_affinity_key(_request("p", prompt))] = 0
++
++    chosen = client.get_core_engine_for_request(
++        _request("p", prompt, data_parallel_rank=2)
++    )
++    assert chosen is client.core_engines[2]
++
++
++def test_stale_affinity_after_scale_in_is_ignored():
++    """An affinity index beyond the current engine count is discarded."""
++    client = _make_client(num_engines=2)
++    prompt = list(range(BLOCK_SIZE))
++    key = client._prefix_affinity_key(_request("z", prompt))
++    client.prefix_affinity[key] = 7  # recorded before a scale-in
++
++    chosen = client.get_core_engine_for_request(_request("z", prompt))
++    assert chosen in client.core_engines
++    assert client.prefix_affinity[key] < 2
++
++
++def test_affinity_lru_is_bounded():
++    client = _make_client()
++    for i in range(PREFIX_AFFINITY_LRU_SIZE + 10):
++        prompt = [i * BLOCK_SIZE + t for t in range(BLOCK_SIZE)]
++        client.get_core_engine_for_request(_request(f"lru{i}", prompt))
++        _finish(client, f"lru{i}")
++    assert len(client.prefix_affinity) == PREFIX_AFFINITY_LRU_SIZE
+diff --git a/vllm/v1/engine/core_client.py b/vllm/v1/engine/core_client.py
+index d692a13d658a..ec6a96cb7fa9 100644
+--- a/vllm/v1/engine/core_client.py
++++ b/vllm/v1/engine/core_client.py
+@@ -7,7 +7,7 @@
+ import uuid
+ import weakref
+ from abc import ABC, abstractmethod
+-from collections import Counter, defaultdict
++from collections import Counter, OrderedDict, defaultdict
+ from collections.abc import Awaitable, Callable, Sequence
+ from concurrent.futures import Future
+ from dataclasses import dataclass
+@@ -1431,6 +1431,12 @@ def get_core_engine_for_request(self, request: EngineCoreRequest):
+         return self.core_engine
+ 
+ 
++# Cap on remembered prefix->engine affinities; oldest entries are evicted.
++# 16k entries is a few hundred KiB and covers far more concurrent
++# conversations than a single frontend process realistically serves.
++PREFIX_AFFINITY_LRU_SIZE = 16 * 1024
++
++
+ class DPLBAsyncMPClient(DPAsyncMPClient):
+     """Asyncio-compatible client for multi-proc, multi-engine (data parallel)
+     EngineCore. Load-balances between multiple engine processes."""
+@@ -1468,6 +1474,30 @@ def __init__(
+             len(self.core_engines) * self.client_index
+         ) // client_count
+ 
++        # Prefix-affinity memory: hash of a request's first-block prompt
++        # prefix -> engine index that most recently served that prefix.
++        # Consulted only to break score ties, so multi-turn conversations and
++        # shared-prefix request families keep landing on the engine that
++        # already holds their prefix in KV cache, while unrelated tied
++        # requests still rotate and load-aware decisions are unaffected.
++        self.prefix_affinity: OrderedDict[int, int] = OrderedDict()
++
++    def _prefix_affinity_key(self, request: EngineCoreRequest) -> int | None:
++        """Affinity key for prefix-cache locality, or None when the request
++        cannot hit the prefix cache (embeds input, or fewer prompt tokens
++        than one KV block)."""
++        tokens = request.prompt_token_ids
++        block_size = self.vllm_config.cache_config.block_size
++        if (
++            not tokens
++            or len(tokens) < block_size
++            or request.prompt_embeds is not None
++            or request.prompt_is_token_ids is not None
++        ):
++            return None
++        lora_id = request.lora_request.lora_int_id if request.lora_request else None
++        return hash((request.cache_salt, lora_id, tuple(tokens[:block_size])))
++
+     def get_core_engine_for_request(self, request: EngineCoreRequest) -> EngineIdentity:
+         # Engines are in rank order.
+         if (eng_index := request.data_parallel_rank) is None and (
+@@ -1478,6 +1508,14 @@ def get_core_engine_for_request(self, request: EngineCoreRequest) -> EngineIdent
+             current_counts = self.lb_engines
+             # TODO use P2C alg for larger DP sizes
+             num_engines = len(current_counts)
++            affinity_key = self._prefix_affinity_key(request)
++            affinity_index: int | None = None
++            if affinity_key is not None:
++                affinity_index = self.prefix_affinity.get(affinity_key)
++                if affinity_index is not None and affinity_index >= num_engines:
++                    # Engine count shrank since the entry was recorded
++                    # (elastic EP scale-in); the mapping is stale.
++                    affinity_index = None
+             min_score: float = sys.maxsize
+             eng_index = 0
+             for i in range(num_engines):
+@@ -1502,7 +1540,11 @@ def get_core_engine_for_request(self, request: EngineCoreRequest) -> EngineIdent
+                     # the penalty stays off, preserving exact round-robin.
+                     # Ramps from 0 at <=50% usage to 3x waiting at 100%.
+                     score += waiting * 6.0 * max(0.0, kv_cache_usage - 0.5)
+-                if score < min_score:
++                # Prefer the engine that already holds this request's prefix
++                # in KV cache when it ties on score: recomputing a shared
++                # prefix elsewhere costs a full prefill, spreading ties across
++                # engines saves nothing.
++                if score < min_score or (score == min_score and idx == affinity_index):
+                     min_score = score
+                     eng_index = idx
+             # Increment local waiting count for better balancing between stats
+@@ -1512,8 +1554,15 @@ def get_core_engine_for_request(self, request: EngineCoreRequest) -> EngineIdent
+             # after a coordinator stats reset when engines look equally loaded)
+             # don't systematically favor the same engine. This removes the
+             # fixed tie-break bias without affecting load-aware decisions when
+-            # scores actually differ.
++            # scores actually differ. Requests with a remembered prefix are
++            # exempt from the rotation (they stick to their engine on ties);
++            # everything else still spreads evenly.
+             self.eng_start_index = (self.eng_start_index + 1) % num_engines
++            if affinity_key is not None:
++                self.prefix_affinity[affinity_key] = eng_index
++                self.prefix_affinity.move_to_end(affinity_key)
++                if len(self.prefix_affinity) > PREFIX_AFFINITY_LRU_SIZE:
++                    self.prefix_affinity.popitem(last=False)
+ 
+         chosen_engine = self.core_engines[eng_index]
+         # Record which engine is chosen for this request, to handle aborts.

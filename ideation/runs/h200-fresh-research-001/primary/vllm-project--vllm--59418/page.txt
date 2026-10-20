@@ -1,0 +1,471 @@
+Conversation
+luoyuctl
+commented
+Sep 30, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Purpose
+On SM90, FlashMLA's sparse decode tiles query heads by 64 (the WGMMA M dimension). A DeepSeek V4.1 TP8 rank owns only 8 heads (16 at TP4), so it pads them to 64 and spends most of the tensor-core work on padding. This adds a Triton sparse decode kernel that tiles heads by 16 with
+tl.dot
+(mma.sync), reads the existing packed FP8 MLA cache directly, and recovers parallelism by splitting the key set across programs, merging the partial results with log-sum-exp.
+Why it is faster at small batches.
+At a few decode tokens per step, FlashMLA launches roughly one CTA per token and each CTA does 64-head work for 8 real heads. This kernel launches
+tokens × splits
+programs, each doing 16-head work over its share of keys. The best split count depends on both token count and key width: 32 splits at ≤3 tokens fills the GPU, but by 8 tokens 8 splits wins because the merge cost and per-program gather overhead dominate.
+_pick_config
+encodes this measured table. At larger batches the step becomes gather/dequant-bound rather than MMA-bound, so removing the padding no longer helps and FlashMLA is kept.
+Dispatch
+(automatic, no flag): SM90, 8 or 16 local heads, decode only, and
+Layer key width (SWA + compressed top-k)
+Uses this kernel at
+Otherwise
+≤256 (SWA-only layers)
+≤16 decode tokens per step
+FlashMLA
+>256 (compressed layers,
+index_topk=512
+)
+≤12 decode tokens per step
+FlashMLA
+The gate is decode tokens per rank per step (≈ batch × (1 + spec tokens)), so the gain is limited to
+low-concurrency decode
+. It does not depend on context length, since sparse attention reads a fixed number of keys per token. Prefill always uses FlashMLA.
+JIT warmup:
+both launches register every split config,
+HAS_EXTRA
+variant and DSpark SWA width with the startup JIT warmup, so no Triton compile happens on the serving path.
+Related to
+#48168
+.
+Not a duplicate:
+I checked the issue discussion and open PRs for
+#48168
+and for small-head sparse decode; none implements this SM90 decode path.
+#57673
+has since been reworked into an opt-in backend that reuses this PR's decoder (with attribution) but does not add the automatic FlashMLA dispatch.
+#55866
+targets FA4 sparse MQA on
+Blackwell
+,
+#51403
+targets
+ROCm
+.
+Test Plan
+pytest tests/kernels/attention/test_flashmla_sparse.py -k small_head -q
+python benchmarks/kernels/benchmark_dsv41_small_head_decode.py --heads 8 16 --topk 0 64 512 --rounds 3
+pre-commit run --all-files
+End-to-end on 8× H20 (one node), TP8, DSpark K=2, same flags as our production deployment except
+--max-model-len 32768
+. Both arms ran on the same node and the same image, back-to-back:
+vllm bench serve --backend openai-chat --dataset-name random \
+    --random-input-len 1024 --random-output-len 1024 --ignore-eos --seed 42 \
+    --max-concurrency {1,2,4,8,16,32}
+lm_eval --model local-chat-completions --tasks gsm8k --num_fewshot 5 \
+    --apply_chat_template --fewshot_as_multiturn --gen_kwargs temperature=0
+Test Result
+End-to-end (8× H20, TP8)
+Median ITL is per decode step; concurrency 1–4 falls inside the gate (≤12 tokens/step with K=2).
+Concurrency
+Stock median ITL
+This PR
+Δ ITL
+Stock tok/s
+This PR tok/s
+1
+8.99 ms
+8.37 ms
+−6.8%
+239.6
+264.4
+2
+10.96 ms
+9.87 ms
+−9.9%
+365.5
+400.8
+4
+13.91 ms
+13.11 ms
+−5.7%
+574.2
+621.9
+8
+19.52 ms
+19.39 ms
+−0.7%
+825.7
+824.7
+16
+27.48 ms
+27.13 ms
+−1.3%
+1135.1
+1178.9
+32
+41.05 ms
+41.29 ms
++0.6%
+1510.6
+1522.3
+Throughput also reflects DSpark acceptance length, which varied by run (2.06–2.23 stock vs 2.14–2.31 this PR), so ITL is the cleaner signal.
+GSM8K
+(full 1319, 5-shot chat, greedy, flexible extract): stock
+89.99%
+(1187), this PR
+89.92%
+(1186), stderr ±0.83%. Per question, 19 flip to correct and 20 flip to wrong, consistent with split-K reduction order changing near-tie greedy tokens.
+Operator benchmark (1× H20)
+108 configurations (tokens 1–16/24/32 × heads 8/16 × top-k 0/64/512), CUDA graphs, cold-L2 input rotation, median of 3 alternating rounds, CUDA-event timing. Every configuration inside the gate is faster than FlashMLA; none regresses.
+Key width
+Gate
+Speedup inside gate
+Outside gate
+SWA + top-k 0 / 64
+≤16 tokens
+1.31–2.14x
+FlashMLA (kernel would be 1.09–1.40x at 24, ~1.0x at 32)
+SWA + top-k 512
+≤12 tokens
+1.06–1.42x
+FlashMLA (kernel would be 0.90–0.94x at 16–32)
+JIT warmup (8× H20, TP8, DSpark K=2):
+with
+--jit-monitor-mode warn
+, 92 requests at concurrency 1–8 all succeeded with zero small-head kernel compiles after startup; warmup compiles 8 decode + 3 merge variants in 2.3 s on one GPU.
+Correctness:
+44 focused tests pass on H20 (FP32 reference and FlashMLA comparisons, 64/128-token pages, 8/16 heads, non-contiguous views, invalid/empty rows, CUDA graph replay, dispatch at the gate boundary). Pre-commit passes.
+All GPU results use the vLLM 0.30.0 image with this PR's kernel and dispatch patched in, not an exact-head install. CI results are pending.
+Human submitter reviews every changed line and independently runs the tests.
+Full focused suite on an exact-head install, and CI.
+Repeat the end-to-end A/B with interleaved runs to tighten the ITL numbers.
+AI assistance: OpenAI Codex and Claude were used to implement, tune, benchmark, and validate this change. I reviewed every changed line and ran the tests above.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+ci/build
+deepseek
+Related to DeepSeek models
+performance
+Performance-related issues
+DSv4.1
+Related to DeepSeek-V4.1 models
+labels
+Sep 30, 2026
+luoyuctl
+force-pushed
+the
+feature/sm90-small-head-sparse-decode
+branch
+      2 times, most recently
+    from
+a5bf4da
+to
+eddfa5e
+Compare
+October 1, 2026 08:41
+luoyuctl
+changed the title
+[Perf][DSv4.1] Opt-in small-head sparse decode on SM90
+[Perf][DSv4.1] Small-head sparse decode on SM90
+Oct 1, 2026
+luoyuctl
+marked this pull request as ready for review
+October 1, 2026 08:48
+luoyuctl
+requested review from
+AndreasKaratzas
+,
+Harry-Chen
+,
+WoosukKwon
+,
+khluu
+,
+mgoin
+,
+tlrmchlsmth
+,
+yewentao256
+and
+zyongye
+as
+code owners
+October 1, 2026 08:48
+claude
+Bot
+reviewed
+Oct 1, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+positive666
+added a commit
+        to positive666/vllm
+      that referenced
+      this pull request
+Oct 6, 2026
+[Perf][DSv4.1] Reuse SM90 sparse decoder from
+vllm-project#59418
+…
+3ef067c
+Adapt the decoder from luoyuctl's PR
+vllm-project#59418
+at
+eddfa5ed50c16a632b8fae2e523ad54e504f3e0b as the shared dependency
+for the independent native-head backend. Specialize the three page-size
+parameters as tl.constexpr; otherwise keep the decoder unchanged.
+Keep this shared contribution separate from backend integration and
+query-pairing changes.
+
+Co-authored-by: zack <51604064+luoyuctl@users.noreply.github.com>
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+positive666
+added a commit
+        to positive666/vllm
+      that referenced
+      this pull request
+Oct 6, 2026
+[Perf][DSv4.1] Add independent SM90 native-head sparse backend
+…
+01e96d2
+Address
+vllm-project#57673
+review with centralized opt-in selection and independent
+Triton prefill/decode. Share exact sparse KV unions across eligible
+verification-query pairs; preserve per-forward and CUDA Graph lifetimes.
+Add startup warmup, correctness and compatibility coverage, H100 CI,
+and backend usage documentation. Default backend selection is unchanged.
+
+The paired decoder derives its KV loader and split softmax from
+vllm-project#59418
+;
+query-union prior art is
+vllm-project#55372
+.
+
+Co-authored-by: zack <51604064+luoyuctl@users.noreply.github.com>
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+positive666
+mentioned this pull request
+Oct 6, 2026
+[Perf][DSv4.1] Add SM90 native-head sparse attention backend
+#57673
+Draft
+6 tasks done
+luoyuctl
+and others
+added
+3
+commits
+October 6, 2026 19:37
+[Perf][DSv4.1] Add opt-in small-head sparse decode on SM90
+…
+dee035e
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Signed-off-by: zack <51604064+luoyuctl@users.noreply.github.com>
+[Perf][DSv4.1] Retune small-head decode split and dispatch gate
+…
+bc9d0f0
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: zack <51604064+luoyuctl@users.noreply.github.com>
+[Perf][DSv4.1] Enable small-head decode by default on SM90
+…
+1dfa1f7
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: zack <51604064+luoyuctl@users.noreply.github.com>
+luoyuctl
+force-pushed
+the
+feature/sm90-small-head-sparse-decode
+branch
+    from
+eddfa5e
+to
+1dfa1f7
+Compare
+October 6, 2026 11:37
+[Perf][DSv4.1] Warm up small-head sparse decode kernels at startup
+…
+2bd32db
+Route both small-head launches through triton_kernel_dispatcher_with_warmup
+and register every split config, HAS_EXTRA variant and DSpark SWA width the
+layer can dispatch, so no Triton compile happens on the serving path.
+
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: zack <51604064+luoyuctl@users.noreply.github.com>
+ZJY0516
+added
+  the
+verified
+Run pre-commit for new contributors without triggering other tests
+label
+Oct 7, 2026
+chaunceyjiang
+commented
+Oct 13, 2026
+Copy link
+Copy Markdown
+Contributor
+I also noticed this issue before, but I was exploring whether we could support it in FlashMLA:
+vllm-project/FlashMLA#26
+👍
+1
+luoyuctl reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+luoyuctl
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+@chaunceyjiang
+we can have a quick discussion, should this kernel move into vllm-project/FlashMLA?
+I wrote it as a Triton kernel in vLLM because it carries scheduling logic: a token-count and key-width gate, plus a split table (
+_pick_config
+) that decides when to use it and falls back to FlashMLA otherwise.
+#57273
+and
+#52212
+take the same approach, so I followed them. cc
+@ZJY0516
+@zyongye
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+This was referenced
+Oct 19, 2026
+[Perf][Kernel][DSv4.1] Swap-AB CuTe DSL decode attention for small TP2/TP4 steps
+CentML/vllm#168
+Open
+[Perf][Kernel][DSv4.1] Swap-AB CuTe DSL decode attention for small TP2/TP4 steps
+#62633
+Open
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+mgoin
+Awaiting requested review from mgoin
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth is a code owner
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+zyongye
+Awaiting requested review from zyongye
+zyongye is a code owner
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+AndreasKaratzas is a code owner
+Harry-Chen
+Awaiting requested review from Harry-Chen
+Harry-Chen is a code owner
+khluu
+Awaiting requested review from khluu
+khluu is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+ci/build
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+performance
+Performance-related issues
+verified
+Run pre-commit for new contributors without triggering other tests
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

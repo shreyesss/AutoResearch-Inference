@@ -1,0 +1,394 @@
+From cdd68809cc13f1b51c5e950b88401402a3877bdf Mon Sep 17 00:00:00 2001
+From: waizuichougou <2082431897@qq.com>
+Date: Mon, 28 Sep 2026 23:54:54 +0800
+Subject: [PATCH] [Bugfix][MRV2] Fix LoRA mapping for eager fast prefill
+
+Signed-off-by: waizuichougou <2082431897@qq.com>
+---
+ tests/lora/test_fast_prefill_lora_mapping.py | 43 ++++++++++++++++++++
+ vllm/forward_context.py                      |  7 ++++
+ vllm/lora/layers/base_linear.py              | 16 +++++++-
+ vllm/lora/model_manager.py                   | 11 +++++
+ vllm/lora/punica_wrapper/punica_base.py      |  6 +++
+ vllm/lora/punica_wrapper/punica_gpu.py       | 37 ++++++++++++++---
+ vllm/lora/worker_manager.py                  |  5 +++
+ vllm/model_executor/models/gemma3n.py        | 18 +++++---
+ vllm/model_executor/models/gemma4.py         | 23 +++++++----
+ vllm/v1/worker/gpu/model_runner.py           | 17 +++++++-
+ 10 files changed, 162 insertions(+), 21 deletions(-)
+ create mode 100644 tests/lora/test_fast_prefill_lora_mapping.py
+
+diff --git a/tests/lora/test_fast_prefill_lora_mapping.py b/tests/lora/test_fast_prefill_lora_mapping.py
+new file mode 100644
+index 000000000000..047fa5176e22
+--- /dev/null
++++ b/tests/lora/test_fast_prefill_lora_mapping.py
+@@ -0,0 +1,43 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++from types import SimpleNamespace
++
++import pytest
++import torch
++
++from vllm.lora.punica_wrapper.punica_gpu import PunicaWrapperGPU
++
++
++@pytest.mark.skip_global_cleanup
++def test_fast_prefill_lora_mapping_rebuilds_compact_metadata():
++    wrapper = PunicaWrapperGPU(
++        max_num_batched_tokens=16,
++        max_batches=2,
++        device="cpu",
++        lora_config=SimpleNamespace(max_loras=2, specialize_active_lora=False),
++    )
++    wrapper._token_lora_indices[:6] = torch.tensor([-1, -1, -1, -1, 0, 0])
++    wrapper.indices_len[0] = 6
++
++    compact_mapping = wrapper.prepare_fast_prefill_token_mapping(
++        torch.tensor([3, 5], dtype=torch.int32)
++    )
++    assert compact_mapping is not None
++    assert compact_mapping.tolist() == [-1, 0]
++
++    (
++        token_lora_mapping,
++        sorted_token_indices,
++        num_tokens_per_lora,
++        lora_token_start_loc,
++        active_lora_ids,
++        no_lora_flag,
++        _,
++    ) = wrapper.fast_prefill_mapping_meta.meta_args(2, False)
++    assert token_lora_mapping.tolist() == [-1, 0]
++    assert sorted_token_indices.tolist() == [0, 1]
++    assert num_tokens_per_lora[:3].tolist() == [1, 1, 0]
++    assert lora_token_start_loc[:4].tolist() == [0, 1, 2, 0]
++    assert active_lora_ids[:2].tolist() == [-1, 0]
++    assert not no_lora_flag.item()
+diff --git a/vllm/forward_context.py b/vllm/forward_context.py
+index 9ddc8e9255ed..6e31c07b568e 100644
+--- a/vllm/forward_context.py
++++ b/vllm/forward_context.py
+@@ -164,6 +164,10 @@ class ForwardContext:
+     # the producer does not set it.
+     is_padding: torch.Tensor | None = None
+ 
++    # Temporary token-to-LoRA mapping for a compact sub-batch, such as the
++    # logits-only batch used by KV-sharing fast prefill.
++    lora_token_mapping: torch.Tensor | None = None
++
+     # If True, bypass the compiled model call, e.g. by using .forward() directly
+     skip_compiled: bool = False
+ 
+@@ -286,6 +290,7 @@ def set_forward_context(
+     slot_mapping: dict[str, torch.Tensor] | list[dict[str, torch.Tensor]] | None = None,
+     skip_compiled: bool = False,
+     is_padding: torch.Tensor | None = None,
++    extra_kwargs: dict[str, Any] | None = None,
+ ):
+     """A context manager that stores the current forward context,
+     can be attention metadata, etc.
+@@ -343,6 +348,8 @@ def set_forward_context(
+         batch_descriptor=batch_descriptor,
+         ubatch_slices=ubatch_slices,
+     )
++    if extra_kwargs:
++        additional_kwargs.update(extra_kwargs)
+ 
+     forward_context = create_forward_context(
+         attn_metadata,
+diff --git a/vllm/lora/layers/base_linear.py b/vllm/lora/layers/base_linear.py
+index 12888cf3db3d..eac46c64eaac 100644
+--- a/vllm/lora/layers/base_linear.py
++++ b/vllm/lora/layers/base_linear.py
+@@ -216,6 +216,11 @@ def _apply_base_forward(self, x: torch.Tensor) -> torch.Tensor:
+         output = base_output[0] if isinstance(base_output, tuple) else base_output
+         return self._apply_lora_to_output(x, output)
+ 
++    def _get_fast_prefill_lora_mapping(self) -> torch.Tensor | None:
++        if not is_forward_context_available():
++            return None
++        return get_forward_context().lora_token_mapping
++
+     def _apply_lora_to_output(
+         self, x: torch.Tensor, output: torch.Tensor
+     ) -> torch.Tensor:
+@@ -228,8 +233,16 @@ def _apply_lora_to_output(
+             output = output.flatten(0, 1)
+             x = x.flatten(0, 1)
+ 
++        fast_prefill_mapping = self._get_fast_prefill_lora_mapping()
++
+         lora_output: torch.Tensor | None = self.punica_wrapper.add_lora_linear(
+-            output, x, self.lora_a_stacked, self.lora_b_stacked, 1.0, self.output_slices
++            output,
++            x,
++            self.lora_a_stacked,
++            self.lora_b_stacked,
++            1.0,
++            self.output_slices,
++            token_lora_mapping=fast_prefill_mapping,
+         )
+         if not current_platform.can_update_inplace():
+             output = lora_output
+@@ -277,6 +290,7 @@ def lora_fn() -> torch.Tensor:
+                 1.0,
+                 self.output_slices,
+                 add_inputs=False,
++                token_lora_mapping=self._get_fast_prefill_lora_mapping(),
+             )
+             return lora_output
+ 
+diff --git a/vllm/lora/model_manager.py b/vllm/lora/model_manager.py
+index b47c22d6aab9..8f9f6d501fee 100644
+--- a/vllm/lora/model_manager.py
++++ b/vllm/lora/model_manager.py
+@@ -1330,6 +1330,17 @@ def set_adapter_mapping(self, mapping: LoRAMapping) -> None:
+             self._last_mapping = mapping
+             self._last_slot_layout = slot_layout
+ 
++    def prepare_fast_prefill_token_mapping(
++        self, logits_indices: torch.Tensor | None
++    ) -> torch.Tensor | None:
++        """Prepare compact LoRA metadata for KV-sharing fast prefill."""
++        if self.supports_mm:
++            target_prefix = self.mm_mapping.language_model[0]
++        else:
++            target_prefix = DEFAULT_LANGUAGE_WRAPPER_KEY
++        wrapper = self.punica_wrapper_mapping[target_prefix]
++        return wrapper.prepare_fast_prefill_token_mapping(logits_indices)
++
+     def remove_adapter(self, adapter_id: int) -> bool:
+         self.deactivate_adapter(adapter_id)
+         if adapter_id not in self._registered_adapters:
+diff --git a/vllm/lora/punica_wrapper/punica_base.py b/vllm/lora/punica_wrapper/punica_base.py
+index a0e7751e6ddf..0bd5fdd3b970 100644
+--- a/vllm/lora/punica_wrapper/punica_base.py
++++ b/vllm/lora/punica_wrapper/punica_base.py
+@@ -21,6 +21,12 @@
+ class PunicaWrapperABC(ABC):
+     """PunicaWrapper ABC."""
+ 
++    def prepare_fast_prefill_token_mapping(
++        self, logits_indices: torch.Tensor | None
++    ) -> torch.Tensor | None:
++        """Prepare metadata for the compact token batch used by fast prefill."""
++        return None
++
+     @abstractmethod
+     def update_metadata(
+         self,
+diff --git a/vllm/lora/punica_wrapper/punica_gpu.py b/vllm/lora/punica_wrapper/punica_gpu.py
+index 8604e747f9df..dd7c600a67da 100644
+--- a/vllm/lora/punica_wrapper/punica_gpu.py
++++ b/vllm/lora/punica_wrapper/punica_gpu.py
+@@ -10,6 +10,7 @@
+ 
+ import torch
+ 
++from vllm.forward_context import get_forward_context, is_forward_context_available
+ from vllm.lora.layers import LoRAMapping
+ from vllm.lora.utils import get_captured_lora_counts
+ from vllm.triton_utils import HAS_TRITON, triton
+@@ -59,6 +60,12 @@ def __init__(
+             device=device,
+             captured_lora_counts=captured_lora_counts,
+         )
++        self.fast_prefill_mapping_meta = LoRAKernelMeta.make(
++            self.max_loras,
++            max_num_batched_tokens,
++            device=device,
++            captured_lora_counts=captured_lora_counts,
++        )
+ 
+         # When speculative decoding is enabled, max_num_samples is
+         # max_batches * (num_speculative_decoding_tokens + 1).
+@@ -71,6 +78,28 @@ def __init__(
+             captured_lora_counts=captured_lora_counts,
+         )
+ 
++    def prepare_fast_prefill_token_mapping(
++        self, logits_indices: torch.Tensor | None
++    ) -> torch.Tensor | None:
++        if logits_indices is None:
++            return None
++        compact_mapping = self.token_lora_indices[logits_indices]
++        with gpu_sync_allowed():
++            self.fast_prefill_mapping_meta.prepare_tensors(compact_mapping)
++        return compact_mapping
++
++    def _token_mapping_meta_args(
++        self, token_nums: int, token_lora_mapping: torch.Tensor | None = None
++    ):
++        if token_lora_mapping is None and is_forward_context_available():
++            token_lora_mapping = get_forward_context().lora_token_mapping
++        metadata = (
++            self.fast_prefill_mapping_meta
++            if token_lora_mapping is not None
++            else self.token_mapping_meta
++        )
++        return metadata.meta_args(token_nums, self.lora_config.specialize_active_lora)
++
+     def update_metadata(
+         self,
+         mapping: LoRAMapping,
+@@ -115,9 +144,7 @@ def add_shrink(
+             x,
+             lora_a_stacked,
+             y,
+-            *self.token_mapping_meta.meta_args(
+-                x.size(0), self.lora_config.specialize_active_lora
+-            ),
++            *self._token_mapping_meta_args(x.size(0), kwargs.get("token_lora_mapping")),
+             scale,
+         )
+ 
+@@ -162,8 +189,8 @@ def add_expand(
+             x,
+             lora_b_stacked,
+             y,
+-            *self.token_mapping_meta.meta_args(
+-                num_tokens, self.lora_config.specialize_active_lora
++            *self._token_mapping_meta_args(
++                num_tokens, kwargs.get("token_lora_mapping")
+             ),
+             offset_start=offset_start,
+             add_inputs=add_inputs,
+diff --git a/vllm/lora/worker_manager.py b/vllm/lora/worker_manager.py
+index 93624523e2f8..865cc9d471eb 100644
+--- a/vllm/lora/worker_manager.py
++++ b/vllm/lora/worker_manager.py
+@@ -199,6 +199,11 @@ def set_active_adapters(self, requests: set[Any], mapping: Any | None) -> None:
+         if mapping is not None:
+             self._adapter_manager.set_adapter_mapping(mapping)
+ 
++    def prepare_fast_prefill_token_mapping(
++        self, logits_indices: torch.Tensor | None
++    ) -> torch.Tensor | None:
++        return self._adapter_manager.prepare_fast_prefill_token_mapping(logits_indices)
++
+     def supports_tower_connector_lora(self) -> bool:
+         return (
+             self._adapter_manager.supports_mm
+diff --git a/vllm/model_executor/models/gemma3n.py b/vllm/model_executor/models/gemma3n.py
+index 3c9df39e674c..146126d8f86a 100644
+--- a/vllm/model_executor/models/gemma3n.py
++++ b/vllm/model_executor/models/gemma3n.py
+@@ -1013,12 +1013,20 @@ def fast_prefill_forward(
+         self.per_layer_inputs[:num_padded_logits_indices].copy_(
+             per_layer_inputs_adjusted[logits_indices_padded]
+         )
+-        cross_decoder_hidden_states = self.cross_decoder(
+-            positions=self.positions[:num_padded_logits_indices],
+-            hidden_states=self.hidden_states[:num_padded_logits_indices],
+-            per_layer_inputs=self.per_layer_inputs[:num_padded_logits_indices],
+-            **kwargs,
++        forward_context = get_forward_context()
++        orig_lora_mapping = forward_context.lora_token_mapping
++        forward_context.lora_token_mapping = forward_context.additional_kwargs.get(
++            "fast_prefill_lora_mapping"
+         )
++        try:
++            cross_decoder_hidden_states = self.cross_decoder(
++                positions=self.positions[:num_padded_logits_indices],
++                hidden_states=self.hidden_states[:num_padded_logits_indices],
++                per_layer_inputs=self.per_layer_inputs[:num_padded_logits_indices],
++                **kwargs,
++            )
++        finally:
++            forward_context.lora_token_mapping = orig_lora_mapping
+ 
+         if num_logits_indices is not None:
+             assert num_logits_indices > 0
+diff --git a/vllm/model_executor/models/gemma4.py b/vllm/model_executor/models/gemma4.py
+index e3dfe65c2f58..5474ffce8f90 100644
+--- a/vllm/model_executor/models/gemma4.py
++++ b/vllm/model_executor/models/gemma4.py
+@@ -1275,6 +1275,10 @@ def fast_prefill_forward(
+         # CUDAGraphWrapper dispatches to the correct (reduced) batch size.
+         forward_context = get_forward_context()
+         orig_batch_desc = forward_context.batch_descriptor
++        orig_lora_mapping = forward_context.lora_token_mapping
++        forward_context.lora_token_mapping = forward_context.additional_kwargs.get(
++            "fast_prefill_lora_mapping"
++        )
+         if orig_batch_desc is not None:
+             forward_context.batch_descriptor = replace(
+                 orig_batch_desc, num_tokens=num_padded
+@@ -1285,15 +1289,16 @@ def fast_prefill_forward(
+             if self.per_layer_inputs is not None
+             else None
+         )
+-        cross_hidden_states = self.cross_decoder(
+-            self.positions[:num_padded],
+-            self.hidden_states[:num_padded],
+-            cross_per_layer,
+-            **kwargs,
+-        )
+-
+-        # Restore the original batch_descriptor
+-        forward_context.batch_descriptor = orig_batch_desc
++        try:
++            cross_hidden_states = self.cross_decoder(
++                self.positions[:num_padded],
++                self.hidden_states[:num_padded],
++                cross_per_layer,
++                **kwargs,
++            )
++        finally:
++            forward_context.batch_descriptor = orig_batch_desc
++            forward_context.lora_token_mapping = orig_lora_mapping
+ 
+         if num_logits_indices is not None:
+             assert num_logits_indices > 0
+diff --git a/vllm/v1/worker/gpu/model_runner.py b/vllm/v1/worker/gpu/model_runner.py
+index 5c617533f182..a568b3db8b4c 100644
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -31,7 +31,7 @@
+ from vllm.compilation.counter import compilation_counter
+ from vllm.compilation.cuda_graph import CUDAGraphStat
+ from vllm.config import VllmConfig
+-from vllm.config.compilation import CUDAGraphMode
++from vllm.config.compilation import CompilationMode, CUDAGraphMode
+ from vllm.distributed.aux_output_connector.worker import (
+     AuxOutputWorkerConnector,
+     get_aux_output_connector,
+@@ -1705,6 +1705,7 @@ def execute_model(
+             return self._merge_ec_connector_no_forward(scheduler_output, empty_output)
+ 
+         cudagraph_stats = None
++        fast_prefill_lora_mapping = None
+         if not dummy_run:
+             # Common case.
+             # Prepare all the inputs and copy to the input buffers.
+@@ -1734,6 +1735,17 @@ def execute_model(
+                     input_batch.num_scheduled_tokens,
+                 )
+                 self._set_active_loras(*lora_inputs)
++                if (
++                    input_batch.fast_prefill is not None
++                    and num_active_loras > 0
++                    and batch_desc.cg_mode == CUDAGraphMode.NONE
++                    and self.compilation_config.mode == CompilationMode.NONE
++                ):
++                    fast_prefill_lora_mapping = (
++                        self.lora_manager.prepare_fast_prefill_token_mapping(
++                            input_batch.fast_prefill.logits_indices_padded
++                        )
++                    )
+         else:
+             # No actual tokens to run. A dummy run for DP or memory profiling.
+             dummy_num_reqs = batch_desc.num_reqs or num_reqs
+@@ -1929,6 +1941,9 @@ def execute_model(
+                 slot_mapping=slot_mappings_by_layer,
+                 skip_compiled=skip_compiled,
+                 is_padding=input_batch.is_padding,
++                extra_kwargs={
++                    "fast_prefill_lora_mapping": fast_prefill_lora_mapping,
++                },
+             ):
+                 self.kv_connector.pre_forward(**connector_kwargs)
+                 if ubatch_state is not None:

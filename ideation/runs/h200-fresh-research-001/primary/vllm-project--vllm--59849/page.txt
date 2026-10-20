@@ -1,0 +1,217 @@
+Conversation
+gitbisector
+commented
+Oct 3, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Overview
+Same fix as
+#59848
+, for DSv4.1. Default
+cpu_offload
+Engram tables use
+pin_memory=True
+, which rounds each table up to a power of two. Register them at exact size through the existing THP helper, without huge pages. Draft: GB10 only. cc
+@Juntian777
+: could you run your
+#59327
+lookup bench on GB200?
+Claims
+TP2 per-rank table: 66 → 47.2 GiB host memory.
+GB10 lookup kernel: ~1.8× faster unsorted, 7–21% faster with
+[Perf][DSv4.1] Faster Engram host lookups: sorted rows, inline big lookups
+#59327
+'s sort.
+Validation
+GB10, Engram lookup kernel, TP4 per-rank table, 32K tokens:
+memory
+host
+unsorted
+sorted
+pin_memory
+(before)
+33.1 GiB
+41.4 ms
+10.9 ms
+exact
+cudaHostAlloc
+24.9 GiB
+41.4 ms
+10.9 ms
+registered (this PR)
+24.3 GiB
+22.7 ms
+10.2 ms
+Exact size gives the memory saving; the registered memory type gives the speed. These are 4 KiB pages, not THP.
+pytest tests/kernels/test_engram.py tests/distributed/test_engram_dp_shard.py
+: 116 passed. The new small-page case fails on main.
+Still needed before un-drafting: GB200 and an E2E
+cpu_offload
+run.
+Details
+_allocate_huge_page_storage(n)
+→
+_allocate_registered_storage(n, huge_pages)
+, called once. The THP path and the sort are unchanged. A failed registration falls back to
+pin_memory=True
+.
+CUDA only; ROCm is unchanged.
+use_thp
+is opt-in and skips the sort, so default users still pay the rounding.
+All runs
+TP4 (6 heads x 16Mi rows):
+pinned     unsorted: 4096:5193us 8192:10355us 16384:20704us 32768:41424us
+pinned     sorted:   4096:5190us 8192:4198us 16384:6680us 32768:10892us
+exact-cudaHostAlloc unsorted: 4096:5196us 8192:10367us 16384:20732us 32768:41443us
+exact-cudaHostAlloc sorted:   4096:5191us 8192:4220us 16384:6707us 32768:10919us
+registered unsorted: 4096:2855us 8192:5695us 16384:11371us 32768:22715us
+registered sorted:   4096:2850us 8192:3729us 16384:6173us 32768:10234us
+TP2 (12 heads x 16Mi rows):
+pinned     unsorted: 4096:11851us 8192:23681us 16384:47352us 32768:94698us
+registered unsorted: 4096:6294us 8192:12568us 16384:25120us 32768:50220us
+pinned     sorted:   4096:5436us 8192:8394us 16384:13443us 32768:21951us
+registered sorted:   4096:4492us 8192:7376us 16384:12273us 32768:20410us
+Median of 48 runs. TP4 4096 is below the sort threshold.
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used during the creation of this PR.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+Drafted with Claude; reviewed and tested by me.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+[Perf][DSv4.1] Register CPU-offloaded Engram tables at their exact size
+…
+8e91c6e
+Use the THP registration helper without huge pages for the default
+cpu_offload tables instead of pin_memory=True, which rounds them up to a
+power of two.
+
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: git bisector <gitbisector@gmail.com>
+gitbisector
+mentioned this pull request
+Oct 3, 2026
+[Bugfix][Qwen4Exp] Pin the offloaded PLE table at its exact size
+#59848
+Open
+6 tasks done
+mergify
+Bot
+added
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+labels
+Oct 3, 2026
+lobo235
+mentioned this pull request
+Oct 9, 2026
+[Bugfix] Pin long-lived host buffers at their exact size
+#60909
+Open
+6 tasks done
+This was referenced
+Oct 17, 2026
+[Model] DeepSeek-V4/V4.1 VL: stream language-model weights instead of sorting the checkpoint
+#58857
+Merged
+DeepSeek-V4.1-Flash fails to start on 4x H20 (587GiB RAM): MEMCG OOM from host shmem (TP weight shards), not GPU
+#57469
+Open
+[Bugfix][Model Loader] Evict loaded shards when checkpoint exceeds RAM
+#62110
+Open
+Juntian777
+mentioned this pull request
+Oct 18, 2026
+[Perf][DSv4.1] Share Engram host tables as host-NUMA cuMem across DP ranks
+#62359
+Draft
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+mgoin
+Awaiting requested review from mgoin
+mgoin will be requested when the pull request is marked ready for review
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth will be requested when the pull request is marked ready for review
+tlrmchlsmth is a code owner
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon will be requested when the pull request is marked ready for review
+WoosukKwon is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 will be requested when the pull request is marked ready for review
+yewentao256 is a code owner
+zyongye
+Awaiting requested review from zyongye
+zyongye will be requested when the pull request is marked ready for review
+zyongye is a code owner
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+AndreasKaratzas will be requested when the pull request is marked ready for review
+AndreasKaratzas is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

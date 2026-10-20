@@ -1,0 +1,410 @@
+Conversation
+chaunceyjiang
+commented
+Aug 14, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Purpose
+Prefer Humming over Marlin for MXFP4 MoE on SM90
+Thanks
+@Missyinlll
+for catching this issue and for the very detailed testing. So far, Humming has outperformed Marlin in our tests on both H200 and H20.
+Test Plan
+4 * NVIDIA H20-3e
+vllm serve deepseek-ai/DeepSeek-V4-Flash-0731 \
+    --trust-remote-code \
+    --kv-cache-dtype fp8 \
+    --block-size 256 \
+    --enable-expert-parallel \
+    --tensor-parallel-size 4 \
+    --tokenizer-mode deepseek_v4 \
+    --tool-call-parser deepseek_v4 \
+    --enable-auto-tool-choice \
+    --reasoning-parser deepseek_v4 \
+    --no-enable-prefix-caching \
+    --max-num-batched-tokens 16384
+vllm bench serve \
+    --backend vllm \
+    --base-url http://localhost:8000 \
+    --model deepseek-ai/DeepSeek-V4-Flash-0731 \
+    --dataset-name random \
+    --random-input-len 1024 \
+    --random-output-len 64 \
+    --num-prompts 128 \
+    --num-warmups 8 \
+    --request-rate inf \
+    --seed 701
+Test Result
+before
+(Worker_TP0_EP0 pid=1697191) INFO 08-14 18:20:57 [mxfp4.py:630] Using 'MARLIN' Mxfp4 MoE backend.
+(Worker_TP0_EP0 pid=1697191) INFO 08-14 18:21:07 [mxfp4.py:1826] Using MarlinExperts
+============ Serving Benchmark Result ============
+Successful requests:                     128       
+Failed requests:                         0         
+Benchmark duration (s):                  16.76     
+Total input tokens:                      131072    
+Total generated tokens:                  8192      
+Request throughput (req/s):              7.64      
+Output token throughput (tok/s):         488.76    
+Peak output token throughput (tok/s):    3712.00   
+Peak concurrent requests:                128.00    
+Total token throughput (tok/s):          8308.98   
+---------------Time to First Token----------------
+Mean TTFT (ms):                          8362.06   
+Median TTFT (ms):                        8379.88   
+P99 TTFT (ms):                           14659.30  
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          132.00    
+Median TPOT (ms):                        131.79    
+P99 TPOT (ms):                           230.71    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           132.00    
+Median ITL (ms):                         34.60     
+P99 ITL (ms):                            1812.36   
+==================================================
+humming-kernels 0.1.12
+(Worker_TP0_EP0 pid=1833984) INFO 08-14 18:28:36 [mxfp4.py:429] Using 'HUMMING' Mxfp4 MoE backend.
+(Worker_TP0_EP0 pid=1833984) INFO 08-14 18:28:46 [mxfp4.py:1826] Using HummingIndexedExperts
+============ Serving Benchmark Result ============
+Successful requests:                     128       
+Failed requests:                         0         
+Benchmark duration (s):                  13.98     
+Total input tokens:                      131072    
+Total generated tokens:                  8192      
+Request throughput (req/s):              9.16      
+Output token throughput (tok/s):         585.95    
+Peak output token throughput (tok/s):    2944.00   
+Peak concurrent requests:                128.00    
+Total token throughput (tok/s):          9961.23   
+---------------Time to First Token----------------
+Mean TTFT (ms):                          6482.41   
+Median TTFT (ms):                        6491.27   
+P99 TTFT (ms):                           11343.28  
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          117.18    
+Median TPOT (ms):                        117.11    
+P99 TPOT (ms):                           192.64    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           117.18    
+Median ITL (ms):                         43.08     
+P99 ITL (ms):                            1401.23
+humming-kernels 0.1.13
+============ Serving Benchmark Result ============
+Successful requests:                     128       
+Failed requests:                         0         
+Benchmark duration (s):                  13.35     
+Total input tokens:                      131072    
+Total generated tokens:                  8192      
+Request throughput (req/s):              9.59      
+Output token throughput (tok/s):         613.52    
+Peak output token throughput (tok/s):    3968.00   
+Peak concurrent requests:                128.00    
+Total token throughput (tok/s):          10429.91  
+---------------Time to First Token----------------
+Mean TTFT (ms):                          6494.01   
+Median TTFT (ms):                        6513.82   
+P99 TTFT (ms):                           11363.66  
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          107.61    
+Median TPOT (ms):                        107.46    
+P99 TPOT (ms):                           183.73    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           107.61    
+Median ITL (ms):                         32.83     
+P99 ITL (ms):                            1400.98   
+==================================================
+Essential Elements of an Effective PR Description Checklist
+The purpose of the PR, such as "Fix some issue (link existing issues this PR will resolve)".
+The test plan, such as providing test command.
+The test results, such as pasting the results comparison before and after, or e2e results
+(Optional) The necessary documentation update, such as updating
+supported_models.md
+and
+examples
+for a new model.
+BEFORE SUBMITTING, PLEASE READ
+https://docs.vllm.ai/en/latest/contributing
+(anything written below this line will be removed by GitHub Actions)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+3
+depthfirst-app[bot], quanliu1991, and Missyinlll reacted with thumbs up emoji
+🚀
+1
+xfalcox reacted with rocket emoji
+👀
+1
+depthfirst-app[bot] reacted with eyes emoji
+All reactions
+👍
+3 reactions
+🚀
+1 reaction
+👀
+1 reaction
+chaunceyjiang
+requested review from
+mgoin
+,
+pavanimajety
+and
+zyongye
+as
+code owners
+August 14, 2026 10:44
+claude
+Bot
+reviewed
+Aug 14, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+chaunceyjiang
+force-pushed
+the
+defualt_humming
+branch
+    from
+9a2a1db
+to
+3667f01
+Compare
+August 17, 2026 01:07
+chaunceyjiang
+commented
+Aug 18, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+/cc
+@mgoin
+PTAL
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mgoin
+reviewed
+Aug 19, 2026
+View reviewed changes
+Comment thread
+vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+DSv4
+label
+Aug 19, 2026
+chaunceyjiang
+force-pushed
+the
+defualt_humming
+branch
+    from
+3667f01
+to
+de7a267
+Compare
+August 20, 2026 02:40
+chaunceyjiang
+requested a review
+  from
+mgoin
+August 20, 2026 02:49
+chaunceyjiang
+changed the title
+[Perf][DSV4] Prefer Humming over Marlin for MXFP4 MoE on SM90
+[Perf][DSV4] Prefer Humming over Marlin for MXFP4 MoE on SM90 (+19.9% throughput)
+Aug 20, 2026
+chaunceyjiang
+and others
+added
+4
+commits
+August 25, 2026 11:22
+[Perf][DSV4] Prefer Humming over Marlin for MXFP4 MoE on SM90
+…
+85d4d14
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+Co-authored-by: Missyinlll <liang.yin@daocloud.io>
+[Perf][DSV4] Prefer Humming over Marlin for MXFP4 MoE on SM90
+…
+ddd16ef
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+[Perf][DSV4] Prefer Humming over Marlin for MXFP4 MoE on SM90
+…
+0bb04fb
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+[Perf][DSV4] Prefer Humming over Marlin for MXFP4 MoE on SM90
+…
+aeef723
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+chaunceyjiang
+force-pushed
+the
+defualt_humming
+branch
+    from
+6dd1387
+to
+aeef723
+Compare
+August 25, 2026 03:26
+mergify
+Bot
+added
+  the
+ci/build
+label
+Aug 25, 2026
+mergify
+Bot
+commented
+Sep 17, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@chaunceyjiang
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 17, 2026
+simon-veitner-redhat
+mentioned this pull request
+Sep 30, 2026
+[Perf][DeepSeek V4.1] Humming indexed MoE GEMM with EP on Hopper, and a named MoE activation format
+#59488
+Open
+0z5a
+mentioned this pull request
+Oct 15, 2026
+[Perf][DeepSeek V4] Keep Marlin ahead of Humming for MXFP4 MoE under EP on SM90
+0z5a/vllm#2
+Open
+mgoin
+closed this
+Oct 15, 2026
+mgoin
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Member
+Humming is now the default for SM90 across the board
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+pavanimajety
+Awaiting requested review from pavanimajety
+pavanimajety is a code owner
+zyongye
+Awaiting requested review from zyongye
+zyongye is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin is a code owner
+Assignees
+No one assigned
+Labels
+ci/build
+DSv4
+needs-rebase
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

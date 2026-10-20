@@ -1,0 +1,80 @@
+{
+  "output": "/home/ubuntu/AutoResearch-Inference/ideation/runs/h200-fresh-research-001/systems/review-recovery",
+  "started_at": "2026-10-20T12:35:40Z",
+  "status": "completed_no_selection",
+  "rounds": [
+    {
+      "round": 1,
+      "proposed": 5,
+      "eligible": 0
+    }
+  ],
+  "requested": 5,
+  "dependency": "DiscoveryRSI Candidate/Episode/ReplayBuffer; domain gates are local",
+  "model": "existing agent configuration",
+  "gpu_experiments": 0,
+  "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+  "finished_at": "2026-10-20T12:39:16Z",
+  "selected": 0,
+  "shortfall": 5,
+  "evaluations": [
+    {
+      "id": "R1",
+      "eligible": false,
+      "status": "deferred",
+      "score": 76.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: The Python execution-shape port is plausible on SM90, and the proposed dummy-rank, graph, KV and sampler checks are well scoped. However, code:h200:port-checks records \"patch does not apply\" in both dp_utils.py and speculator.py. Complete final patch behavior and deployed dispatch remain unverified. This requires adaptation, not an architecture-incompatibility rejection."
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    },
+    {
+      "id": "R2",
+      "eligible": false,
+      "status": "deferred",
+      "score": 76.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: The CPU algorithm has a plausible DP4 path independent of GPU arithmetic. Nevertheless, actual process-group backend and invocation ordering are unknown, and code:h200:port-checks records a failed parallel_state.py hunk. The patch uses fixed reserved tags; scoped ordering, group-local rank, pause and fallback checks are necessary. The source says \"ray backend not tested\"."
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    },
+    {
+      "id": "R3",
+      "eligible": false,
+      "status": "deferred",
+      "score": 76.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: A host routing adaptation is plausible on SM90, with appropriate cache isolation, stale-entry, concurrency and bypass checks. The shared-table integration, installed routing behavior and exact prefix-key semantics remain unspecified or unverified. The source's local tie-break implementation does not establish the proposed shared implementation."
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    },
+    {
+      "id": "R4",
+      "eligible": false,
+      "status": "deferred",
+      "score": 72.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: The host protocol is plausibly adaptable to fixed DP4/EP4, but installed scheduler compatibility and the proposed overdue mechanism are unverified. The source excludes elastic EP and custom schedulers. A wall-clock flag checked once per step can override HOLD decisions; it does not by itself establish a hard request-wait bound during long steps, repeated chunks or resource starvation."
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    },
+    {
+      "id": "R5",
+      "eligible": false,
+      "status": "rejected",
+      "score": 37.0,
+      "reasons": [
+        "Critic: factual claims unsupported or contradicted",
+        "credible_improvement_required: The supplied code:h200:resolved-engram logs resolve \"dp_shared_memory=True, use_thp=False\" on both replicas. R5 explicitly targets rounded private tables and rejects shared storage. Its own cheap eligibility check therefore rules out the proposed delta as scoped. No change to the active shared-storage path is proposed.",
+        "h200_applicability_and_correctness_required: Generic CUDA host registration is plausibly portable, but the proposed private-table intervention does not match the resolved shared-storage deployment. R5 preserves ownership and explicitly excludes the shared-backing alternative, leaving no remedy within this proposal. This is a deployment-path mismatch, not evidence that H200 cannot register host memory.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  ]
+}

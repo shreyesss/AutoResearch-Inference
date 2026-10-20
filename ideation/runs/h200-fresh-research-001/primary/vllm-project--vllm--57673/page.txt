@@ -1,0 +1,488 @@
+Conversation
+positive666
+commented
+Sep 19, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Overview
+Rework this as an opt-in SM90 backend with centralized selection and separate Triton prefill/decode, as requested in review. DeepSeek V4.1 TP8/TP4 keeps its 8/16 local query heads instead of padding to 64.
+Claims
+Select with
+--attention-backend TRITON_MLA_SPARSE_DSV41
+; default backend selection is unchanged.
+Eligible verification-query pairs share sparse KV reads. Other decode shapes use the direct Triton decoder.
+H20×8/TP8 output throughput improves 5.4–8.7% in the measured workloads, with lower p95 TTFT and end-to-end latency.
+Validation
+Same image and flags, changing only the attention backend. Source and native libraries built from
+0c16eee3
+; DSpark adaptive/5, Humming 0.1.16/BF16, batch 8192, max 64 sequences,
+fp8_ds_mla
+and fixed KV budget 22,191,197,696 bytes/GPU.
+EvalScope 1.11.1 with a reasoning-field timing fix: 200 streaming requests per point, identical frozen prompts, isolated prefixes, 1024 output tokens with EOS ignored. All requests succeeded; no timed compilation, cache hits or preemptions observed in the included samples.
+Input / concurrency
+Output tok/s, FlashMLA → Triton
+Change
+p95 TTFT
+p95 E2E
+8K / 64
+1372.8 → 1446.3
++5.4%
+−7.5%
+−8.1%
+32K / 8
+399.4 → 434.2
++8.7%
+−8.1%
+−10.0%
+32K / 32
+487.4 → 526.9
++8.1%
+−8.7%
+−10.8%
+32K / 32, repeat
+485.2 → 526.8
++8.6%
+−8.8%
+−6.8%
+32K ran Triton→FlashMLA; 8K uses a warmed FlashMLA→Triton rerun because the first candidate sample compiled an auxiliary kernel. Median TTFT was more variable: +1.5% and −29.0% in the two 32K/C32 runs.
+84 tests passed (52 CPU, 32 GPU), with zero failures or skips. Coverage includes independent FP32 references, packed/strided KV, large offsets, warmup and mutable CUDA Graph replay. Prefix-growth, named-tool and reasoning-stream checks passed on both backends. Changed-file pre-commit and mypy passed; H100 CI coverage is wired, upstream CI pending.
+.venv/bin/python -m pytest tests/models/test_fewhead_prefill_gate.py \
+  tests/kernels/attention/test_fewhead_sparse_prefill.py \
+  tests/kernels/test_compressor_kv_cache.py::test_v41_compressor_metadata_maps_tokens_to_their_ring -q
+Full GSM8K, 16-shot greedy chat, max 1024 tokens:
+1281/1319 → 1284/1319
+, zero request errors. Three answers changed from correct to wrong and six from wrong to correct; length stops were 1→2. This does not establish output equivalence.
+Details
+The direct decoder and packed-KV loader come from
+#59418
+by luoyuctl (
+eddfa5ed50c1
+), with three page-size parameters specialized as
+tl.constexpr
+. They are isolated in the first commit. This PR adds independent backend integration, native-head prefill and query pairing; it does not add
+#59418
+'s automatic FlashMLA dispatch. Shared-decoder landing order still needs coordination. Query-union prior art:
+#55372
+. Unlike
+#54592
+, prefill keeps BF16 queries. Reported gains measure the whole backend, including the shared decoder and DSpark interactions.
+Requires SM90, BF16 queries, 512D heads/64D RoPE and packed
+fp8_ds_mla
+KV. Prefill stays outside FULL CUDA Graphs. The context limit is 1M; measured performance inputs are 8K/32K. TP4 full-model, actual 1M inputs and comprehensive multimodal evaluation are not qualified.
+Driver-memory maxima sampled every 60 seconds changed by −2.04 to +1.40 GiB/GPU; the 32K cases used about 1.4 GiB/GPU more. These are sampled values, not exact peaks or a memory-saving claim.
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used to write code.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+BEFORE SUBMITTING, PLEASE READ
+https://docs.vllm.ai/en/latest/contributing
+(anything written below this line will be removed by GitHub Actions)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+positive666
+requested review from
+AndreasKaratzas
+,
+DarkLight1337
+,
+WoosukKwon
+,
+mgoin
+,
+tlrmchlsmth
+,
+yewentao256
+,
+ywang96
+and
+zyongye
+as
+code owners
+September 19, 2026 07:45
+claude
+Bot
+reviewed
+Sep 19, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+labels
+Sep 19, 2026
+gcanlin
+mentioned this pull request
+Sep 19, 2026
+[Perf][DSv4.1] Opt-in split-KV decode for the mega attention backend
+#57711
+Closed
+mergify
+Bot
+commented
+Sep 27, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@positive666
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 27, 2026
+positive666
+force-pushed
+the
+perf/dsv41-fewhead-prefill
+branch
+    from
+74f6d70
+to
+d970a8c
+Compare
+September 28, 2026 02:23
+positive666
+requested review from
+Harry-Chen
+and
+khluu
+as
+code owners
+September 28, 2026 02:23
+mergify
+Bot
+added
+ci/build
+and removed
+needs-rebase
+labels
+Sep 28, 2026
+positive666
+commented
+Sep 28, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Rebased in
+d970a8c
+; the merge conflict is resolved.
+I also checked the unchanged patch on main
+55de40a
+with streaming on H20×8: 200/200 requests succeeded per arm at 8K/C16, with no monitored JIT or preemptions during measurement. Throughput was within 0.2% of the previous main+patch build. The isolated PR results remain in the description.
+Feedback on the SM90 dispatch and fallback would be appreciated.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+positive666
+commented
+Sep 29, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Updated the results with unchanged
+d970a8c
+tested on main
+3e2a7e7
+, including decoder SWA replay. Off/on and on/off runs on H20×8 showed 3.0–3.6% higher output throughput and 7.1–7.7% lower p95 TTFT at 8K/C16 and C64. Full GSM8K results and the p95 E2E variation are included in the description. No code changes.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+zyongye
+commented
+Sep 30, 2026
+Copy link
+Copy Markdown
+Member
+Thank you for your contribution. It's great to see such good improvement. However we won't accept the PR as it is. The main reason is the code path is inter-tangled with sm100 flashmla logic, which will make us hard to maintain if there's upstream flashmla code changes and we want to cleanly separate the code. If you really want to contribute the kernel, I would suggest make a completely different backend and have a central selection logic. That means adding a new decode kernel as well. Sorry for that and thank you for your contribution again.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+positive666
+commented
+Sep 30, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Thanks for the review,
+@zyongye
+. I'll follow your suggestion and rework this as a separate backend with centralized selection and a dedicated decode kernel.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+positive666
+marked this pull request as draft
+September 30, 2026 03:38
+luoyuctl
+mentioned this pull request
+Sep 30, 2026
+[Perf][DSv4.1] Small-head sparse decode on SM90
+#59418
+Open
+2 of 3 tasks
+positive666
+and others
+added
+2
+commits
+October 6, 2026 10:58
+[Perf][DSv4.1] Reuse SM90 sparse decoder from
+vllm-project#59418
+…
+3ef067c
+Adapt the decoder from luoyuctl's PR
+vllm-project#59418
+at
+eddfa5ed50c16a632b8fae2e523ad54e504f3e0b as the shared dependency
+for the independent native-head backend. Specialize the three page-size
+parameters as tl.constexpr; otherwise keep the decoder unchanged.
+Keep this shared contribution separate from backend integration and
+query-pairing changes.
+
+Co-authored-by: zack <51604064+luoyuctl@users.noreply.github.com>
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+[Perf][DSv4.1] Add independent SM90 native-head sparse backend
+…
+01e96d2
+Address
+vllm-project#57673
+review with centralized opt-in selection and independent
+Triton prefill/decode. Share exact sparse KV unions across eligible
+verification-query pairs; preserve per-forward and CUDA Graph lifetimes.
+Add startup warmup, correctness and compatibility coverage, H100 CI,
+and backend usage documentation. Default backend selection is unchanged.
+
+The paired decoder derives its KV loader and split softmax from
+vllm-project#59418
+;
+query-union prior art is
+vllm-project#55372
+.
+
+Co-authored-by: zack <51604064+luoyuctl@users.noreply.github.com>
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+positive666
+force-pushed
+the
+perf/dsv41-fewhead-prefill
+branch
+    from
+d970a8c
+to
+01e96d2
+Compare
+October 6, 2026 03:04
+mergify
+Bot
+commented
+Oct 6, 2026
+Copy link
+Copy Markdown
+Contributor
+Documentation preview:
+https://vllm--57673.org.readthedocs.build/en/57673/
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+documentation
+Improvements or additions to documentation
+label
+Oct 6, 2026
+positive666
+changed the title
+[Perf][DSv4.1] Native-head Triton sparse MLA for SM90 few-head prefill
+[Perf][DSv4.1] Add SM90 native-head sparse attention backend
+Oct 6, 2026
+positive666
+commented
+Oct 6, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Thanks,
+@zyongye
+. Reworked this into a separate backend with centralized selection and dedicated Triton prefill/decode; the FlashMLA/SM100 execution path is unchanged.
+The shared decoder from
+#59418
+is isolated in the first commit with attribution. H20×8 validation passed 84 tests and full GSM8K; streaming throughput improved 5.4–8.7%, with lower p95 TTFT. Results and limitations are in the updated description.
+Keeping this draft for review of the backend separation and shared-decoder integration.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+DarkLight1337
+Awaiting requested review from DarkLight1337
+DarkLight1337 is a code owner
+ywang96
+Awaiting requested review from ywang96
+ywang96 is a code owner
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+AndreasKaratzas is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth is a code owner
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+zyongye
+Awaiting requested review from zyongye
+zyongye is a code owner
+Harry-Chen
+Awaiting requested review from Harry-Chen
+Harry-Chen is a code owner
+khluu
+Awaiting requested review from khluu
+khluu is a code owner
+LucasWilkinson
+Awaiting requested review from LucasWilkinson
+LucasWilkinson will be requested when the pull request is marked ready for review
+LucasWilkinson is a code owner
+MatthewBonanni
+Awaiting requested review from MatthewBonanni
+MatthewBonanni will be requested when the pull request is marked ready for review
+MatthewBonanni is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+ci/build
+deepseek
+Related to DeepSeek models
+documentation
+Improvements or additions to documentation
+DSv4.1
+Related to DeepSeek-V4.1 models
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

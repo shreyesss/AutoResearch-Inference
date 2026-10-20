@@ -1,0 +1,679 @@
+Conversation
+functionstackx
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+Add
+dsv41flash-fp4-h200-sglang-agentic-dspark
+: the H200 SGLang counterpart of the vLLM DSv4.1 Flash AgentX arm, built from the
+SGLang cookbook
+. DSv4.1 Flash has not shipped in an SGLang release, so the recipe uses the preview build
+lmsysorg/sglang:dev-dsv41
+(digest recorded in the master config and changelog). TP8/EP8, native five-token DSpark (
+--speculative-algorithm DSPARK --speculative-dspark-block-size 5
+), thinking on with reasoning effort high,
+--mem-fraction-static 0.8
+, GPU-resident KV cache (
+kv-offloading: none
+), concurrency 1–128. Throughput uses the
+golden AL 3.51
+(thinking on) through
+SGLANG_SIMULATE_ACC_LEN
+; accuracy evals keep real DSpark verification.
+--max-running-requests
+is
+2 * CONC
+for AgentX subagent fan-out and the decode graph batch covers it, floored at the cookbook's 64 and capped at 128.
+Hopper follows the cookbook's verified H200 cell and pins
+--attention-backend dsv4 --moe-runner-backend flashinfer_mxfp4
+. This PR also adds the shared SGLang section to the DSv4.1 Flash docs (EN/ZH) and the MODELS.md row; the sibling SKU PRs reference it.
+Pre-downloaded checkpoint: the launcher resolves
+deepseek-ai/DeepSeek-V4.1-Flash
+through the cluster's persistent HF cache exactly as the vLLM arm does; the script only completes or resumes a partial download.
+Validation:
+bash -n
+, YAML parse, exact-key matrix generation, and changelog append (no deletions) pass. GPU validation pending;
+full-sweep-fail-fast
+is set on this PR.
+One PR per SKU: h100, h200, b200, b300, gb200, gb300 and mi355x are opened separately.
+中文
+新增
+dsv41flash-fp4-h200-sglang-agentic-dspark
+：DSv4.1 Flash AgentX vLLM 配方在 H200 上的 SGLang 对应版本，基于
+SGLang cookbook
+。DSv4.1 Flash 尚未随 SGLang 正式版发布，因此使用预览镜像
+lmsysorg/sglang:dev-dsv41
+（digest 记录于 master 配置与 changelog）。TP8/EP8，原生五 token DSpark（
+--speculative-algorithm DSPARK --speculative-dspark-block-size 5
+），thinking 开启、reasoning effort 为 high，
+--mem-fraction-static 0.8
+，KV cache 常驻 GPU（
+kv-offloading: none
+），并发 1–128。吞吐测试通过
+SGLANG_SIMULATE_ACC_LEN
+使用 thinking 开启的黄金 AL 3.51；准确率 eval 保留真实 DSpark 验证。
+--max-running-requests
+为
+2 * CONC
+以容纳 AgentX 子代理扇出，decode 图 batch 覆盖该值，下限为 cookbook 的 64，上限为 128。
+Hopper 遵循 cookbook 已验证的 H200 配置，显式指定
+--attention-backend dsv4 --moe-runner-backend flashinfer_mxfp4
+。本 PR 同时为 DSv4.1 Flash 文档（中英）新增共享的 SGLang 章节并更新 MODELS.md；其余 SKU 的 PR 引用该章节。
+预下载检查点：launcher 与 vLLM 配方相同，通过集群的持久 HF 缓存解析
+deepseek-ai/DeepSeek-V4.1-Flash
+；脚本仅补全或续传未完成的下载。
+验证：
+bash -n
+、YAML 解析、精确 key 矩阵生成、changelog 追加（无删除）均通过。GPU 验证待完成；本 PR 已添加
+full-sweep-fail-fast
+。
+每个 SKU 一个 PR：h100、h200、b200、b300、gb200、gb300 与 mi355x 分别提交。
+🤖 Generated with
+Claude Code
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+dsv41flash-fp4-h200-sglang-agentic-dspark: add H200 DeepSeek-V4.1-Fla…
+…
+9dbf9b0
+…sh SGLang DSpark AgentX arm
+
+Recipe from the SGLang cookbook: preview image lmsysorg/sglang:dev-dsv41, TP8/EP8, native
+five-token DSpark, thinking on, GPU-resident KV, concurrency 1–128.
+
+新增 H200 上的 DeepSeek-V4.1-Flash SGLang DSpark AgentX 配方（TP8/EP8，并发 1–128）。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+functionstackx
+requested a review
+  from
+a team
+September 18, 2026 03:46
+perf-changelog: fill pr-link for dsv41flash-fp4-h200-sglang-agentic-d…
+…
+19d294a
+…spark
+
+为 dsv41flash-fp4-h200-sglang-agentic-dspark 填写 pr-link。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+functionstackx
+requested review from
+Ankur-singh
+,
+chunfangamd
+and
+kedarpotdar-nv
+as
+code owners
+September 18, 2026 03:46
+github-project-automation
+Bot
+added this to
+InferenceX Board
+Sep 18, 2026
+functionstackx
+added
+  the
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+label
+Sep 18, 2026
+github-actions
+Bot
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution!
+Review:
+If this PR changes files owned by someone other than a repository admin or
+@SemiAnalysisAI/core
+, ask one eligible
+CODEOWNER
+to complete the latest
+PR_REVIEW_CHECKLIST.md
+before contacting a core maintainer on Slack. Follow the template exactly, including
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+, so sign-off verification triggers.
+PR verification:
+Sweeps only run on labeled PRs. Add
+full-sweep-fail-fast
+(strongly recommended); use
+full-sweep-enabled
+only when matrix jobs should continue after a failure.
+After merging:
+PR authors must ensure all GitHub Actions jobs pass. Transient failures often pass on rerun; see
+how to rerun failed jobs
+.
+中文
+感谢你的贡献！
+**审阅：**如果 PR 修改的文件归属于仓库管理员及
+@SemiAnalysisAI/core
+之外的 CODEOWNER，请先联系一位有资格的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，再通过 Slack 联系核心维护者。必须严格遵循模板，并保留
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+，才能触发签核验证。
+**PR 验证：**扫描仅在带有标签的 PR 上运行。强烈建议添加
+full-sweep-fail-fast
+；仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+**合并后：**PR 作者必须确保所有 GitHub Actions 任务通过。临时性失败通常可以通过重新运行恢复；参见
+重新运行失败任务的说明
+。
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+claude
+Bot
+reviewed
+Sep 18, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Beyond the inline findings, I checked two more things and didn't find bugs: the
+lmsysorg/sglang:dev-dsv41
+image tag isn't date/hash-pinned like the sibling
+nightly-dev-cu13-YYYYMMDD-<hash>
+tags used elsewhere in nvidia-master.yaml (the digest is only recorded in comments/changelog, not in the image reference itself), and at CONC=128 the decode CUDA graph cap (128) sits below
+--max-running-requests
+(256) — but SGLang falls back to eager execution for uncaptured batch sizes rather than failing, so it's a perf note rather than a correctness bug.
+Extended reasoning...
+The three CONFIRMED inline findings (invalid
+pr-link: TBD
+placeholder that will fail changelog validation, a duplicated
+--server-metrics
+flag in the benchmark script, and docs claiming launcher routing fixes that the diff doesn't actually make) are substantive functional/documentation-accuracy issues, not minor nits, so approval is not appropriate here. I independently verified the two ruled-out candidate issues from the prior investigation: the image tag pinning deviates from the established
+nightly-dev-<date>-<hash>
+convention used by every other preview/nightly SGLang image in configs/nvidia-master.yaml (confirmed via grep across ~10 other entries), and the CUDA-graph-vs-max-running-requests gap at top concurrency is real arithmetic (2*128=256 capped to 128) but degrades to eager mode rather than causing a hard failure. Since real findings already signal that human review is needed, and I have concrete additional context beyond those findings that isn't otherwise obvious from the PR thread, a brief informational note fits the narrow exception for speaking under decision=defer.
+Findings marked 🟡 are optional suggestions and need no follow-up push.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+perf-changelog.yaml
+Outdated
+- "TP8/EP8 from the cookbook's verified H200 cell, which pins --attention-backend dsv4 and --moe-runner-backend flashinfer_mxfp4. Throughput uses the thinking-on golden synthetic AL 3.51 (SGLANG_SIMULATE_ACC_LEN, match-expected, real-draft-token); accuracy evals keep real DSpark verification."
+- "新增 DeepSeek-V4.1-Flash 在 H200 上的 SGLang AgentX 配方，遵循 SGLang cookbook：预览镜像 lmsysorg/sglang:dev-dsv41（digest sha256:4a5d132a06a77c8331e15845f2e925adc788b00105097ad55409afa3f4fa4860），原生五 token DSpark（--speculative-algorithm DSPARK --speculative-dspark-block-size 5），thinking 开启、reasoning effort 为 high，mem-fraction-static 0.8，KV cache 常驻 GPU，并发 1-128"
+- "采用 cookbook 已验证 H200 配置的 TP8/EP8，并显式指定 --attention-backend dsv4 与 --moe-runner-backend flashinfer_mxfp4。吞吐测试使用 thinking 开启的黄金合成 AL 3.51（SGLANG_SIMULATE_ACC_LEN、match-expected、real-draft-token）；准确率 eval 保留真实 DSpark 验证。"
+pr-link: TBD
+claude
+Bot
+Sep 18, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴 Maintainers running the reuse-assisted changelog merge tooling get a hard failure on this entry, unlike every prior entry in the file.
+pr-link: TBD
+is not a recognized placeholder:
+validate_added_pr_link
+in infx/workflows/validate_perf_changelog.py:134-144 only accepts the canonical
+pull/<n>
+link or the exact strings in
+PR_LINK_PLACEHOLDERS
+("XXX" or "https://.../pull/XXX"); "TBD" matches neither.
+prepare_perf_changelog_merge.py
+'s
+compare_entries
+call raises
+ChangelogValidationError
+for this entry once a real
+pr_number
+is supplied. Fix: use "XXX" (the pipeline's actual placeholder convention) instead of "TBD" until the real PR number/link is known.
+Extended reasoning...
+perf-changelog.yaml:8064 sets
+pr-link: TBD
+for the newly appended dsv41flash-fp4-h200-sglang-agentic-dspark entry. Every other entry in perf-changelog.yaml (checked via grep) uses a real
+https://github.com/SemiAnalysisAI/InferenceX/pull/<n>
+link.
+validate_added_pr_link(link, pr_number)
+in infx/workflows/validate_perf_changelog.py:134 does: if pr_number is not None, require
+link in PR_LINK_PLACEHOLDERS or link == expected
+. PR_LINK_PLACEHOLDERS is defined at line 21-24 as exactly {"XXX", "
+https://github.com/SemiAnalysisAI/InferenceX/pull/XXX"}
+. "TBD" is in neither set, so the check raises ChangelogValidationError. This function is invoked from
+compare_entries
+, used by
+infx/workflows/prepare_perf_changelog_merge.py
+(lines 86, 119, 144, 215) which runs during PR merge-prep automation with a real PR number, so it will reject this entry until the placeholder is fixed to "XXX" or the real link.
+Verification:
+normal. The newly appended entry at perf-changelog.yaml:8064 sets
+pr-link: TBD
+, which is not an accepted value. In infx/workflows/validate_perf_changelog.py, PR_LINK_PLACEHOLDERS (lines 21-24) is exactly {"XXX", "
+https://github.com/SemiAnalysisAI/InferenceX/pull/XXX"}
+— "TBD" is not a member. compare_entries calls validate_added_pr_link(str(entry.get("pr-link")...), pr_number) at line…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+benchmarks/single_node/agentic/dsv41flash_fp4_h200_sglang_mtp.sh
+Comment on lines
++68
+to
++120
+export AIPERF_SERVER_METRICS_URLS="${AIPERF_SERVER_URL}/metrics"
+export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="sglang:"
+echo "Using SGLang endpoint ${AIPERF_SERVER_URL}"
+# DSpark is the checkpoint's own bundled draft: no EAGLE/MTP path and no
+# --speculative-num-steps knob; the block size is the only tunable. Golden AL:
+# golden_al_distribution/dsv41flash_dspark.yaml, thinking_on, five draft tokens.
+# Throughput fixes acceptance to AL 3.51; accuracy evals keep real verification.
+DSPARK_BLOCK_SIZE=5
+DSV41_GOLDEN_AL=3.51
+if [[ "${EVAL_ONLY}" != true ]]; then
+export SGLANG_SIMULATE_ACC_LEN="$DSV41_GOLDEN_AL"
+export SGLANG_SIMULATE_ACC_METHOD=match-expected
+export SGLANG_SIMULATE_ACC_TOKEN_MODE=real-draft-token
+fi
+echo "DSpark block size: $DSPARK_BLOCK_SIZE, golden AL=$DSV41_GOLDEN_AL"
+SGLANG_CMD=(
+python3 -m sglang.launch_server
+--model-path "$MODEL_PATH" --served-model-name "$MODEL"
+--host 0.0.0.0 --port "$PORT"
+--trust-remote-code
+--tp "$TP" --ep-size "$EP_SIZE"
+# The cookbook resolves backends automatically and warns against overriding
+# them; its verified H200 cell is the one exception and pins these two.
+--attention-backend dsv4 --moe-runner-backend flashinfer_mxfp4
+--mem-fraction-static 0.8
+--speculative-algorithm DSPARK
+--speculative-dspark-block-size "$DSPARK_BLOCK_SIZE"
+--max-running-requests "$MAX_RUNNING_REQUESTS"
+--cuda-graph-max-bs-decode "$CUDA_GRAPH_MAX_BS"
+--reasoning-parser auto
+--tool-call-parser auto
+# Draft-token forward passes under long-context agentic load block the
+# scheduler long enough to trip the 1800 s default watchdog mid-warmup.
+--watchdog-timeout 3600
+--enable-metrics
+)
+write_command "$RESULT_DIR/sglang_command.txt" "${SGLANG_CMD[@]}"
+{
+echo "=== SGLANG_* env vars at launch ==="
+env | grep -E '^SGLANG_' | sort
+echo "==================================="
+} | tee "$SERVER_LOG"
+"${SGLANG_CMD[@]}" >> "$SERVER_LOG" 2>&1 &
+SERVER_PID=$!
+wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+if [[ "${EVAL_ONLY}" == true ]]; then
+run_eval --port "$PORT"
+else
+build_replay_cmd "$RESULT_DIR"
+REPLAY_CMD+=" --server-metrics ${AIPERF_SERVER_METRICS_URLS}"
+claude
+Bot
+Sep 18, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡 (optional) Operators get a benchmark command with --server-metrics passed twice, unlike sibling SGLang scripts. Line 68 exports AIPERF_SERVER_METRICS_URLS, which build_replay_cmd (benchmarks/benchmark_lib.sh:3339-3350) already reads to append "--server-metrics " to REPLAY_CMD; line 120 then appends "--server-metrics ${AIPERF_SERVER_METRICS_URLS}" again. Fix: drop the manual line 120 append (matching dsv4_fp4_b200/b300/mi355x_sglang_mtp.sh, which never export AIPERF_SERVER_METRICS_URLS and only append --server-metrics once) or drop the export at line 68 if the manual append is kept.
+Extended reasoning...
+build_replay_cmd is called at line 119. Inside it, since AIPERF_SERVER_METRICS_URLS is non-empty (set at line 68), the branch at benchmark_lib.sh:3339 runs and does REPLAY_CMD+=" --server-metrics" then appends each URL from the comma-split list, adding "--server-metrics
+http://localhost:$PORT/metrics
+" to REPLAY_CMD. Line 120 then runs REPLAY_CMD+=" --server-metrics ${AIPERF_SERVER_METRICS_URLS}", appending the same flag and URL a second time. The final aiperf profile command therefore contains "--server-metrics
+http://localhost:$PORT/metrics
+--server-metrics
+http://localhost:$PORT/metrics
+". Depending on how aiperf's argparser accumulates repeated occurrences of a multi-value flag, this can either be benign (last occurrence wins, same value) or cause metrics to be registered/scraped twice, which would double-count or otherwise corrupt the per-second server-metrics series used by the post-run plotter (metrics_plots.png) — a defect this diff introduces since sibling scripts (dsv4_fp4_b200_sglang_mtp.sh:276, dsv4_fp4_b300_sglang_mtp.sh:308, dsv4_fp4_mi355x_sglang_mtp.sh:275)…
+Verification:
+nit. The mechanical claim holds: dsv41flash_fp4_h200_sglang_mtp.sh:68 exports AIPERF_SERVER_METRICS_URLS="${AIPERF_SERVER_URL}/metrics" (added in this diff). build_replay_cmd (benchmark_lib.sh:3339
+if [ -n "${AIPERF_SERVER_METRICS_URLS:-}" ]
+... 3343
+REPLAY_CMD+=" --server-metrics"
+... 3349
+REPLAY_CMD+=" $metrics_url"
+) therefore appends `--server-metrics… | nit. The double-append is…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+docs/configuration-procedures.md
+Comment on lines
++380
+to
++385
+The KV cache is GPU-resident on every arm, so `kv-offloading: none`. The launchers route
+`dsv41flash` for `framework: sglang` the same way as for vLLM: the repository is mounted at
+`/ix`, and the checkpoint resolves through each cluster's persistent HF cache (the writable
+Lustre models directory on b300). `runners/launch_b200-nscale-compat.sh`,
+`launch_b300-dsxe.sh`, `launch_gb200-nv.sh` and `launch_gb300-nv.sh` previously gated
+claude
+Bot
+Sep 18, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡 (optional) This PR tells maintainers the dsv41flash launcher routing for framework: sglang already matches vLLM on B200/B300/GB200/GB300, but none of the four named launchers were changed here and each still gates the dsv41flash special-case on FRAMEWORK == vllm only (runners/launch_b200-nscale-compat.sh:18, launch_b300-dsxe.sh:389, launch_gb200-nv.sh:99, launch_gb300-nv.sh:35). A maintainer preparing the b200/b300/gb200/gb300 sibling SGLang PRs who trusts this doc will skip updating these launchers, so
+framework: sglang
+for dsv41flash falls through every elif and hits the generic 'Unsupported model prefix/precision' exit 1 fallback at runtime. Fix: only state routing is shared once each launcher's dsv41flash branch also matches FRAMEWORK == sglang, or add that condition now.
+Extended reasoning...
+docs/configuration-procedures.md:384-385 says these 4 launchers 'previously gated those paths on vllm only', implying past tense = already fixed. Checked runners/launch_b200-nscale-compat.sh:18:
+if [[ "$MODEL_PREFIX" == "dsv41flash" && ... && "$FRAMEWORK" == "vllm" ... ]]
+. For FRAMEWORK=sglang this is false. No other elif matches dsv41flash, so it falls to the final else at lines 100-105: prints 'Unsupported model prefix/precision: dsv41flash/fp4' and
+exit 1
+. Same vllm-only condition exists at launch_b300-dsxe.sh:389, launch_gb200-nv.sh:99, launch_gb300-nv.sh:35. This diff does not modify any of these 4 files (git diff shows only MODELS.md, the h200 sglang script, configs/nvidia-master.yaml, both docs files, perf-changelog.yaml). H200 itself is unaffected because launch_h200-dgxc-slurm.sh's dsv41flash branches (lines 507, 512) have no FRAMEWORK condition.
+Verification:
+nit — documentation inaccuracy, no runtime failure in the merged code. docs/configuration-procedures.md:381-386 (added by this PR) states: "The launchers route
+dsv41flash
+for
+framework: sglang
+the same way as for vLLM ...
+runners/launch_b200-nscale-compat.sh
+,
+launch_b300-dsxe.sh
+,
+launch_gb200-nv.sh
+and
+launch_gb300-nv.sh
+previously gated those paths on
+vllm
+only." The… | nit. The…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+github-actions
+Bot
+commented
+Sep 18, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+View unofficial run (performance):
+https://inferencex.semianalysis.com/inference?unofficialRun=35355739833
+View unofficial run (accuracy):
+https://inferencex.semianalysis.com/evaluation?unofficialRun=35355739833
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+functionstackx
+and others
+added
+5
+commits
+September 18, 2026 00:22
+dsv41flash-fp4-h200-sglang-agentic-dspark: cut prefill HBM pressure
+…
+b156349
+Engram tables to a shared host copy, mem-fraction-static 0.75, 8192-token
+prefill chunk, decode graphs at 64, running requests capped at 128 after the
+first sweep's server deaths on long AgentX prompts.
+
+将 Engram 表移至共享主机副本，mem-fraction-static 0.75，prefill 分块 8192，decode
+graph 64，运行请求上限 128，以修复首次 sweep 中长提示下的服务崩溃。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+dsv41flash-fp4-h200-sglang-agentic-dspark: keep running requests insi…
+…
+22c7b43
+…de the graph tier
+
+Cap max-running-requests at the 64-request decode graph batch and lower
+mem-fraction-static to 0.70 after eager DSpark verify OOMed above the tier.
+
+将运行请求上限设为 64（decode graph batch）并将 mem-fraction-static 降至 0.70。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+dsv41flash-fp4-h200-sglang-agentic-dspark: prefill chunk 4096
+…
+f4ed131
+c32 OOMed in the indexer prefill top-k at chunk 8192 (run 35308550355).
+
+prefill 分块降至 4096。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Merge remote-tracking branch 'origin/main' into feat/dsv41flash-h200-…
+…
+725b619
+…sglang-dspark
+
+# Conflicts:
+#	perf-changelog.yaml
+dsv41flash-fp4-h200-sglang-agentic-dspark: honor SALLOC_TIME_LIMIT an…
+…
+cb15213
+…d trim conc-list to c16
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+functionstackx
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/reuse-sweep-run 35355739833
+👍
+1
+github-actions[bot] reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+functionstackx
+and others
+added
+2
+commits
+September 18, 2026 15:47
+Merge remote-tracking branch 'origin/main' into feat/dsv41flash-h200-…
+…
+c8edd44
+…sglang-dspark
+
+# Conflicts:
+#	perf-changelog.yaml
+chore: refresh PR
+#3239
+for sweep reuse [skip-sweep]
+…
+75ee645
+Sync with origin/main after the green sweep run 35355739833; the reuse gate
+authorizes that run on this head.
+
+在绿色 sweep 运行 35355739833 之后与 origin/main 同步；reuse gate 在此 head 上授权该运行。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+functionstackx
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/reuse-sweep-run 35355739833
+👎
+1
+github-actions[bot] reacted with thumbs down emoji
+All reactions
+👎
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge remote-tracking branch 'origin/main' into pr-3239-reuse-80690
+…
+8e4b219
+# Conflicts:
+#	perf-changelog.yaml
+Hide details
+View details
+functionstackx
+merged commit
+b6596a1
+into
+main
+Sep 18, 2026
+1 check passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+functionstackx
+deleted the
+feat/dsv41flash-h200-sglang-dspark
+branch
+September 18, 2026 22:21
+github-project-automation
+Bot
+moved this to
+Done
+in
+InferenceX Board
+Sep 18, 2026
+functionstackx
+mentioned this pull request
+Sep 20, 2026
+[Klaud Cold] Document lessons from the September 2026 DSpark and GLM-5.2 AgentX sweeps / 记录 2026 年 9 月 DSpark 与 GLM-5.2 AgentX sweep 的经验教训
+#3302
+Open
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+Ankur-singh
+Awaiting requested review from Ankur-singh
+chunfangamd
+Awaiting requested review from chunfangamd
+kedarpotdar-nv
+Awaiting requested review from kedarpotdar-nv
+Assignees
+No one assigned
+Labels
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+Projects
+InferenceX Board
+Status: Done
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

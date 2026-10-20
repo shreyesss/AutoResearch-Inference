@@ -1,0 +1,319 @@
+From 7b544ecb5bdd4f0bd61689e184158611c692fcaf Mon Sep 17 00:00:00 2001
+From: Nick Hill <nickhill123@gmail.com>
+Date: Wed, 14 Oct 2026 23:55:58 -0700
+Subject: [PATCH 1/2] [Perf] Low-latency CPU all-reduce for DP metadata syncs
+
+Gloo's all_reduce on the small CPU tensors used for DP synchronization is
+latency-bound and grows roughly linearly with the DP size. Add
+`cpu_all_reduce_()` to vllm.distributed.utils: recursive doubling within
+power-of-two blocks of ranks, then one concurrent exchange between blocks,
+so any group size completes in log2(largest power-of-two factor) + 1
+rounds. Block sums are added in a fixed order, so results are bitwise
+identical across ranks.
+
+It calls ProcessGroup.send/recv with group-local ranks, so it also works
+with stateless (unregistered) groups such as the engine-core DP group and
+elastic EP's DP group.
+
+It is used automatically (no env var) for:
+- the V2 worker's DP padding/cudagraph sync, via
+  GroupCoordinator.cpu_all_reduce_()
+- the engine-core DP state sync, ParallelConfig.sync_dp_state()
+
+p50 latency of a 6xN int32 all-reduce, gloo all_reduce -> cpu_all_reduce_:
+- 1 node:   8 ranks 1690us -> 326us; 12 ranks 2749us -> 400us
+- 2 nodes:  8 ranks 1977us -> 362us; 12 ranks 3005us -> 536us
+- 4 nodes: 16 ranks 5354us -> 546us
+- odd sizes (1 node): 7 ranks 850us -> 365us; 15 ranks 3920us -> 1042us
+
+Co-authored-by: hjjq <50634613+hjjq@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Signed-off-by: Nick Hill <nickhill123@gmail.com>
+---
+ .buildkite/test_areas/distributed.yaml   |  1 +
+ tests/distributed/test_cpu_all_reduce.py | 84 ++++++++++++++++++++++++
+ vllm/config/parallel.py                  |  3 +-
+ vllm/distributed/parallel_state.py       |  5 ++
+ vllm/distributed/utils.py                | 64 ++++++++++++++++++
+ vllm/v1/worker/gpu/dp_utils.py           |  4 +-
+ 6 files changed, 157 insertions(+), 4 deletions(-)
+ create mode 100644 tests/distributed/test_cpu_all_reduce.py
+
+diff --git a/.buildkite/test_areas/distributed.yaml b/.buildkite/test_areas/distributed.yaml
+index d96071dfd06b..44c162321ace 100644
+--- a/.buildkite/test_areas/distributed.yaml
++++ b/.buildkite/test_areas/distributed.yaml
+@@ -14,6 +14,7 @@ steps:
+   - tests/distributed
+   commands:
+   - pytest -v -s distributed/test_comm_ops.py
++  - pytest -v -s distributed/test_cpu_all_reduce.py
+   - pytest -v -s distributed/test_shm_broadcast.py
+   - pytest -v -s distributed/test_shm_buffer.py
+   - pytest -v -s distributed/test_shm_storage.py
+diff --git a/tests/distributed/test_cpu_all_reduce.py b/tests/distributed/test_cpu_all_reduce.py
+new file mode 100644
+index 000000000000..13e2e818e614
+--- /dev/null
++++ b/tests/distributed/test_cpu_all_reduce.py
+@@ -0,0 +1,84 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Tests for cpu_all_reduce_ (gloo, CPU only)."""
++
++import pytest
++import torch
++import torch.distributed as dist
++import torch.multiprocessing as mp
++
++from vllm.distributed.parallel_state import GroupCoordinator
++from vllm.distributed.utils import (
++    cpu_all_reduce_,
++    stateless_init_torch_distributed_process_group,
++)
++from vllm.utils.network_utils import get_open_port
++
++pytestmark = pytest.mark.cpu_test
++
++
++def _make_input(rank: int, world_size: int, step: int) -> torch.Tensor:
++    # Same shape as the V2 DP metadata tensor; values differ per rank/step.
++    t = torch.zeros(6, world_size, dtype=torch.int32)
++    t[:, rank] = torch.arange(6, dtype=torch.int32) * (rank + 1) + step
++    return t
++
++
++def _worker(rank: int, world_size: int, port: int, stateless_port: int):
++    dist.init_process_group(
++        "gloo",
++        init_method=f"tcp://127.0.0.1:{port}",
++        rank=rank,
++        world_size=world_size,
++    )
++    coord = GroupCoordinator(
++        group_ranks=[list(range(world_size))],
++        local_rank=0,
++        torch_distributed_backend="gloo",
++        use_device_communicator=False,
++        group_name="cpu_all_reduce_test",
++    )
++
++    # Several steps to exercise tag reuse across consecutive calls.
++    for step in range(5):
++        expected = _make_input(rank, world_size, step)
++        dist.all_reduce(expected, group=coord.cpu_group)
++        t = _make_input(rank, world_size, step)
++        out = coord.cpu_all_reduce_(t)
++        assert out is t
++        torch.testing.assert_close(t, expected, rtol=0, atol=0)
++
++    # Float sums must be bitwise identical on every rank.
++    t = torch.randn(6, world_size, generator=torch.Generator().manual_seed(rank))
++    expected = t.clone()
++    dist.all_reduce(expected, group=coord.cpu_group)
++    coord.cpu_all_reduce_(t)
++    torch.testing.assert_close(t, expected)
++    gathered = [torch.empty_like(t) for _ in range(world_size)]
++    dist.all_gather(gathered, t, group=coord.cpu_group)
++    for other in gathered:
++        assert torch.equal(other, t)
++
++    # Unregistered (stateless) process group, as used by the engine-core DP
++    # group and elastic EP.
++    stateless_pg = stateless_init_torch_distributed_process_group(
++        "127.0.0.1", stateless_port, rank, world_size, backend="gloo"
++    )
++    expected = _make_input(rank, world_size, 0)
++    dist.all_reduce(expected)
++    t = _make_input(rank, world_size, 0)
++    cpu_all_reduce_(t, stateless_pg)
++    torch.testing.assert_close(t, expected, rtol=0, atol=0)
++
++    dist.destroy_process_group()
++
++
++# Non-power-of-two sizes exercise the cross-block exchange.
++@pytest.mark.parametrize("world_size", [2, 3, 4, 6, 8, 9, 12])
++def test_cpu_all_reduce(world_size: int):
++    mp.spawn(
++        _worker,
++        args=(world_size, get_open_port(), get_open_port()),
++        nprocs=world_size,
++        join=True,
++    )
+diff --git a/vllm/config/parallel.py b/vllm/config/parallel.py
+index 6716d5a21b28..975c0cd1f358 100644
+--- a/vllm/config/parallel.py
++++ b/vllm/config/parallel.py
+@@ -15,6 +15,7 @@
+ import vllm.envs as envs
+ from vllm.config.fault_tolerance import FaultToleranceConfig
+ from vllm.config.utils import config
++from vllm.distributed.utils import cpu_all_reduce_
+ from vllm.logger import init_logger
+ from vllm.platforms import current_platform
+ from vllm.utils.network_utils import get_open_ports_list
+@@ -887,7 +888,7 @@ def sync_dp_state(
+         tensor = torch.tensor(
+             [int(has_unfinished), int(pending_pause)], dtype=torch.int32, device="cpu"
+         )
+-        torch.distributed.all_reduce(tensor, op=ReduceOp.SUM, group=dp_group)
++        cpu_all_reduce_(tensor, dp_group)
+         dp_size = dp_group.size()
+         pause_count = tensor[1].item()
+         has_unfinished_global = tensor[0].item() > 0 or pause_count % dp_size != 0
+diff --git a/vllm/distributed/parallel_state.py b/vllm/distributed/parallel_state.py
+index fea0c4e3c783..e4b0222b0ba6 100644
+--- a/vllm/distributed/parallel_state.py
++++ b/vllm/distributed/parallel_state.py
+@@ -50,6 +50,7 @@
+ )
+ from vllm.distributed.utils import (
+     StatelessProcessGroup,
++    cpu_all_reduce_,
+     create_tcp_store,
+     get_cached_tcp_store_client,
+ )
+@@ -1376,6 +1377,10 @@ def barrier(self):
+         """
+         torch.distributed.barrier(group=self.cpu_group)
+ 
++    def cpu_all_reduce_(self, tensor: torch.Tensor) -> torch.Tensor:
++        """In-place SUM all-reduce of a small CPU tensor over `cpu_group`."""
++        return cpu_all_reduce_(tensor, self.cpu_group)
++
+     def send(self, tensor: torch.Tensor, dst: int | None = None) -> None:
+         """Sends a tensor to the destination rank in a blocking way."""
+         """NOTE: `dst` is the local rank of the destination rank."""
+diff --git a/vllm/distributed/utils.py b/vllm/distributed/utils.py
+index 3618361f2a66..010d517d4645 100644
+--- a/vllm/distributed/utils.py
++++ b/vllm/distributed/utils.py
+@@ -55,6 +55,70 @@ def ensure_divisibility(numerator, denominator):
+     )
+ 
+ 
++# P2P tags [base, base + log2(group size) + 1] are reserved for cpu_all_reduce_.
++_CPU_ALL_REDUCE_TAG_BASE = 27100
++
++
++def cpu_all_reduce_(tensor: torch.Tensor, group: ProcessGroup) -> torch.Tensor:
++    """Low-latency in-place SUM all-reduce of a small CPU tensor over a gloo group.
++
++    Recursive doubling within power-of-two blocks, then one concurrent exchange
++    between blocks. Results are bitwise identical across ranks. Works with
++    stateless (unregistered) process groups.
++    """
++    world_size = group.size()
++    if world_size == 1:
++        return tensor
++    block_size = world_size & -world_size
++    num_blocks = world_size // block_size
++    if tensor.device.type != "cpu" or not tensor.is_contiguous():
++        torch.distributed.all_reduce(tensor, group=group)
++        return tensor
++
++    rank = group.rank()
++    tag = _CPU_ALL_REDUCE_TAG_BASE
++
++    # Recursive doubling within the block (peers stay in the aligned block).
++    if block_size > 1:
++        # This branch applies only to even world sizes.
++        scratch = torch.empty_like(tensor)
++        mask = 1
++        while mask < block_size:
++            peer = rank ^ mask
++            # Wait for both ops before touching either buffer.
++            recv_work = group.recv([scratch], peer, tag)
++            send_work = group.send([tensor], peer, tag)
++            recv_work.wait()
++            send_work.wait()
++            tensor.add_(scratch)
++            mask <<= 1
++            tag += 1
++
++    # Exchange block sums with the same lane in every other block at once.
++    if num_blocks > 1:
++        # This branch applies only when world_size is not a power of two.
++        lane, my_block = rank % block_size, rank // block_size
++        block_sums = [
++            tensor if b == my_block else torch.empty_like(tensor)
++            for b in range(num_blocks)
++        ]
++        works = []
++        for b, buf in enumerate(block_sums):
++            if b != my_block:
++                works.append(group.recv([buf], b * block_size + lane, tag))
++        for b in range(num_blocks):
++            if b != my_block:
++                works.append(group.send([tensor], b * block_size + lane, tag))
++        for work in works:
++            work.wait()
++        # Sum in block order so every rank computes the identical result.
++        total = block_sums[0]
++        for buf in block_sums[1:]:
++            total.add_(buf)
++        tensor.copy_(total)
++    return tensor
++
++
+ def divide(numerator, denominator):
+     """Ensure that numerator is divisible by the denominator and return
+     the division value."""
+diff --git a/vllm/v1/worker/gpu/dp_utils.py b/vllm/v1/worker/gpu/dp_utils.py
+index 5c71ebcea018..2bcad34e0560 100644
+--- a/vllm/v1/worker/gpu/dp_utils.py
++++ b/vllm/v1/worker/gpu/dp_utils.py
+@@ -5,7 +5,6 @@
+ from dataclasses import dataclass, replace
+ 
+ import torch
+-import torch.distributed as dist
+ 
+ from vllm.config import ParallelConfig
+ from vllm.config.compilation import CUDAGraphMode
+@@ -63,7 +62,6 @@ def sync_cudagraph_and_dp_padding(
+     Returns (synced_batch_desc, sync). `sync` is None when no rank has work.
+     """
+     assert dp_size > 1, "DP size must be greater than 1"
+-    group = get_dp_group().cpu_group
+     tensor = torch.zeros(6, dp_size, dtype=torch.int32, device="cpu")
+     tensor[0][dp_rank] = num_tokens
+     tensor[1][dp_rank] = desired_batch_desc.cg_mode.value
+@@ -74,7 +72,7 @@ def sync_cudagraph_and_dp_padding(
+     if should_skip_dp_coordination():
+         tensor[:] = tensor[:, dp_rank, None].clone()
+     else:
+-        dist.all_reduce(tensor, group=group)
++        get_dp_group().cpu_all_reduce_(tensor)
+ 
+     num_tokens_across_dp = tensor[0]
+     cg_mode_across_dp = tensor[1]
+
+From c5b750ffaa69a70cd6d2992b6ccfcebf0494a9bb Mon Sep 17 00:00:00 2001
+From: Nick Hill <nickhill123@gmail.com>
+Date: Thu, 15 Oct 2026 09:16:57 -0700
+Subject: [PATCH 2/2] fix test
+
+Signed-off-by: Nick Hill <nickhill123@gmail.com>
+---
+ tests/v1/worker/test_gpu_ubatch_slicing.py | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/tests/v1/worker/test_gpu_ubatch_slicing.py b/tests/v1/worker/test_gpu_ubatch_slicing.py
+index 127d289afa44..56a365218b93 100644
+--- a/tests/v1/worker/test_gpu_ubatch_slicing.py
++++ b/tests/v1/worker/test_gpu_ubatch_slicing.py
+@@ -302,10 +302,8 @@ def _sync_dp(
+     reduced[4] = int(allow_ubatching)
+     reduced[5] = 8  # num_reqs
+ 
+-    with (
+-        patch.object(dp_utils.dist, "all_reduce", lambda t, group: t.copy_(reduced)),
+-        patch.object(dp_utils, "get_dp_group", lambda: SimpleNamespace(cpu_group=None)),
+-    ):
++    dp_group = SimpleNamespace(cpu_all_reduce_=lambda t: t.copy_(reduced))
++    with patch.object(dp_utils, "get_dp_group", lambda: dp_group):
+         return dp_utils.sync_cudagraph_and_dp_padding(
+             cudagraph_manager=cudagraph_manager,
+             desired_batch_desc=BatchExecutionDescriptor(

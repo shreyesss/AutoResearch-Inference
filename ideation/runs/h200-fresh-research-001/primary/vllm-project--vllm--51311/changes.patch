@@ -1,0 +1,154 @@
+From 0318f4acaf982d67eb229fb0e7a5c9b6f03df6b4 Mon Sep 17 00:00:00 2001
+From: yewentao256 <zhyanwentao@126.com>
+Date: Thu, 6 Aug 2026 21:16:35 +0000
+Subject: [PATCH 1/2] flash kda out kernel
+
+Signed-off-by: yewentao256 <zhyanwentao@126.com>
+---
+ vllm/models/kimi_k3/nvidia/kda.py | 45 ++++++++++++++++++++-----------
+ 1 file changed, 30 insertions(+), 15 deletions(-)
+
+diff --git a/vllm/models/kimi_k3/nvidia/kda.py b/vllm/models/kimi_k3/nvidia/kda.py
+index 3bc3ab5de0bc..4b0fdc04b720 100644
+--- a/vllm/models/kimi_k3/nvidia/kda.py
++++ b/vllm/models/kimi_k3/nvidia/kda.py
+@@ -46,6 +46,7 @@
+ from vllm.third_party.flash_linear_attention.ops.kda import FusedRMSNormGated
+ from vllm.transformers_utils.configs.kimi_linear import KimiLinearConfig
+ from vllm.v1.attention.backend import AttentionBackend
++from vllm.v1.worker.workspace import current_workspace_manager
+ 
+ logger = init_logger(__name__)
+ 
+@@ -187,20 +188,12 @@ def _flashkda_prefill(
+     lower_bound: float,
+     initial_state: torch.Tensor,
+     cu_seqlens: torch.Tensor,
++    out: torch.Tensor,
++    final_state: torch.Tensor,
++    workspace: torch.Tensor,
+ ) -> tuple[torch.Tensor, torch.Tensor]:
+     import vllm._flashkda_C  # noqa: F401
+ 
+-    out = torch.empty(v.shape, dtype=v.dtype, device=v.device)
+-    final_state = torch.empty_like(initial_state)
+-    workspace = torch.empty(
+-        torch.ops._flashkda_C.get_workspace_size(
+-            q.shape[0] * q.shape[1],
+-            q.shape[2],
+-            cu_seqlens.numel() - 1,
+-        ),
+-        dtype=torch.uint8,
+-        device=q.device,
+-    )
+     # FlashKDA hardcodes dense Q/K/V/G strides. Beta may be row-strided because
+     # FlashKDA materializes its transposed [H, T] layout internally.
+     # TODO: Teach FlashKDA to consume beta in [T, H] layout directly instead
+@@ -436,6 +429,19 @@ def __init__(
+             vllm_config.model_config.dtype,
+             self.gate_lower_bound,
+         )
++        self._flashkda_buffers: list[torch.Tensor] | None = None
++        if self.kda_prefill_backend == "flashkda":
++            T = vllm_config.scheduler_config.max_num_batched_tokens
++            N = vllm_config.scheduler_config.max_num_seqs
++            H, D = self.local_num_heads, self.head_dim
++            import vllm._flashkda_C  # noqa: F401
++
++            workspace_size = torch.ops._flashkda_C.get_workspace_size(T, H, N)
++            self._flashkda_buffers = current_workspace_manager().get_simultaneous(
++                ((1, T, H, D), self.model_config.dtype),
++                ((N, H, D, D), self.get_state_dtype()[1]),
++                ((workspace_size,), torch.uint8),
++            )
+ 
+         self.o_norm = FusedRMSNormGated(self.head_dim, activation="sigmoid")
+         decode_norm_weight = None
+@@ -696,6 +702,11 @@ def _prefill_conv(
+                 )
+                 if self.kda_prefill_backend == "flashkda":
+                     assert self.gate_lower_bound is not None
++                    assert self._flashkda_buffers is not None
++                    workspace_out, final_state, workspace = self._flashkda_buffers
++                    flashkda_out = (
++                        workspace_out if has_spec_decode else core_attn_out
++                    )[:, : q_ns.shape[1]]
+                     (
+                         core_attn_out_non_spec,
+                         last_recurrent_state,
+@@ -710,6 +721,9 @@ def _prefill_conv(
+                         lower_bound=self.gate_lower_bound,
+                         initial_state=initial_state,
+                         cu_seqlens=non_spec_query_start_loc,
++                        out=flashkda_out,
++                        final_state=final_state[: initial_state.shape[0]],
++                        workspace=workspace,
+                     )
+                 else:
+                     (
+@@ -766,10 +780,11 @@ def _prefill_conv(
+             core_attn_out.index_copy_(1, spec_token_indx, core_attn_out_spec)
+             core_attn_out.index_copy_(1, non_spec_token_indx, core_attn_out_non_spec)
+         elif core_attn_out_non_spec is not None:
+-            # TODO: prefill and decode kernels write directly to core_attn_out
+-            core_attn_out[0, :num_actual_tokens] = core_attn_out_non_spec[
+-                0, :num_actual_tokens
+-            ]
++            if self.kda_prefill_backend != "flashkda" or m.num_prefills == 0:
++                # TODO: decode kernels write directly to core_attn_out
++                core_attn_out[0, :num_actual_tokens] = core_attn_out_non_spec[
++                    0, :num_actual_tokens
++                ]
+         else:
+             assert core_attn_out_spec is not None
+         # Triton normalizes in place, so this is a self-copy with no device
+
+From 3880076b3f1d80f2c9e655c97478225b8ee3a9f6 Mon Sep 17 00:00:00 2001
+From: yewentao256 <zhyanwentao@126.com>
+Date: Tue, 11 Aug 2026 15:19:47 +0000
+Subject: [PATCH 2/2] fix ci
+
+Signed-off-by: yewentao256 <zhyanwentao@126.com>
+---
+ vllm/models/kimi_k3/nvidia/kda.py | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/vllm/models/kimi_k3/nvidia/kda.py b/vllm/models/kimi_k3/nvidia/kda.py
+index 4b0fdc04b720..b59293caebfa 100644
+--- a/vllm/models/kimi_k3/nvidia/kda.py
++++ b/vllm/models/kimi_k3/nvidia/kda.py
+@@ -429,7 +429,9 @@ def __init__(
+             vllm_config.model_config.dtype,
+             self.gate_lower_bound,
+         )
+-        self._flashkda_buffers: list[torch.Tensor] | None = None
++        self._flashkda_buffer_specs: (
++            tuple[tuple[tuple[int, ...], torch.dtype], ...] | None
++        ) = None
+         if self.kda_prefill_backend == "flashkda":
+             T = vllm_config.scheduler_config.max_num_batched_tokens
+             N = vllm_config.scheduler_config.max_num_seqs
+@@ -437,7 +439,7 @@ def __init__(
+             import vllm._flashkda_C  # noqa: F401
+ 
+             workspace_size = torch.ops._flashkda_C.get_workspace_size(T, H, N)
+-            self._flashkda_buffers = current_workspace_manager().get_simultaneous(
++            self._flashkda_buffer_specs = (
+                 ((1, T, H, D), self.model_config.dtype),
+                 ((N, H, D, D), self.get_state_dtype()[1]),
+                 ((workspace_size,), torch.uint8),
+@@ -702,8 +704,12 @@ def _prefill_conv(
+                 )
+                 if self.kda_prefill_backend == "flashkda":
+                     assert self.gate_lower_bound is not None
+-                    assert self._flashkda_buffers is not None
+-                    workspace_out, final_state, workspace = self._flashkda_buffers
++                    assert self._flashkda_buffer_specs is not None
++                    workspace_out, final_state, workspace = (
++                        current_workspace_manager().get_simultaneous(
++                            *self._flashkda_buffer_specs
++                        )
++                    )
+                     flashkda_out = (
+                         workspace_out if has_spec_decode else core_attn_out
+                     )[:, : q_ns.shape[1]]

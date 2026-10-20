@@ -1,0 +1,116 @@
+Conversation
+DaoyuanLi2816
+commented
+Jul 9, 2026
+Copy link
+Copy Markdown
+Contributor
+What
+The DSpark paper (Section 3.2.1) calibrates the confidence head with
+Sequential Temperature Scaling (STS)
+: for each block position, left to right, a 1D grid search picks the temperature that minimizes the ECE of the cumulative prefix-survival probability, keeping the already-fitted earlier positions fixed. The evaluator already measures exactly that quantity (per-position cumulative-product ECE / AUROC / reliability diagrams), but the calibration step itself was missing — and the raw confidence scores are noticeably overconfident.
+This PR adds the full offline STS workflow (pure additions, default behavior unchanged):
+eval.py --confidence-dump-dir
+— dumps per-proposal confidence records to
+<dir>/<dataset>/confidence_records.jsonl
+for offline fitting (run with
+--confidence-threshold 0
+and no calibration so the dumped logits are raw and blocks untruncated).
+scripts/fit_confidence_calibration.py
+— fits per-position temperatures from dumped records via the paper's left-to-right grid search (the ECE binning mirrors the evaluator's coarse bins), and reports cumulative ECE before/after at each position.
+eval.py --confidence-calibration-path
+— applies the fitted temperatures to the confidence logits during evaluation, so both the reported calibration metrics and the
+--confidence-threshold
+early stop consume calibrated probabilities.
+Validation
+Single RTX 4080,
+deepseek-ai/dspark_qwen3_4b_block7
+on
+Qwen/Qwen3-4B
+, temperature 1.0, threshold 0,
+max-new-tokens
+256. Fitted on gsm8k (120 samples, 4.7k proposals); held-out datasets were never seen during fitting. Seeds are identical between the two runs, so generation is unchanged and the comparison is purely the calibration:
+held-out
+cumulative ECE (mean)
+AUROC (mean)
+alpaca ×100
+0.0893 → 0.0315
+0.8530 → 0.8516 (unchanged)
+mt-bench ×80
+0.0697 → 0.0224
+0.8693 → 0.8686 (unchanged)
+On the fit set (gsm8k) the per-position cumulative ECE drops from 0.031–0.140 to 0.007–0.023. The fitted temperatures are all > 1 (1.28–1.82), matching the paper's overconfidence observation, and the unchanged AUROC confirms the transform is order-preserving.
+A synthetic sanity check (prefix labels generated from known per-position probabilities, logits sharpened ×2) recovers T ≈ 2.0 at every position and cuts cumulative ECE by ~90%.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Add Sequential Temperature Scaling for confidence-head calibration
+…
+29e4a0e
+The DSpark paper (Section 3.2.1) calibrates the confidence head with
+Sequential Temperature Scaling (STS): for each block position, left to
+right, a 1D grid search picks the temperature that minimizes the ECE of
+the cumulative prefix-survival probability, keeping earlier positions
+fixed. The evaluator already measures exactly that quantity
+(per-position cumulative-product ECE / AUROC / reliability diagrams),
+but the calibration itself was missing, and raw confidence scores are
+noticeably overconfident.
+
+This adds the full offline STS workflow:
+
+- eval.py --confidence-dump-dir writes per-proposal confidence records
+  ((logits, prefix-accept labels) per dataset) for offline fitting.
+- scripts/fit_confidence_calibration.py fits per-position temperatures
+  from dumped records via the paper's left-to-right grid search and
+  reports cumulative ECE before/after at each position.
+- eval.py --confidence-calibration-path applies the fitted temperatures
+  to the confidence logits during evaluation, so both the reported
+  calibration metrics and the --confidence-threshold early stop consume
+  calibrated probabilities.
+
+With deepseek-ai/dspark_qwen3_4b_block7 on Qwen/Qwen3-4B, fitting on
+gsm8k and evaluating held-out (temperature 1.0, threshold 0, identical
+seeds so generation is unchanged): alpaca ece_mean 0.0893 -> 0.0315 and
+mt-bench 0.0697 -> 0.0224, with AUROC unchanged (0.8530 -> 0.8516 and
+0.8693 -> 0.8686), confirming the calibration is order-preserving.
+Fitted temperatures are all > 1, matching the paper's overconfidence
+observation.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

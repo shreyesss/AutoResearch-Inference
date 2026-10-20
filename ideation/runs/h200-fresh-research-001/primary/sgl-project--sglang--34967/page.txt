@@ -1,0 +1,1095 @@
+Conversation
+yuan-luo
+commented
+Aug 15, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+Motivation
+SGLang currently supports FlashInfer's SM90 MXFP4 W4A16 CUTLASS MoE path, which was introduced in SGLang
+#24816
+on top of FlashInfer
+#3084
+. FlashInfer
+#3738
+adds a different Hopper path that dynamically quantizes activations to FP8 and runs MXFP4-weight x FP8-activation MoE GEMMs using Humming-style pre-MMA E8M0 scale fusion.
+This PR wires that path into SGLang as an explicit opt-in:
+--moe-runner-backend flashinfer_mxfp4 \
+--flashinfer-mxfp4-moe-precision fp8
+The existing
+default
+and
+bf16
+behavior is unchanged.
+Related work:
+SGLang
+Add FlashInfer SM90 cutlass MXFP4 MoE backend (W4A16) for GPT-OSS + DeepSeek-V4
+#24816
+FlashInfer
+perf: optimize MXFP4xBF16 & INT4xFP8 and add MXFP4xFP8 CUTLASS MoE backend for SM90
+flashinfer-ai/flashinfer#3738
+FlashInfer version requirement
+This integration intentionally targets the corrected API from FlashInfer
+#4431
+, where the FC1 and FC2 residual scales are FP32 tensors in local-expert order with shape
+[num_local_experts]
+. FlashInfer reuses its internal expert permutation to map those scales to routed rows, including global-to-local expert mapping under EP.
+The original
+#3738
+ABI briefly shipped before being reverted from FlashInfer 0.6.17 by
+#4411
+. It required downstream runtimes to construct routed-row residual tensors during every forward. SGLang does not support that older ABI.
+The new option therefore requires both:
+flashinfer-python >= 0.6.18
+preprocess_moe_weights_for_sm90_mixed_gemm_humming
+SGLang currently pins FlashInfer 0.6.17. This PR does not change that global pin. With 0.6.17, selecting
+fp8
+fails immediately with an actionable error, while all existing FlashInfer paths remain compatible. The dependency, cubin, and JIT-cache pins should be upgraded together in a follow-up change.
+GPU validation for this PR used FlashInfer 0.6.18 built from commit
+8044d94bf9acc5369857baf88d28906bb32bf264
+, which contains the corrected API from FlashInfer
+#4431
+.
+Modifications
+Runtime selection and compatibility
+Add
+fp8
+to
+--flashinfer-mxfp4-moe-precision
+.
+Select the new path only for
+flashinfer_mxfp4
+on SM90.
+Keep W4A16 as the default SM90 behavior.
+Reject the SM90-specific
+fp8
+option on SM100 and SM120 to avoid confusing it with their existing MXFP8 activation paths.
+Require the corrected FlashInfer 0.6.18+ API instead of accepting the older routed-row residual ABI.
+Pass
+use_wfp4afp8_humming=True
+only when the new path is selected. The keyword is omitted completely for FlashInfer 0.6.17 compatibility.
+Weight preprocessing
+Use
+preprocess_moe_weights_for_sm90_mixed_gemm_humming
+for both FC1 and FC2 during post-load processing.
+Store the folded interleaved weight scales produced by FlashInfer.
+Store
+residual * 64
+as one FP32 value per local expert for FC1 and FC2.
+Preserve GPT-OSS gate/up layout conversion and its existing padding rules.
+Fill synthetic E8M0 scale padding from an existing scale in the same expert, preventing padding from changing that expert's min/max exponent range.
+Support both the GPT-OSS MXFP4 quantization path and the DeepSeek-V4 MXFP4 expert path.
+Kernel invocation
+Construct the five Humming quant-scale slots expected by the corrected FlashInfer API:
+FC1 folded weight block scales
+FC1 per-local-expert residual scale, including the fixed
+2^6
+compensation
+Reserved scalar FC2 activation scale
+FC2 folded weight block scales
+FC2 per-local-expert residual scale, including the fixed
+2^6
+compensation
+The existing TP/EP topology is forwarded to FlashInfer so it can map global expert IDs to the corresponding local residual scale.
+Tests and benchmark
+Extend the registered SM90 MXFP4 test suite with:
+GPT-OSS preprocessing checks against the FlashInfer helper
+five-scale kernel invocation and direct FlashInfer comparison
+aligned and non-aligned hidden/intermediate dimensions
+padding invariance for per-expert residual scales
+EP rank with global expert IDs
+DeepSeek-V4 preprocessing
+fail-fast behavior on FlashInfer versions before 0.6.18
+Extend the manual SM90 benchmark to compare:
+SGLang Marlin W4A16
+FlashInfer CUTLASS W4A16
+FlashInfer CUTLASS W4A8
+Update the server-argument documentation.
+Accuracy Tests
+The registered SM90 MXFP4 suite passed:
+python -m pytest \
+  test/registered/unit/layers/quantization/test_mxfp4_sm90_cutlass.py -v
+18 passed, 1 skipped
+The DeepSeek-V4 MXFP4 checkpoint was launched with:
+python -m sglang.launch_server \
+  --model-path /home/models/DeepSeek-V4-Flash \
+  --trust-remote-code \
+  --tp 4 \
+  --moe-runner-backend flashinfer_mxfp4 \
+  --flashinfer-mxfp4-moe-precision fp8 \
+  --enforce-disable-flashinfer-allreduce-fusion \
+  --host 0.0.0.0 \
+  --port 30000
+DeepSeek-V4 accuracy was evaluated using the same 200-example GSM8K setup as SGLang
+#24816
+. Both runs used the same TP=4 configuration, dataset, sampling parameters, and server options; only
+--flashinfer-mxfp4-moe-precision
+changed between
+bf16
+and
+fp8
+.
+PYTHONPATH=/sgl-workspace/sglang_dev/python \
+python -m sglang.test.run_eval \
+  --port 30000 \
+  --eval-name gsm8k \
+  --num-examples 200 \
+  --api chat \
+  --max-tokens 1024 \
+  --num-threads 32 \
+  --temperature 0 \
+  --gsm8k-data-path /tmp/gsm8k-test.jsonl
+MoE precision
+GSM8K score
+Total latency
+Output throughput
+W4A16 (
+bf16
+)
+0.985
+37.301 s
+611.809 token/s
+W4A8 (
+fp8
+)
+0.985
+32.952 s
+683.574 token/s
+W4A8 preserved the W4A16 GSM8K score while reducing evaluation latency by 11.7% and increasing output throughput by 11.7%. The score also matches the 0.985 W4A16 result reported in SGLang
+#24816
+.
+Speed Tests and Profiling
+The downstream benchmark uses the GPT-OSS-like shape from SGLang
+#24816
+: hidden size 4096, intermediate size 2048, 256 experts, and top-k 6. Each FlashInfer path was fully autotuned, followed by 5 warmup iterations and 30 timed iterations. The remaining token shapes were run in parallel with one independent shape per H20 GPU; each W4A16/W4A8 pair ran on the same GPU.
+The benchmark can be reproduced with FlashInfer 0.6.18+:
+PYTHONPATH=python:/path/to/flashinfer \
+FLASHINFER_DISABLE_VERSION_CHECK=1 \
+python test/manual/layers/moe/bench_mxfp4_sm90_kernels.py
+Results on NVIDIA H20-3e:
+Tokens
+CUTLASS W4A16 median (min)
+CUTLASS W4A8 median (min)
+Speedup
+4
+0.275 ms (0.272 ms)
+0.164 ms (0.162 ms)
+1.68x
+16
+0.842 ms (0.840 ms)
+0.463 ms (0.460 ms)
+1.82x
+64
+1.894 ms (1.892 ms)
+1.037 ms (1.019 ms)
+1.83x
+256
+2.410 ms (2.403 ms)
+1.478 ms (1.383 ms)
+1.63x
+1024
+3.912 ms (3.906 ms)
+2.093 ms (1.999 ms)
+1.87x
+2048
+6.973 ms (6.954 ms)
+3.394 ms (3.384 ms)
+2.05x
+4096
+13.013 ms (12.971 ms)
+6.295 ms (6.210 ms)
+2.07x
+8192
+25.624 ms (25.546 ms)
+12.308 ms (12.293 ms)
+2.08x
+FlashInfer CUTLASS W4A8 was faster at every measured token count, with speedups ranging from 1.63x to 2.08x. The gain reaches approximately 2.0x for token counts of 2048 and above. The GSM8K latency and throughput numbers above provide an end-to-end serving sanity check, but the kernel benchmark is the more controlled performance comparison because generated output lengths are not fixed.
+Scope and Limitations
+The implementation is SM90-only.
+It is opt-in and does not change the default W4A16 path.
+A coordinated FlashInfer 0.6.18 dependency update is required before production enablement.
+Checklist
+Format the code with pre-commit.
+Add unit tests according to the repository test conventions.
+Update server-argument documentation.
+Run the registered tests on an SM90 GPU with FlashInfer 0.6.18.
+Add a DeepSeek-V4 end-to-end smoke-test result.
+Upgrade the FlashInfer Python, cubin, and JIT-cache pins together in a coordinated follow-up change.
+CI States
+Latest PR Test (Base): ⏳
+Run #33373154332
+Latest PR Test (Extra): ✅
+Run #33373154123
+Latest PR Test (AMD ROCm 7.2): ❌
+Run #33373154379
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+2
+Swipe4057 and vladnosiv reacted with thumbs up emoji
+All reactions
+👍
+2 reactions
+yuan-luo
+requested review from
+Alisehen
+,
+AniZpZ
+,
+BBuf
+,
+Edwardf0t1
+,
+FlamingoPg
+,
+Fridge003
+,
+HaiShaw
+,
+JustinTong0323
+,
+OrangeRedeng
+,
+Ying1123
+,
+b8zhong
+,
+ch-wan
+,
+ispobock
+,
+merrymercy
+,
+mmangkad
+,
+sogalin
+,
+wisclmy0611
+and
+zijiexia
+as
+code owners
+August 15, 2026 17:11
+github-actions
+Bot
+added
+  the
+documentation
+Improvements or additions to documentation
+label
+Aug 15, 2026
+yuan-luo
+added
+quant
+LLM Quantization
+deepseek
+benchmark
+flashinfer
+hopper
+SM90
+run-ci
+CI: run the baseline test suite on this PR
+run-ci-extra
+CI: also run the extra suite (requires run-ci)
+labels
+Aug 15, 2026
+yuan-luo
+force-pushed
+the
+flashinfer-sm90-mxfp4-fp8
+branch
+    from
+c357163
+to
+7c02b25
+Compare
+August 16, 2026 04:58
+yuan-luo
+changed the title
+[MoE] Add FlashInfer SM90 MXFP4 W4A8 MoE
+[MoE] Add FlashInfer SM90 MXFP4 W4A8 CUTLASS MoE
+Aug 16, 2026
+yuan-luo
+force-pushed
+the
+flashinfer-sm90-mxfp4-fp8
+branch
+    from
+7c02b25
+to
+f2c659b
+Compare
+August 16, 2026 15:15
+guzekai01
+commented
+Aug 17, 2026
+Copy link
+Copy Markdown
+Contributor
+Minor naming issue in the performance table:
+Humming W4A8
+may be read as the upstream inclusionAI/Humming backend (
+--moe-runner-backend humming
+), but this benchmark actually calls FlashInfer's
+cutlass_fused_moe(..., use_wfp4afp8_humming=True)
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+11 hidden items
+Load more…
+kaixih
+reviewed
+Aug 18, 2026
+View reviewed changes
+Comment thread
+python/sglang/srt/layers/quantization/mxfp4.py
+@@ -1079,6 +1127,7 @@ def _stack_up_gate_w13(unpadded_w13, last_pad, last_un):
+layer.w13_weight_scale.data,
+K_pad // sf_block_size,
+K_un // sf_block_size,
+preserve_expert_range=self._use_sm90_humming,
+kaixih
+Aug 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Is
+K_un
+really unpadded here?
+FusedMoE
+already rounds GPT-OSS hidden size from 2880 to 3072 before
+create_weights
+here
+, leaving padded E8M0 scales at 127.
+Including them in Humming’s per-expert min/max may alter real weights. I think we need to be careful to make sure we only use the original K and exclude these padded scales. The same applies to
+w2
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+yuan-luo
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I agree with you. K_un is not the orginal K. In cutlass_sm90 flashinfer mxfp4, it round_up(hidden_size, 256),  so the hidden is always 3072 when create_weights runs. That also makes _padded_hidden = K_un 3072. In this case, preserve_expert_range was protecting nothing on K while K_un at [90, 96) still holding the _UE8M0_ONE buffer fill.
+Now I fix by keeping hidden_size_unpadded from before round-up, create_weights records _unpadded_hidden.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+yuan-luo
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Added a test case to build the production shape.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+python/sglang/srt/layers/quantization/mxfp4_flashinfer_cutlass_moe.py
+Outdated
+release = Version(flashinfer_version).release
+release = release + (0,) * (3 - len(release))
+has_corrected_humming_api = release[:3] >= (0, 6, 18) and hasattr(
+kaixih
+Aug 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I think we should compare
+version.parse(flashinfer_version) >= version.parse("0.6.18")
+directly here. Using
+release[:3] >= (0, 6, 18)
+drops the prerelease information and would also accept
+0.6.18rc*
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+yuan-luo
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Good point. I fixed this part.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+python/sglang/srt/layers/quantization/mxfp4_flashinfer_cutlass_moe.py
+Outdated
+">= 0.6.18. FlashInfer 0.6.17 intentionally reverted "
+"PR #3738; upgrade FlashInfer or use `default`/`bf16` "
+"for the existing W4A16 path."
+)
+kaixih
+Aug 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I feel this check is a bit verbose. can we simply do something like:
+if self._use_sm90_humming:
+    # TODO: Remove this feature-specific check once the global FlashInfer
+    # dependency is upgraded to >= 0.6.18.
+    if not check_pkg_version_at_least("flashinfer_python", "0.6.18"):
+        raise RuntimeError(
+            "`--flashinfer-mxfp4-moe-precision fp8` requires "
+            "FlashInfer >= 0.6.18."
+        )
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+yuan-luo
+Aug 22, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Sure, fixed it. check_pkg_version_at_least already exists in sglang.srt.utils.common. Adopted it in both places, here and _FI_HAS_SM90_CUTLASS_MXFP4_FP8 flag.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Fridge003
+reviewed
+Aug 20, 2026
+View reviewed changes
+Comment thread
+docs/docs/advanced_features/server_arguments.mdx
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+python/sglang/srt/layers/quantization/mxfp4_flashinfer_cutlass_moe.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+python/sglang/srt/layers/quantization/mxfp4.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+python/sglang/srt/layers/quantization/mxfp4_flashinfer_cutlass_moe.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yuan-luo
+added
+  the
+release-highlight
+Candidate PR for release note highlight
+label
+Aug 20, 2026
+yuan-luo
+force-pushed
+the
+flashinfer-sm90-mxfp4-fp8
+branch
+      4 times, most recently
+    from
+b0e2276
+to
+a2350e5
+Compare
+August 23, 2026 08:30
+amd-bot
+mentioned this pull request
+Aug 24, 2026
+[CI Monitor] Daily Report - 2026-08-24
+bingxche/sglang-ci-bot#176
+Open
+Fridge003
+approved these changes
+Aug 24, 2026
+View reviewed changes
+Fridge003
+left a comment
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Wait for upgrade of flashinfer 0.6.18
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+kaixih
+approved these changes
+Aug 24, 2026
+View reviewed changes
+Fridge003
+commented
+Aug 31, 2026
+Copy link
+Copy Markdown
+Collaborator
+Flashinfer upgraded here
+#36954
+👍
+1
+yuan-luo reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yuyu5333
+mentioned this pull request
+Aug 31, 2026
+[Feat] [NVIDIA] moe: Add a fused CUTLASS MXFP4A8 backend for SM90.
+#34682
+Open
+5 of 6 tasks
+luoyuan.luo
+and others
+added
+5
+commits
+August 30, 2026 23:50
+feat(moe): add FlashInfer SM90 MXFP4 W4A8 path
+…
+1045fec
+Wire the corrected FlashInfer Humming-style MXFP4 x FP8 API into
+the Hopper MoE paths while preserving the W4A16 default and
+FlashInfer 0.6.17 compatibility.
+
+Add GPT-OSS and DeepSeek-V4 coverage, EP and padding checks,
+documentation, and a three-way SM90 benchmark.
+fix(mxfp4): exclude pre-rounded hidden tail from Humming scale range
+…
+d312c83
+FusedMoE rounds hidden_size up (GPT-OSS 2880 -> 3072) BEFORE
+create_weights whenever the flashinfer_mxfp4 backend is selected -- the
+same gate that later selects _fi_kernel = "cutlass_sm90". The SM90
+post-load processor therefore sees K_un = 3072 = K_pad, so the
+preserve_expert_range fill guarded an empty region, while scale columns
+[2880, 3072) INSIDE K_un keep the _UE8M0_ONE (127 = 2^0) buffer fill
+that the naive-copy loader never overwrites.
+
+Humming derives each expert's residual from its min/max E8M0 exponents.
+The stale 127s sit far above any real per-expert max, so they inflate
+the range, shift the residual, and perturb the REAL weights on repack.
+Same story on w2's K rows.
+
+Fix: FusedMoE records hidden_size_unpadded before the round-up,
+create_weights stores it as _unpadded_hidden, and the w13/w2 scale
+copies stop at the checkpoint's K (ceil'd to the 32-wide group boundary)
+so the never-written tail is covered by the existing per-expert fill.
+The tail's weight bytes are zeros (never written), so whatever scale
+sits there multiplies zero -- numerically inert in the GEMM. The trim is
+gated on preserve_expert_range, so the W4A16 path stays byte-identical.
+The SM120 helper needs no change: it has no per-expert range statistic,
+and its stale scales multiply zero weights.
+
+Add test_humming_range_ignores_prerounded_hidden_tail, which builds the
+production shape (buffers at 3072, checkpoint data to 2880, real scales
+well below 127) and asserts the per-expert residual is invariant to the
+tail content. The existing tests missed this twice over: they construct
+the method at 2880 directly (never seeing FusedMoE's pre-round), and
+their random scales span 125..130, which straddles 127.
+fix(mxfp4): compare full FlashInfer Version for the Humming gate
+…
+2ec959a
+The 0.6.18 gate compared Version(...).release[:3] >= (0, 6, 18). The
+release tuple drops prerelease markers -- Version("0.6.18rc1").release
+is (0, 6, 18) -- so 0.6.18rc*/0.6.18.dev* builds, cut before the
+corrected per-expert Humming API landed in the 0.6.18 release, slipped
+through the gate. Compare full Versions instead:
+
+    Version(flashinfer_version) >= Version("0.6.18")
+
+which rejects rc/dev prereleases of 0.6.18 while still accepting
+0.6.18.post*/+local and anything newer (including dev builds of later
+versions). Applied to all three copies of the gate: the module-level
+_FI_HAS_SM90_CUTLASS_MXFP4_FP8 flag, the DSV4 runner's constructor
+check, and the unit test's HAS_CORRECTED_HUMMING_API skip guard.
+refactor(mxfp4): gate Humming on check_pkg_version_at_least
+…
+409f07e
+Replace both hand-rolled FlashInfer version gates (try/except around
+__version__ parse + hasattr probe) with the existing
+check_pkg_version_at_least("flashinfer_python", "0.6.18") helper. It
+already does the prerelease-aware full-Version compare the previous
+commit introduced, and returns False when the package is absent, so the
+try/except scaffolding and the InvalidVersion handling collapse into one
+call at each site.
+
+Dropping the hasattr probe is safe: both weight processors import
+preprocess_moe_weights_for_sm90_mixed_gemm_humming directly at use time,
+so a build that misreports its version still fails loudly with a clear
+ImportError there. As a kernel package, flashinfer_python also honors
+SGLANG_SKIP_SGL_KERNEL_VERSION_CHECK=1 through the helper -- the
+standard escape hatch for source builds with stale metadata.
+
+The unit test's HAS_CORRECTED_HUMMING_API guard keeps its explicit
+Version + hasattr form on purpose: under the skip env the helper returns
+True unconditionally, which would un-skip the Humming tests on an old
+FlashInfer and fail them spuriously; the test guard must reflect the
+actually-installed API.
+docs(cookbook): use the SM90 MXFP4 W4A8 MoE kernel in DeepSeek-V4 H20…
+…
+9477801
+…0 cells
+
+Switch the three H200 + FP4 low-latency single-node cells (flash-official,
+flash, pro) to the new W4A8 path -- MXFP4 weights x FP8 activations via
+FlashInfer's Humming kernels:
+
+    --moe-runner-backend flashinfer_mxfp4
+    --flashinfer-mxfp4-moe-precision fp8
+
+flash-official and flash previously ran Marlin W4A16; pro already used the
+FlashInfer W4A16 runner and only gains the precision flag. The cells carry
+verificationStatus: "in-progress" until they are re-benchmarked with the
+new kernel, and a comment records the FlashInfer >= 0.6.18 requirement and
+the W4A16 fallbacks. Balanced / high-throughput cells are left on their
+verified W4A16 commands for now.
+
+Update the Hopper note in the MDX page accordingly: FP4 on Hopper is no
+longer W4A16-only; the W4A8 opt-in and its version requirement are
+documented, and the low-latency cells are called out as generating the
+new form.
+
+The MoE backend card is deliberately unchanged: backend-option requiresHw
+filtering only applies to the MegaMoE entry, so a card-level W4A8 option
+would be offered on Blackwell where --flashinfer-mxfp4-moe-precision fp8
+raises by design.
+yuan-luo
+force-pushed
+the
+flashinfer-sm90-mxfp4-fp8
+branch
+    from
+2a80e18
+to
+cac2ea1
+Compare
+August 31, 2026 07:02
+mmangkad
+approved these changes
+Aug 31, 2026
+View reviewed changes
+mmangkad
+left a comment
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Can we remove the defensive flashinfer version checks now?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+1
+yuan-luo reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+fix(mxfp4): make precision=fp8 inert on Blackwell instead of raising
+…
+eba9c45
+Remove the four "flashinfer_mxfp4_moe_precision=fp8 selects the SM90
+Humming path" ValueErrors (DSV4 cutlass constructor per review, plus the
+same guard in the trtllm SM100 constructor and mxfp4.py's SM100/SM120
+_fi_kernel branches for consistency -- all four were added by this PR).
+
+The flag is an SM90 knob. The Blackwell paths (trtllm_sm100,
+cutlass_sm120) already compute the grouped GEMMs on MXFP8 activations,
+so precision=fp8 there matches actual behavior; rejecting it only broke
+config portability between H200 and Blackwell deployments. Outside SM90
+the flag now simply has no effect (_use_sm90_humming stays False), which
+also matches the server-arg docstring, which scopes fp8 to SM90.
+yuan-luo
+force-pushed
+the
+flashinfer-sm90-mxfp4-fp8
+branch
+    from
+cac2ea1
+to
+eba9c45
+Compare
+August 31, 2026 08:29
+yuan-luo
+commented
+Aug 31, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+Can we remove the defensive flashinfer version checks now?
+@mmangkad
+Removed the defensive flashinfer version checks and related import/comments.
+👍
+1
+mmangkad reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yuan-luo
+removed
+documentation
+Improvements or additions to documentation
+benchmark
+labels
+Aug 31, 2026
+Hide details
+View details
+Fridge003
+merged commit
+5b04408
+into
+sgl-project
+:
+main
+Sep 1, 2026
+223 of 274 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yuan-luo
+deleted the
+flashinfer-sm90-mxfp4-fp8
+branch
+September 1, 2026 03:37
+bingxche
+mentioned this pull request
+Sep 2, 2026
+[CI Monitor] Daily Report - 2026-09-02
+bingxche/sglang-ci-bot#183
+Open
+Helicoplacoidea
+mentioned this pull request
+Sep 4, 2026
+[Playground] Verified cell: h200 / flash-official / fp4 / low-latency / single
+#37993
+Closed
+3 tasks done
+Leoyzen
+pushed a commit
+        to Leoyzen/sglang
+      that referenced
+      this pull request
+Sep 5, 2026
+[MoE] Add FlashInfer SM90 MXFP4 W4A8 CUTLASS MoE (
+sgl-project#34967
+)
+…
+56892ed
+Co-authored-by: luoyuan.luo <luoyuan.luo@antgroup.com>
+(cherry picked from commit
+5b04408
+)
+StevenChenSE
+pushed a commit
+        to StevenChenSE/sglang
+      that referenced
+      this pull request
+Sep 6, 2026
+[MoE] Add FlashInfer SM90 MXFP4 W4A8 CUTLASS MoE (
+sgl-project#34967
+)
+…
+6f9fa36
+Co-authored-by: luoyuan.luo <luoyuan.luo@antgroup.com>
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+kaixih
+kaixih approved these changes
+Fridge003
+Fridge003 approved these changes
+mmangkad
+mmangkad approved these changes
+ch-wan
+Awaiting requested review from ch-wan
+ch-wan is a code owner
+BBuf
+Awaiting requested review from BBuf
+BBuf is a code owner
+Edwardf0t1
+Awaiting requested review from Edwardf0t1
+Edwardf0t1 is a code owner
+FlamingoPg
+Awaiting requested review from FlamingoPg
+FlamingoPg is a code owner
+AniZpZ
+Awaiting requested review from AniZpZ
+AniZpZ is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+b8zhong
+Awaiting requested review from b8zhong
+b8zhong is a code owner
+OrangeRedeng
+Awaiting requested review from OrangeRedeng
+OrangeRedeng is a code owner
+Alisehen
+Awaiting requested review from Alisehen
+Alisehen is a code owner
+merrymercy
+Awaiting requested review from merrymercy
+merrymercy is a code owner
+Ying1123
+Awaiting requested review from Ying1123
+Ying1123 is a code owner
+ispobock
+Awaiting requested review from ispobock
+ispobock is a code owner
+wisclmy0611
+Awaiting requested review from wisclmy0611
+wisclmy0611 is a code owner
+zijiexia
+Awaiting requested review from zijiexia
+zijiexia is a code owner
+JustinTong0323
+Awaiting requested review from JustinTong0323
+JustinTong0323 is a code owner
+sogalin
+Awaiting requested review from sogalin
+sogalin is a code owner
+Assignees
+No one assigned
+Labels
+deepseek
+flashinfer
+hopper
+SM90
+quant
+LLM Quantization
+release-highlight
+Candidate PR for release note highlight
+run-ci
+CI: run the baseline test suite on this PR
+run-ci-extra
+CI: also run the extra suite (requires run-ci)
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+5 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

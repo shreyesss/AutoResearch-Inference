@@ -1,0 +1,170 @@
+Conversation
+leavelet
+commented
+May 1, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Add a dedicated epilogue warpgroup to the SM90 FP8 MQA logits kernel, overlapping post-processing (reduce + STG) with the next KV-block's WGMMA compute.
+Architecture: 4 TC WGs (512) + 1 Epi WG (128) + 1 TMA WG (128) = 768 threads. TC does dual-bank WGMMA (N=64 split, warpgroup_wait<1> overlap) + partial reduce → STS to epi_buf in SMEM. Epi does LDS → horizontal sum → STG to global. TMA is unchanged.
+Key design decisions:
+TC@104 regs (0 spill): scale_kv deferred to between epi-empty wait and warpgroup_wait<1>
+epi_buf stride = BLOCK_Q*4+1 for bank conflict reduction
+kNumEpiStages derived from kNumKVStages (no extra template parameter)
+Performance (342 configs, H200 SXM):
+Speedup vs production: mean 1.065x, min 1.027x, max 1.111x
+Regressions: 0 / 342
+Correctness: 295/295 full test configs pass
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+1
+lucifer1004 reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Yuanhang Sun
+added
+4
+commits
+April 30, 2026 02:23
+feat: warp-specialized SM90 FP8 MQA logits kernel
+…
+d39b2f3
+Warp-specialized architecture for the SM90 FP8 MQA logits kernel.
+Replaces the production post-processing path (SHFL+STG inline) with
+an epilogue warpgroup that runs overlapped with the next kv-block.
+
+Architecture: 4 TC WGs (512) + 1 Epi WG (128) + 1 TMA WG (128) = 768 threads.
+TC does dual-bank WGMMA (N=64 split, warpgroup_wait<1> overlap) +
+partial reduce → STS to epi_buf in SMEM. Epi does LDS → horizontal
+sum → STG to global. TMA is unchanged.
+
+Key design decisions:
+- TC@104 regs (0 spill): full weights[32] preload with scale_kv
+  deferred to between empty_epi wait and warpgroup_wait<1>
+- kNumEpiStages=3 matching kNumKVStages to prevent inter-WG
+  pipeline desynchronization
+- epi_buf stride = BLOCK_Q*4+1 (17) for bank conflict reduction
+- Bootstrap guard uses (num_total_kv_blocks | kv_block_idx) != 0
+  instead of a persistent boolean to save 1 register
+
+JIT launcher changes (SM90 path only):
+- 12-parameter template with kNumEpiStages=3
+- SMEM includes epi_buf (3 stages × BLOCK_KV × stride × sizeof(float))
+- Thread count: num_math_threads + num_epi_threads + num_tma_threads
+
+Performance (342 configs, H200 SXM):
+  Speedup vs production: mean 1.065x, min 1.027x, max 1.111x
+  Regressions: 0 out of 342
+  Correctness: 295/295 full test configs pass
+fix: cleanup SM90 FP8 MQA logits kernel for upstream
+…
+0c41e5d
+Remove broken DG_OVERLAP_3WG env var (3WG path left 64 KV columns
+uninitialized in epi_buf), add BLOCK_KV static assert, remove unused
+WGMMA type alias, restore named register constants and production
+comment style.
+refactor: derive kNumEpiStages from kNumKVStages, restore single-path…
+…
+c7218cd
+… dispatcher
+
+kNumEpiStages is always equal to kNumKVStages by design. Remove it
+from the template parameter list and derive it internally, which
+eliminates the SM90-specific dispatcher branch in generate_impl.
+rename: is_ws -> has_epi_wg for clarity
+…
+e4c8bf0
+The original kernel is already warp-specialized (TMA + Math WGs).
+The variable controls whether an epilogue warpgroup is present.
+leavelet
+changed the title
+[WIP] feat: warp-specialized SM90 FP8 MQA logits kernel
+feat: add epilogue warpgroup to SM90 FP8 MQA logits kernel
+May 4, 2026
+leavelet
+marked this pull request as ready for review
+May 4, 2026 11:58
+leavelet
+commented
+May 4, 2026
+Copy link
+Copy Markdown
+Author
+@RayWang96
+Please review
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Yuanhang Sun
+added
+2
+commits
+May 4, 2026 05:04
+refactor: replace DO_PARTIAL_REDUCE macro with lambda
+…
+441c493
+Both call sites use the same loop bound (kBlockQPerBank), so a
+capturing lambda with two parameters (accum, q_base) is cleaner
+and avoids the #define/#undef pattern.
+style: minor cleanups — use named constants, remove extra blank line
+…
+8425593
+- epi_tid + 128 -> epi_tid + kNumEpiThreads
+- num_epi_stages = 3 -> num_epi_stages = num_kv_stages
+- remove double blank line in TC WG
+leavelet
+marked this pull request as draft
+May 6, 2026 19:14
+leavelet
+closed this
+May 28, 2026
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

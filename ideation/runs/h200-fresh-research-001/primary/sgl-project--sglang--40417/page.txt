@@ -1,0 +1,126 @@
+[Bug] humming MoE runner picks tuning config with a 4x-inflated shape under EP, and the obvious EP-aware fix regresses serving
+#40417
+New issue
+Copy link
+New issue
+Copy link
+Open
+Open
+[Bug] humming MoE runner picks tuning config with a 4x-inflated shape under EP, and the obvious EP-aware fix regresses serving
+#40417
+Copy link
+Description
+Leoyzen
+opened
+on Sep 20, 2026
+Issue body actions
+Describe the bug
+estimate_local_valid_shape_m()
+in
+python/sglang/srt/layers/moe/moe_runner/humming.py
+returns
+topk_ids.nelement()
+when no
+expected_m
+is given (~line 204, carries
+# TODO: update for EP and DP
+, introduced in
+#23754
+).
+Under EP this counts the global routed elements.
+local_expert_mapping
+keeps the tensor shape unchanged and writes -1 for non-local experts, so
+nelement()
+= M_global x top_k, while each rank's GEMM only touches ~1/ep_size of those rows.
+The value only drives kernel config selection: the Python block-size ladder in
+_prepare_indexed_gemm_kwargs
+and the humming launcher's variant lookup (
+find_kernel_launch_data
+in launcher.cpp). Correctness is unaffected, the launcher validates against real tensor shapes. So under EP every humming MoE GEMM picks its config for a workload ~4x larger than what the rank actually computes (EP4).
+We tried the obvious fix, a graph-safe host estimate
+max(1, M * top_k / ep_size)
+(exact counting needs a D2H sync, illegal under CUDA graph capture). It moves every working point to the true local shape and passes unit tests, but serving regressed:
+arm
+decode tok/s/req
+vs parent
+parent (current code)
+52.2
+-
+EP-aware estimate
+49.5
+-5.1% (perm p=0.003, n=10/arm)
+EP-aware + ladder bands recalibrated from per-point kernel microbench
+-
+-4.0% e2e (C48 median, 3-arm check)
+Setup: DeepSeek-V4.1-Flash (384 routed experts, top_k 6, MXFP4 experts), TP4/EP4, 4x H200-class GPUs, DSPark speculative decoding, random workload at 32-48 concurrency, unique-seed A/B protocol with flush_cache between rounds, cross-session reproducible.
+Per-cubin enumeration against the deployed heuristic ladder explains why. The ladder bands were calibrated against the global-element scale, and the two gemm types disagree about what the input even means:
+indexed, routed rows ~750-2100: the local-rows input picks kernels 22-26% faster than the global-scale input
+grouped, same points: opposite direction, the global-scale input wins by 8-12%
+small decode CUDA-graph tiers (<200 rows): both land in the same band, zero effect
+re-mapping ladder bands empirically flipped kernel rankings once real routing skew and CUDA-graph replay entered the picture
+A single scalar cannot carry both total routed rows and per-expert density once num_local_experts != num_experts. For reference, the masked/DeepEP-LL path already uses
+expected_m * num_local_experts
+, and DeepEP-normal dispatch carries exact host-side
+num_recv_tokens_per_expert
+.
+Reproduction
+Any EP>1 run with
+--moe-runner-backend humming
+(default gemm type indexed). The wrong value is observable without serving, it is just
+topk_ids.nelement()
+under EP:
+# decode bs=48, top_k=6, EP4: topk_ids (48, 6).nelement() = 288 passed as
+# valid_shape_m while the rank's GEMM only handles ~72 rows.
+# See estimate_local_valid_shape_m in
+# python/sglang/srt/layers/moe/moe_runner/humming.py
+Serving A/B protocol:
+python3 -m sglang.benchmark.serving --dataset-name random --random-input-len 1024 --random-output-len 256 --random-range-ratio 1 --num-prompts 384 --max-concurrency 48
+, unique seed per round, /flush_cache between rounds, drop first warmup round, median of 4.
+Environment
+Python: 3.12.3, PyTorch: 2.13.0+cu130, CUDA: 13.0 (driver 580.105.08)
+GPU 0-3: NVIDIA L20X (SM90)
+sglang: 0.0.0.dev1+g20518d851, sglang-kernel: 0.4.7
+flashinfer: 0.6.18, triton: 3.7.1, transformers: 5.12.1
+Possible fixes (for discussion)
+(a) Document
+valid_shape_m
+as a hint defined on the global routed-element scale and leave the estimator as-is (what we reverted to; zero risk).
+(b) Make ladder generation convention-aware per gemm_type and re-tune per device.
+(c) Extend the launcher/config-selection API to take (rows, local expert count) or tokens-per-expert as a second key.
+Happy to share the full A/B matrix and per-cubin timing data, attaching below.
+Reactions are currently unavailable
+Activity
+Leoyzen
+commented
+on
+Sep 20, 2026
+Leoyzen
+on Sep 20, 2026
+Contributor
+Author
+More actions
+Raw data for the numbers above (A/B bench JSONs, per-cubin microbench results, 3-arm C48 check):
+https://github.com/Leoyzen/sglang/tree/evidence/issue-40417-humming-ep
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+No labels
+No labels
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

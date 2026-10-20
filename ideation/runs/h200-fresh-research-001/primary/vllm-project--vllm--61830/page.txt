@@ -1,0 +1,282 @@
+[Feature]: Candidate-only scoring for DeepSeek-V4.1 indexer consumers on SM90 (H20)
+#61830
+New issue
+Copy link
+New issue
+Copy link
+Open
+Open
+[Feature]: Candidate-only scoring for DeepSeek-V4.1 indexer consumers on SM90 (H20)
+#61830
+Copy link
+Labels
+DSv4.1
+Related to DeepSeek-V4.1 models
+Related to DeepSeek-V4.1 models
+deepseek
+Related to DeepSeek models
+Related to DeepSeek models
+Description
+yeshihai
+opened
+on Oct 15, 2026
+Issue body actions
+🚀 The feature, motivation and pitch
+Scope:
+this is a CUDA / SM90 (Hopper) request. ROCm is referenced only as prior art — the bot CC'd ROCm maintainers on keywords, apologies for the noise.
+DeepSeek-V4.1's two-level indexer publishes candidate blocks at
+candidate_source_layer_id
+; later consumer indexers are meant to select their top-k
+inside those candidate blocks only
+. On SM100 this is implemented with DeepGEMM's sparse MQA-logits kernels (
+fp8_fp4_(paged_)sparse_mqa_logits
+). On SM90 there is no equivalent, so the consumers fall back to dense scoring over the full context followed by a mask.
+vLLM currently implements candidate-consuming indexers in one of two ways:
+SM100
+—
+fp8_fp4_sparse_mqa_logits
+/
+fp8_fp4_paged_sparse_mqa_logits
+via
+DeepseekV41SparseIndexerBackend
+. Opt-in through
+AttentionConfig.indexer_sparse_logits
+and hard-gated on SM100-class hardware (
+vllm/v1/attention/backends/mla/sparse_indexer.py
+, the
+is_device_capability_family(100)
+check), the MXFP4 indexer cache, DeepGEMM >= 2.8, and the DeepSelect extension.
+ROCm (gfx950)
+— candidate-only MQA scorers reading the candidate pool in place, in review as
+[ROCm][Perf] Candidate-only MQA scorer for DSA sparse indexer prefill on gfx950
+#57858
+(prefill) and
+[ROCm][Perf] Candidate-only paged MQA scorer for DSA sparse indexer decode on gfx950
+#57859
+(decode).
+SM90 (H20)
+— neither. The consumers run the full-width
+fp8_fp4_paged_mqa_logits
+in
+vllm/model_executor/layers/sparse_attn_indexer.py
+and then mask the scores down to the candidate blocks with
+_apply_candidate_mask
+(
+vllm/model_executor/kernels/attention/dsa/candidate_blocks.py
+). The candidate mechanism keeps the semantics but not the compute saving.
+Measured on H20 (SM90), TP8, 1M context, decode, FP8 indexer cache, torch profiler:
+Concurrency
+Per consumer layer
+4 consumer layers
+Share of a step
+~10
+2.067 ms
+8.28 ms
+20% of 40.75 ms
+1
+196 µs
+0.78 ms
+6%
+Layers 24/28/32/36 each make one full-context
+fp8_fp4_paged_mqa_logits
+call per step. With
+candidate_topk_blocks
+= 2048 and
+candidate_block_size
+= 8, the candidate set is 16 384 positions against a 1 048 576-position compressed context —
+1.6% of the scored columns
+— so roughly 98% of each consumer's scoring work is discarded by the mask. The cost scales linearly with both concurrency and context length.
+The requested feature is a CUDA/SM90 way to score only the candidate blocks.
+The MXFP4 coupling blocks SM90 today
+indexer_sparse_logits
+cannot be enabled on SM90 at all, and not only because of the GPU-family check. The flag also requires the MXFP4 indexer cache (
+sparse_indexer.py
+, and again in
+models/deepseek_v41/attention.py
+), and MXFP4 itself is rejected before that:
+# vllm/v1/attention/backends/mla/indexer.py
+if
+use_fp4
+and
+not
+current_platform
+.
+is_device_capability_family
+(
+100
+):
+raise
+ValueError
+(
+"indexer_kv_dtype='mxfp4' requires Blackwell datacenter GPUs "
+"(sm_10x, e.g. B200/GB200); sm_120 (consumer Blackwell) and "
+"earlier architectures are not supported."
+)
+Hopper has no FP4 datapath, so SM90 necessarily runs the FP8 indexer cache (the
+auto
+default, one float32 scale per token). MXFP4 is an input requirement of the SM100 DeepGEMM kernels, not part of the "score only the candidate blocks" semantics — the ROCm path, for instance, scores the candidate pool with fp32 logits. So enabling candidate-only scoring on SM90 means letting that semantic flag be satisfied by an FP8 implementation.
+Question for maintainers:
+should candidate-only scoring on SM90 reuse
+indexer_sparse_logits
+(relaxing its MXFP4 requirement to a per-platform one), or should it be a separate opt-in with its own builder type? The former keeps one user-facing knob and makes a future SM100 migration a no-op; the latter keeps each platform's preconditions self-contained.
+Alternatives
+A. Gather + reuse the existing dense kernel (preferred).
+Consumers gather their candidate K from the index cache (~2 MB per request) and score the gathered candidate set with the existing dense logits kernel, dropping the mask pass. No new scoring kernel. The scored K set and the query are identical to the dense-then-mask path, so the resulting logits should be bit-identical. A relevant primitive already exists on CUDA:
+cp_gather_indexer_k_quant_cache
+(
+torch.ops._C_cache_ops
+, added in
+Add gather_indexer_k_quant_cache kernel
+#25931
+/
+[Deepseek-V3.2][Kernel] Integrate cuda indexer k cache gather
+#26456
+) gathers paged indexer K — FP8 values plus the 4-byte scale — into a contiguous workspace, and the prefill path uses it today. It gathers contiguous ranges addressed by
+cu_seq_lens
+, so it is a starting point rather than a drop-in: candidate-block gathering needs scattered block IDs.
+B. Native SM90 sparse MQA-logits kernel.
+Mirrors the SM100 DeepGEMM semantics with a new SM90 kernel, removing the gather hop. Better ceiling, substantially more implementation and validation cost.
+C. Two-level selection inside the consumer (HISA-style).
+Block-level coarse pass plus a refined pass inside the candidates. Extends the saving to the candidate-source layer and the ratio-2 layers, but changes the scoring semantics and needs accuracy re-validation. Better treated as a follow-up.
+Both A and B need a profitability gate, because gathering loads more per key than the dense walk.
+#57858
+measured the crossover at ~1.0–1.5×
+span/capacity
+and gates at 2.0×. This workload sits at 62.5×, well above the gate, so the gate should not engage in the target scenario.
+Additional context
+Relationship to existing work.
+This is the SM90/CUDA counterpart of the ROCm candidate-only scorers.
+#57858
+(prefill) and
+#57859
+(decode, open) implement candidate-only scoring on gfx950, with measured operator speedups of 3.28× (66 rows, ctx 72.1k) and 4.85× (192 rows, ctx 88.5k), and +5.80% end-to-end output throughput with −4.9% p90 TPOT at TP=4, C=32. They list the same consumer layer positions (24/28/32/36). Those PRs are ROCm-only and touch
+rocm_aiter_mla_sparse.py
+; the CUDA path is unimplemented. This is not a duplicate of them, though all three would touch
+candidate_blocks.py
+, so ordering matters.
+Related, and deliberately out of scope here:
+[DSA] Wire DeepGEMM sparse MQA logits into the DeepSeek V4.1 indexer
+#56254
+wired the DeepGEMM sparse MQA-logits kernels into the V4.1 indexer. Its stated scope is SM100-class GPUs, and it documents "there is no PyTorch fallback anywhere on the path". That is the scoring path this issue proposes to extend to SM90, not to replace.
+[Kernel] Enable DeepSelect sparse indexer top-k on sm90
+#59204
+(draft, conflicting) enables the DeepSelect sparse-indexer
+top-k
+on sm90. That covers the selection stage, not the scoring stage, and does not touch the SM100 gate on the sparse-logits backend.
+[Perf][DSv4.1] Length-aware candidate block selection in the decode indexer
+#61039
+(merged 2026-10-14) made candidate selection length-aware in the decode indexer, removing ~850 µs/step of full-width work at 1M. It explicitly keeps the full-width path as the fallback when DeepSelect is unavailable, so
+SM90 does not benefit from it
+:
+has_deep_select()
+is SM100-only, so
+select_candidate_blocks
+keeps
+FULL_WIDTH=True
+on Hopper and still runs
+torch.topk(2048)
+over the full width. SM90 does have usable top-k backends (
+cooperative
+,
+persistent
+), so the same length-awareness looks portable. That is a separate, much smaller item (2.1% of a step at conc≈10, but ~6.5% at conc≈1) and would most naturally ride along with the scoring work rather than be filed on its own.
+The DeepSeek-V4.1-Flash kernels tracker (
+[Feature]: DeepSeek-V4.1-Flash Kernels Integration & Optimization Tracker
+#56217
+) has no discussion of non-SM100 hardware.
+Open items to validate.
+Candidate block alignment:
+candidate_block_size
+= 8 vs the kernel page sizes (32/64).
+Bit-identical results between the gather path and the current dense-then-mask path, to be confirmed by measurement rather than assumed.
+The profitability threshold tuned for SM90 rather than copied from the ROCm measurements.
+Whether the FP8 indexer record (
+head_dim
++ one float32 scale) gathers efficiently into the layout the dense kernel expects on SM90, where
+mqa_logits_use_mx_scales()
+is False.
+Environment (target).
+GPU: H20 (SM90, Hopper)
+TP: 8
+Context: 1M
+Model: DeepSeek-V4.1-Flash
+Indexer K cache: FP8 (MXFP4 is unavailable on SM90, see above)
+Status.
+Happy to implement the SM90 candidate-only scoring path (alternative A), but the flag question above decides where the code lands, so filing this first to get direction. The measurements above predate
+#61039
+; they will be re-taken on current main before any PR.
+Reactions are currently unavailable
+Activity
+github-actions
+added
+deepseek
+Related to DeepSeek models
+Related to DeepSeek models
+rocm
+Related to AMD ROCm
+Related to AMD ROCm
+DSv4.1
+Related to DeepSeek-V4.1 models
+Related to DeepSeek-V4.1 models
+on Oct 15, 2026
+github-actions
+commented
+on
+Oct 15, 2026
+github-actions
+Bot
+on Oct 15, 2026
+– with
+GitHub Actions
+More actions
+CC
+@hongxiayang
+@tjtanaa
+@vllmellm
+@giuseppegrossi
+for ROCm-related issue
+github-project-automation
+added this to
+AMD
+on Oct 15, 2026
+github-project-automation
+moved this to
+Todo in
+AMD
+on Oct 15, 2026
+tjtanaa
+removed
+rocm
+Related to AMD ROCm
+Related to AMD ROCm
+on Oct 15, 2026
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+DSv4.1
+Related to DeepSeek-V4.1 models
+Related to DeepSeek-V4.1 models
+deepseek
+Related to DeepSeek models
+Related to DeepSeek models
+Type
+No type
+Projects
+AMD
+Status
+Todo
+Show more project fields
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

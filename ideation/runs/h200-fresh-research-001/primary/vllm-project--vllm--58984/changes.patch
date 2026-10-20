@@ -1,0 +1,349 @@
+From 8bdc8348a98068546e6b08082a0b8b3b7149e834 Mon Sep 17 00:00:00 2001
+From: wangyicong <wangyicong@bytedance.com>
+Date: Mon, 28 Sep 2026 15:15:28 +0800
+Subject: [PATCH 1/4] perf(spec-decode): avoid padded request reuse in drafter
+
+Keep the DP-wide real request count separate from FULL CUDA graph capacity when dispatching uniform drafter steps. Retain the padded capacity for dummy graph runs.
+
+Assisted-by: Codex
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+---
+ vllm/v1/worker/gpu/dp_utils.py               | 8 +++++++-
+ vllm/v1/worker/gpu/spec_decode/speculator.py | 7 ++++---
+ 2 files changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/vllm/v1/worker/gpu/dp_utils.py b/vllm/v1/worker/gpu/dp_utils.py
+index 5c71ebcea018..10fbb9ecd114 100644
+--- a/vllm/v1/worker/gpu/dp_utils.py
++++ b/vllm/v1/worker/gpu/dp_utils.py
+@@ -39,6 +39,8 @@ class DPSyncState:
+     # Agreed upper bound on any rank's request count. Holds the padded count when
+     # a FULL descriptor imposed one, else the most any rank scheduled.
+     num_reqs: int
++    # Largest real request count scheduled on any rank before graph padding.
++    num_reqs_unpadded: int
+ 
+ 
+ def sync_cudagraph_and_dp_padding(
+@@ -139,7 +141,8 @@ def sync_cudagraph_and_dp_padding(
+                 )
+             # Refresh the token count to include CUDA graph padding.
+             ubatch_num_tokens = ubatch_desc.num_tokens
+-            num_reqs = int(num_reqs_across_dp.max())
++            num_reqs_unpadded = int(num_reqs_across_dp.max())
++            num_reqs = num_reqs_unpadded
+             if ubatch_desc.cg_mode == CUDAGraphMode.FULL:
+                 assert ubatch_desc.num_reqs is not None
+                 num_reqs = ubatch_desc.num_reqs
+@@ -150,6 +153,7 @@ def sync_cudagraph_and_dp_padding(
+                 uniform_token_count=synced_uniform_token_count,
+                 eager=ubatch_desc.cg_mode == CUDAGraphMode.NONE,
+                 num_reqs=num_reqs,
++                num_reqs_unpadded=num_reqs_unpadded,
+             )
+ 
+     synced_cg_mode = CUDAGraphMode(int(cg_mode_across_dp.min()))
+@@ -168,6 +172,7 @@ def sync_cudagraph_and_dp_padding(
+                 uniform_token_count=synced_uniform_token_count,
+                 eager=True,
+                 num_reqs=int(num_reqs_across_dp.max()),
++                num_reqs_unpadded=int(num_reqs_across_dp.max()),
+             ),
+         )
+ 
+@@ -207,6 +212,7 @@ def sync_cudagraph_and_dp_padding(
+             and synced_desc.num_reqs is not None
+             else int(num_reqs_across_dp.max())
+         ),
++        num_reqs_unpadded=int(num_reqs_across_dp.max()),
+     )
+ 
+ 
+diff --git a/vllm/v1/worker/gpu/spec_decode/speculator.py b/vllm/v1/worker/gpu/spec_decode/speculator.py
+index d86a0b0351f0..454f2da481f5 100644
+--- a/vllm/v1/worker/gpu/spec_decode/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/speculator.py
+@@ -550,10 +550,11 @@ def _build_uniform_batch_dp_sync(
+         num_reqs: int,
+         num_query_per_req: int = 1,
+     ) -> tuple[DPSyncState, int]:
+-        num_batch_tokens = target_dp_sync_state.num_reqs * num_query_per_req
+-        assert num_reqs * num_query_per_req <= num_batch_tokens, (
+-            "reusing a DP sync that does not cover this batch's requests"
++        num_reqs_synced = max(target_dp_sync_state.num_reqs_unpadded, num_reqs)
++        assert num_reqs_synced <= target_dp_sync_state.num_reqs, (
++            "reusing a DP sync whose request capacity is too small"
+         )
++        num_batch_tokens = num_reqs_synced * num_query_per_req
+         return replace(
+             target_dp_sync_state,
+             num_tokens_across_dp=torch.full_like(
+
+From 762f2a8a88d66c0bdecf010a7a8d1fb2b2e38fce Mon Sep 17 00:00:00 2001
+From: wangyicong <wangyicong@bytedance.com>
+Date: Tue, 29 Sep 2026 00:24:25 +0800
+Subject: [PATCH 2/4] perf(spec-decode): shrink DP dummy drafter batches
+
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+---
+ vllm/v1/worker/gpu/spec_decode/dflash/speculator.py | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
+index a75e84100e11..0f486d127122 100644
+--- a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
+@@ -460,6 +460,8 @@ def propose(
+         num_speculative_tokens: int | None = None,
+     ) -> torch.Tensor:
+         num_reqs = input_batch.num_reqs
++        if dummy_run and dp_sync_state is not None:
++            num_reqs = min(num_reqs, dp_sync_state.num_reqs_unpadded)
+         num_target_tokens = input_batch.num_tokens
+         num_query_tokens = num_reqs * self.num_query_per_req
+         max_seq_len = input_batch.seq_lens_cpu_upper_bound[:num_reqs].max().item()
+@@ -537,6 +539,7 @@ def propose(
+                 self.max_num_tokens,
+                 self.max_model_len,
+                 self.sample_from_anchor,
++                num_reqs,
+             )
+ 
+         batch_sync, num_batch_tokens = (
+@@ -860,12 +863,14 @@ def prepare_dflash_inputs(
+     max_num_tokens: int,
+     max_model_len: int,
+     sample_from_anchor: bool = False,
++    num_reqs_override: int | None = None,
+ ) -> None:
+-    num_reqs = input_batch.num_reqs
++    num_reqs = input_batch.num_reqs if num_reqs_override is None else num_reqs_override
++    assert num_reqs <= input_batch.num_reqs
+     assert num_reqs > 0
+     # Cover the longest possible per-request span (ctx + query). Use the max
+     # per-request query length, not the total token count across the batch.
+-    max_target_query_len = int(input_batch.num_scheduled_tokens.max())
++    max_target_query_len = int(input_batch.num_scheduled_tokens[:num_reqs].max())
+     max_tokens_per_req = max_target_query_len + num_query_per_req
+     BLOCK_SIZE = min(256, triton.next_power_of_2(max(1, max_tokens_per_req)))
+     num_blocks = triton.cdiv(max_tokens_per_req, BLOCK_SIZE)
+
+From 13a247cab2daab5216c62b62631d5dcd19b0a5ba Mon Sep 17 00:00:00 2001
+From: Zetong Li <slippersss@126.com>
+Date: Thu, 15 Oct 2026 09:40:27 +0000
+Subject: [PATCH 3/4] fix(spec-decode): preserve AR DP request capacity
+
+Select the uniform drafter request bound at each caller so DFlash uses the real DP request maximum while autoregressive drafters retain the target request capacity. Keep the derived DP sync request count aligned.
+
+Adapted from vllm-project/vllm#61807, commit 4afa1bfcec2624ac8693f97a93fd440c5f7cd417.
+
+Signed-off-by: Zetong Li <slippersss@126.com>
+Assisted-by: Codex
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+---
+ vllm/v1/worker/gpu/spec_decode/dflash/speculator.py    |  5 ++++-
+ vllm/v1/worker/gpu/spec_decode/speculator.py           | 10 ++++++----
+ .../gpu/spec_decode/target_dependent_ar/speculator.py  |  5 ++++-
+ 3 files changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
+index 0f486d127122..764ee8418ffe 100644
+--- a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
+@@ -544,7 +544,10 @@ def propose(
+ 
+         batch_sync, num_batch_tokens = (
+             self._build_uniform_batch_dp_sync(
+-                dp_sync_state, num_reqs, self.num_query_per_req
++                dp_sync_state,
++                num_reqs,
++                self.num_query_per_req,
++                max_num_reqs=dp_sync_state.num_reqs_unpadded,
+             )
+             if dp_sync_state is not None
+             else (None, num_query_tokens)
+diff --git a/vllm/v1/worker/gpu/spec_decode/speculator.py b/vllm/v1/worker/gpu/spec_decode/speculator.py
+index 454f2da481f5..eedd4842d4d2 100644
+--- a/vllm/v1/worker/gpu/spec_decode/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/speculator.py
+@@ -549,14 +549,16 @@ def _build_uniform_batch_dp_sync(
+         target_dp_sync_state: DPSyncState,
+         num_reqs: int,
+         num_query_per_req: int = 1,
++        *,
++        max_num_reqs: int,
+     ) -> tuple[DPSyncState, int]:
+-        num_reqs_synced = max(target_dp_sync_state.num_reqs_unpadded, num_reqs)
+-        assert num_reqs_synced <= target_dp_sync_state.num_reqs, (
+-            "reusing a DP sync whose request capacity is too small"
++        num_batch_tokens = max_num_reqs * num_query_per_req
++        assert num_reqs * num_query_per_req <= num_batch_tokens, (
++            "reusing a DP sync that does not cover this batch's requests"
+         )
+-        num_batch_tokens = num_reqs_synced * num_query_per_req
+         return replace(
+             target_dp_sync_state,
++            num_reqs=max_num_reqs,
+             num_tokens_across_dp=torch.full_like(
+                 target_dp_sync_state.num_tokens_across_dp, num_batch_tokens
+             ),
+diff --git a/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py b/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
+index d5034a31b483..0caa9071e977 100644
+--- a/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
+@@ -317,7 +317,10 @@ def propose(
+ 
+         decode_batch_sync, num_batch_tokens = (
+             self._build_uniform_batch_dp_sync(
+-                dp_sync_state, num_reqs, num_query_per_req=1
++                dp_sync_state,
++                num_reqs,
++                num_query_per_req=1,
++                max_num_reqs=dp_sync_state.num_reqs,
+             )
+             if dp_sync_state is not None
+             else (None, num_reqs)
+
+From 77e45ab1cb273470b77e9158fd3d41b6239e8e63 Mon Sep 17 00:00:00 2001
+From: wangyicong <wangyicong@bytedance.com>
+Date: Sat, 17 Oct 2026 14:03:57 +0800
+Subject: [PATCH 4/4] fix(spec-decode): simplify DP request count tracking
+
+Keep DPSyncState.num_reqs as the DP-wide logical request maximum and leave graph capacity in the execution descriptor. Remove the redundant request-count field and uniform-batch helper parameter, and clamp target-dependent AR dummy requests after the target-shaped prefill pass so subsequent decode steps can reuse the logical bound.
+
+Assisted-by: Codex
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+---
+ vllm/v1/worker/gpu/dp_utils.py                | 22 +++----------------
+ .../gpu/spec_decode/dflash/speculator.py      |  3 +--
+ vllm/v1/worker/gpu/spec_decode/speculator.py  |  5 +----
+ .../target_dependent_ar/speculator.py         |  5 ++++-
+ 4 files changed, 9 insertions(+), 26 deletions(-)
+
+diff --git a/vllm/v1/worker/gpu/dp_utils.py b/vllm/v1/worker/gpu/dp_utils.py
+index 10fbb9ecd114..caed20ba6348 100644
+--- a/vllm/v1/worker/gpu/dp_utils.py
++++ b/vllm/v1/worker/gpu/dp_utils.py
+@@ -36,11 +36,8 @@ class DPSyncState:
+     # Whether the ranks agreed to run eager. A dispatch reusing this must run
+     # eager too; no shape was agreed, so picking a graph per rank would diverge.
+     eager: bool
+-    # Agreed upper bound on any rank's request count. Holds the padded count when
+-    # a FULL descriptor imposed one, else the most any rank scheduled.
+-    num_reqs: int
+     # Largest real request count scheduled on any rank before graph padding.
+-    num_reqs_unpadded: int
++    num_reqs: int
+ 
+ 
+ def sync_cudagraph_and_dp_padding(
+@@ -141,19 +138,13 @@ def sync_cudagraph_and_dp_padding(
+                 )
+             # Refresh the token count to include CUDA graph padding.
+             ubatch_num_tokens = ubatch_desc.num_tokens
+-            num_reqs_unpadded = int(num_reqs_across_dp.max())
+-            num_reqs = num_reqs_unpadded
+-            if ubatch_desc.cg_mode == CUDAGraphMode.FULL:
+-                assert ubatch_desc.num_reqs is not None
+-                num_reqs = ubatch_desc.num_reqs
+             return ubatch_desc, DPSyncState(
+                 num_tokens_across_dp=torch.full_like(
+                     num_tokens_across_dp, ubatch_num_tokens
+                 ),
+                 uniform_token_count=synced_uniform_token_count,
+                 eager=ubatch_desc.cg_mode == CUDAGraphMode.NONE,
+-                num_reqs=num_reqs,
+-                num_reqs_unpadded=num_reqs_unpadded,
++                num_reqs=int(num_reqs_across_dp.max()),
+             )
+ 
+     synced_cg_mode = CUDAGraphMode(int(cg_mode_across_dp.min()))
+@@ -172,7 +163,6 @@ def sync_cudagraph_and_dp_padding(
+                 uniform_token_count=synced_uniform_token_count,
+                 eager=True,
+                 num_reqs=int(num_reqs_across_dp.max()),
+-                num_reqs_unpadded=int(num_reqs_across_dp.max()),
+             ),
+         )
+ 
+@@ -206,13 +196,7 @@ def sync_cudagraph_and_dp_padding(
+         num_tokens_across_dp=num_tokens_across_dp,
+         uniform_token_count=synced_uniform_token_count,
+         eager=False,
+-        num_reqs=(
+-            synced_desc.num_reqs
+-            if synced_desc.cg_mode == CUDAGraphMode.FULL
+-            and synced_desc.num_reqs is not None
+-            else int(num_reqs_across_dp.max())
+-        ),
+-        num_reqs_unpadded=int(num_reqs_across_dp.max()),
++        num_reqs=int(num_reqs_across_dp.max()),
+     )
+ 
+ 
+diff --git a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
+index 764ee8418ffe..2fb8cebb85ae 100644
+--- a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
+@@ -461,7 +461,7 @@ def propose(
+     ) -> torch.Tensor:
+         num_reqs = input_batch.num_reqs
+         if dummy_run and dp_sync_state is not None:
+-            num_reqs = min(num_reqs, dp_sync_state.num_reqs_unpadded)
++            num_reqs = min(num_reqs, dp_sync_state.num_reqs)
+         num_target_tokens = input_batch.num_tokens
+         num_query_tokens = num_reqs * self.num_query_per_req
+         max_seq_len = input_batch.seq_lens_cpu_upper_bound[:num_reqs].max().item()
+@@ -547,7 +547,6 @@ def propose(
+                 dp_sync_state,
+                 num_reqs,
+                 self.num_query_per_req,
+-                max_num_reqs=dp_sync_state.num_reqs_unpadded,
+             )
+             if dp_sync_state is not None
+             else (None, num_query_tokens)
+diff --git a/vllm/v1/worker/gpu/spec_decode/speculator.py b/vllm/v1/worker/gpu/spec_decode/speculator.py
+index eedd4842d4d2..d86a0b0351f0 100644
+--- a/vllm/v1/worker/gpu/spec_decode/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/speculator.py
+@@ -549,16 +549,13 @@ def _build_uniform_batch_dp_sync(
+         target_dp_sync_state: DPSyncState,
+         num_reqs: int,
+         num_query_per_req: int = 1,
+-        *,
+-        max_num_reqs: int,
+     ) -> tuple[DPSyncState, int]:
+-        num_batch_tokens = max_num_reqs * num_query_per_req
++        num_batch_tokens = target_dp_sync_state.num_reqs * num_query_per_req
+         assert num_reqs * num_query_per_req <= num_batch_tokens, (
+             "reusing a DP sync that does not cover this batch's requests"
+         )
+         return replace(
+             target_dp_sync_state,
+-            num_reqs=max_num_reqs,
+             num_tokens_across_dp=torch.full_like(
+                 target_dp_sync_state.num_tokens_across_dp, num_batch_tokens
+             ),
+diff --git a/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py b/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
+index 0caa9071e977..ff0fdfb9fb5d 100644
+--- a/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
+@@ -303,6 +303,10 @@ def propose(
+                 input_batch.idx_mapping, num_reqs_padded=num_reqs
+             )
+ 
++        # Prefill must keep the target batch shape; only decode can shrink it.
++        if dummy_run and dp_sync_state is not None:
++            num_reqs = min(num_reqs, dp_sync_state.num_reqs)
++
+         # Prepare the inputs for the decode steps.
+         prepare_decode_inputs(
+             self.draft_tokens[:num_reqs, 0],
+@@ -320,7 +324,6 @@ def propose(
+                 dp_sync_state,
+                 num_reqs,
+                 num_query_per_req=1,
+-                max_num_reqs=dp_sync_state.num_reqs,
+             )
+             if dp_sync_state is not None
+             else (None, num_reqs)

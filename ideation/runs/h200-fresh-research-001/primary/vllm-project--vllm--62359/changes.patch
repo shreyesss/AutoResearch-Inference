@@ -1,0 +1,307 @@
+From e3b9eb99ecdf0e7530c0d732c66aa77d9f3dc144 Mon Sep 17 00:00:00 2001
+From: Juntian Liu <Juntianl777@gmail.com>
+Date: Sun, 18 Oct 2026 23:22:41 +0000
+Subject: [PATCH] [Perf][DSv4.1] Share Engram host tables as host-NUMA cuMem
+ across DP ranks
+
+GPUs map host-NUMA cuMem with 2M pages instead of the 64K pages of a
+registered /dev/shm mapping, so TLB-bound Engram row lookups get 2-3x
+faster. Rank 0 exports a FABRIC handle that node-local DP ranks import;
+platforms without FABRIC handles keep the /dev/shm path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Juntian Liu <Juntianl777@gmail.com>
+---
+ tests/distributed/test_engram_dp_shard.py     |   2 +
+ vllm/config/engram.py                         |   9 +-
+ vllm/models/deepseek_v41/common/engram.py     |  49 +++++-
+ .../nvidia/ops/engram_host_table.py           | 151 ++++++++++++++++++
+ 4 files changed, 200 insertions(+), 11 deletions(-)
+ create mode 100644 vllm/models/deepseek_v41/nvidia/ops/engram_host_table.py
+
+diff --git a/tests/distributed/test_engram_dp_shard.py b/tests/distributed/test_engram_dp_shard.py
+index 6f14859dec21..7d230f6fc1ac 100644
+--- a/tests/distributed/test_engram_dp_shard.py
++++ b/tests/distributed/test_engram_dp_shard.py
+@@ -332,6 +332,8 @@ def unregister(pointer):
+         return result
+ 
+     with pytest.MonkeyPatch.context() as patch:
++        # Exercise the /dev/shm path even where FABRIC cuMem tables are used.
++        patch.setattr(engram_ops, "_fabric_host_tables_supported", lambda: False)
+         patch.setattr(
+             engram_ops,
+             "tempfile",
+diff --git a/vllm/config/engram.py b/vllm/config/engram.py
+index 7a7ed8f277ef..e16bb8b1a78f 100644
+--- a/vllm/config/engram.py
++++ b/vllm/config/engram.py
+@@ -44,10 +44,11 @@ class EngramConfig:
+     dp_shared_memory: bool | None = None
+     """Share CPU-offloaded embedding weights between co-located
+     DP replicas. Each node stores one copy of every TP shard, reducing host
+-    memory without per-step Engram DP collectives. Requires sufficient
+-    /dev/shm capacity and a shared IPC namespace. Defaults to enabled whenever
+-    the other settings allow it, falling back to per-replica tables when DP
+-    replicas are not co-located on one node or /dev/shm cannot hold them."""
++    memory without per-step Engram DP collectives. Uses host-NUMA cuMem shared
++    by FABRIC handle where supported, else /dev/shm (which then needs capacity
++    and a shared IPC namespace). Defaults to enabled whenever the other settings
++    allow it, falling back to per-replica tables when DP replicas are not
++    co-located on one node or the host cannot hold them."""
+ 
+     use_thp: bool = False
+     """Back private CPU-offloaded tables with transparent huge pages (best
+diff --git a/vllm/models/deepseek_v41/common/engram.py b/vllm/models/deepseek_v41/common/engram.py
+index 236235dfa82f..5f34f2340e08 100644
+--- a/vllm/models/deepseek_v41/common/engram.py
++++ b/vllm/models/deepseek_v41/common/engram.py
+@@ -42,6 +42,7 @@
+ from contextlib import ExitStack
+ 
+ import numpy as np
++import psutil
+ import torch
+ from torch import nn
+ 
+@@ -769,18 +770,47 @@ def gather_engram_hashes(
+     return dp_group.all_gather(hash_ids, dim=0)
+ 
+ 
++def _fabric_host_tables_supported() -> bool:
++    if not current_platform.is_cuda():
++        return False
++    from vllm.models.deepseek_v41.nvidia.ops.engram_host_table import (
++        fabric_host_tables_supported,
++    )
++
++    return fabric_host_tables_supported()
++
++
+ class DPSharedEngramStorage:
+-    """Registered host weights shared by a node-local DP group with one writer."""
++    """Host weights shared by a node-local DP group with one writer: host-NUMA
++    cuMem where FABRIC handles work, else a registered /dev/shm mapping."""
+ 
+     def __init__(
+         self, num_rows: int, dim: int, block_size: int, group: GroupCoordinator
+     ) -> None:
+         self.group = group
+         weight_bytes = num_rows * dim
+-        storage = self._allocate(weight_bytes + weight_bytes // block_size)
+-        self.weight = storage[:weight_bytes].view(torch.float8_e4m3fn).view(-1, dim)
+-        self.weight_scale_inv = storage[weight_bytes:].view(-1, dim // block_size)
++        num_bytes = weight_bytes + weight_bytes // block_size
++
++        def split(storage: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
++            weight = storage[:weight_bytes].view(torch.float8_e4m3fn).view(-1, dim)
++            return weight, storage[weight_bytes:].view(-1, dim // block_size)
++
+         self._views: tuple[torch.Tensor, torch.Tensor] | None = None
++        # Rank 0 picks the backing so every rank runs the same collectives.
++        fabric = group.broadcast_object(
++            _fabric_host_tables_supported() if group.rank_in_group == 0 else None
++        )
++        self.backing = "cuMem" if fabric else "/dev/shm"
++        if fabric:
++            from vllm.models.deepseek_v41.nvidia.ops.engram_host_table import (
++                allocate_fabric_host_table,
++            )
++
++            storage, device_storage = allocate_fabric_host_table(num_bytes, group)
++            self._views = split(device_storage)
++        else:
++            storage = self._allocate(num_bytes)
++        self.weight, self.weight_scale_inv = split(storage)
+ 
+     def _allocate(self, num_bytes: int) -> torch.Tensor:
+         """Map and register one physical allocation across a node-local DP group."""
+@@ -874,7 +904,7 @@ def get_views(
+ 
+ 
+ def can_share_engram_tables(layout: EngramLayout, block_size: int = 32) -> bool:
+-    """Whether co-located DP replicas exist and /dev/shm can hold the full tables."""
++    """Whether co-located DP replicas exist and can hold the full tables."""
+     if get_engram_dp_size() == 1:
+         logger.warning_once(
+             "Engram DP replicas are not co-located on one node; "
+@@ -889,7 +919,10 @@ def can_share_engram_tables(layout: EngramLayout, block_size: int = 32) -> bool:
+     # Only the leader allocates, so every replica follows its check.
+     error = None
+     if group.rank_in_group == 0:
+-        if not os.path.isdir(SHM_PATH):
++        if _fabric_host_tables_supported():
++            if num_bytes > psutil.virtual_memory().available:
++                error = f"{num_bytes / 2**30:.1f} GiB exceeds available host memory"
++        elif not os.path.isdir(SHM_PATH):
+             error = f"{SHM_PATH} is not mounted"
+         else:
+             try:
+@@ -1024,7 +1057,9 @@ def __init__(
+                 self.part_num_embeddings,
+                 dim,
+                 self.part_num_embeddings * (dim + dim // block_size) / 1024**3,
+-                "shared across DP replicas" if dp_shared_memory else "per rank",
++                f"shared across DP replicas via {self._shared_memory.backing}"
++                if self._shared_memory is not None
++                else "per rank",
+             )
+ 
+     def _get_shard_info(self) -> tuple[int, int]:
+diff --git a/vllm/models/deepseek_v41/nvidia/ops/engram_host_table.py b/vllm/models/deepseek_v41/nvidia/ops/engram_host_table.py
+new file mode 100644
+index 000000000000..304b87b8a0cf
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/ops/engram_host_table.py
+@@ -0,0 +1,151 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Engram host tables in host-NUMA cuMem, shared across DP ranks by FABRIC handle.
++
++GPUs map cuMem host memory with 2M pages instead of the 64K pages of a registered
++/dev/shm mapping, so random row lookups miss the TLB far less.
++"""
++
++import ctypes
++import weakref
++from functools import cache
++from types import SimpleNamespace
++
++import torch
++from cuda.bindings import driver as cu
++
++from vllm.distributed.parallel_state import GroupCoordinator
++from vllm.logger import init_logger
++from vllm.utils.math_utils import round_up
++
++logger = init_logger(__name__)
++
++
++def _check(result: tuple):
++    err, *rest = result
++    if err != cu.CUresult.CUDA_SUCCESS:
++        raise RuntimeError(f"CUDA driver call failed: {err}")
++    return rest[0] if rest else None
++
++
++def _host_numa_prop(device: int) -> cu.CUmemAllocationProp:
++    prop = cu.CUmemAllocationProp()
++    prop.type = cu.CUmemAllocationType.CU_MEM_ALLOCATION_TYPE_PINNED
++    prop.location.type = cu.CUmemLocationType.CU_MEM_LOCATION_TYPE_HOST_NUMA
++    prop.location.id = _check(
++        cu.cuDeviceGetAttribute(
++            cu.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_HOST_NUMA_ID, device
++        )
++    )
++    prop.requestedHandleTypes = cu.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC
++    return prop
++
++
++@cache
++def fabric_host_tables_supported() -> bool:
++    """Whether host-NUMA cuMem allocations can export FABRIC handles here."""
++    try:
++        prop = _host_numa_prop(torch.accelerator.current_device_index())
++        size = _check(cu.cuMemGetAllocationGranularity(prop, 0))
++        handle = _check(cu.cuMemCreate(size, prop, 0))
++        try:
++            _check(
++                cu.cuMemExportToShareableHandle(handle, prop.requestedHandleTypes, 0)
++            )
++        finally:
++            cu.cuMemRelease(handle)
++    except Exception as exc:
++        logger.info_once(
++            "Host-NUMA cuMem FABRIC handles are unavailable (%s); Engram DP "
++            "replicas share tables through /dev/shm.",
++            exc,
++        )
++        return False
++    return True
++
++
++def _unmap(ptr: cu.CUdeviceptr, size: int) -> None:
++    cu.cuMemUnmap(ptr, size)
++    cu.cuMemAddressFree(ptr, size)
++
++
++def allocate_fabric_host_table(
++    num_bytes: int, group: GroupCoordinator
++) -> tuple[torch.Tensor, torch.Tensor]:
++    """Map one host allocation into every rank of a node-local group.
++
++    Returns CPU and GPU uint8 views of the same memory; the GPU view is valid
++    while the CPU view is alive.
++    """
++    device = torch.accelerator.current_device_index()
++    prop = _host_numa_prop(device)
++    handle = shared = error = None
++    if group.rank_in_group == 0:
++        try:
++            size = round_up(
++                num_bytes, _check(cu.cuMemGetAllocationGranularity(prop, 0))
++            )
++            handle = _check(cu.cuMemCreate(size, prop, 0))
++            fabric = _check(
++                cu.cuMemExportToShareableHandle(handle, prop.requestedHandleTypes, 0)
++            )
++            shared = (prop.location.id, size, bytes(fabric.data))
++        except Exception as exc:
++            error = f"{type(exc).__name__}: {exc}"
++            if handle is not None:
++                cu.cuMemRelease(handle)
++    shared, error = group.broadcast_object((shared, error))
++    if error is not None:
++        raise RuntimeError("Engram cuMem table creation failed on rank 0: " + error)
++    numa, size, fabric = shared
++    ptr = None
++    try:
++        if handle is None:
++            handle = _check(
++                cu.cuMemImportFromShareableHandle(fabric, prop.requestedHandleTypes)
++            )
++        ptr = _check(cu.cuMemAddressReserve(size, 0, 0, 0))
++        _check(cu.cuMemMap(ptr, size, 0, handle, 0))
++        access = []
++        for location, index in (
++            (cu.CUmemLocationType.CU_MEM_LOCATION_TYPE_DEVICE, device),
++            (cu.CUmemLocationType.CU_MEM_LOCATION_TYPE_HOST_NUMA, numa),
++        ):
++            desc = cu.CUmemAccessDesc()
++            desc.location.type, desc.location.id = location, index
++            desc.flags = cu.CUmemAccess_flags.CU_MEM_ACCESS_FLAGS_PROT_READWRITE
++            access.append(desc)
++        _check(cu.cuMemSetAccess(ptr, size, access, len(access)))
++    except Exception as exc:
++        error = f"{type(exc).__name__}: {exc}"
++    finally:
++        # The mapping keeps the allocation alive.
++        if handle is not None:
++            cu.cuMemRelease(handle)
++    # A peer that failed to map must not leave the others waiting later on.
++    errors: list[str | None] = [None] * group.world_size
++    torch.distributed.all_gather_object(errors, error, group=group.cpu_group)
++    failures = "; ".join(
++        f"rank {rank}: {error}" for rank, error in enumerate(errors) if error
++    )
++    if failures:
++        if ptr is not None:
++            # Unmapping a reserved but unmapped range just returns an error.
++            _unmap(ptr, size)
++        raise RuntimeError("Engram cuMem table mapping failed: " + failures)
++    assert ptr is not None
++    owner = (ctypes.c_uint8 * num_bytes).from_address(int(ptr))
++    finalizer = weakref.finalize(owner, _unmap, ptr, size)
++    finalizer.atexit = False  # type: ignore[misc]
++    # Name the device: an index-less "cuda" makes torch copy the table.
++    cai = {
++        "shape": (num_bytes,),
++        "typestr": "|u1",
++        "data": (int(ptr), False),
++        "version": 3,
++    }
++    gpu = torch.as_tensor(
++        SimpleNamespace(__cuda_array_interface__=cai),
++        device=torch.device("cuda", device),
++    )
++    return torch.frombuffer(owner, dtype=torch.uint8), gpu

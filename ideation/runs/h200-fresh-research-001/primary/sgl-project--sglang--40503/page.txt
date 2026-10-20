@@ -1,0 +1,343 @@
+Conversation
+tju-sqx
+commented
+Sep 20, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Motivation
+The SM90 FP4 decode/target-verify indexer uses a capacity-sized CUDA Graph grid while visible lengths change on device between replays. For a short live context, masking K loads still leaves FP4 dequantization and dot products running on entirely invisible tiles. For example, a row with 8,192 visible positions can reserve 1,048,896 output columns.
+This change skips scoring for fully invisible tiles and writes
+-inf
+directly, reducing unnecessary work while preserving the dense logits interface.
+Modifications
+Add a tile-uniform branch using the current device-side visible length. Invisible tiles write
+-inf
+on every replay, including when previously visible tiles become invisible.
+Preserve the original arithmetic, BF16 rounding points and masks for visible and partially visible tiles. The launch grid, output shape, cache layout and candidate-selection behavior remain unchanged.
+Add focused decode correctness and CUDA Graph replay tests to the existing FP4 indexer test file.
+The change adds no host-side length read, synchronization, extra kernel launch, dependency or configuration flag. The PR changes only the kernel and its test file.
+Accuracy Tests
+Validation hardware/software: NVIDIA H20-3e, PyTorch 2.11.0+cu129, Triton 3.6.0.
+Existing FP4 indexer suite with the added tests:
+23 passed, 36 skipped
+. The skipped cases target Blackwell vectorized prefill.
+11 added decode cases
+cover empty/partial/full tiles; zero, negative and over-capacity lengths; heads 32/64; page sizes 64/128; strided inputs; padded page strides; and invalid inactive slot IDs.
+An independent Torch FP64 reference checks FP4 decoding and the prescribed BF16 rounding points using controlled dyadic inputs. CUDA Graph replays grow/shrink visibility, change queries and slot mappings, and poison output buffers to detect unwritten tails.
+Local compute-sanitizer memcheck:
+11 cases, zero errors
+, with the reference calculation moved to CPU in the validation harness.
+Separate random-input A/B checks across ten shapes are bitwise identical to the baseline.
+python -m pytest test/registered/kernels/ops/attention/test_fp4_indexer.py -q -rs
+Model sanity checks use the same 200 GSM8K prompts within each backend's baseline/patched pair:
+MoE backend / topology
+Baseline
+Patched
+FlashInfer MXFP4 / TP8 EP8
+196/200
+197/200
+Humming / TP8 EP1
+197/200
+198/200
+Server-generated random seeds differ between arms. These results are model sanity checks, not evidence of improved accuracy or token-identical model outputs.
+Speed Tests and Profiling
+All measurements below were collected on September 20 against baseline
+0024efa0de38794ee309ba10ab00ebb891a3d050
+. The submitted commit
+2e7e69b87c
+is rebased onto
+42875bcd2a7f2d9685eb3dd98fd787b54e3787d1
+; the kernel and test files remain byte-identical to the validated versions. GPU tests and end-to-end measurements have not been rerun after that rebase.
+End-to-end measurements
+8 × H20-3e, DeepSeek-V4.1-Flash,
+dsv4
+attention, W4A16 MoE, DSPARK, FP8 KV cache, radix cache disabled, and CUDA Graph enabled with maximum decode batch size 64. Each backend is compared against its own baseline using identical launch arguments within the pair.
+The FlashInfer pair uses TP8/EP8 and
+max_running_requests=64
+. The Humming pair uses TP8/EP1. The FlashInfer configuration validates the backend on H20 with DSPARK; it is not a literal reproduction of the H200 cookbook recipe.
+Both pairs use CC1, the same seed-42 token-ID request, 8,192 input / 500 output tokens, temperature 0 and
+ignore_eos=true
+. Reported values are arithmetic means of three unprofiled requests after one warmup. Profiling requests are measured separately.
+MoE backend
+CC
+Input / output tokens
+Metric
+Baseline
+Patched
+FlashInfer MXFP4
+1
+8192 / 500
+Mean TTFT (ms)
+934.158
+904.153
+FlashInfer MXFP4
+1
+8192 / 500
+Mean TPOT (ms/token)
+8.748
+3.931
+FlashInfer MXFP4
+1
+8192 / 500
+Output throughput (tokens/s)
+94.349
+174.469
+FlashInfer MXFP4
+1
+8192 / 500
+Total throughput (tokens/s)
+1640.164
+3032.971
+Humming
+1
+8192 / 500
+Mean TTFT (ms)
+773.100
+726.508
+Humming
+1
+8192 / 500
+Mean TPOT (ms/token)
+8.565
+3.797
+Humming
+1
+8192 / 500
+Output throughput (tokens/s)
+99.068
+190.797
+Humming
+1
+8192 / 500
+Total throughput (tokens/s)
+1722.204
+3316.807
+TPOT decreases
+55.1% with FlashInfer
+and
+55.7% with Humming
+on this workload. TPOT is
+(last SSE time - first SSE time) / 499
+; speculative outputs arrive in bursts, so it is not the interval between bursts. Output throughput is
+500 / request elapsed time
+; total throughput is
+(8192 + 500) / request elapsed time
+. These CC1 measurements do not establish peak-load capacity or gains across all lengths and concurrencies. The small sample count also limits conclusions about smaller differences such as TTFT.
+CUDA Graph profiles
+Both backend pairs have all-rank traces with CUDA Graph enabled. The comparison below uses TP0 and the last nine complete decode iterations, with
+72 indexer calls per arm
+, excluding the first iteration to avoid a clipped Humming baseline trace.
+MoE backend
+Metric
+Baseline (ms)
+Patched (ms)
+FlashInfer MXFP4
+Summed indexer time, nine iterations
+255.430
+6.919
+FlashInfer MXFP4
+Mean DRAFT-to-VERIFY duration per iteration
+50.804
+23.071
+Humming
+Summed indexer time, nine iterations
+257.259
+6.922
+Humming
+Mean DRAFT-to-VERIFY duration per iteration
+49.439
+21.666
+The profiles retain the original indexer grids. Kernel sums may include overlapping execution and are not treated as end-to-end wall-clock latency.
+Kernel microbenchmark and tradeoff
+Local CUDA Graph wrapper timings use seven alternating 100 ms timing repetitions; values below are medians. K pages are independent and physically permuted. These are steady-state/warm-cache measurements; a TP8 server was idle but resident. The benchmark harness is retained locally and is not included in this PR.
+Rows / heads
+Capacity / visible positions
+Baseline (µs)
+Patched (µs)
+6 / 32
+8192 / 8192
+37.993
+37.634
+6 / 32
+1048896 / 8192
+4340.467
+98.865
+6 / 32
+131072 / 131072
+552.778
+578.417
+6 / 32
+1048896 / 1048896
+4337.319
+4569.994
+The short-prefix case improves
+43.9×
+, while the fully visible long-sequence cases regress approximately
+4.6–5.4%
+. The optimization retains the full grid and dense output writes, and its benefit depends on the gap between reserved capacity and live visibility.
+Checklist
+Add focused unit tests and model sanity checks.
+Provide paired speed measurements and profiling results.
+Applicable changed-file pre-commit hooks passed before rebase; submitted kernel/test contents are unchanged.
+Documentation assessed: no public API or configuration change.
+Full-repository lint/CI: the local pre-commit run passed 26 hooks, skipped one with no matching files, and could not run four Rust hooks because
+cargo
+/
+rustup
+were unavailable.
+Upstream GPU CI, including H100 validation. Local results cover H20; no H100 or Blackwell validation is claimed.
+CI States
+Latest PR Test (Base): ✅
+Run #35554952717
+Latest PR Test (Extra): ❌
+Run #35554952621
+Latest PR Test (AMD ROCm 10): ❌
+Run #35554952726
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+[Perf] Skip invisible SM90 FP4 indexer tiles
+2e7e69b
+tju-sqx
+requested review from
+BBuf
+,
+DarkSharpness
+,
+HaiShaw
+,
+HydraQYH
+,
+celve
+and
+yuan-luo
+as
+code owners
+September 20, 2026 23:49
+github-actions
+Bot
+added
+  the
+jit-kernel
+label
+Sep 20, 2026
+AniZpZ
+added
+  the
+run-ci
+CI: run the baseline test suite on this PR
+label
+Sep 21, 2026
+Merge branch 'main' into fix/sm90-fp4-indexer-visible-tiles
+49831e5
+yuan-luo
+commented
+Sep 26, 2026
+Copy link
+Copy Markdown
+Collaborator
+Please rebase and resolve the conflict.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oasis-Git
+mentioned this pull request
+Oct 2, 2026
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+Open
+17 of 56 tasks
+tju-sqx
+commented
+Oct 8, 2026
+Copy link
+Copy Markdown
+Author
+Thanks
+@yuan-luo
+for taking a look and leaving feedback! Since
+#40431
+has already been merged with the same approach of skipping invisible FP4 indexer tiles, I'm closing this PR to avoid duplicate work. Appreciate your time!
+👍
+1
+yuan-luo reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+tju-sqx
+closed this
+Oct 13, 2026
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+DarkSharpness
+Awaiting requested review from DarkSharpness
+DarkSharpness is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+BBuf
+Awaiting requested review from BBuf
+BBuf is a code owner
+celve
+Awaiting requested review from celve
+celve is a code owner
+HydraQYH
+Awaiting requested review from HydraQYH
+HydraQYH is a code owner
+yuan-luo
+Awaiting requested review from yuan-luo
+yuan-luo is a code owner
+Assignees
+No one assigned
+Labels
+jit-kernel
+run-ci
+CI: run the baseline test suite on this PR
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

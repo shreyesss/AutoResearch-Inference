@@ -1,0 +1,260 @@
+[
+  {
+    "id": "hypothesis:1cfa90d6272adde75b8849bc008e2654370d1db3fcf0f8046a13edb91a0ef42a",
+    "status": "proposed",
+    "fingerprint": "9615bfba9f458b80c60a3ce48b5deeda59b522a1466050849194c714c26f68cf",
+    "statement": "Explicitly activate Humming for the shipped MXFP4 experts, then compare fixed indexed and grouped GEMM paths at unchanged activation precision. The supplied startup log selects MARLIN, and the installed automatic priority list omits Humming, so an indexed override alone cannot change execution. Installed code already …",
+    "mechanism": "Changing the expert implementation and its treatment of routed matrices may reduce GEMM and staging costs. Backend activation and grouped-versus-indexed selection require separate contrasts to identify which change matters.",
+    "change": "First inspect explicit-backend registration, loader support, effective environment, activation schema, and communication selection. Then compare MARLIN, Humming grouped_contiguous, and Humming indexed using --moe-backend humming and VLLM_HUMMING_MOE_GEMM_TYPE. Keep precision fixed. Use the existing override before considering #59488's automatic-selection policy.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 89,
+      "known_baseline_match": true,
+      "task_token_overlap": 36,
+      "target_token_overlap": 9,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:bfb078a6ee44b31bc7736ef40b01b30b73c76aa89c69b343ecbb244137f11042",
+    "status": "proposed",
+    "fingerprint": "dfcc9f0dcbf27b8c96c436e9f733d407f732a42f8b9f02ed69ace4732fe13a43",
+    "statement": "Investigate an opt-in native-MXFP4 FlashInfer MegaMoE adapter for each EP4 replica, with an eligibility check before implementation. #6517 describes SM90 FP4 kernels, checkpoint-layout requirements, and a workspace cleanup repair; its H200 push gains concern EP8 plans and do not transfer here. #62603 supplies compleme…",
+    "mechanism": "A legal fused expert-parallel kernel may avoid intermediate staging and separate dispatch/GEMM/combine overhead. Workspace capacity must track supported execution shapes without making peers disagree or processing unnecessarily large buffers.",
+    "change": "First inspect the actual FP4 API, dependency availability, complete shape legality, clamp semantics, loader conversion, workspace contract, and cleanup-fix inclusion. If eligible, implement a narrow native-MXFP4 adapter with fixed validated EP4 plans and capture-compatible workspaces. Evaluate fusion before adding a new push policy or adaptive workspace policy.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 77,
+      "known_baseline_match": true,
+      "task_token_overlap": 31,
+      "target_token_overlap": 7,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:e5cf92bf1d2ce1b5c49f362d3976fd1c0a6ed89c195ac4e7de932954bb763e57",
+    "status": "deferred",
+    "fingerprint": "175ad3590c8f362a27a227c2869eaeb4960ae1a9975ec1bbc17ba22d183c0c2f",
+    "statement": "Port or activate DeepSelect for eligible FP32 indexer top-k calls on SM90, only after checking the installed selector and extension build. The supplied vLLM patch adds a Hopper availability path and explicit dtype, width, k and alignment checks. Its value would come from faster selection over unchanged logits, indepen…",
+    "mechanism": "Implementation evidence: #59204 adds SM90 availability and Hopper FP32 validation, plus input/output alignment checks and bounded-row selection support. Transfer inference: a faster selector can reduce time spent selecting the same top-k from unchanged scores. This does not create an SM90 sparse-scoring kernel. The library's BF16 cluster-performance claim does not establish the behavior or speed of this FP32 integration.",
+    "change": "First inspect the installed indexer_topk resolver, actual selected backend, extension revision and SM90 build targets. If a useful delta exists, port the compatible #59204 selector integration and explicitly select DeepSelect only for validated inputs, retaining the best native fallback. Do not broaden sparse_mqa_logits.has_deep_select indiscriminately because its downstream sparse-scoring depend…",
+    "reasons": [
+      "h200_applicability_and_correctness_required: The patch explicitly adds \"or current_platform.is_device_capability(90)\" and Hopper FP32 input validation. This provides a plausible p…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 73,
+      "known_baseline_match": true,
+      "task_token_overlap": 29,
+      "target_token_overlap": 7,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:686ee5f8bd7f13fbfad3439717480727edaf94960662e80fe532cb1435d14c32",
+    "status": "proposed",
+    "fingerprint": "d6b20b363668c8d29d4fcca91062715478e32199eb7430ae1d30a74c7f6c3c2a",
+    "statement": "At a fixed, validated Humming GEMM selection, test per-token FP8 activations against BF16 while retaining native MXFP4 weights. This isolates activation traffic and arithmetic from backend selection. #59488 describes enforcing and logging the requested schema, while #60600 reports that installed Humming 0.1.16 rejects…",
+    "mechanism": "Per-token FP8 may reduce activation traffic and improve expert GEMM execution, offset by quantization, scaling, and possible numerical loss. Preserve weights and GEMM selection to isolate this tradeoff.",
+    "change": "Inspect whether the installed MXFP4 path honors named activation formats. If supported, compare verified BF16 with --quantization-config.moe.activation fp8_per_token at fixed Humming GEMM selection. Otherwise qualify equivalent explicit configuration or a minimal named-format port. Disable silent schema fallback. Exclude block-FP8 and MXFP8 from this 0.1.16 experiment.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 71,
+      "known_baseline_match": true,
+      "task_token_overlap": 29,
+      "target_token_overlap": 5,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:ebbeb3770815c1a4f41305f14c23ad88eb1d0b7ee21f60ff4115237924d0865f",
+    "status": "deferred",
+    "fingerprint": "7c61f9cbad1a3e28c6a70d7d02409ea653016ae0b88369c907593d2a3ccb6958",
+    "statement": "Test direct paged candidate-only indexer scoring as a conditional replacement for dense scoring followed by masking in consumer layers. The supplied #62463 patch describes reading candidate K in place and retaining device-resident live lengths; #62000 instead gathers K before scoring. These are competing implementatio…",
+    "mechanism": "Implementation evidence: #62463 exposes direct paged candidate scoring with compact logits and device-side causal-bound preparation; #62000 exposes candidate-K gathering and default-off controls. Both avoid full compressed-context scoring for consumers. Transfer inference: direct reads may additionally avoid gather workspace traffic and fixed copy cost. Benefits depend on actual indexer shapes and context-to-candidate width, not TP-local attention-head padding.",
+    "change": "First inspect complete installed call sites, patch integration, FP8 indexer-cache layout, context-parallel configuration and actual consumer dispatch. If eligible and absent, adapt #62463 to the pinned branch while preserving live device inputs and configuration-based graph selection. Keep dense scoring available. Evaluate #62000 as a separate mutually exclusive comparator; do not stack the imple…",
+    "reasons": [
+      "h200_applicability_and_correctness_required: An explicit SM90 FP8 implementation path is proposed, preserving dense fallback and device-resident live inputs. Complete scoring and …"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 70,
+      "known_baseline_match": true,
+      "task_token_overlap": 27,
+      "target_token_overlap": 8,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:9927b047e0b711f0e3d577af1cbd013ad2f96cfa7319e3f6a6b83de3aaa46e5d",
+    "status": "proposed",
+    "fingerprint": "a26267631869785418b79f2cb10133e22f84fb189f40475f337eb8688f25b75b",
+    "statement": "Test direct-NVLink DeepEP dispatch in two attributable stages: compatible backend activation, followed by the triple-buffered prefetch change in #693. First verify the effective baseline transport, four-rank NVLink connectivity, and whether the pinned engine can reach the elastic direct-NVLink implementation while pre…",
+    "mechanism": "Source code/review exposes three staging buffers and partial store-group waiting. Transfer inference: overlapping next-token loads and metadata preparation with prior remote stores can reduce serialized dispatch time. Increased shared-memory demand and the dispatch-warp cap can offset savings through occupancy loss or contention with expert computation.",
+    "change": "First establish transport and API compatibility. If feasible, integrate unmodified elastic direct-NVLink DeepEP while holding Marlin, routing semantics, payload format, topology, and speculation fixed. Then port only #693's pipeline with one shared host/device buffer-count definition and a verified reuse invariant. Preserve rollback to the original backend. If compute or activation format must ch…",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 66,
+      "known_baseline_match": true,
+      "task_token_overlap": 24,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:b3a38eddefb9b2a0e0593e6f947d4c0810e26758290aa45765e6f4a8ee3a7e2d",
+    "status": "proposed",
+    "fingerprint": "14bd863050f6b34e30cfb2823d82b2bf0c455480f55ed15c48159a11c0dac453",
+    "statement": "Test prefix affinity at the final DP-rank decision, with affinity information shared across the two API workers within each replica. First inspect existing routing and join requests to replica, API worker and final rank; endpoint affinity alone cannot establish reusable KV locality. Narrow the earlier queue-skew propo…",
+    "mechanism": "Source mitigation: remember a prefix's prior engine and prefer it only on tied load scores. Transfer inference: sharing that hint across API2 can avoid process-local map fragmentation, but remembered placement is not proof of current residency. Queue load, exact-prefix retention and eviction determine value.",
+    "change": "After presence and opportunity checks, use a bounded per-replica affinity table at final internal DP selection, accessible to both API workers. Key hints by compatible cache namespace, LoRA identity and token-prefix identity. Preserve explicit-rank bypass, lower-load routing and load-only fallback; initially keep external replica routing unchanged.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 64,
+      "known_baseline_match": true,
+      "task_token_overlap": 23,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:d00802ccb98a8ce910339d34d9f8ce31b40d1ba9867ec833a429a844307f20cc",
+    "status": "proposed",
+    "fingerprint": "aeb4ae079cb68f8c81071a29f385bb37d8d29f37396ac30dc53cc03d117ca655",
+    "statement": "Evaluate a workload-matched SGLang control, then isolate its H200 group32 GEMM configuration tuning as the first optimization arm. The supplied #41251 reports substantial H200 improvements from a multi-change SGLang bundle, but compares against SGLang main under TP8/EP1, another checkpoint, disabled host Engram, and b…",
+    "mechanism": "Transfer inference: fixed GEMM launch configurations better matched to actual Hopper matrix shapes may reduce inefficient tiling or execution overhead without changing operand formats. A matched SGLang control distinguishes this configuration effect from engine-wide scheduling and implementation differences.",
+    "change": "First construct a source/configuration parity matrix and inspect shape/config dispatch. If eligible, define S0 as a pinned matched SGLang control and S1 as the same build with only applicable H200 group32 configuration changes. Disable or hold constant every other #41251 component through verified controls or a minimal configuration-only ablation. Do not substitute TP8, device Engram, different a…",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 62,
+      "known_baseline_match": true,
+      "task_token_overlap": 22,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:c11a0adb1af3da37f46cc9cadbb8e5ea6d10e85c34f11cc84ff2acd17de16346",
+    "status": "proposed",
+    "fingerprint": "6c9f8d04e838a079a3ba9be9ed8c0041d51da07dc04e8b5f0420cf204862b8e4",
+    "statement": "Separate the DP-wide maximum real request count from target CUDA-graph capacity when constructing DSpark draft batches. First inspect the installed uniform-batch helper and complete patch revision: the supplied excerpts establish DFlash inheritance and the proposed unpadded-count mechanism, but not the complete deploy…",
+    "mechanism": "Source fix: preserve a DP-wide real-request maximum separately from padded target capacity and use it for uniform drafting. Transfer inference: removing target-induced excess rows can reduce actual draft execution only when it changes graph selection or executed work; padding required by DP imbalance remains.",
+    "change": "Check baseline presence and effective anchor/fill-in layout first. If absent and activated by real traffic, adapt the complete four-commit patch, including dummy-input preparation, attention metadata, EPLB preparation and autoregressive capacity safeguards. Keep k5, adaptiveOFF, seq64 and graphcap512.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 62,
+      "known_baseline_match": true,
+      "task_token_overlap": 23,
+      "target_token_overlap": 8,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:41522cb001ec16da8974fbb80a2337f11cb4569bd7a5c8399928c9258998e3da",
+    "status": "proposed",
+    "fingerprint": "c395250587fda4bcd46ea66bcd5c351ec51591ccd393386317cd64cfc429d3d6",
+    "statement": "Test the existing mHC coefficient-stream overlap design on SM90 through an explicit opt-in, after repairing and validating any executed TF32 prenorm path. Installed source excludes SM90, while #60768 describes a constrained opt-in with CPU dispatch tests only. The proposed performance mechanism is to hide independent …",
+    "mechanism": "Schedule dependency-independent coefficient work on an auxiliary stream so some latency is hidden. Additional launches, synchronization, contention, or lost post/pre fusion can outweigh that saving.",
+    "change": "Inspect exact stream dependencies and the installed JIT artifact first. Qualify the #448/#59129 repair separately where required. Adapt #60768's explicit SM90 opt-in, preserving shape, FULL-graph, ubatching and small-batch restrictions and excluding SM100 collective fusion. Initially keep the inherited threshold fixed.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 58,
+      "known_baseline_match": true,
+      "task_token_overlap": 23,
+      "target_token_overlap": 4,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:8a5235ec5f7799ff5328b7d54bb3d978b0cd75d59b374924cfd86509475ff3cf",
+    "status": "proposed",
+    "fingerprint": "2087a008cddc59d40f256e16b89babeecffb5a4de2faaab750ea4906bd15907a",
+    "statement": "Fuse full Top-K selection with physical KV-slot mapping for eligible Hopper decode consumers, extending the earlier selector-only hypothesis. First inspect the pinned vLLM selector, installed DeepSelect extension, and downstream representation requirements to establish whether this fusion is absent and usable. SGLang …",
+    "mechanism": "Transfer inference: selecting directly into the required physical-slot representation can remove intermediate index buffers, launches, page-table gathers, and output copies. Savings matter only when eligible calls occur and the removed work lies on the serving critical path.",
+    "change": "After the presence and eligibility check, adapt topk_page_transform to the pinned vLLM consumer contract behind a reversible dispatch guard. Keep scoring, precision, topology, communication, and speculation unchanged. Preserve native handling for raw-index consumers and unsupported shapes. Resolve the final ordering contract before deciding whether sorting can be removed.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 56,
+      "known_baseline_match": true,
+      "task_token_overlap": 21,
+      "target_token_overlap": 6,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:95e5a4efdb308e9c9fb674e2f17cce046eb8a42e078266d5c5f55694d44420c5",
+    "status": "deferred",
+    "fingerprint": "1c660be3f5aa27119cc976dd8f864869aa3ea1c90b44dbebd39dc3907eb62019",
+    "statement": "Share FlashMLA decode plans across compatible KV-cache groups within one metadata-building pass, conditional on the pinned H200 runner still creating duplicate plans. The supplied patch implements per-pass holder sharing; the author reports fewer planner launches on H20 TP8, using synthetic acceptance for serving meas…",
+    "mechanism": "Implementation evidence: #58818 creates a dictionary local to build_attn_metadata and shares holders keyed by block size, causality and decode SWA width. Transfer inference: eliminating repeated compatible planner launches can shorten decode's critical path without changing attention arithmetic. The improvement disappears if planning is already shared, groups are incompatible, or removed work is not exposed.",
+    "change": "First inspect the pinned runner and all three affected files for equivalent sharing and actual builder use. If absent and eligible, port the per-pass dictionary and holder reuse. Preserve separate target, drafter and microbatch passes; retain per-group behavior when compatibility cannot be established.",
+    "reasons": [
+      "h200_applicability_and_correctness_required: The three-file Python patch provides a plausible SM90 port without requiring small TP-local head counts. Active runner dispatch and co…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 53,
+      "known_baseline_match": true,
+      "task_token_overlap": 18,
+      "target_token_overlap": 9,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  }
+]

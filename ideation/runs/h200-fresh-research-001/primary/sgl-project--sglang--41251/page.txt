@@ -1,0 +1,590 @@
+Conversation
+BBuf
+commented
+Sep 25, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+Motivation
+DeepSeek-V4.1-Flash on Hopper spends substantial decode time in group32 dense GEMMs, capacity-sized indexer work, mHC statistics, and padded Marlin MoE projections. This PR tunes those paths. On Blackwell, flattened prefill selection also launches separate mask, sort, slot-map and raw-offset operations; the added integer kernel combines them.
+Changes
+Tune Hopper group32 GEMMs and reuse exact BF16 expansions of eligible FP8 weights, preserving activation quantization boundaries and the original fallbacks.
+Use live paged indexer lengths and variable-length top-k; fuse masking, sorting and slot mapping.
+Enable guarded Hopper mHC combine/norm and compensated BF16 projection paths, with decode statistics overlap.
+Preserve intermediate activation rounding in fused clipped SwiGLU; defer MXFP4 padding until Marlin repacking.
+On SM100-family CUDA GPUs, fuse flattened prefill selection into one integer kernel. Keep the changing visible slot count as a non-specialized runtime argument, so new context lengths do not create new JIT variants. Hopper retains its existing Torch selection path.
+Pinned validation
+Checkpoint
+dba1be0a40aa45a94ad051997016db3960a90277
+; PyTorch 2.13.0+cu130 and sgl-kernel 0.4.8; sgl-bench commit
+a9da34ad1f997ca05878d858d3d01970e4a49af9
+; sgl-eval 0.1.2. Both machines were allocated exclusively for these comparisons. All paired datasets, request counts, input/output lengths and API errors were validated from the request records. Timings exclude profiling and correctness instrumentation.
+H200: upstream main versus original PR runtime
+8×H200, TP8/EP1, Marlin MoE, static memory fraction 0.8, bounded SWA replay, decode graph maximum batch64, Engram host table disabled. Main
+ef867fa40d
+versus PR
+22e352d873
+;
+94d21e3162
+differs from the measured PR only by a test mock accessor. Random8192 input /1024 output, seed42, temperature0, thinking disabled,64 warmup requests and cache flush. Request counts30/40/80/80/160/320 at concurrency1/4/8/16/32/64; three alternating paired sweeps. Ratios below are medians of the three paired ratios.
+Concurrency
+User-speed ratio
+Output-throughput/GPU ratio
+TTFT speedup
+1
+2.2067×
+2.1515×
+1.3398×
+4
+2.4842×
+2.3498×
+1.5062×
+8
+2.3599×
+2.2322×
+1.5551×
+16
+2.1674×
+2.0574×
+1.5555×
+32
+2.2540×
+2.1077×
+1.5658×
+64
+2.3975×
+2.1929×
+1.5583×
+The final Blackwell addition was checked separately against the original PR on the same H200 node: one complete paired six-point sweep and full GSM8K/AIME24 at4096/32768 output caps. User-speed ratios are0.9990–1.0029 and output-throughput/GPU ratios0.9989–1.0013. This additional check is one paired sweep, not the three-sweep main comparison above. Full GSM8K is1277/1319 on both arms; AIME24 is456/480→457/480, with23 truncations each. Hopper continues to use its Torch fallback; equal aggregate scores do not imply identical generations.
+GB300: added flattened prefill fusion versus ordinary PR
+4×NVIDIA GB300/SM103, ARM64, TP4/EP1, flashinfer_mxfp4 MoE and flashinfer_cutedsl FP8 GEMM. Ordinary PR
+94d21e3162
+versus candidate
+179b1ab2d3
+(identical tested file hashes). Both arms use16384 for chunked-prefill-size and max-prefill-tokens. Three rotated paired sweeps; seed42, temperature0, thinking disabled,16 warmups and cache flush. Each shape uses64 requests at concurrency1 and128 at concurrency16.
+Input tokens
+Output tokens
+Concurrency
+Median TTFT speedup
+Individual paired ratios
+8192
+32
+1
+1.0170×
+1.0227×, 1.0170×, 0.9902×
+8192
+32
+16
+1.0277×
+1.0266×, 1.0485×, 1.0277×
+32768
+32
+1
+1.0209×
+1.0209×, 1.0282×, 0.9794×
+32768
+32
+16
+1.0200×
+1.0200×, 1.0239×, 1.0168×
+Both concurrency16 shapes improve in all three pairs. Each concurrency1 shape has one regressing pair, so this is a small prefill improvement, not a claim of universal or statistically proven acceleration. In the8192-input/1024-output suite, median output-throughput/GPU ratios are only1.0009–1.0081. The standalone selection helper improves5.45–14.33×; that microbenchmark is not an end-to-end speedup.
+Accuracy
+Full GSM8K1319 problems, thinking disabled; full AIME24 is30 problems×16 repeats, thinking enabled. Seed42, temperature0,32 evaluation threads, no API errors. Repeats are not480 independent questions. Results are paired by question ID, problem text and expected answer.
+Machine
+Dataset/output cap
+Upstream main
+Ordinary PR
+Blackwell candidate
+H200
+GSM8K/2048
+1278/1319
+1278/1319
+Not rerun at this cap
+H200
+AIME24/16384
+440/480
+437/480
+Not rerun at this cap
+H200
+GSM8K/4096
+1276/1319
+1274/1319
+See fresh paired run below
+H200
+AIME24/32768
+451/480
+454/480
+See fresh paired run below
+H200, fresh paired run
+GSM8K/4096
+Not rerun
+1277/1319
+1277/1319
+H200, fresh paired run
+AIME24/32768
+Not rerun
+456/480
+457/480
+GB300
+GSM8K/2048
+1277/1319
+1278/1319
+1279/1319
+GB300
+AIME24/16384
+438/480
+437/480
+434/480
+GB300, fresh paired run
+GSM8K/4096
+Not rerun
+1279/1319
+1277/1319
+GB300, fresh paired run
+AIME24/32768
+Not rerun
+456/480
+453/480
+GB300 accuracy uses2048 prefill budgets, because upstream main's FlashMLA scheduling metadata exceeds its48KB shared-memory implementation limit on a GSM8K batch at the default16K budget. Performance comparisons use the same16K budget on every arm and are kept separate. AIME24 candidate versus ordinary PR changes by−0.625 percentage points; truncations40→42,14 correct→wrong and11 wrong→correct. There is also one additional wrong nontruncated answer. The higher-cap paired run still has AIME24 −0.625 percentage points (456→453 correct; truncations22→24;7 correct→wrong,4 reverse), and GSM8K −0.1516 percentage points (1279→1277; neither arm truncated). These scores do not prove identical generation or statistical accuracy equivalence.
+Correctness coverage
+Existing H200 focused regression:582 passed,60 skipped,16 subtests passed on the rebased runtime.
+New integer selection/CUDA Graph/cache-reuse cases:34 passed on real GB300 SM100 dispatch, and34 passed on H200 with the SM100 entry mocked to exercise the integer helper.
+Full GB300 indexer test file:133 passed,2 skipped.
+Real-model8K/32K prefill audit at concurrency1/16:1908 calls across four ranks, with both page and raw indices exactly equal to the original Torch operations. Rows1–16384, visible slots1–48900. This is integer-mapping evidence, not a substitute for generation-quality evaluation.
+A second actual-model audit dispatches fusion before any reference GPU work:1908 calls,477 per rank, with exact page/raw index agreement. Padding is separately covered by the unit tests.
+Actual model GPU traces contain40
+_finish_flat_indexer_topk_kernel
+events per rank; all four original trace files are retained with source hashes.
+Pinned pre-commit and diff whitespace checks passed. CI is not fully green: the existing AMD raw-draft-metadata test still needs alignment with main's deferred metadata API; no ROCm validation is claimed.
+Memory and weight updates
+The Hopper derived caches trade GPU memory for throughput. In the original weight-load measurement, memory increased72.71→75.43GB/GPU and max_total_num_tokens fell16,012,800→14,223,104 at the same static memory fraction. These are the original configuration's measurements, not newly measured final-commit memory numbers.
+Online weight updates require disabling both derived caches with
+SGLANG_OPT_HOPPER_BLOCK_FP8_BF16=0
+and
+SGLANG_OPT_DEEPGEMM_HC_PRENORM=0
+; otherwise updates fail before writing weights. Other TP/EP layouts are not covered by the reported serving comparisons.
+CI States
+Latest PR Test (Base): ✅
+Run #37035950158
+Latest PR Test (Extra): ❌
+Run #37035949974
+Latest PR Test (AMD ROCm 10): ❌
+Run #37035950474
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+1
+yuan-luo reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+github-actions
+Bot
+added
+deepseek
+jit-kernel
+labels
+Sep 25, 2026
+BBuf
+marked this pull request as ready for review
+September 25, 2026 15:24
+BBuf
+requested review from
+Alisehen
+,
+AniZpZ
+,
+DarkSharpness
+,
+Edwardf0t1
+,
+FlamingoPg
+,
+Fridge003
+,
+HaiShaw
+,
+HydraQYH
+,
+OrangeRedeng
+,
+Qiaolin-Yu
+,
+Ying1123
+,
+b8zhong
+,
+celve
+,
+ch-wan
+,
+hebiao064
+,
+hnyls2002
+,
+ispobock
+,
+merrymercy
+,
+mmangkad
+and
+yuan-luo
+as
+code owners
+September 25, 2026 15:24
+BBuf
+added
+  the
+run-ci
+CI: run the baseline test suite on this PR
+label
+Sep 25, 2026
+BBuf
+commented
+Sep 26, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+Here is the launch config used for the results in this PR, at
+42b9b99490dc
+on 8×H200. Run from the SGLang checkout root and replace the model path:
+SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE=0 \
+PYTHONPATH=
+"
+$PWD
+/python
+"
+\
+python -m sglang.launch_server \
+  --model-path /path/to/DeepSeek-V4.1-Flash \
+  --served-model-name dsv41 \
+  --trust-remote-code \
+  --tp 8 \
+  --ep-size 1 \
+  --mem-fraction-static 0.8 \
+  --attention-backend dsv4 \
+  --moe-runner-backend marlin \
+  --enable-decoder-swa-bounded-replay \
+  --cuda-graph-max-bs-decode 64 \
+  --reasoning-parser auto \
+  --tool-call-parser auto \
+  --host 0.0.0.0 \
+  --port 30000
+Checkpoint revision:
+dba1be0a40aa45a94ad051997016db3960a90277
+.
+Benchmark:
+sgl-bench
+at
+a9da34ad1f99
+,
+sglang-oai-chat
+, random 8192/1024, range ratio 1, seed 42, temperature 0, ignore EOS. Concurrency 1/4/8/16/32/64 with 30/40/80/80/160/320 requests respectively; 64 warmup requests per point and
+--flush-cache
+. No speculative decoding or profiling during timing. Both SGLang curves use this same configuration.
+Request body:
+{
+"chat_template_kwargs"
+:{
+"thinking"
+:
+false
+},
+"stream_options"
+:{
+"include_usage"
+:
+true
+}}
+The key settings to match are
+EP1 + Marlin + GPU-resident Engram
+. The benchmark-infra H200 recipe currently specifies EP8 +
+flashinfer_mxfp4
+, which does not exercise the Marlin-specific changes here. If that recipe was used for the rerun, please try the config above first. This may explain part of the gap, but we need a matched rerun to confirm.
+👍
+1
+zijiexia reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+BBuf
+added
+5
+commits
+September 26, 2026 13:41
+[Perf] Tune H200 group32 FP8 dense GEMMs for TP8 decode
+7c9cf23
+Keep the original short-K GEMM configuration above batch 32
+e75f407
+[Perf] Bound Hopper FP4 indexer work by live context lengths
+a49faa1
+Prepare the indexer top-k plan before scoring and test large graph ba…
+…
+5496c9e
+…tches
+[Perf] Cache exact group32 weight expansions for Hopper prefill GEMMs
+63d795e
+17 hidden items
+Load more…
+BBuf
+added
+3
+commits
+September 26, 2026 13:47
+Adapt Hopper paths to the kernel split and simplify test helpers
+114ab11
+Preserve Hopper paged indexer optimization across the backend split
+b96859b
+Check candidate mask reuse at the scoring call
+f3476d4
+BBuf
+force-pushed
+the
+perf/dsv41-h200-core-ops
+branch
+    from
+42b9b99
+to
+f3476d4
+Compare
+September 26, 2026 06:18
+Remove the Hopper group32 linear test file
+50e39bd
+vladnosiv
+mentioned this pull request
+Sep 29, 2026
+[SM90] Add native block32 FP8 GEMM support (dsv41)
+sgl-project/DeepGEMM#95
+Merged
+Oasis-Git
+mentioned this pull request
+Oct 2, 2026
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+Open
+17 of 56 tasks
+BBuf
+added
+4
+commits
+October 2, 2026 11:03
+Merge latest main and preserve Hopper and gfx950 mHC dispatch
+2cd22c3
+Clarify Hopper dispatch and indexer cache contracts
+79ca023
+test: adapt MXFP4 TP loading coverage to current MoE loader API
+22e352d
+test: align sparse prefill mock with SWA page-size API
+94d21e3
+nvpohanh
+mentioned this pull request
+Oct 2, 2026
+[Test] Add get_swa_key_page_size to the Q8KV8 sparse-prefill fake KV pool
+#42211
+Merged
+5 tasks done
+perf: fuse Blackwell flattened prefill index selection
+179b1ab
+BBuf
+changed the title
+[Perf] Optimize DeepSeek V4.1 Flash dense, indexer, mHC and MoE paths on Hopper
+[Perf] Optimize DeepSeek V4.1 Flash Hopper paths and Blackwell prefill selection
+Oct 2, 2026
+Hide details
+View details
+BBuf
+merged commit
+391e665
+into
+sgl-project
+:
+main
+Oct 3, 2026
+165 of 186 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+BBuf
+deleted the
+perf/dsv41-h200-core-ops
+branch
+October 3, 2026 02:04
+This was referenced
+Oct 3, 2026
+[Bug] DeepSeek-V4.1 fails at attention backend init on SM12x (GB10): the candidate indexer requires DeepGEMM paged sparse MQA logits, which are SM100-only
+#42364
+Open
+[DSv4.1] Run the candidate indexer on SM12x through the paged decode path
+#42371
+Open
+This was referenced
+Oct 3, 2026
+[CI Monitor] Daily Report - 2026-10-03
+bingxche/sglang-ci-bot#214
+Open
+[CI Monitor] Daily Report - 2026-10-04
+bingxche/sglang-ci-bot#215
+Open
+Frank-whw
+mentioned this pull request
+Oct 4, 2026
+[Fix][DSV4.1][SM90] Avoid materializing the full decode indexer slot map
+#40176
+Closed
+5 tasks done
+This was referenced
+Oct 5, 2026
+[CI Monitor] Daily Report - 2026-10-05
+bingxche/sglang-ci-bot#216
+Open
+[CI Monitor] Daily Report - 2026-10-06
+bingxche/sglang-ci-bot#217
+Open
+ormandj
+mentioned this pull request
+Oct 7, 2026
+[Perf] dsv41: Speed up the FP4 indexer scorer by decoding keys without exp2
+#42861
+Open
+3 of 5 tasks
+This was referenced
+Oct 7, 2026
+[CI Monitor] Daily Report - 2026-10-07
+bingxche/sglang-ci-bot#218
+Open
+[CI Monitor] Daily Report - 2026-10-08
+bingxche/sglang-ci-bot#219
+Open
+[CI Monitor] Daily Report - 2026-10-09
+bingxche/sglang-ci-bot#220
+Open
+This was referenced
+Oct 9, 2026
+[WIP][DSv4.1] Opt in to mHC coefficient overlap on SM90
+vllm-project/vllm#60768
+Draft
+[WIP][Kernel][DSv4.1] Add compensated BF16 mHC prenorm for SM90
+vllm-project/vllm#60777
+Closed
+guapisolo
+mentioned this pull request
+Oct 15, 2026
+Bump sglang to v0.5.22
+radixark/miles#4125
+Merged
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+merrymercy
+Awaiting requested review from merrymercy
+merrymercy is a code owner
+Ying1123
+Awaiting requested review from Ying1123
+Ying1123 is a code owner
+hnyls2002
+Awaiting requested review from hnyls2002
+hnyls2002 is a code owner
+Fridge003
+Awaiting requested review from Fridge003
+Fridge003 is a code owner
+ispobock
+Awaiting requested review from ispobock
+ispobock is a code owner
+ch-wan
+Awaiting requested review from ch-wan
+ch-wan is a code owner
+Edwardf0t1
+Awaiting requested review from Edwardf0t1
+Edwardf0t1 is a code owner
+FlamingoPg
+Awaiting requested review from FlamingoPg
+FlamingoPg is a code owner
+AniZpZ
+Awaiting requested review from AniZpZ
+AniZpZ is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+b8zhong
+Awaiting requested review from b8zhong
+b8zhong is a code owner
+OrangeRedeng
+Awaiting requested review from OrangeRedeng
+OrangeRedeng is a code owner
+Alisehen
+Awaiting requested review from Alisehen
+Alisehen is a code owner
+mmangkad
+Awaiting requested review from mmangkad
+mmangkad is a code owner
+Qiaolin-Yu
+Awaiting requested review from Qiaolin-Yu
+Qiaolin-Yu is a code owner
+hebiao064
+Awaiting requested review from hebiao064
+hebiao064 is a code owner
+DarkSharpness
+Awaiting requested review from DarkSharpness
+DarkSharpness is a code owner
+celve
+Awaiting requested review from celve
+celve is a code owner
+HydraQYH
+Awaiting requested review from HydraQYH
+HydraQYH is a code owner
+yuan-luo
+Awaiting requested review from yuan-luo
+yuan-luo is a code owner
+Assignees
+No one assigned
+Labels
+deepseek
+jit-kernel
+run-ci
+CI: run the baseline test suite on this PR
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

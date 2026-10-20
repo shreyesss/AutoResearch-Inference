@@ -1,0 +1,516 @@
+Conversation
+functionstackx
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+Summary
+Update the vLLM image for the H200 DeepSeek-V4.1-Flash AgentX DSpark recipe from
+vllm/vllm-openai:deepseekv41-flash-0909
+(2026-09-10 launch build) to
+vllm/vllm-openai:nightly-cd10ed6f9f6b37a8ace9cf380007e66fe12ec0c3
+(2026-09-15 upstream nightly,
+vllm-project/vllm@
+cd10ed6f
+).
+Tag verified on Docker Hub: pushed 2026-09-15T06:18:57Z, multi-arch manifest (amd64 + arm64), same content as the floating
+nightly
+tag on that date.
+Upstream main at cd10ed6f carries everything the recipe uses: the
+vllm/models/deepseek_v41
+package (model definitions merged in
+[Model] DeepSeek-V4.1-Flash Model Definitions
+vllm-project/vllm#56228
+on 2026-09-10),
+deepseek_v41
+tokenizer / reasoning / tool-call parsers,
+--engram-config
+with
+cpu_offload
+, and the DSpark speculative-config keys (
+draft_sample_method
+,
+rejection_sample_method
+,
+synthetic_acceptance_length
+,
+enable_adaptive_verification
+).
+benchmarks/single_node/agentic/dsv41flash_fp4_vllm_mtp.sh
+is unchanged and pins nothing image-specific. Grid unchanged: TP8, concurrency 1–128, five-token DSpark on golden AL 3.51, Engram UVA offload, GPU-resident KV.
+Docs still name the
+deepseekv41-flash-0909
+image; a single docs follow-up will update
+docs/configuration-procedures.md
+once all six SKU bumps land.
+Recipes touched:
+dsv41flash-fp4-h200-vllm-agentic-dspark
+Test plan
+full-sweep-fail-fast sweep passes on cluster:h200-dgxc.
+中文
+将 H200 DeepSeek-V4.1-Flash AgentX DSpark 配方的 vLLM 镜像从
+vllm/vllm-openai:deepseekv41-flash-0909
+（2026-09-10 发布构建）更新为
+vllm/vllm-openai:nightly-cd10ed6f9f6b37a8ace9cf380007e66fe12ec0c3
+（2026-09-15 上游 nightly，vllm-project/vllm@cd10ed6f）。
+镜像标签已在 Docker Hub 验证：2026-09-15T06:18:57Z 推送，多架构清单（amd64 + arm64）。
+上游 main 在 cd10ed6f 已包含配方所需的全部内容：
+vllm/models/deepseek_v41
+模型包、
+deepseek_v41
+tokenizer / 推理 / 工具调用解析器、
+--engram-config
+的
+cpu_offload
+，以及 DSpark speculative-config 各键。
+基准脚本未改动，未绑定任何镜像特定内容。网格不变：TP8，并发 1–128，五 token DSpark、黄金 AL 3.51、Engram UVA 卸载、KV 驻留 GPU。
+文档仍引用
+deepseekv41-flash-0909
+镜像；六个 SKU 全部合并后将以单独 PR 更新
+docs/configuration-procedures.md
+。
+涉及配方：
+dsv41flash-fp4-h200-vllm-agentic-dspark
+测试计划：full-sweep-fail-fast sweep 在 cluster:h200-dgxc 上通过。
+🤖 Generated with
+Claude Code
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+functionstackx
+requested a review
+  from
+a team
+September 15, 2026 19:14
+functionstackx
+added
+  the
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+label
+Sep 15, 2026
+functionstackx
+requested review from
+Ankur-singh
+and
+kedarpotdar-nv
+as
+code owners
+September 15, 2026 19:14
+github-project-automation
+Bot
+added this to
+InferenceX Board
+Sep 15, 2026
+[Klaud Cold] Update dsv41flash-fp4-h200-vllm-agentic-dspark vLLM imag…
+…
+a5252aa
+…e to nightly-cd10ed6f9f6b37a8ace9cf380007e66fe12ec0c3
+
+Bump the H200 DeepSeek-V4.1-Flash AgentX DSpark recipe from the
+deepseekv41-flash-0909 launch build to the 2026-09-15 upstream nightly. Recipe script
+and search space are unchanged.
+
+将 H200 DeepSeek-V4.1-Flash AgentX DSpark 配方的 vLLM 镜像从
+deepseekv41-flash-0909 发布构建升级到 2026-09-15 上游 nightly。配方脚本与搜索空间保持不变。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+functionstackx
+force-pushed
+the
+klaud/dsv41flash-fp4-h200-vllm-agentic-dspark-nightly-cd10ed6f
+branch
+    from
+1d61f46
+to
+a5252aa
+Compare
+September 15, 2026 19:15
+github-actions
+Bot
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 similar comment
+github-actions
+Bot
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+claude
+Bot
+reviewed
+Sep 15, 2026
+View reviewed changes
+Comment thread
+perf-changelog.yaml
+Outdated
+description:
+- "Update vLLM image from vllm/vllm-openai:deepseekv41-flash-0909 to vllm/vllm-openai:nightly-cd10ed6f9f6b37a8ace9cf380007e66fe12ec0c3 (2026-09-15 upstream nightly, vllm-project/vllm@cd10ed6f); recipe script, DSpark settings, and the TP8 c1–128 grid are unchanged"
+- "将 vLLM 镜像从 vllm/vllm-openai:deepseekv41-flash-0909 更新为 vllm/vllm-openai:nightly-cd10ed6f9f6b37a8ace9cf380007e66fe12ec0c3（2026-09-15 上游 nightly，vllm-project/vllm@cd10ed6f）；配方脚本、DSpark 设置及 TP8 c1–128 网格保持不变"
+pr-link: PRLINK_PLACEHOLDER
+claude
+Bot
+Sep 15, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴 This PR's changelog entry will fail the changelog validator gate before it can merge. The pr-link value
+PRLINK_PLACEHOLDER
+is not one of the accepted placeholders (
+XXX
+or
+.../pull/XXX
+) nor the real PR URL, so
+validate_added_pr_link
+in infx/workflows/validate_perf_changelog.py rejects it with 'new PR entry must use ... or an XXX placeholder'. Fix: set pr-link to the literal
+XXX
+placeholder (or the real
+https://github.com/SemiAnalysisAI/InferenceX/pull/<N>
+URL) so it matches PR_LINK_PLACEHOLDERS or the expected link. [also at: perf-changelog.yaml:7817 - The changelog entry's pr-link is left as the literal placeholder
+PRLINK_PLACEHOLDER
+instead of a real GitHub PR URL, unlike every other entry in this file which points to an actual github.com/.../pull/N link.]
+Extended reasoning...
+validate_perf_changelog.py:144-160 defines validate_added_pr_link(link, pr_number). When pr_number is not None (a PR run), it checks
+link not in PR_LINK_PLACEHOLDERS and link != expected
+. PR_LINK_PLACEHOLDERS (lines 24-27) is exactly {"XXX", "
+https://github.com/SemiAnalysisAI/InferenceX/pull/XXX"}
+. The new entry at perf-changelog.yaml:7816 sets
+pr-link: PRLINK_PLACEHOLDER
+, which is neither in that set nor equal to the expected pull/<pr_number> URL. The function raises ChangelogValidationError(f"new PR entry must use {expected!r} or an XXX placeholder; found {link!r}"). This runs as part of the changelog gate check in CI, so the PR's changelog validation step fails and the PR cannot be merged until the placeholder is corrected to the canonical XXX form or replaced with the real PR URL.
+Verification:
+Severity: normal. The new appended entry at perf-changelog.yaml:7816 sets
+pr-link: PRLINK_PLACEHOLDER
+(confirmed via git diff; grep locates it at 7816). infx/workflows/validate_perf_changelog.py runs the pr-link check on every appended entry: compare_entries lines 205-206
+for entry in additions: validate_added_pr_link(str(entry.get("pr-link") or ""), pr_number)
+. In validate_added_pr_link…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+github-actions
+Bot
+commented
+Sep 15, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+View unofficial run (performance):
+https://inferencex.semianalysis.com/inference?unofficialRun=35020525087
+View unofficial run (accuracy):
+https://inferencex.semianalysis.com/evaluation?unofficialRun=35020525087
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+fix(h200): prefetch the DSv4.1-Flash checkpoint and allow a two-hour …
+…
+29b2f4f
+…cold load
+
+On nightly-cd10ed6f the lazy safetensors path read the 475 GiB checkpoint
+from the VIRTIOFS HF cache at ~170 s/shard and the frontend timed out at
+19/48 shards (run 35012494184); the 0909 build managed ~12.5 s/shard on the
+same files. The H200 launcher now exports VLLM_SAFETENSORS_LOAD_STRATEGY=
+prefetch, forwarded by the shared script as --safetensors-load-strategy,
+and VLLM_ENGINE_READY_TIMEOUT_S=7200 as the GB300 launcher does.
+
+nightly-cd10ed6f 上惰性 safetensors 路径从 VIRTIOFS HF 缓存加载 475 GiB 检查点
+仅约 170 秒/分片，前端在 19/48 分片时超时（运行 35012494184）；0909 构建同一
+文件约 12.5 秒/分片。H200 启动器现导出 VLLM_SAFETENSORS_LOAD_STRATEGY=prefetch
+（共享脚本转发为 --safetensors-load-strategy）及 VLLM_ENGINE_READY_TIMEOUT_S=7200。
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+functionstackx
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+Sweep 1 · failed at engine start
+·
+Run 35012494184
+· c1 and the c128 eval-only job
+The Rust frontend hit its 3600 s readiness deadline while the engine was still loading weights: 19/48 safetensors shards at ~170 s/shard from the VIRTIOFS-mounted HF cache. vLLM logs
+Auto-prefetch is disabled because the filesystem (VIRTIOFS) is not a recognized network FS
+on this nightly. The same files loaded in ~10 minutes (~12.5 s/shard) on
+deepseekv41-flash-0909
+in
+run 34504985992
+; both images select the same Marlin MXFP4/MXFP8 kernels, so the difference is in the lazy mmap load path. The H100 arm (Lustre cache, auto-prefetch on) already passed its eval job on the same nightly, and no Blackwell arm has timed out.
+Change (
+29b2f4f
+):
+runners/launch_h200-dgxc-slurm.sh
+exports
+VLLM_SAFETENSORS_LOAD_STRATEGY=prefetch
+(forwarded by the shared script as
+--safetensors-load-strategy
+, so shards stream into page cache via parallel readers; the 475 GiB checkpoint fits the ~1 TiB host RAM) and
+VLLM_ENGINE_READY_TIMEOUT_S=7200
+, matching the GB300 launcher. No serve-flag or grid change; other SKUs do not set the variable.
+Next:
+rerun the full sweep.
+中文
+第 1 次 sweep · 引擎启动失败
+·
+运行 35012494184
+· c1 与 c128 仅评测任务
+Rust 前端在 3600 秒就绪期限内仍在加载权重：从 VIRTIOFS 挂载的 HF 缓存读取 48 个分片仅完成 19 个，约 170 秒/分片；该 nightly 上 vLLM 提示 VIRTIOFS 不被识别为网络文件系统而关闭自动预取。同一文件在
+deepseekv41-flash-0909
+上约 10 分钟加载完毕（
+运行 34504985992
+）；两镜像选择相同的 Marlin MXFP4/MXFP8 内核，差异在惰性 mmap 加载路径。H100（Lustre 缓存，自动预取开启）已在同一 nightly 上通过评测任务，Blackwell 各 SKU 亦未超时。
+变更（29b2f4f1）：
+runners/launch_h200-dgxc-slurm.sh
+导出
+VLLM_SAFETENSORS_LOAD_STRATEGY=prefetch
+（共享脚本转发为
+--safetensors-load-strategy
+，由并行读取器先将分片载入页缓存）以及
+VLLM_ENGINE_READY_TIMEOUT_S=7200
+（与 GB300 启动器一致）。服务参数与网格不变；其他 SKU 不设置该变量。
+下一步：
+重新运行完整 sweep。
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+functionstackx
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+Sweep 2 · passed
+·
+Run 35020525087
+· head
+29b2f4f
+All eight throughput points (c1–c128) and the c128 eval passed with
+--safetensors-load-strategy prefetch
+and the 7200 s readiness deadline; the log shows the prefetch threads streaming the checkpoint into page cache before the lazy loader touches it. Ready for review / reuse merge.
+中文
+第 2 次 sweep · 通过
+·
+运行 35020525087
+· head
+29b2f4f
+启用
+--safetensors-load-strategy prefetch
+与 7200 秒就绪期限后，全部八个吞吐点（c1–c128）及 c128 评测通过；日志显示预取线程先将检查点流式载入页缓存。可进入评审 / 复用合并。
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+functionstackx
+commented
+Sep 16, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/reuse-sweep-run 35020525087
+👍
+1
+github-actions[bot] reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge remote-tracking branch 'origin/main' into merge-3134
+…
+0b22536
+# Conflicts:
+#	perf-changelog.yaml
+Hide details
+View details
+functionstackx
+merged commit
+29b3966
+into
+main
+Sep 16, 2026
+25 of 26 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+functionstackx
+deleted the
+klaud/dsv41flash-fp4-h200-vllm-agentic-dspark-nightly-cd10ed6f
+branch
+September 16, 2026 02:29
+github-project-automation
+Bot
+moved this to
+Done
+in
+InferenceX Board
+Sep 16, 2026
+functionstackx
+mentioned this pull request
+Sep 26, 2026
+[Klaud Cold] Update minimaxm3-fp8-h200-vllm-agentic-mtp to vLLM nightly-ddd6fbca (prefetch load)
+#3493
+Merged
+3 of 4 tasks
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+Ankur-singh
+Awaiting requested review from Ankur-singh
+kedarpotdar-nv
+Awaiting requested review from kedarpotdar-nv
+Assignees
+No one assigned
+Labels
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+Projects
+InferenceX Board
+Status: Done
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

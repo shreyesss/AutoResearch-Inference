@@ -1,0 +1,226 @@
+Conversation
+mgoin
+commented
+Oct 15, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Member
+Overview
+Proof of concept: on Hopper with expert parallel, run DeepSeek V4 / V4.1 MXFP4 experts on Humming with block FP8 (group 128) activations by default instead of BF16. Related to
+#59488
+(opt-in
+--quantization-config.moe.activation
+for the same method), which this would rebase onto.
+Claims
+DeepSeek-V4-Flash, TP4 + EP on H200: +25% decode output throughput (TPOT 25.2 -> 20.0 ms) and +6% prefill-heavy throughput, with GSM8K unchanged.
+Scope:
+Mxfp4MoEMethod
+with the HUMMING backend, DeepSeek V4 routing (V4 and V4.1), expert parallel, SM90. Everything else keeps the current BF16 default, and
+VLLM_HUMMING_INPUT_QUANT_CONFIG
+still overrides.
+Validation
+DeepSeek-V4-Flash on 4x H200, Humming MoE backend (the SM90 default). Baseline is
+main
+(BF16 activations). The FP8 column was measured with
+VLLM_HUMMING_INPUT_QUANT_CONFIG='{"a_dtype": "float8e4m3", "input_scale_group_size": 128}'
+. That override resolves to the same Humming layer config as this PR's
+kFp8Dynamic128Sym
+(group 128,
+DynamicGroup
+, float32 scales on SM90).
+Config
+Workload
+BF16 (main)
+FP8 GS128
+Change
+TP4 + EP
+GSM8K 5-shot (1319 q)
+0.951
+0.948
+within noise
+TP4 + EP
+decode: 512 in / 1024 out, conc 128 (3 runs)
+4757 / 4911 / 4906 tok/s
+6131 / 6135 / 6128 tok/s
++25%
+TP4 + EP
+prefill: 8192 in / 64 out, conc 32
+28939 tok/s total
+30780 tok/s total
++6.4%
+TP4 + EP
+low concurrency: 2048 in / 512 out, conc 4
+422.6 tok/s
+421.0 tok/s
+-0.4%
+TP4 (no EP)
+GSM8K 5-shot
+0.948
+0.951
+within noise
+TP4 (no EP)
+decode (1 run)
+5249 tok/s
+4473 tok/s
+-15%
+TP4 (no EP)
+prefill
+29873 tok/s total
+30309 tok/s total
++1.5%
+TP4 (no EP)
+low concurrency
+485.9 tok/s
+455.9 tok/s
+-6%
+vllm serve deepseek-ai/DeepSeek-V4-Flash --tensor-parallel-size 4 --enable-expert-parallel --max-model-len 16384
+python tests/evals/gsm8k/gsm8k_eval.py --port 8000 --max-concurrency 256
+vllm bench serve --model deepseek-ai/DeepSeek-V4-Flash --dataset-name random \
+  --random-input-len 512 --random-output-len 1024 --num-prompts 512 --max-concurrency 128 --ignore-eos
+Tests:
+pytest tests/quantization/test_humming_mxfp4_block_fp8.py
+passes (11). The new test fails without the source change.
+Details
+DeepSeek V4 MXFP4 experts go through
+Mxfp4MoEMethod
+, which passes no activation key. On SM90 the Humming backend then builds its input schema from
+VLLM_HUMMING_INPUT_QUANT_CONFIG
+and defaults to BF16. This PR sets
+activation_key = kFp8Dynamic128Sym
+in that case.
+#59815
+already plumbs the key into Humming's input schema with fallback disabled. The DeepSeek V4 checkpoint declares block FP8 GS128 with UE8M0 scales for its FP8 layers, so block FP8 matches what the model was built for.
+Why only with EP: under EP each rank runs full-size experts (hidden 4096, intermediate 2048), where Humming's FP8 x MXFP4 kernels are faster. Under TP4 the intermediate is split to 512 per rank, and dynamic activation quantization costs more than it saves. Gating on DeepSeek V4 routing keeps other MXFP4 models (Kimi K3, plain mxfp4) unchanged.
+Limitations:
+DeepSeek-V4.1-Flash was not run; it shares the routing and method, so it gets the same default.
+[Perf][DeepSeek V4.1] Humming indexed MoE GEMM with EP on Hopper, and a named MoE activation format
+#59488
+reports the indexed GEMM is faster for V4.1 with EP on Hopper, and the FP8 gain should be re-measured on that path.
+Measured on H200 with the default all2all backend. DeepEP v2 and H100/H20 were not measured.
+The FP8 column was measured with the equivalent env override. I could not rerun end to end on this exact build because the shared machine's GPUs were taken.
+Not a duplicate:
+[Perf][DeepSeek V4.1] Humming indexed MoE GEMM with EP on Hopper, and a named MoE activation format
+#59488
+adds an opt-in activation format for the same method, and this PR changes the default for one configuration.
+[Perf][Humming] Integrate fused SwiGLU FP8 quantization for W2
+#53184
+fuses SwiGLU with per-token FP8 quantization for W2.
+[Model][Quant] DeepSeek-V4: opt-in lossless MXFP4->block-FP8 expert dequant (Hopper prefill speedup)
+#53709
+dequantizes experts to block FP8 instead.
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used during the creation of this PR.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+🤖 Generated with
+Claude Code
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+[Perf][DeepSeek V4] Default to block FP8 MoE activations on Hopper wi…
+…
+a3bcf3a
+…th EP
+
+DeepSeek V4 MXFP4 experts run on Humming with BF16 activations on SM90
+unless VLLM_HUMMING_INPUT_QUANT_CONFIG is set. With expert parallel the
+per-rank expert GEMMs are full size, and block FP8 (group 128)
+activations are faster there. Default to them in that case; the env
+override still takes precedence.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: mgoin <mgoin64@gmail.com>
+mergify
+Bot
+added
+deepseek
+Related to DeepSeek models
+quantization
+DSv4
+labels
+Oct 15, 2026
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+robertgshaw2-redhat will be requested when the pull request is marked ready for review
+robertgshaw2-redhat is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 will be requested when the pull request is marked ready for review
+yewentao256 is a code owner
+pavanimajety
+Awaiting requested review from pavanimajety
+pavanimajety will be requested when the pull request is marked ready for review
+pavanimajety is a code owner
+zyongye
+Awaiting requested review from zyongye
+zyongye will be requested when the pull request is marked ready for review
+zyongye is a code owner
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+AndreasKaratzas will be requested when the pull request is marked ready for review
+AndreasKaratzas is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth will be requested when the pull request is marked ready for review
+tlrmchlsmth is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+deepseek
+Related to DeepSeek models
+DSv4
+quantization
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

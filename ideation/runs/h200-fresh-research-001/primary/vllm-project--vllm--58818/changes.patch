@@ -1,0 +1,87 @@
+From 0457e961490be6234aac531a76e40859874f9813 Mon Sep 17 00:00:00 2001
+From: Shuolei Wang <shuoleiwang123@gmail.com>
+Date: Sat, 26 Sep 2026 12:22:00 +0800
+Subject: [PATCH] [Perf][DSv4.1] Share the FlashMLA decode plan across KV cache
+ groups
+
+Signed-off-by: Shuolei Wang <shuoleiwang123@gmail.com>
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+
+Signed-off-by: Shuolei Wang <948904026@qq.com>
+---
+ vllm/v1/attention/backend.py                 |  3 +++
+ vllm/v1/attention/backends/mla/sparse_swa.py | 18 ++++++++++++++++--
+ vllm/v1/worker/gpu/attn_utils.py             |  2 ++
+ 3 files changed, 21 insertions(+), 2 deletions(-)
+
+diff --git a/vllm/v1/attention/backend.py b/vllm/v1/attention/backend.py
+index 319b9977f4a0..0f028e2216a0 100644
+--- a/vllm/v1/attention/backend.py
++++ b/vllm/v1/attention/backend.py
+@@ -474,6 +474,9 @@ class CommonAttentionMetadata:
+ 
+     _num_computed_tokens_cache: torch.Tensor | None = None
+     _token_to_req_indices_cache: torch.Tensor | None = None
++    _cross_group_cache: dict[Any, Any] | None = None
++    """Per-pass scratch shared by every KV cache group's builder, for state that
++    does not depend on the block table; None when groups are built separately."""
+ 
+     def batch_size(self) -> int:
+         return self.seq_lens.shape[0]
+diff --git a/vllm/v1/attention/backends/mla/sparse_swa.py b/vllm/v1/attention/backends/mla/sparse_swa.py
+index b0ef9e65a38c..8b80848a2f1d 100644
+--- a/vllm/v1/attention/backends/mla/sparse_swa.py
++++ b/vllm/v1/attention/backends/mla/sparse_swa.py
+@@ -228,7 +228,8 @@ class DeepseekSparseSWAMetadata:
+ 
+     # Per-layer-type FlashMLA tile-scheduler metadata. One FlashMLASchedMeta
+     # per present DeepseekV4 layer type, shared across all ~60 layers of that type
+-    # within a decode step. The first forward call of a given type triggers
++    # within a decode step (across KV cache groups too, when the runner passes
++    # a cross-group cache). The first forward call of a given type triggers
+     # the in-kernel planner (which also allocates tile_scheduler_metadata and
+     # num_splits via PyTorch's graph-aware allocator); subsequent same-type
+     # calls skip planning and reuse the plan. Fresh instance per build(), so
+@@ -733,8 +734,21 @@ def build(
+         # Per-layer-type tile-scheduler plan holders. Empty FlashMLASchedMeta
+         # per present DeepseekV4 layer type; the first flash_mla_with_kvcache call of
+         # each type triggers the planner and all same-type layers reuse the
+-        # resulting plan for the rest of the step.
++        # resulting plan for the rest of the step. KV cache groups of one build
++        # pass share them too: FlashMLA checks only shapes, but the groups' decode
++        # lengths come from the same batch, window, valid-token mask and replay_start.
+         tile_sched = self.build_tile_scheduler(num_decode_tokens)
++        cross_group_cache = common_attn_metadata._cross_group_cache
++        if cross_group_cache is not None:
++            tile_sched = cross_group_cache.setdefault(
++                (
++                    "deepseek_v4_tile_sched",
++                    self.block_size,
++                    non_causal,
++                    decode_swa_width,
++                ),
++                tile_sched,
++            )
+ 
+         return DeepseekSparseSWAMetadata(
+             seq_lens=seq_lens,
+diff --git a/vllm/v1/worker/gpu/attn_utils.py b/vllm/v1/worker/gpu/attn_utils.py
+index 19de125a9bd6..ee10db128df3 100644
+--- a/vllm/v1/worker/gpu/attn_utils.py
++++ b/vllm/v1/worker/gpu/attn_utils.py
+@@ -463,6 +463,7 @@ def build_attn_metadata(
+ 
+     attn_metadata: dict[str, Any] = {}
+     token_to_req_indices: torch.Tensor | None = None
++    cross_group_cache: dict[Any, Any] = {}
+     # Mamba groups with the same spec and builder differ only in their state
+     # indices, so later groups re-gather those from the first group's metadata.
+     # Also at capture, so FULL graphs share the batch-level buffers.
+@@ -514,6 +515,7 @@ def build_attn_metadata(
+             rswa_prefix_lens=rswa_prefix_lens,
+             req_idx=req_idx,
+             _token_to_req_indices_cache=token_to_req_indices,
++            _cross_group_cache=cross_group_cache,
+             **common_attn_metadata_extra_kwargs,
+         )
+ 

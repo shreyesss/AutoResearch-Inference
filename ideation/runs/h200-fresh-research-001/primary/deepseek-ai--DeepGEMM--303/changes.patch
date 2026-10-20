@@ -1,0 +1,270 @@
+From 2f9199d8871c3af0878d6b7177ee7b06485d6bcd Mon Sep 17 00:00:00 2001
+From: greg pereira <grpereir@redhat.com>
+Date: Sat, 11 Apr 2026 09:51:41 -0700
+Subject: [PATCH 1/4] Eliminate redundant global stores in SM90 MQA logits
+ kernels
+
+Signed-off-by: greg pereira <grpereir@redhat.com>
+---
+ .../deep_gemm/impls/sm90_fp8_mqa_logits.cuh   | 22 ++++++++++---------
+ .../impls/sm90_fp8_paged_mqa_logits.cuh       |  8 ++++---
+ 2 files changed, 17 insertions(+), 13 deletions(-)
+
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index d58c71624..44e3119d1 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -302,16 +302,18 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                     }
+ 
+                     // Store into the global memory
+-                    // NOTES: we have redundant writes here, consider more carefully
+-                    const uint32_t& q_idx = block_q_idx * BLOCK_Q + i;
+-                    if constexpr (kIsCompressedLogits) {
+-                        if (seq_k_start[i] <= kv_offset + v_0_offset and kv_offset + v_0_offset < seq_k_end[i])
+-                            logits[q_idx * stride_logits + kv_offset + v_0_offset - seq_k_start[i]] = v_0;
+-                        if (seq_k_start[i] <= kv_offset + v_1_offset and kv_offset + v_1_offset < seq_k_end[i])
+-                            logits[q_idx * stride_logits + kv_offset + v_1_offset - seq_k_start[i]] = v_1;
+-                    } else {
+-                        logits[q_idx * stride_logits + kv_offset + v_0_offset] = v_0;
+-                        logits[q_idx * stride_logits + kv_offset + v_1_offset] = v_1;
++                    // Only one thread per group of 4 needs to write (lanes 0-3 share the same offsets)
++                    if (lane_idx % 4 == 0) {
++                        const uint32_t& q_idx = block_q_idx * BLOCK_Q + i;
++                        if constexpr (kIsCompressedLogits) {
++                            if (seq_k_start[i] <= kv_offset + v_0_offset and kv_offset + v_0_offset < seq_k_end[i])
++                                logits[q_idx * stride_logits + kv_offset + v_0_offset - seq_k_start[i]] = v_0;
++                            if (seq_k_start[i] <= kv_offset + v_1_offset and kv_offset + v_1_offset < seq_k_end[i])
++                                logits[q_idx * stride_logits + kv_offset + v_1_offset - seq_k_start[i]] = v_1;
++                        } else {
++                            logits[q_idx * stride_logits + kv_offset + v_0_offset] = v_0;
++                            logits[q_idx * stride_logits + kv_offset + v_1_offset] = v_1;
++                        }
+                     }
+                 }
+             }
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh
+index 482a85a80..8e0422eca 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh
+@@ -402,9 +402,11 @@ void sm90_fp8_paged_mqa_logits(const uint32_t batch_size,
+                 }
+ 
+                 // Store into the global memory
+-                // NOTES: we have redundant writes here, consider more carefully
+-                logits[kv_offset + i * logits_stride + v_0_offset] = v_0;
+-                logits[kv_offset + i * logits_stride + v_1_offset] = v_1;
++                // Only one thread per group of 4 needs to write (lanes 0-3 share the same offsets)
++                if (lane_idx % 4 == 0) {
++                    logits[kv_offset + i * logits_stride + v_0_offset] = v_0;
++                    logits[kv_offset + i * logits_stride + v_1_offset] = v_1;
++                }
+             }
+         }
+     }
+
+From 69a2f5dde48dda12f07204bd9ffee7cddcd06a1c Mon Sep 17 00:00:00 2001
+From: greg pereira <grpereir@redhat.com>
+Date: Sat, 11 Apr 2026 10:40:33 -0700
+Subject: [PATCH 2/4] remove reduced writes and increased num_kv_stages = 5
+
+Signed-off-by: greg pereira <grpereir@redhat.com>
+---
+ .../jit_kernels/impls/smxx_fp8_mqa_logits.hpp |  2 +-
+ .../deep_gemm/impls/sm90_fp8_mqa_logits.cuh   | 22 +++++++++----------
+ .../impls/sm90_fp8_paged_mqa_logits.cuh       |  8 +++----
+ 3 files changed, 14 insertions(+), 18 deletions(-)
+
+diff --git a/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp b/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp
+index f3b82e3de..1e292c6f8 100644
+--- a/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp
++++ b/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp
+@@ -93,7 +93,7 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+     constexpr int block_qh = 128;
+     constexpr int block_kv = 256;
+     constexpr int num_specialized_threads = 128;
+-    constexpr int num_q_stages = 3, num_kv_stages = 3;
++    constexpr int num_q_stages = 3, num_kv_stages = 5;
+     const int num_math_threads = (device_runtime->get_arch_major() == 10 ? 256 : 512);
+     const int block_q = block_qh / num_heads;
+     DG_HOST_ASSERT(block_qh % num_heads == 0);
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index 44e3119d1..d58c71624 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -302,18 +302,16 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                     }
+ 
+                     // Store into the global memory
+-                    // Only one thread per group of 4 needs to write (lanes 0-3 share the same offsets)
+-                    if (lane_idx % 4 == 0) {
+-                        const uint32_t& q_idx = block_q_idx * BLOCK_Q + i;
+-                        if constexpr (kIsCompressedLogits) {
+-                            if (seq_k_start[i] <= kv_offset + v_0_offset and kv_offset + v_0_offset < seq_k_end[i])
+-                                logits[q_idx * stride_logits + kv_offset + v_0_offset - seq_k_start[i]] = v_0;
+-                            if (seq_k_start[i] <= kv_offset + v_1_offset and kv_offset + v_1_offset < seq_k_end[i])
+-                                logits[q_idx * stride_logits + kv_offset + v_1_offset - seq_k_start[i]] = v_1;
+-                        } else {
+-                            logits[q_idx * stride_logits + kv_offset + v_0_offset] = v_0;
+-                            logits[q_idx * stride_logits + kv_offset + v_1_offset] = v_1;
+-                        }
++                    // NOTES: we have redundant writes here, consider more carefully
++                    const uint32_t& q_idx = block_q_idx * BLOCK_Q + i;
++                    if constexpr (kIsCompressedLogits) {
++                        if (seq_k_start[i] <= kv_offset + v_0_offset and kv_offset + v_0_offset < seq_k_end[i])
++                            logits[q_idx * stride_logits + kv_offset + v_0_offset - seq_k_start[i]] = v_0;
++                        if (seq_k_start[i] <= kv_offset + v_1_offset and kv_offset + v_1_offset < seq_k_end[i])
++                            logits[q_idx * stride_logits + kv_offset + v_1_offset - seq_k_start[i]] = v_1;
++                    } else {
++                        logits[q_idx * stride_logits + kv_offset + v_0_offset] = v_0;
++                        logits[q_idx * stride_logits + kv_offset + v_1_offset] = v_1;
+                     }
+                 }
+             }
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh
+index 8e0422eca..482a85a80 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh
+@@ -402,11 +402,9 @@ void sm90_fp8_paged_mqa_logits(const uint32_t batch_size,
+                 }
+ 
+                 // Store into the global memory
+-                // Only one thread per group of 4 needs to write (lanes 0-3 share the same offsets)
+-                if (lane_idx % 4 == 0) {
+-                    logits[kv_offset + i * logits_stride + v_0_offset] = v_0;
+-                    logits[kv_offset + i * logits_stride + v_1_offset] = v_1;
+-                }
++                // NOTES: we have redundant writes here, consider more carefully
++                logits[kv_offset + i * logits_stride + v_0_offset] = v_0;
++                logits[kv_offset + i * logits_stride + v_1_offset] = v_1;
+             }
+         }
+     }
+
+From 515009a5c2ef260349f9e537fa272ec80ae9adb5 Mon Sep 17 00:00:00 2001
+From: greg pereira <grpereir@redhat.com>
+Date: Sat, 11 Apr 2026 11:04:29 -0700
+Subject: [PATCH 3/4] Halve SM90 math threads and BLOCK_KV to fit 2
+ threadblocks per SM, moving weights from registers to on-demand shared memory
+ loads to stay within register budget
+
+Signed-off-by: greg pereira <grpereir@redhat.com>
+---
+ .../jit_kernels/impls/smxx_fp8_mqa_logits.hpp |  9 ++++++---
+ .../deep_gemm/impls/sm90_fp8_mqa_logits.cuh   | 19 +++++++------------
+ 2 files changed, 13 insertions(+), 15 deletions(-)
+
+diff --git a/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp b/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp
+index 1e292c6f8..568d66e29 100644
+--- a/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp
++++ b/csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp
+@@ -91,10 +91,13 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+                                 const int& num_heads, const int& head_dim,
+                                 const int& seq_len_alignment) {
+     constexpr int block_qh = 128;
+-    constexpr int block_kv = 256;
+     constexpr int num_specialized_threads = 128;
+-    constexpr int num_q_stages = 3, num_kv_stages = 5;
+-    const int num_math_threads = (device_runtime->get_arch_major() == 10 ? 256 : 512);
++    const bool is_sm100 = (device_runtime->get_arch_major() == 10);
++    // SM90: use 256 math threads (2 warpgroups) with BLOCK_KV=128 to enable 2 blocks/SM
++    // SM100: use 256 math threads with BLOCK_KV=256
++    const int num_math_threads = 256;
++    const int block_kv = (is_sm100 ? 256 : 128);
++    constexpr int num_q_stages = 3, num_kv_stages = 3;
+     const int block_q = block_qh / num_heads;
+     DG_HOST_ASSERT(block_qh % num_heads == 0);
+     DG_HOST_ASSERT(seq_len_alignment % block_q == 0);
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index d58c71624..2ac4426cc 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -31,7 +31,7 @@ template <uint32_t kNumHeads, uint32_t kHeadDim,
+           uint32_t BLOCK_Q, uint32_t BLOCK_KV,
+           uint32_t kNumQStages, uint32_t kNumKVStages,
+           uint32_t kNumTMAThreads, uint32_t kNumMathThreads>
+-__global__ __launch_bounds__(kNumTMAThreads + kNumMathThreads, 1)
++__global__ __launch_bounds__(kNumTMAThreads + kNumMathThreads, 2)
+ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                          const uint32_t max_seqlen_k, const uint64_t stride_logits,
+                          uint32_t* cu_seq_len_k_start,
+@@ -120,7 +120,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+ 
+     // Register reconfigurations
+     constexpr uint32_t kNumTMARegisters = 32;
+-    constexpr uint32_t kNumMathRegisters = 112;
++    constexpr uint32_t kNumMathRegisters = 80;
+ 
+     // Block scheduler
+     uint32_t block_q_idx = blockIdx.x, q_iter_idx = 0;
+@@ -213,7 +213,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+         const auto& warp_idx = __shfl_sync(0xffffffff, thread_idx / 32, 0);
+         const auto& warpgroup_idx = warp_idx / 4;
+         const auto& lane_idx = get_lane_idx();
+-        float accum[WGMMA::kNumAccum], weights[BLOCK_Q][kNumHeads / 4];
++        float accum[WGMMA::kNumAccum];
+ 
+         const auto& warp_offset = warp_idx * 16;
+         const auto& v_0_offset = lane_idx / 4 + 0;
+@@ -225,14 +225,6 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+             // Wait TMA Q arrival
+             full_q_barriers[q_stage_idx]->wait(q_phase);
+ 
+-            // Read weights
+-            #pragma unroll
+-            for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
+-                #pragma unroll
+-                for (uint32_t j = 0; j < kNumHeads / 4; ++ j)
+-                    weights[i][j] = ld_shared(smem_weights[q_stage_idx] + i * kNumHeads + (j / 2) * 8 + (j & 1) + (lane_idx % 4) * 2);
+-            }
+-
+             // Compute over KV blocks
+             #pragma unroll
+             for (uint32_t kv_block_idx = 0; kv_block_idx < num_kv_blocks; ++ kv_block_idx) {
+@@ -278,8 +270,11 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                 #pragma unroll
+                 for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
+                     auto shifted_accum = accum + i * kNumAccumPerReduce;
++                    const auto& load_weight = [&](const uint32_t& j) -> float {
++                        return ld_shared(smem_weights[q_stage_idx] + i * kNumHeads + (j / 4) * 8 + (j & 1) + (lane_idx % 4) * 2);
++                    };
+                     const auto& transform = [&](const uint32_t& j) {
+-                        return fmaxf(shifted_accum[j], 0) * weights[i][(j / 4) * 2 + (j & 1)];
++                        return fmaxf(shifted_accum[j], 0) * load_weight(j);
+                     };
+ 
+                     // Intra-thread reduction
+
+From bf3643e7b116e224c14597db4fd353350658aa1f Mon Sep 17 00:00:00 2001
+From: greg pereira <grpereir@redhat.com>
+Date: Sat, 11 Apr 2026 11:07:46 -0700
+Subject: [PATCH 4/4] keep 1 block per SM, but with halved threads (256 math)
+ and halved BLOCK_KV (128)
+
+Signed-off-by: greg pereira <grpereir@redhat.com>
+---
+ deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index 2ac4426cc..e9274b60f 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -31,7 +31,7 @@ template <uint32_t kNumHeads, uint32_t kHeadDim,
+           uint32_t BLOCK_Q, uint32_t BLOCK_KV,
+           uint32_t kNumQStages, uint32_t kNumKVStages,
+           uint32_t kNumTMAThreads, uint32_t kNumMathThreads>
+-__global__ __launch_bounds__(kNumTMAThreads + kNumMathThreads, 2)
++__global__ __launch_bounds__(kNumTMAThreads + kNumMathThreads, 1)
+ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                          const uint32_t max_seqlen_k, const uint64_t stride_logits,
+                          uint32_t* cu_seq_len_k_start,
+@@ -120,7 +120,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+ 
+     // Register reconfigurations
+     constexpr uint32_t kNumTMARegisters = 32;
+-    constexpr uint32_t kNumMathRegisters = 80;
++    constexpr uint32_t kNumMathRegisters = 96;
+ 
+     // Block scheduler
+     uint32_t block_q_idx = blockIdx.x, q_iter_idx = 0;

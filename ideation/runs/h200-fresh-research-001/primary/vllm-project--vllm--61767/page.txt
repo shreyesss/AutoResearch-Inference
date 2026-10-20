@@ -1,0 +1,737 @@
+Conversation
+njhill
+commented
+Oct 15, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Member
+This is a refactored version of
+#60267
+from
+@hjjq
+.
+Main changes from that PR:
+Move out of MRV2 since it's a generic collective, make compatible with elastic ep
+Don't use
+batch_isend_irecv
+which is actually slower with gloo
+Generalize to any DP size (not just power of 2)
+Also use for the post-step DP state sync
+Remove the env var, just use it unconditionally
+Gloo's all_reduce on the small CPU tensors used for DP synchronization is latency-bound and grows roughly linearly with the DP size. Add
+cpu_all_reduce_()
+to
+vllm.distributed.utils
+: recursive doubling within power-of-two blocks of ranks, then one concurrent exchange between blocks, so any group size completes in log2(largest power-of-two factor) + 1 rounds. Block sums are added in a fixed order, so results are bitwise identical across ranks.
+It calls
+ProcessGroup.send/recv
+with group-local ranks, so it also works with stateless (unregistered) groups such as the engine-core DP group and elastic EP's DP group.
+It is used automatically (no env var) for:
+the V2 worker's DP padding/cudagraph sync, via
+GroupCoordinator.cpu_all_reduce_()
+the engine-core DP state sync,
+ParallelConfig.sync_dp_state()
+Performance
+Standalone microbenchmark: p50 latency (µs) of an in-place SUM all-reduce of a 6×N int32 CPU tensor (the V2 DP metadata shape) over gloo, one process per rank, on GB200 nodes with gloo over the nodes' Ethernet NIC. Each method was run for 5,000 calls, interleaved in random order; the value is the median across ranks of per-rank p50.
+gloo
+:
+dist.all_reduce
+(current main)
+[Perf][V2] Add custom CPU DP metadata all-reduce
+#60267
+: the original PR (
+VLLM_DP_METADATA_TRANSPORT=gloo-tree
+); power-of-two sizes only
+this PR
+:
+cpu_all_reduce_
+nodes
+ranks
+gloo
+#60267
+this PR
+speedup vs gloo
+1
+2
+161
+121
+99
+1.6×
+1
+3
+326
+n/a
+175
+1.9×
+1
+4
+780
+265
+224
+3.5×
+1
+5
+566
+n/a
+266
+2.1×
+1
+6
+695
+n/a
+252
+2.8×
+1
+7
+850
+n/a
+365
+2.3×
+1
+8
+1690
+377
+326
+5.2×
+1
+9
+1094
+n/a
+459
+2.4×
+1
+11
+2379
+n/a
+695
+3.4×
+1
+12
+2749
+n/a
+400
+6.9×
+1
+15
+3920
+n/a
+1042
+3.8×
+2
+2
+308
+146
+129
+2.4×
+2
+4
+845
+271
+234
+3.6×
+2
+6
+1366
+n/a
+344
+4.0×
+2
+8
+1977
+413
+362
+5.5×
+2
+10
+2563
+n/a
+444
+5.8×
+2
+12
+3005
+n/a
+536
+5.6×
+4
+4
+1114
+281
+267
+4.2×
+4
+8
+2560
+459
+409
+6.3×
+4
+12
+3806
+n/a
+482
+7.9×
+4
+16
+5354
+604
+546
+9.8×
+Where
+#60267
+applies (power-of-two sizes), this PR has 5–18% lower latency. Gloo's latency grows roughly linearly with the number of ranks, while this PR adds about one round per doubling plus one round for the odd factor.
+Correctness:
+tests/distributed/test_cpu_all_reduce.py
+(sizes 2, 3, 4, 6, 8, 9, 12; exact match vs
+dist.all_reduce
+, bitwise-identical float results across ranks, and a stateless process group).
+tests/v1/distributed/test_async_llm_dp.py
+with DP=4 passes with the multiprocessing backend (ray backend not tested).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+🚀
+2
+sawsa307 and abmfy reacted with rocket emoji
+All reactions
+🚀
+2 reactions
+njhill
+requested review from
+Harry-Chen
+,
+ProExpertProg
+,
+WoosukKwon
+,
+houseroad
+,
+khluu
+,
+mgoin
+,
+robertgshaw2-redhat
+,
+tlrmchlsmth
+,
+yewentao256
+and
+youkaichao
+as
+code owners
+October 15, 2026 07:12
+claude
+Bot
+reviewed
+Oct 15, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+ci/build
+mrv2
+Model Runner V2 specific
+labels
+Oct 15, 2026
+njhill
+mentioned this pull request
+Oct 15, 2026
+[Perf][V2] Add custom CPU DP metadata all-reduce
+#60267
+Closed
+njhill
+added
+  the
+ready
+ONLY add when PR is ready to merge/full CI is needed
+label
+Oct 15, 2026
+njhill
+force-pushed
+the
+dp-sync-cpu-minimal
+branch
+    from
+e681665
+to
+3390d13
+Compare
+October 15, 2026 14:36
+njhill
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #95151
+for commit
+3390d13775a2
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+njhill
+force-pushed
+the
+dp-sync-cpu-minimal
+branch
+    from
+3390d13
+to
+8ce871b
+Compare
+October 15, 2026 16:17
+njhill
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci retry
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+✅ The previous CI build is still running:
+https://buildkite.com/vllm/ci/builds/95151
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+njhill
+and others
+added
+2
+commits
+October 15, 2026 10:13
+[Perf] Low-latency CPU all-reduce for DP metadata syncs
+…
+7b544ec
+Gloo's all_reduce on the small CPU tensors used for DP synchronization is
+latency-bound and grows roughly linearly with the DP size. Add
+`cpu_all_reduce_()` to vllm.distributed.utils: recursive doubling within
+power-of-two blocks of ranks, then one concurrent exchange between blocks,
+so any group size completes in log2(largest power-of-two factor) + 1
+rounds. Block sums are added in a fixed order, so results are bitwise
+identical across ranks.
+
+It calls ProcessGroup.send/recv with group-local ranks, so it also works
+with stateless (unregistered) groups such as the engine-core DP group and
+elastic EP's DP group.
+
+It is used automatically (no env var) for:
+- the V2 worker's DP padding/cudagraph sync, via
+  GroupCoordinator.cpu_all_reduce_()
+- the engine-core DP state sync, ParallelConfig.sync_dp_state()
+
+p50 latency of a 6xN int32 all-reduce, gloo all_reduce -> cpu_all_reduce_:
+- 1 node:   8 ranks 1690us -> 326us; 12 ranks 2749us -> 400us
+- 2 nodes:  8 ranks 1977us -> 362us; 12 ranks 3005us -> 536us
+- 4 nodes: 16 ranks 5354us -> 546us
+- odd sizes (1 node): 7 ranks 850us -> 365us; 15 ranks 3920us -> 1042us
+
+Co-authored-by: hjjq <50634613+hjjq@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Signed-off-by: Nick Hill <nickhill123@gmail.com>
+fix test
+…
+c5b750f
+Signed-off-by: Nick Hill <nickhill123@gmail.com>
+njhill
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci retry
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+njhill
+force-pushed
+the
+dp-sync-cpu-minimal
+branch
+    from
+8ce871b
+to
+c5b750f
+Compare
+October 15, 2026 17:13
+github-actions
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+✅ The previous CI build is still running:
+https://buildkite.com/vllm/ci/builds/95151
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+hjjq
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Contributor
+LGTM, thanks for the refactor and generalization
+@njhill
+!
+❤️
+1
+njhill reacted with heart emoji
+All reactions
+❤️
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+WoosukKwon
+approved these changes
+Oct 15, 2026
+View reviewed changes
+njhill
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci retry
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+✅ The previous CI build is still running:
+https://buildkite.com/vllm/ci/builds/95151
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into dp-sync-cpu-minimal
+e8bd954
+njhill
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Member
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #95211
+for commit
+e8bd9541db65
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+tlrmchlsmth
+reviewed
+Oct 15, 2026
+View reviewed changes
+Comment thread
+vllm/distributed/utils.py
+Recursive doubling within power-of-two blocks, then one concurrent exchange
+between blocks. Results are bitwise identical across ranks. Works with
+stateless (unregistered) process groups.
+"""
+tlrmchlsmth
+Oct 15, 2026
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Has anyone tried tried using a one-shot allreduce instead? Wondering if that would improve things further
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Hide details
+View details
+WoosukKwon
+merged commit
+de7d706
+into
+vllm-project
+:
+main
+Oct 15, 2026
+226 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+njhill
+deleted the
+dp-sync-cpu-minimal
+branch
+October 15, 2026 22:30
+abmfy
+mentioned this pull request
+Oct 16, 2026
+[Perf][EPLB][DSv4] Add a symm_mem weight-migration backend and fuse MegaMoE replica mapping
+#62009
+Open
+2 of 6 tasks
+Juntian777
+mentioned this pull request
+Oct 16, 2026
+[Perf][DSv4.1] Read GPU Engram tables from peers' HBM instead of DP collectives
+#62091
+Open
+6 tasks done
+michael-gpu
+pushed a commit
+        to practical-inference/vllm-ampere-extended
+      that referenced
+      this pull request
+Oct 20, 2026
+[Perf] Low-latency CPU all-reduce for DP metadata syncs (
+vllm-project…
+…
+d7483ed
+…#61767
+)
+
+Signed-off-by: Nick Hill <nickhill123@gmail.com>
+Co-authored-by: hjjq <50634613+hjjq@users.noreply.github.com>
+Co-authored-by: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+tlrmchlsmth
+tlrmchlsmth left review comments
+claude[bot]
+claude[bot] left review comments
+WoosukKwon
+WoosukKwon approved these changes
+Harry-Chen
+Awaiting requested review from Harry-Chen
+Harry-Chen is a code owner
+khluu
+Awaiting requested review from khluu
+khluu is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+youkaichao
+Awaiting requested review from youkaichao
+youkaichao is a code owner
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+robertgshaw2-redhat is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin is a code owner
+houseroad
+Awaiting requested review from houseroad
+houseroad is a code owner
+ProExpertProg
+Awaiting requested review from ProExpertProg
+ProExpertProg is a code owner
+Assignees
+No one assigned
+Labels
+ci/build
+mrv2
+Model Runner V2 specific
+ready
+ONLY add when PR is ready to merge/full CI is needed
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+4 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

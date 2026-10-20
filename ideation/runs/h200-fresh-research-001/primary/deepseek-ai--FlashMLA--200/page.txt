@@ -1,0 +1,226 @@
+Conversation
+xyz2606
+commented
+Jul 26, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Summary
+This PR adds an opt-in, two-stage packed selected-KV sparse decode path for the
+GLM-5.2 / V3.2 FP8 MLA format on SM90:
+pack_selected_kv
+gathers selected records from the paged KV cache into an
+opaque tile-major workspace.
+flash_mla_with_packed_kvcache
+consumes that workspace with a packed
+sparse-decode specialization that avoids sparse index and page translation
+on the attention critical path.
+The existing native sparse-decode API and dispatch remain unchanged. The new
+path is explicitly restricted to SM90 and is not enabled automatically.
+Note
+Alternative host-offload path (not part of this pr):
+The packed interface also enables a separate offload path in which gathering and packing are performed on the host, followed by transferring only the packed selected-KV workspace to the device. In this case, the full KV caches of the shared layers no longer need to remain resident in HBM. This can substantially expand KV-cache capacity.
+Since this implementation introduces a compile-time packed-KV specialization in the existing SM90 sparse decode kernel, I’d appreciate maintainers’ guidance on whether you prefer the current shared-kernel approach, a policy/loader-based abstraction, or a separate packed-kernel implementation; I’m happy to restructure it in a follow-up revision based on your feedback.
+Motivation
+GLM-5.2 can share selected physical indices across multiple MLA layers. When
+those indices are available before the layer that consumes them, the runtime
+can move sparse address resolution and KV gathering into an earlier overlap
+window.
+The attention kernel can then read a contiguous packed workspace instead of
+repeatedly:
+loading and validating physical indices;
+translating indices into page and in-page coordinates;
+constructing unrelated global addresses; and
+gathering NoPE, scale, and RoPE components from the paged cache.
+Packing and attention are intentionally separate operations so a runtime can
+overlap packing with preceding work such as MoE communication.
+What changed
+SM90 packing kernel
+pack_selected_kv
+copies each selected 656-byte V3.2 record byte-for-byte:
+512-byte FP8 E4M3 NoPE data;
+16-byte FP32 scales; and
+128-byte BF16 RoPE data.
+The packer writes an opaque 64-token tile-major workspace. It supports a valid
+selected-index prefix described by
+topk_length
+and zero-fills invalid suffix
+records.
+Callers may provide reusable contiguous
+uint8
+storage using
+get_packed_kv_workspace_size
+.
+Packed attention specialization
+The packed H=64 and H=128 instantiations reuse FlashMLA's existing:
+WGMMA and dequantization pipeline;
+online softmax;
+DSM clustering for H=128;
+split accumulation;
+epilogue; and
+combine kernel.
+The specialization replaces the sparse index/page/gather loader with direct
+tile-major loads and preserves partial-tail masking.
+Scheduler policy
+H=128 uses the same scheduler as native sparse decode.
+H=64 uses the compact request-local scheduler selected by the L20X
+experiments. For the measured full-prefix
+topk=2048
+, 132-SM
+B*S_q=16
+regime, it falls back to the faster native scheduler.
+This scheduler is used only by the opt-in packed helper and does not change
+native sparse decode. The benchmark includes an identical-scheduler control to
+isolate the packed-load kernel gain.
+Python API
+This PR adds:
+get_packed_kv_workspace_size
+get_packed_mla_metadata
+pack_selected_kv
+flash_mla_with_packed_kvcache
+Supported scope
+The initial path is intentionally limited to:
+SM90;
+V3.2 FP8 sparse KV records;
+d_qk=576
+;
+d_v=512
+;
+H in {64, 128}
+;
+MQA KV; and
+top-k capacity divisible by 64.
+The API fails closed for unsupported architectures and shapes. SM100 is not
+enabled because this implementation has only been evaluated on SM90.
+L20X results
+The repository-local benchmark was run on an NVIDIA L20X with 132 SMs using:
+CUDA 13.0;
+PyTorch 2.13.0;
+topk=2048
+;
+B={1,2,4,7,8}
+;
+S_q={1,2,3,4,8,16}
+;
+H={64,128}
+;
+request-disjoint physical KV ranges;
+a 512 MiB L2 flush before each measured path;
+10 warmups and 200 timed repetitions; and
+60 total cases.
+Comparison
+Geometric-mean speedup
+Wins
+Packed attention, identical scheduler
+1.098x
+60/60
+Integrated packed attention stage
+1.115x
+60/60
+Integrated H=64 cohort
+1.131x
+30/30
+H=128 cohort, native scheduler
+1.100x
+30/30
+Pack + attention without overlap
+0.740x
+0/60
+Packing is excluded from the attention-stage comparisons.
+The unhidden result is included deliberately: this path is useful only when
+the runtime can move most packing work outside the attention critical path.
+This PR does not add automatic dispatch or change the default native path.
+The H=64 hybrid policy selected the tuned scheduler in 26 cases and the native
+fallback in four cases. The four fallback cases improved by approximately
+6.5% to 7.4% compared with using the tuned scheduler unconditionally.
+Correctness and benchmark coverage
+python tests/test_flash_mla_packed_sparse_decoding.py
+python benchmark/bench_flash_mla_packed_sparse_decode.py \
+  --output packed_sparse_decode_latency.csv
+The correctness test passes five cases covering:
+a single full boundary tile;
+H=64 partial tails and heterogeneous active lengths;
+the H=64 native-scheduler fallback;
+full production top-k with H=128; and
+H=128 heterogeneous partial tails.
+The tests compare both output and LSE with native sparse decode and verify the
+packed workspace layout.
+Observed result:
+passed 5 packed sparse-decode cases
+The new CUDA kernels compiled for SM90 without register spills. The packer
+used 18 registers, and both packed-attention instantiations used 168 registers.
+Runtime follow-up
+This PR contains the two FlashMLA kernels needed for the packed path, but
+intentionally does not include current-token runtime orchestration.
+A future vLLM integration can:
+pack historical records early into caller-managed storage;
+overwrite any selected current-token record after its KV becomes available,
+for example with a scatter operation;
+synchronize the packing/update stream with attention; and
+select native fallback when the expected overlap is insufficient.
+Workspace pooling, CUDA stream placement, current-token updates, overlap
+eligibility, and end-to-end TPOT measurements belong to that runtime
+integration.
+For
+topk=2048
+, the workspace requires approximately 1.281 MiB per query row,
+so runtime dispatch should also enforce a workspace budget.
+Non-goals
+This PR does not:
+replace or modify the behavior of native sparse decode;
+enable the packed path by default;
+add SM100 support;
+claim an end-to-end speedup without concurrent runtime integration; or
+include current-token patch orchestration.
+setup.py
+is changed only to register the three new CUDA source files.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Add SM90 packed sparse decode
+066b5ba
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

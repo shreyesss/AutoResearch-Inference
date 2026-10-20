@@ -1,0 +1,751 @@
+Conversation
+LyricZhao
+commented
+Sep 23, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+DeepEP V2.5 introduces dedicated communication buffers for EP, PP, Engram, and bucket collectives, together with new primitives for redundant-expert load balancing. GPU kernels are now compiled through DeepJIT, while installation builds the host C++ extension.
+This release also fully removes V1 and its NVSHMEM dependency.
+New Features
+Dedicated buffer APIs
+@LyricZhao
+Split ElasticBuffer into EPBuffer, EngramBuffer, PPBuffer, and BucketBuffer, sharing the BufferBase lifecycle.
+Add BufferAllocator for planning symmetric tensor allocations before buffer construction.
+Expert load balancing
+@cqzhangyu
+@LyricZhao
+Add EPBuffer.lb_prefetch_weights to transfer expert weights and quantization scales to redundant expert slots over NVLink.
+Add EPBuffer.lb_reduce_grads to accumulate redundant experts’ FP32 gradients into the original experts.
+These primitives support the dynamic expert-replication approach explored by MoonEP and UltraEP. Replication planning and token rerouting are supplied by the integrating framework.
+Bucket collectives for CP and DP
+@jason-huang03
+@bucket-xv
+@cqzhangyu
+@dromniscience
+@sphish
+Batched all-gather, reduce-scatter, and all-reduce across NVLink, RDMA, and hybrid domains.
+Sessions for communicating ordinary PyTorch tensors through temporary bucket storage.
+EP improvements
+@LyricZhao
+Deferred dispatch/combine epilogues for communication-computation overlap.
+Cached expanded layouts and zero padding between experts.
+Engram
+@tianr22
+@sphish
+Multi-layer storage on GPU or CPU, with one completion hook per layer.
+Build and runtime
+@LyricZhao
+Move GPU kernel compilation to DeepJIT.
+Remove installation-time NVCC compilation and GPU architecture selection.
+Notes
+Migrate from ElasticBuffer to the dedicated buffer APIs.
+V1 APIs, legacy documentation, and NVSHMEM support have been removed.
+Bucket collectives, Engram, and PP remain experimental.
+Requires NVIDIA Hopper or newer GPUs, CUDA 13.1+, NCCL 2.32.3+, PyTorch 2.10+ with CUDA support, Python 3.10+, and a C++20 compiler.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+🎉
+7
+polarstormx, dromniscience, GHGmc2, LeiWang1999, K0nigsberg, RuixiangMa, and constroy reacted with hooray emoji
+👀
+4
+MARD1NO, qianlihuang, b8zhong, and LeiWang1999 reacted with eyes emoji
+All reactions
+🎉
+7 reactions
+👀
+4 reactions
+LyricZhao
+and others
+added
+2
+commits
+September 23, 2026 15:21
+DeepEP V2.5
+…
+1a1ffba
+Add dedicated EP, bucket, pipeline-parallel, and Engram buffers with
+shared allocation and lifecycle management.
+
+Support redundant-expert weight prefetch and gradient reduction over
+NVLink, CP/DP bucket collectives, deferred EP epilogues, and multi-layer
+Engram storage. Build the host extension separately from GPU kernels
+compiled at runtime through DeepJIT.
+
+Remove the legacy V1 implementation and the NVSHMEM dependency.
+
+Squash 534 Nightly commits relative to public main.
+Source:
+deepseek-ai/DeepEP-Nightly@
+f7c12d5
+Co-authored-by: Anyi Xu <41318296+xay5421@users.noreply.github.com>
+Co-authored-by: Chenhao Xu <122071158+bucket-xv@users.noreply.github.com>
+Co-authored-by: Chenhao Xu <xch@deepseek.com>
+Co-authored-by: Chenhao Xu <xv_chen_hao@163.com>
+Co-authored-by: CQzhangyu <cqzhangyu@pku.edu.cn>
+Co-authored-by: fzyzcjy <5236035+fzyzcjy@users.noreply.github.com>
+Co-authored-by: Haofeng Huang <haofenghuang03@gmail.com>
+Co-authored-by: Katie Gioioso <kgioioso@nvidia.com>
+Co-authored-by: Pak Markthub <pmarkthub@nvidia.com>
+Co-authored-by: qianyi <qianyi@deepseek.com>
+Co-authored-by: Rui Tian <tianr22@deepseek.com>
+Co-authored-by: Rui Tian <tianr22@mails.tsinghua.edu.cn>
+Co-authored-by: Rui_Ding <dromniscience@gmail.com>
+Co-authored-by: Shangyan Zhou <sy.zhou@deepseek.com>
+Co-authored-by: Shengyu Liu <interestinglsy@gmail.com>
+Co-authored-by: Shengyu Liu <shengyuliu@deepseek.com>
+Co-authored-by: Steffen Hirschmann <15359563+hirschsn@users.noreply.github.com>
+Co-authored-by: Sylvain Jeaugey <sjeaugey@nvidia.com>
+Co-authored-by: Xiangwen Wang <77378439+ljc00118@users.noreply.github.com>
+Co-authored-by: Xiaofan Li <xiaofanl@nvidia.com>
+Co-authored-by: Yanfu <68212651+evadlee@users.noreply.github.com>
+Co-authored-by: Yi Qian <36212773+skip2004@users.noreply.github.com>
+Co-authored-by: yukuai <yukuai@deepseek.com>
+Co-authored-by: yukuai26 <1010238651@qq.com>
+Co-authored-by: Zhean Xu <94977922+zheanxu@users.noreply.github.com>
+remove warpget opt
+8c1d13a
+ds-review-bot
+reviewed
+Sep 23, 2026
+View reviewed changes
+Comment thread
+deep_ep/include/deep_ep/layout/engram/workspace.cuh
+Comment on lines
++55
+to
++56
+static int64_t get_recv_byte_offset(const int& layer_idx, const int& entry_idx, const int& num_max_tokens) {
+return (layer_idx * kNumEntriesPerToken * num_max_tokens + entry_idx) * kNumHiddenBytes;
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴
+critical
+: 在乘法前将 Engram 接收偏移提升为 64 位: 当多层接收区超过 2 GiB 时，这里的乘法仍全部按
+int
+执行，返回
+int64_t
+无法避免中间溢出。例如 BF16、hidden=256、8192 tokens、24 entries/token、
+layer_idx=22
+时，预期偏移为 2214592512，实际得到 -2080374784；宿主侧 UBSan 已复现该溢出。该偏移随后被用于 RDMA 接收地址，会导致越界写入。应在第一次乘法前转换为
+int64_t
+。
+🤖 v6
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/buffers/engram.hpp
+Comment on lines
++165
+to
++169
+EP_HOST_ASSERT
+(num_layers == num_entries_per_layer.
+size
+());
+EP_HOST_ASSERT
+(num_tokens <= num_max_tokens);
+const
+auto
+num_layer_bytes =
+static_cast
+<
+int64_t
+>(num_max_tokens) * num_entries_per_token *
+hidden * elem_size;
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 在 fetch 时校验实际 entry 数对应的接收容量: 如果
+indices.size(2)
+大于
+set_config()
+时使用的
+num_entries_per_token
+，这里会直接按更大的值重新计算布局，却没有校验配置值或剩余容量。例如单层 BF16、hidden=256、4096 tokens、配置每 token 1 entry 时，接收区为 2 MiB；传入形状
+[1,4096,2]
+的 indices 会通过现有检查并发起 4 MiB 的接收，造成越界。应保存并校验该配置，或在发起 RDMA 前重新检查完整接收布局与 SF 区域的容量。
+🤖 v6
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+1
+llk-ni reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Comment thread
+csrc/buffers/bucket.hpp
+Comment on lines
++314
+to
++319
+auto event = stream_control_epilogue(srcs);
+std::function epilogue = [context, gathered = std::move(gathered)]() {
+if (context->num_rdma_ranks > 1) {
+// NOTES: the hybrid path confirms every put by the tail signals before the barrier, no flush needed
+comm::barrier(*context, context->barrier_signals, at::cuda::getCurrentCUDAStream(),
+context->num_gpu_timeout_cycles, false, true, context->num_nvl_ranks == 1);
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 让 all-gather 的重复等待覆盖最终完成屏障: 当同一个 all-gather handle 在两个消费流上依次调用
+current_stream_wait()
+时，第一次等待执行 RDMA flush/barrier 后，
+EventOverlap
+会清除 epilogue hook；第二个流因此只等待这里提前记录的事件。纯 RDMA 路径中，该事件只覆盖请求发起，不保证远端数据到达，所以第二个流可能读取未完成的结果。应让共享完成事件覆盖 epilogue 的最终屏障，确保后续跨流等待也具有完整的完成语义。
+🤖 v6
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/kernels/bucket/reduce_scatter.hpp
+Comment on lines
++83
+to
++86
+}
+else
+if
+(num_rdma_ranks >
+1
+and
+comm_precision ==
+"
+bf16
+"
+) {
+const
+int
+num_cast_warps = num_rdma_ranks <
+4
+?
+4
+:
+8
+;
+const
+int
+num_issue_warps = num_rdma_ranks <
+4
+?
+8
+:
+4
+;
+const
+int
+num_reduce_warps = num_rdma_ranks <
+4
+?
+4
+:
+8
+;
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 为 Hopper 的 BF16 reduce-scatter 选择兼容实现: 在项目声明支持的 Hopper GPU 上，纯 RDMA 的
+comm_precision='bf16'
+会进入此分支，但对应内核使用的
+longlong4_t
+加载/存储重载仅在
+__CUDA_ARCH__ >= 1000
+时定义，随机舍入指令
+cvt.rs.bf16x2.f32
+也不支持 sm90。因此首次调用会在 JIT 编译阶段失败，而不是执行通信。需要按架构选择兼容实现，不能仅通过
+get_arch(false)
+改变编译目标。
+🤖 v6
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/kernels/engram/engram.hpp
+const
+auto
+num_threads = (num_sf_warps_per_sm + num_issue_warps_per_sm) *
+32
+;
+EP_HOST_ASSERT
+(flush_depth >
+0
+);
+EP_HOST_ASSERT
+(sf_hidden_stride !=
+1
+);
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 允许 FP8 fetch 使用公开的行主序选项: 调用
+EngramBuffer.fetch(..., use_tma_aligned_col_major_sf=False)
+时，
+EngramBuffer::fetch()
+的行主序分支明确将
+sf_hidden_stride
+设置为 1，因此所有 FP8 行主序请求都会被此断言拒绝。公开参数及布局构造仍提供这一选项，内核也按传入的 stride 寻址；应移除这个无条件限制或补齐对应实现，使该选项实际可用。
+🤖 v6
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+24 hidden conversations
+Load more…
+Comment thread
+deep_ep/utils/envs.py
+@@ -220,7 +235,7 @@ def get_nvlink_gbs(factor: float = 0.9) -> float:
+@functools.lru_cache()
+def check_fast_rdma_atomic_support(nic_name: str =
+_DEFAULT_NIC_NAME
+) -> bool:
+def check_fast_rdma_atomic_support(nic_name: str =
+'mlx5_0'
+) -> bool:
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴
+critical
+: EP_NIC_NAME 环境变量被静默删除（功能回归）。base 提交
+a56d615
+中定义
+_DEFAULT_NIC_NAME = os.getenv('EP_NIC_NAME', 'mlx5_0')
+，并将其作为
+check_fast_rdma_atomic_support
+和
+get_rdma_gbs
+的默认参数，README 也文档化了 EP_NIC_NAME。HEAD 中 _DEFAULT_NIC_NAME 被删除，第 238/261 行直接硬编码
+nic_name: str = 'mlx5_0'
+，新 README 环境变量表也不再包含 EP_NIC_NAME。影响：在网卡名不是 mlx5_0 的机器（如 mlx5_1、mlx5_bond_0、bnxt_re* 等）上：(1) get_rdma_gbs() 返回 0，导致 deep_ep/buffers/bucket.py:217 的
+assert nvl_gbs > 0 and rdma_gbs > 0
+失败，BucketBuffer 无法构造；(2) deep_ep/buffers/ep.py:512
+rdma_traffic / rdma_gbs
+在 num_scaleout_ranks>1 且 rdma_gbs==0 时抛 ZeroDivisionError；(3) check_fast_rdma_atomic_support() 恒为 False，num_allocated_qps 恒取 129。建议恢复
+_DEFAULT_NIC_NAME = os.getenv('EP_NIC_NAME', 'mlx5_0')
+并作为两个函数的默认值，同时恢复 README 文档条目。
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_ep/buffers/ep.py
+# `topk_idx` cannot change in the handle
+self._topk_idx = topk_idx
+self._topk_idx_version = None if topk_idx.is_inference() else topk_idx._version
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: EPHandle 按引用保存 topk_idx 且移除 do_handle_copy，存在静默错误风险。EPHandle 现在按引用保存 topk_idx，仅用
+_version
+检测普通 in-place 修改。通过
+.data
+或裸指针写入、以及 inference tensor（无 version counter）均无法检测；而 do_handle_copy 默认值由 True 改为 False，且传入 True 会直接 assert（第 638 行），属于对外行为变更。若调用方在 dispatch 与 combine 之间修改 topk_idx，可能得到错误的 combine 结果且无任何报错。建议保留克隆选项（topk_idx 体积很小），或在迁移文档中显式约定 handle 生命周期内 topk_idx 必须不可变。
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/buffers/ep.hpp
+redundant_expert_weight.element_size();
+EP_HOST_ASSERT(num_bytes_per_expert == c10::multiply_integers(expert_weight.sizes().slice(1)) *
+expert_weight.element_size());
+EP_HOST_ASSERT(num_bytes_per_expert % 16 == 0);
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: lb_prefetch_weights 的 expert 字节对齐检查与文档不一致。lb_prefetch_weights 的 Python 文档要求每个 expert 的字节数是
+deep_ep.get_num_tma_alignment()
+（32 字节）的倍数，但此处仅断言
+num_bytes_per_expert % 16 == 0
+。请确认 TMA
+cp.async.bulk
+的真实对齐要求并统一文档或检查：若实际只需 16B 对齐，应修正文档；若需 32B，则应把断言改为
+% kNumTMAAlignmentBytes == 0
+。
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_ep/buffers/ep.py
+return *tensors, handle
+@weak_lru(maxsize=None)
+def get_theoretical_num_sms(self, num_experts: int, num_topk: int,
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: weak_lru(maxsize=None) 缓存无界增长。
+get_theoretical_num_sms
+与
+lb_get_theoretical_num_sms
+使用
+@weak_lru(maxsize=None)
+，已销毁 buffer 的 weakref key 会永久保留在 LRU 中，长时间运行会带来轻微内存增长。建议为 maxsize 设置一个上界（例如 128）。
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/buffers/bucket.hpp
+void destroy() override {
+EP_HOST_ASSERT(not destroyed);
+for (int context_idx = 0; context_idx < contexts.size(); ++ context_idx) {
+ds-review-bot
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: signed/unsigned 比较：
+for (int context_idx = 0; context_idx < contexts.size(); ++ context_idx)
+中 int 与 size_t 比较；csrc/buffers/ep.hpp 中也有若干 int/size_t 混用。建议统一为 size_t 或显式 static_cast，避免编译告警与潜在的边界问题。
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+变更存在 Engram 越界寻址、容量校验缺失和 all-gather 多流同步问题，另有两条公开配置路径无法运行。整数溢出已用 UBSan 复现；当前环境缺少 PyTorch/CUDA，未执行 GPU 集成测试。
+v5
+DeepEP V2.5 是一次 V2 → V2.5 的大重构（163 文件，+11.7k/−17.4k）：删除 V1/NVSHMEM/fmt，引入 DeepJIT 子模块做运行时编译，把 ElasticBuffer 拆成 EPBuffer/EngramBuffer/PPBuffer/BucketBuffer（共享 BufferBase + comm::Context），新增 LB 权重预取/梯度归约、bucket 集合通信（all-gather/reduce-scatter/all-reduce）和 deferred epilogue。整体架构清晰，comm::Context 抽象出符号内存 + NCCL window + GIN 生命周期后各 buffer 实现明显变薄。已确认 V1/NVSHMEM/fmt/legacy 相关引用（csrc/utils/format.hpp、hash.hpp、lazy_init.hpp、shared_memory.hpp、docs/legacy.md、docs/nvshmem.md 等）在源码中无残留。
+但存在几类需要在合并前处理的问题：(1) .gitmodules 使用 SSH 地址，匿名用户无法初始化子模块；(2) 新开启 ruff Q000 规则且几乎全部 .py 文件都在 diff 内，多处 Q000/F541/B904/B010/E722/W293 会让 format.yml CI 失败；(3) 测试中使用了 dist.all_gather_single / dist.reduce_scatter_single，需确认 PyTorch 是否提供；(4) EP_NIC_NAME 环境变量被静默删除且 BucketBuffer 硬性要求同时检测到 NVLink 和 RDMA 带宽，非 mlx5_0 NIC 或无 IB 机器上不可用；(5) do_handle_copy/sl_idx 默认值静默变更；(6) 托管 NCCL comm 与 Context::finalize 的析构顺序风险；(7) comm.get_comm_stream 模块级签名与方法绑定冲突。此外 deep_ep/include/deep_ep/impls/bucket/** 的设备内核（约 1.8k 行）只审阅了接口层，同步语义需由能在多机 GPU 上运行 tests/bucket/* 与 tests/ep/test_ep.py 的同学确认。本次为静态审阅，无法编译或运行 GPU 测试。
+v4
+DeepEP V2.5 是一个体量很大的重构 PR：删除 V1/legacy 与 NVSHMEM 依赖，把通信能力拆分为 EPBuffer / BucketBuffer / EngramBuffer / PPBuffer 四类 buffer，统一 BufferBase、comm::Context 与 DeepJIT 运行时，并新增 bucket 集合通信、冗余专家权重预取/梯度归约、延迟 epilogue、多 layer Engram 等能力。整体结构清晰、测试覆盖（尤其 tests/bucket/test_mixed.py）较充分；但本 PR 引入了一个明确的功能回归（EP_NIC_NAME 被删除），并存在若干接口安全性与文档一致性问题。
+Files reviewed
+: 109
+Issues found
+: 🔴 5 critical | 🟡 12 warning | 🔵 17 suggestion
+Inline comments posted
+: 34
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+alpha-baby
+mentioned this pull request
+Sep 23, 2026
+Add DeepEP v2 flex dispatcher backend
+NVIDIA/Megatron-LM#5153
+Merged
+Hide details
+View details
+LyricZhao
+merged commit
+def8651
+into
+main
+Sep 29, 2026
+1 check failed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+XFDG
+mentioned this pull request
+Oct 1, 2026
+[Bugfix][NVSHMEM] Support v2 state in legacy IBGDA kernels
+#765
+Closed
+dvd233
+mentioned this pull request
+Oct 1, 2026
+docs: document mlx5 requirement for legacy IBGDA
+#761
+Closed
+Oasis-Git
+mentioned this pull request
+Oct 2, 2026
+[Roadmap] DeepSeek V4.1 Optimization
+sgl-project/sglang#42170
+Open
+17 of 56 tasks
+tlrmchlsmth
+mentioned this pull request
+Oct 2, 2026
+[Bug] Data-visibility race in V2 low-latency dispatch over NCCL GIN (GDAKI)
+#772
+Open
+dmvevents
+mentioned this pull request
+Oct 10, 2026
+moe: add DeepEP V2 ElasticBuffer support to MoE flex dispatcher
+NVIDIA/Megatron-LM#4632
+Open
+tlrmchlsmth
+mentioned this pull request
+Oct 16, 2026
+[Tracking] DeepEP v2 maturation and legacy DeepEP v1 removal
+vllm-project/vllm#62033
+Open
+1 of 15 tasks
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

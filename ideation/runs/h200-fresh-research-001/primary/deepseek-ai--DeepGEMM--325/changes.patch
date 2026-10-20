@@ -1,0 +1,1122 @@
+From d39b2f3fe23c2b81583bfadd1f7ace6b1a671080 Mon Sep 17 00:00:00 2001
+From: Yuanhang Sun <yuasun@nvidia.com>
+Date: Fri, 24 Apr 2026 11:14:42 -0700
+Subject: [PATCH 1/6] feat: warp-specialized SM90 FP8 MQA logits kernel
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Warp-specialized architecture for the SM90 FP8 MQA logits kernel.
+Replaces the production post-processing path (SHFL+STG inline) with
+an epilogue warpgroup that runs overlapped with the next kv-block.
+
+Architecture: 4 TC WGs (512) + 1 Epi WG (128) + 1 TMA WG (128) = 768 threads.
+TC does dual-bank WGMMA (N=64 split, warpgroup_wait<1> overlap) +
+partial reduce → STS to epi_buf in SMEM. Epi does LDS → horizontal
+sum → STG to global. TMA is unchanged.
+
+Key design decisions:
+- TC@104 regs (0 spill): full weights[32] preload with scale_kv
+  deferred to between empty_epi wait and warpgroup_wait<1>
+- kNumEpiStages=3 matching kNumKVStages to prevent inter-WG
+  pipeline desynchronization
+- epi_buf stride = BLOCK_Q*4+1 (17) for bank conflict reduction
+- Bootstrap guard uses (num_total_kv_blocks | kv_block_idx) != 0
+  instead of a persistent boolean to save 1 register
+
+JIT launcher changes (SM90 path only):
+- 12-parameter template with kNumEpiStages=3
+- SMEM includes epi_buf (3 stages × BLOCK_KV × stride × sizeof(float))
+- Thread count: num_math_threads + num_epi_threads + num_tma_threads
+
+Performance (342 configs, H200 SXM):
+  Speedup vs production: mean 1.065x, min 1.027x, max 1.111x
+  Regressions: 0 out of 342
+  Correctness: 295/295 full test configs pass
+---
+ .../impls/smxx_fp8_fp4_mqa_logits.hpp         |  44 +-
+ .../deep_gemm/impls/sm90_fp8_mqa_logits.cuh   | 422 ++++++++++++------
+ 2 files changed, 323 insertions(+), 143 deletions(-)
+
+diff --git a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+index 3be10c98f..6029ae4e0 100644
+--- a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
++++ b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+@@ -46,7 +46,33 @@ class SMXXFP8MQALogitsRuntime final: public LaunchRuntime<SMXXFP8MQALogitsRuntim
+         DG_HOST_ASSERT(128 % args.num_heads == 0);
+         const auto arch = device_runtime->get_arch(true);
+ 
+-        return fmt::format(R"(
++        if (arch == "90") {
++            return fmt::format(R"(
++#include <deep_gemm/impls/sm{}_fp8_mqa_logits.cuh>
++
++using namespace deep_gemm;
++
++static void __instantiate_kernel() {{
++    auto ptr = reinterpret_cast<void*>(&sm{}_fp8_mqa_logits<
++        {}, {},
++        {},
++        {}, {},
++        {}, {}, {},
++        {},
++        {}, {},
++        {}
++    >);
++}};
++)", arch, arch,
++    args.num_heads, args.head_dim,
++    args.is_compressed_logits,
++    args.block_q, args.block_kv,
++    args.num_q_stages, args.num_kv_stages, 3,
++    args.launch_args.grid_dim.first,
++    args.num_specialized_threads, args.num_math_threads,
++    to_string(args.logits_dtype));
++        } else {
++            return fmt::format(R"(
+ #include <deep_gemm/impls/sm{}_fp8_mqa_logits.cuh>
+ 
+ using namespace deep_gemm;
+@@ -70,6 +96,7 @@ static void __instantiate_kernel() {{
+     args.launch_args.grid_dim.first,
+     args.num_specialized_threads, args.num_math_threads,
+     to_string(args.logits_dtype));
++        }
+     }
+ 
+     static void launch_impl(const KernelHandle& kernel, const LaunchConfigHandle& config, Args args) {
+@@ -97,7 +124,8 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+                                 const int& block_q, const int& block_kv) {
+     constexpr int num_specialized_threads = 128;
+     constexpr int num_q_stages = 3, num_kv_stages = 3;
+-    const int num_math_threads = (device_runtime->get_arch_major() == 10 ? 256 : 512);
++    const int num_math_threads = get_env("DG_OVERLAP_3WG", 0) ? 384 :
++                                 (device_runtime->get_arch_major() == 10 ? 256 : 512);
+ 
+     // Use compressed logits format when max_seqlen_k is specified
+     const bool is_compressed_logits = (max_seqlen_k > 0);
+@@ -117,6 +145,9 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+                                                      num_heads, block_q, num_heads, 0);
+ 
+     // Calculate shared memory size
++    const bool is_ws = (device_runtime->get_arch_major() == 9);
++    constexpr int num_epi_stages = 3;
++    constexpr int num_epi_threads = 128;
+     int smem_size = 0;
+     const int smem_q_size_per_stage = block_q * num_heads * head_dim * static_cast<int>(q.element_size());
+     const int smem_weight_size_per_stage = block_q * num_heads * static_cast<int>(weights.element_size());
+@@ -126,7 +157,12 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+     smem_size += num_kv_stages * smem_kv_size_per_stage;
+     smem_size += num_q_stages * smem_weight_size_per_stage;
+     smem_size += num_kv_stages * kv_scale_size_per_stage;
+-    smem_size += (num_q_stages * 2 + num_kv_stages * 2 + (num_math_threads / 128) * 2) * 8;
++    if (is_ws) {
++        smem_size += num_epi_stages * block_kv * (block_q * 4 + 1) * static_cast<int>(weights.element_size());
++        smem_size += (num_q_stages * 2 + num_kv_stages * 2 + num_epi_stages * 2) * 8;
++    } else {
++        smem_size += (num_q_stages * 2 + num_kv_stages * 2 + (num_math_threads / 128) * 2) * 8;
++    }
+     smem_size += 4;
+     DG_HOST_ASSERT(smem_size <= SM90ArchSpec::smem_capacity);
+     DG_HOST_ASSERT(smem_size <= SM100ArchSpec::smem_capacity);
+@@ -154,7 +190,7 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+         .num_specialized_threads = num_specialized_threads,
+         .num_math_threads = num_math_threads,
+         .launch_args = LaunchArgs(device_runtime->get_num_sms(),
+-                                  num_specialized_threads + num_math_threads,
++                                  num_specialized_threads + num_math_threads + (is_ws ? num_epi_threads : 0),
+                                   smem_size)
+     };
+     const auto code = SMXXFP8MQALogitsRuntime::generate(args);
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index 225af4416..c426ffdcb 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -23,10 +23,11 @@ template <uint32_t kNumHeads, uint32_t kHeadDim,
+           bool kIsCompressedLogits,
+           uint32_t BLOCK_Q, uint32_t BLOCK_KV,
+           uint32_t kNumQStages, uint32_t kNumKVStages,
++          uint32_t kNumEpiStages,
+           uint32_t kNumSMs,
+           uint32_t kNumTMAThreads, uint32_t kNumMathThreads,
+           typename logits_dtype_t>
+-CUTLASS_GLOBAL __launch_bounds__(kNumTMAThreads + kNumMathThreads, 1)
++CUTLASS_GLOBAL __launch_bounds__(kNumTMAThreads + kNumMathThreads + 128, 1)
+ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                          const uint32_t max_seqlen_k, const uint32_t stride_logits,
+                          uint32_t* cu_seq_len_k_start,
+@@ -36,18 +37,30 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                          const __grid_constant__ cute::TmaDescriptor tensor_map_kv,
+                          const __grid_constant__ cute::TmaDescriptor tensor_map_kv_scales,
+                          const __grid_constant__ cute::TmaDescriptor tensor_map_weights) {
+-    // TODO: consider TMA multicast
+-    // For one block, we process `[q_start:q_end, h, d] @ [kv_start:kv_end, d] -> [q_start:q_end, kv_start:kv_end]`
+-    // Q should be load only at once for a block
+     const auto num_q_blocks = math::ceil_div(seq_len, BLOCK_Q);
+ 
+-    // Types
++    // Types — N=64 split for wait<1> overlap
+     using WGMMA = typename mma::sm90::FP8MMASelector<BLOCK_Q * kNumHeads>::type;
++    using WGMMA_HALF = typename mma::sm90::FP8MMASelector<BLOCK_Q * kNumHeads / 2>::type;
++    static constexpr uint32_t kBlockQPerBank = BLOCK_Q / 2;
++    static constexpr uint32_t kNumEpiThreads = 128;
++    static constexpr uint32_t kNumAccumPerReduce = kNumHeads / 2;
+     using Barrier = cutlass::arch::ClusterTransactionBarrier;
+ 
+-    // Prefetch TMA descriptors
+     DG_STATIC_ASSERT(kNumTMAThreads == 128 and kNumMathThreads % 128 == 0, "Invalid threads");
+-    if (threadIdx.x / 32 == kNumMathThreads / 32 and cute::elect_one_sync()) {
++    DG_STATIC_ASSERT(kNumEpiStages >= 2, "Need double-buffer for epi pipeline");
++    DG_STATIC_ASSERT(kNumEpiStages >= kNumKVStages, "Epi stages must cover KV pipeline depth");
++    DG_STATIC_ASSERT(kHeadDim % WGMMA_HALF::K == 0, "Invalid head dim");
++    DG_STATIC_ASSERT(WGMMA_HALF::kNumAccum % kNumAccumPerReduce == 0, "Invalid accumulation");
++    DG_STATIC_ASSERT(WGMMA_HALF::kNumAccum / kNumAccumPerReduce == kBlockQPerBank, "Invalid accumulation");
++    DG_STATIC_ASSERT(kNumHeads % 8 == 0, "Invalid head");
++
++    // Thread layout: TC[0..511] + Epi[512..639] + TMA[640..767]
++    static constexpr uint32_t kEpiStart = kNumMathThreads;
++    static constexpr uint32_t kTMAStart = kNumMathThreads + kNumEpiThreads;
++
++    // Prefetch TMA descriptors
++    if (threadIdx.x / 32 == kTMAStart / 32 and cute::elect_one_sync()) {
+         cute::prefetch_tma_descriptor(&tensor_map_q);
+         cute::prefetch_tma_descriptor(&tensor_map_kv);
+         cute::prefetch_tma_descriptor(&tensor_map_kv_scales);
+@@ -56,19 +69,18 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+     __syncwarp();
+ 
+     // Shared memory configs
+-    // NOTES: weight may be unaligned
+     static constexpr uint32_t kSwizzleAlignment = kHeadDim * 8;
+     static constexpr uint32_t SMEM_Q_SIZE_PER_STAGE = BLOCK_Q * kNumHeads * kHeadDim * sizeof(__nv_fp8_e4m3);
+     static constexpr uint32_t SMEM_WEIGHT_SIZE_PER_STAGE = BLOCK_Q * kNumHeads * sizeof(float);
+     static constexpr uint32_t SMEM_KV_SIZE_PER_STAGE = BLOCK_KV * kHeadDim * sizeof(__nv_fp8_e4m3);
+     static constexpr uint32_t SMEM_KV_SCALE_SIZE_PER_STAGE = BLOCK_KV * sizeof(float);
++    static constexpr uint32_t kEpiStride = BLOCK_Q * 4 + 1;
++    static constexpr uint32_t SMEM_EPI_SIZE_PER_STAGE = BLOCK_KV * kEpiStride * sizeof(float);
+ 
+-    // Align to swizzling alignment bytes
+     extern __shared__ __align__(kSwizzleAlignment) uint8_t smem_buffer[];
+     DG_STATIC_ASSERT(SMEM_Q_SIZE_PER_STAGE % kSwizzleAlignment == 0, "Unaligned TMA swizzling");
+     DG_STATIC_ASSERT(SMEM_KV_SIZE_PER_STAGE % kSwizzleAlignment == 0, "Unaligned TMA swizzling");
+ 
+-    // Data on shared memory
+     auto smem_q = utils::PatternVisitor([&](const uint32_t& i) {
+         return reinterpret_cast<__nv_fp8_e4m3*>(smem_buffer +
+             SMEM_Q_SIZE_PER_STAGE * i);
+@@ -86,16 +98,24 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+             SMEM_Q_SIZE_PER_STAGE * kNumQStages + SMEM_KV_SIZE_PER_STAGE * kNumKVStages +
+             SMEM_WEIGHT_SIZE_PER_STAGE * kNumQStages + SMEM_KV_SCALE_SIZE_PER_STAGE * i);
+     });
++    auto smem_epi = utils::PatternVisitor([&](const uint32_t& i) {
++        return reinterpret_cast<float*>(smem_buffer +
++            SMEM_Q_SIZE_PER_STAGE * kNumQStages + SMEM_KV_SIZE_PER_STAGE * kNumKVStages +
++            SMEM_WEIGHT_SIZE_PER_STAGE * kNumQStages + SMEM_KV_SCALE_SIZE_PER_STAGE * kNumKVStages +
++            SMEM_EPI_SIZE_PER_STAGE * i);
++    });
+ 
+-    // TMA barriers
+-    auto barrier_ptr = reinterpret_cast<Barrier*>(smem_kv_scales[kNumKVStages]);
++    // Barriers: Q(full/empty) + KV(full/empty) + Epi(full/empty)
++    auto barrier_ptr = reinterpret_cast<Barrier*>(smem_epi[kNumEpiStages]);
+     auto full_q_barriers   = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + i; });
+-    auto empty_q_barriers  = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + (kNumQStages + i); });
+-    auto full_kv_barriers  = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + (kNumQStages * 2 + i); });
+-    auto empty_kv_barriers = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + (kNumQStages * 2 + kNumKVStages + i); });
++    auto empty_q_barriers  = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + kNumQStages + i; });
++    auto full_kv_barriers  = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + kNumQStages * 2 + i; });
++    auto empty_kv_barriers = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + kNumQStages * 2 + kNumKVStages + i; });
++    auto full_epi_barriers = utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + kNumQStages * 2 + kNumKVStages * 2 + i; });
++    auto empty_epi_barriers= utils::PatternVisitor([&](const uint32_t& i) { return barrier_ptr + kNumQStages * 2 + kNumKVStages * 2 + kNumEpiStages + i; });
+ 
+     // Initialize barriers
+-    const bool is_tma_load_warp = kNumMathThreads <= threadIdx.x and threadIdx.x < kNumMathThreads + 32;
++    const bool is_tma_load_warp = kTMAStart <= threadIdx.x and threadIdx.x < kTMAStart + 32;
+     if (is_tma_load_warp and cute::elect_one_sync()) {
+         #pragma unroll
+         for (uint32_t i = 0; i < kNumQStages; ++ i) {
+@@ -107,91 +127,81 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+             full_kv_barriers[i]->init(1);
+             empty_kv_barriers[i]->init(kNumMathThreads);
+         }
+-
+-        // Make initialized barrier visible in async proxy
++        #pragma unroll
++        for (uint32_t i = 0; i < kNumEpiStages; ++ i) {
++            full_epi_barriers[i]->init(kNumMathThreads);
++            empty_epi_barriers[i]->init(kNumEpiThreads);
++        }
+         cutlass::arch::fence_barrier_init();
+     }
+     __syncthreads();
+ 
+-    // Register reconfigurations
+-    constexpr uint32_t kNumTMARegisters = 32;
+-    constexpr uint32_t kNumMathRegisters = 112;
+-
+-    // Block scheduler
++    // Block scheduler (shared by TC and Epi, computed independently)
+     const auto sm_idx = blockIdx.x;
+-    uint32_t block_q_idx = sm_idx, q_iter_idx = 0;
+-    const auto get_next_block_q_idx = [&]() -> cute::tuple<uint32_t, uint32_t> {
+-        return {block_q_idx + kNumSMs, q_iter_idx + 1};
+-    };
+-    uint32_t seq_k_start[BLOCK_Q], seq_k_end[BLOCK_Q];
+-    const auto load_schedule = [&](const uint32_t& q_iter_offset = 0) -> cute::tuple<uint32_t, uint32_t, uint32_t, uint32_t> {
+-        uint32_t start = cute::numeric_limits<uint32_t>::max();
+-        uint32_t end = cute::numeric_limits<uint32_t>::min();
+-
+-        #pragma unroll
+-        for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
+-            const auto q_idx = min(block_q_idx * BLOCK_Q + i, seq_len - 1);
+-            seq_k_start[i] = cu_seq_len_k_start[q_idx];
+-            seq_k_end[i] = cu_seq_len_k_end[q_idx];
+-            start = min(start, min(seq_k_start[i], seq_len_kv));
+-            end = max(end, min(seq_k_end[i], seq_len_kv));
+-        }
+-        // TMA alignment requirements for SF KV
+-        start = start / 4 * 4;
+-        return {(q_iter_idx + q_iter_offset) % kNumQStages,       // Q pipeline stage
+-                ((q_iter_idx + q_iter_offset) / kNumQStages) & 1, // Q pipeline phase
+-                start, math::ceil_div(end - start, BLOCK_KV)};          // Task info
+-    };
+-
+-    // KV pipeline
+-    uint32_t num_total_kv_blocks = 0;
+-    const auto get_kv_pipeline = [&](const uint32_t& kv_block_idx) -> cute::tuple<uint32_t, uint32_t> {
+-        return {
+-            (num_total_kv_blocks + kv_block_idx) % kNumKVStages,         // KV pipeline stage
+-            ((num_total_kv_blocks + kv_block_idx) / kNumKVStages) & 1    // KV pipeline phase
+-        };
+-    };
+ 
+     // Wait for primary kernel completion
+     cudaGridDependencySynchronize();
+ 
+-    if (threadIdx.x >= kNumMathThreads) {
+-        // TMA warp-group for loading data
+-        cutlass::arch::warpgroup_reg_dealloc<kNumTMARegisters>();
+-
+-        // Only the first warp remains
++    // ═══════════════════════════════════════════════════════════════════
++    // TMA WG: threadIdx.x in [kTMAStart..kTMAStart+127]
++    // ═══════════════════════════════════════════════════════════════════
++    if (threadIdx.x >= kTMAStart) {
++        cutlass::arch::warpgroup_reg_dealloc<32>();
+         if (not is_tma_load_warp)
+             return;
+ 
+-        // Prefetch
+-        const auto& issue_tma_q = [&](const uint32_t& stage_idx, const auto& block_idx) {
+-            tma::copy<kHeadDim, BLOCK_Q * kNumHeads, kHeadDim>(&tensor_map_q, full_q_barriers[stage_idx], smem_q[stage_idx], 0, block_idx * BLOCK_Q * kNumHeads);
+-            tma::copy<kNumHeads, BLOCK_Q, 0>(&tensor_map_weights, full_q_barriers[stage_idx], smem_weights[stage_idx], 0, block_idx * BLOCK_Q);
++        uint32_t block_q_idx = sm_idx, q_iter_idx = 0;
++        uint32_t seq_k_start[BLOCK_Q], seq_k_end[BLOCK_Q];
++        uint32_t num_total_kv_blocks = 0;
++
++        const auto get_next_block_q_idx = [&]() -> cute::tuple<uint32_t, uint32_t> {
++            return {block_q_idx + kNumSMs, q_iter_idx + 1};
++        };
++        const auto load_schedule = [&](const uint32_t& q_iter_offset = 0) -> cute::tuple<uint32_t, uint32_t, uint32_t, uint32_t> {
++            uint32_t start = cute::numeric_limits<uint32_t>::max();
++            uint32_t end = cute::numeric_limits<uint32_t>::min();
++            #pragma unroll
++            for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
++                const auto q_idx = min(block_q_idx * BLOCK_Q + i, seq_len - 1);
++                seq_k_start[i] = cu_seq_len_k_start[q_idx];
++                seq_k_end[i] = cu_seq_len_k_end[q_idx];
++                start = min(start, min(seq_k_start[i], seq_len_kv));
++                end = max(end, min(seq_k_end[i], seq_len_kv));
++            }
++            start = start / 4 * 4;
++            return {(q_iter_idx + q_iter_offset) % kNumQStages,
++                    ((q_iter_idx + q_iter_offset) / kNumQStages) & 1,
++                    start, math::ceil_div(end - start, BLOCK_KV)};
++        };
++        const auto get_kv_pipeline = [&](const uint32_t& kv_block_idx) -> cute::tuple<uint32_t, uint32_t> {
++            return {
++                (num_total_kv_blocks + kv_block_idx) % kNumKVStages,
++                ((num_total_kv_blocks + kv_block_idx) / kNumKVStages) & 1
++            };
++        };
++
++        const auto& issue_tma_q = [&](const uint32_t& stage_idx, const auto& blk_idx) {
++            tma::copy<kHeadDim, BLOCK_Q * kNumHeads, kHeadDim>(&tensor_map_q, full_q_barriers[stage_idx], smem_q[stage_idx], 0, blk_idx * BLOCK_Q * kNumHeads);
++            tma::copy<kNumHeads, BLOCK_Q, 0>(&tensor_map_weights, full_q_barriers[stage_idx], smem_weights[stage_idx], 0, blk_idx * BLOCK_Q);
+             full_q_barriers[stage_idx]->arrive_and_expect_tx(SMEM_Q_SIZE_PER_STAGE + SMEM_WEIGHT_SIZE_PER_STAGE);
+         };
+         if (cute::elect_one_sync() and block_q_idx < num_q_blocks)
+             issue_tma_q(0, block_q_idx);
+ 
+-        // Only the first lane persistently schedules over blocks
+         if (cute::elect_one_sync()) {
+             while (block_q_idx < num_q_blocks) {
+                 CUTE_TIE_DECL(load_schedule(1), q_stage_idx, q_phase, kv_start, num_kv_blocks);
+ 
+-                // Wait Q consumer release
+                 empty_q_barriers[q_stage_idx]->wait(q_phase ^ 1);
+ 
+-                // Issue TMA Q
+                 if (const auto& next_block_q_idx = cute::get<0>(get_next_block_q_idx()); next_block_q_idx < num_q_blocks)
+                     issue_tma_q(q_stage_idx, next_block_q_idx);
+ 
+-                // Issue TMA KV
+                 #pragma unroll
+                 for (uint32_t kv_block_idx = 0; kv_block_idx < num_kv_blocks; ++ kv_block_idx) {
+-                    // Wait consumer release
+                     CUTE_TIE_DECL(get_kv_pipeline(kv_block_idx), kv_stage_idx, kv_phase);
+                     empty_kv_barriers[kv_stage_idx]->wait(kv_phase ^ 1);
+ 
+-                    // Issue TMA KV
+                     tma::copy<kHeadDim, BLOCK_KV, kHeadDim>(&tensor_map_kv, full_kv_barriers[kv_stage_idx],
+                              smem_kv[kv_stage_idx], 0, kv_start + kv_block_idx * BLOCK_KV);
+                     tma::copy<BLOCK_KV, 1, 0>(&tensor_map_kv_scales, full_kv_barriers[kv_stage_idx],
+@@ -200,32 +210,146 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                 }
+                 num_total_kv_blocks += num_kv_blocks;
+ 
+-                // Jump to the next block
+                 CUTE_TIE(get_next_block_q_idx(), block_q_idx, q_iter_idx);
+             }
+         }
+-    } else {
+-        // Math warp-groups for WGMMA
+-        cutlass::arch::warpgroup_reg_alloc<kNumMathRegisters>();
+ 
+-        // NOTES: use `__shfl_sync` to encourage NVCC to use unified registers
++    // ═══════════════════════════════════════════════════════════════════
++    // Epi WG: threadIdx.x in [kEpiStart..kEpiStart+127]
++    // ═══════════════════════════════════════════════════════════════════
++    } else if (threadIdx.x >= kEpiStart) {
++        cutlass::arch::warpgroup_reg_dealloc<32>();
++        const uint32_t epi_tid = threadIdx.x - kEpiStart;
++        const uint32_t kv_col_lo = epi_tid;
++        const uint32_t kv_col_hi = epi_tid + 128;
++
++        uint32_t block_q_idx = sm_idx, q_iter_idx = 0;
++        uint32_t seq_k_start[BLOCK_Q], seq_k_end[BLOCK_Q];
++        uint32_t num_total_kv_blocks = 0;
++
++        const auto get_next_block_q_idx = [&]() -> cute::tuple<uint32_t, uint32_t> {
++            return {block_q_idx + kNumSMs, q_iter_idx + 1};
++        };
++        const auto load_schedule = [&]() -> cute::tuple<uint32_t, uint32_t> {
++            uint32_t start = cute::numeric_limits<uint32_t>::max();
++            uint32_t end = cute::numeric_limits<uint32_t>::min();
++            #pragma unroll
++            for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
++                const auto q_idx = min(block_q_idx * BLOCK_Q + i, seq_len - 1);
++                seq_k_start[i] = cu_seq_len_k_start[q_idx];
++                seq_k_end[i] = cu_seq_len_k_end[q_idx];
++                start = min(start, min(seq_k_start[i], seq_len_kv));
++                end = max(end, min(seq_k_end[i], seq_len_kv));
++            }
++            start = start / 4 * 4;
++            return {start, math::ceil_div(end - start, BLOCK_KV)};
++        };
++        const auto get_epi_pipeline = [&](const uint32_t& kv_block_idx) -> cute::tuple<uint32_t, uint32_t> {
++            return {
++                (num_total_kv_blocks + kv_block_idx) % kNumEpiStages,
++                ((num_total_kv_blocks + kv_block_idx) / kNumEpiStages) & 1
++            };
++        };
++
++        while (block_q_idx < num_q_blocks) {
++            CUTE_TIE_DECL(load_schedule(), kv_start, num_kv_blocks);
++
++            #pragma unroll
++            for (uint32_t kv_block_idx = 0; kv_block_idx < num_kv_blocks; ++ kv_block_idx) {
++                CUTE_TIE_DECL(get_epi_pipeline(kv_block_idx), epi_stage_idx, epi_phase);
++
++                full_epi_barriers[epi_stage_idx]->wait(epi_phase);
++
++                const float* epi_buf = smem_epi[epi_stage_idx];
++
++                #pragma unroll
++                for (uint32_t col_iter = 0; col_iter < 2; ++ col_iter) {
++                    const uint32_t kv_col = (col_iter == 0) ? kv_col_lo : kv_col_hi;
++                    const uint32_t actual_kv = kv_start + kv_block_idx * BLOCK_KV + kv_col;
++
++                    #pragma unroll
++                    for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
++                        const float* slot = epi_buf + kv_col * kEpiStride + i * 4;
++                        float p0 = ptx::ld_shared(slot + 0);
++                        float p1 = ptx::ld_shared(slot + 1);
++                        float p2 = ptx::ld_shared(slot + 2);
++                        float p3 = ptx::ld_shared(slot + 3);
++                        float result = (p0 + p1) + (p2 + p3);
++
++                        const auto q_offset = (block_q_idx * BLOCK_Q + i) * static_cast<uint64_t>(stride_logits);
++                        if constexpr (kIsCompressedLogits) {
++                            if (seq_k_start[i] <= actual_kv and actual_kv < seq_k_end[i])
++                                logits[q_offset + actual_kv - seq_k_start[i]] = static_cast<logits_dtype_t>(result);
++                        } else {
++                            logits[q_offset + actual_kv] = static_cast<logits_dtype_t>(result);
++                        }
++                    }
++                }
++
++                empty_epi_barriers[epi_stage_idx]->arrive();
++            }
++            num_total_kv_blocks += num_kv_blocks;
++
++            CUTE_TIE(get_next_block_q_idx(), block_q_idx, q_iter_idx);
++        }
++
++    // ═══════════════════════════════════════════════════════════════════
++    // TC WGs (4 warpgroups): threadIdx.x in [0..511]
++    // ═══════════════════════════════════════════════════════════════════
++    } else {
++        cutlass::arch::warpgroup_reg_alloc<104>();
+         const auto& thread_idx = threadIdx.x % kNumMathThreads;
+         const auto& warp_idx = __shfl_sync(0xffffffff, thread_idx / 32, 0);
+         const auto& warpgroup_idx = warp_idx / 4;
+         const auto& lane_idx = ptx::get_lane_idx();
+-        float accum[WGMMA::kNumAccum], weights[BLOCK_Q][kNumHeads / 4];
++        float accum_A[WGMMA_HALF::kNumAccum], accum_B[WGMMA_HALF::kNumAccum];
++        float weights[BLOCK_Q][kNumHeads / 4];
+ 
+         const auto& warp_offset = warp_idx * 16;
+         const auto& v_0_offset = lane_idx / 4 + 0;
+         const auto& v_1_offset = lane_idx / 4 + 8;
+ 
++        uint32_t block_q_idx = sm_idx, q_iter_idx = 0;
++        uint32_t num_total_kv_blocks = 0;
++
++        const auto get_next_block_q_idx = [&]() -> cute::tuple<uint32_t, uint32_t> {
++            return {block_q_idx + kNumSMs, q_iter_idx + 1};
++        };
++        const auto load_schedule = [&]() -> cute::tuple<uint32_t, uint32_t, uint32_t, uint32_t> {
++            uint32_t start = cute::numeric_limits<uint32_t>::max();
++            uint32_t end = cute::numeric_limits<uint32_t>::min();
++            #pragma unroll
++            for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
++                const auto q_idx = min(block_q_idx * BLOCK_Q + i, seq_len - 1);
++                const uint32_t sk_start = cu_seq_len_k_start[q_idx];
++                const uint32_t sk_end = cu_seq_len_k_end[q_idx];
++                start = min(start, min(sk_start, seq_len_kv));
++                end = max(end, min(sk_end, seq_len_kv));
++            }
++            start = start / 4 * 4;
++            return {q_iter_idx % kNumQStages,
++                    (q_iter_idx / kNumQStages) & 1,
++                    start, math::ceil_div(end - start, BLOCK_KV)};
++        };
++        const auto get_kv_pipeline = [&](const uint32_t& kv_block_idx) -> cute::tuple<uint32_t, uint32_t> {
++            return {
++                (num_total_kv_blocks + kv_block_idx) % kNumKVStages,
++                ((num_total_kv_blocks + kv_block_idx) / kNumKVStages) & 1
++            };
++        };
++        const auto get_epi_pipeline = [&](const uint32_t& kv_block_idx) -> cute::tuple<uint32_t, uint32_t> {
++            return {
++                (num_total_kv_blocks + kv_block_idx) % kNumEpiStages,
++                ((num_total_kv_blocks + kv_block_idx) / kNumEpiStages) & 1
++            };
++        };
++
++
+         while (block_q_idx < num_q_blocks) {
+             CUTE_TIE_DECL(load_schedule(), q_stage_idx, q_phase, kv_start, num_kv_blocks);
+ 
+-            // Wait TMA Q arrival
+             full_q_barriers[q_stage_idx]->wait(q_phase);
+ 
+-            // Read weights
+             #pragma unroll
+             for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
+                 #pragma unroll
+@@ -233,95 +357,115 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                     weights[i][j] = ptx::ld_shared(smem_weights[q_stage_idx] + i * kNumHeads + (j / 2) * 8 + (j & 1) + (lane_idx % 4) * 2);
+             }
+ 
+-            // Compute over KV blocks
+             #pragma unroll
+             for (uint32_t kv_block_idx = 0; kv_block_idx < num_kv_blocks; ++ kv_block_idx) {
+-                // Compute `[BLOCK_Q * kNumHeads, kHeadDim] @ [BLOCK_KV, kHeadDim] -> [BLOCK_Q, BLOCK_KV]`
+-                // Wait TMA KV arrival
+                 CUTE_TIE_DECL(get_kv_pipeline(kv_block_idx), kv_stage_idx, kv_phase);
+                 full_kv_barriers[kv_stage_idx]->wait(kv_phase);
+ 
+-                // Read per-KV scales
+-                float scale_kv_0 = ptx::ld_shared(smem_kv_scales[kv_stage_idx] + warp_offset + v_0_offset);
+-                float scale_kv_1 = ptx::ld_shared(smem_kv_scales[kv_stage_idx] + warp_offset + v_1_offset);
++                // Issue WGMMA — bank A (q-rows 0..kBlockQPerBank-1)
++                #pragma unroll
++                for (uint32_t i = 0; i < WGMMA_HALF::kNumAccum; ++ i)
++                    ptx::warpgroup_fence_operand(accum_A[i]);
++                ptx::warpgroup_arrive();
++                #pragma unroll
++                for (uint32_t k = 0; k < kHeadDim / WGMMA_HALF::K; ++ k) {
++                    auto desc_a = mma::sm90::make_smem_desc(
++                        smem_kv[kv_stage_idx] + (warpgroup_idx * WGMMA_HALF::M) * kHeadDim + k * WGMMA_HALF::K,
++                        mma::sm90::to_swizzle_cute_type<kHeadDim>(), 0, kHeadDim * 8);
++                    auto desc_b = mma::sm90::make_smem_desc(
++                        smem_q[q_stage_idx] + k * WGMMA_HALF::K,
++                        mma::sm90::to_swizzle_cute_type<kHeadDim>(), 0, kHeadDim * 8);
++                    WGMMA_HALF::wgmma(desc_a, desc_b, accum_A, k);
++                }
++                ptx::warpgroup_commit_batch();
+ 
+-                // Issue WGMMA
+-                DG_STATIC_ASSERT(BLOCK_KV == kNumMathThreads / 2, "Invalid block size");
+-                DG_STATIC_ASSERT(kHeadDim % WGMMA::K == 0, "Invalid head dim");
++                // Issue WGMMA — bank B (q-rows kBlockQPerBank..BLOCK_Q-1)
+                 #pragma unroll
+-                for (uint32_t i = 0; i < WGMMA::kNumAccum; ++ i)
+-                    ptx::warpgroup_fence_operand(accum[i]);
++                for (uint32_t i = 0; i < WGMMA_HALF::kNumAccum; ++ i)
++                    ptx::warpgroup_fence_operand(accum_B[i]);
+                 ptx::warpgroup_arrive();
+                 #pragma unroll
+-                for (uint32_t k = 0; k < kHeadDim / WGMMA::K; ++ k) {
++                for (uint32_t k = 0; k < kHeadDim / WGMMA_HALF::K; ++ k) {
+                     auto desc_a = mma::sm90::make_smem_desc(
+-                        smem_kv[kv_stage_idx] + (warpgroup_idx * WGMMA::M) * kHeadDim + k * WGMMA::K,
++                        smem_kv[kv_stage_idx] + (warpgroup_idx * WGMMA_HALF::M) * kHeadDim + k * WGMMA_HALF::K,
+                         mma::sm90::to_swizzle_cute_type<kHeadDim>(), 0, kHeadDim * 8);
+                     auto desc_b = mma::sm90::make_smem_desc(
+-                        smem_q[q_stage_idx] + k * WGMMA::K,
++                        smem_q[q_stage_idx] + WGMMA_HALF::N * kHeadDim + k * WGMMA_HALF::K,
+                         mma::sm90::to_swizzle_cute_type<kHeadDim>(), 0, kHeadDim * 8);
+-                    WGMMA::wgmma(desc_a, desc_b, accum, k);
++                    WGMMA_HALF::wgmma(desc_a, desc_b, accum_B, k);
+                 }
+                 ptx::warpgroup_commit_batch();
++
++                // Wait epi-empty (producer acquire — skip on first kv-block)
++                CUTE_TIE_DECL(get_epi_pipeline(kv_block_idx), epi_stage_idx, epi_phase);
++                if ((num_total_kv_blocks | kv_block_idx) != 0)
++                    empty_epi_barriers[epi_stage_idx]->wait(epi_phase ^ 1);
++
++                // Load KV scales between epi-wait and DEPBAR — gives LDS time to complete
++                float scale_kv_0 = ptx::ld_shared(smem_kv_scales[kv_stage_idx] + warp_offset + v_0_offset);
++                float scale_kv_1 = ptx::ld_shared(smem_kv_scales[kv_stage_idx] + warp_offset + v_1_offset);
++
++                // Drain bank A — bank B continues in background
++                ptx::warpgroup_wait<1>();
+                 #pragma unroll
+-                for (uint32_t i = 0; i < WGMMA::kNumAccum; ++ i)
+-                    ptx::warpgroup_fence_operand(accum[i]);
++                for (uint32_t i = 0; i < WGMMA_HALF::kNumAccum; ++ i)
++                    ptx::warpgroup_fence_operand(accum_A[i]);
++
++                // Partial reduce bank A → STS to epi_buf
++                float* epi_buf = smem_epi[epi_stage_idx];
++
++                #define DO_PARTIAL_REDUCE(ACCUM, Q_BASE, Q_COUNT)                                   \
++                    _Pragma("unroll")                                                                \
++                    for (uint32_t i = 0; i < Q_COUNT; ++ i) {                                      \
++                        auto shifted_accum = ACCUM + i * kNumAccumPerReduce;                        \
++                        const auto transform = [&](const uint32_t& j) {                            \
++                            return fmaxf(shifted_accum[j], 0) *                                    \
++                                   weights[(Q_BASE) + i][(j / 4) * 2 + (j & 1)];                  \
++                        };                                                                          \
++                        float sum[4] = {transform(0), transform(1),                                \
++                                        transform(2), transform(3)};                               \
++                        _Pragma("unroll")                                                           \
++                        for (uint32_t j = 1; j < kNumHeads / 8; ++ j) {                            \
++                            _Pragma("unroll")                                                       \
++                            for (uint32_t kk = 0; kk < 4; kk ++)                                  \
++                                sum[kk] += transform(j * 4 + kk);                                 \
++                        }                                                                           \
++                        float v_0 = (sum[0] + sum[1]) * scale_kv_0;                                \
++                        float v_1 = (sum[2] + sum[3]) * scale_kv_1;                                \
++                        const uint32_t kv_col_0 = warp_offset + v_0_offset;                        \
++                        const uint32_t kv_col_1 = warp_offset + v_1_offset;                        \
++                        const uint32_t shfl_lane = lane_idx % 4;                                   \
++                        ptx::st_shared(epi_buf + kv_col_0 * kEpiStride                             \
++                                       + ((Q_BASE) + i) * 4 + shfl_lane, v_0);                    \
++                        ptx::st_shared(epi_buf + kv_col_1 * kEpiStride                             \
++                                       + ((Q_BASE) + i) * 4 + shfl_lane, v_1);                    \
++                    }
++
++                DO_PARTIAL_REDUCE(accum_A, 0, kBlockQPerBank)
++
++                // Drain bank B — must complete before releasing KV SMEM
+                 ptx::warpgroup_wait<0>();
++                #pragma unroll
++                for (uint32_t i = 0; i < WGMMA_HALF::kNumAccum; ++ i)
++                    ptx::warpgroup_fence_operand(accum_B[i]);
+ 
+-                // Release KV empty
++                // Release KV empty — both banks fully drained
+                 empty_kv_barriers[kv_stage_idx]->arrive();
+ 
+-                // Reduce over the head dim and store
+-                const auto& kv_offset = kv_start + kv_block_idx * BLOCK_KV + warp_offset;
+-                static constexpr uint32_t kNumAccumPerReduce = kNumHeads / 2;
+-                DG_STATIC_ASSERT(WGMMA::kNumAccum % kNumAccumPerReduce == 0, "Invalid accumulation");
+-                DG_STATIC_ASSERT(WGMMA::kNumAccum / kNumAccumPerReduce == BLOCK_Q, "Invalid accumulation");
+-                DG_STATIC_ASSERT(kNumHeads % 8 == 0, "Invalid head");
+-                #pragma unroll
+-                for (uint32_t i = 0; i < BLOCK_Q; ++ i) {
+-                    auto shifted_accum = accum + i * kNumAccumPerReduce;
+-                    const auto transform = [&](const uint32_t& j) {
+-                        return fmaxf(shifted_accum[j], 0) * weights[i][(j / 4) * 2 + (j & 1)];
+-                    };
+-
+-                    // Intra-thread reduction
+-                    float sum[4] = {transform(0), transform(1), transform(2), transform(3)};
+-                    #pragma unroll
+-                    for (uint32_t j = 1; j < kNumHeads / 8; ++ j) {
+-                        #pragma unroll
+-                        for (uint32_t k = 0; k < 4; k ++)
+-                            sum[k] += transform(j * 4 + k);
+-                    }
+-                    float v_0 = (sum[0] + sum[1]) * scale_kv_0;
+-                    float v_1 = (sum[2] + sum[3]) * scale_kv_1;
++                // Partial reduce bank B → STS to epi_buf
++                DO_PARTIAL_REDUCE(accum_B, kBlockQPerBank, kBlockQPerBank)
+ 
+-                    // Inter-thread reduction
+-                    #pragma unroll
+-                    for (uint32_t j = 0; j < 2; ++ j) {
+-                        const auto& offset = static_cast<int>(1u << j);
+-                        v_0 += __shfl_xor_sync(0xffffffffu, v_0, offset);
+-                        v_1 += __shfl_xor_sync(0xffffffffu, v_1, offset);
+-                    }
++                #undef DO_PARTIAL_REDUCE
+ 
+-                    // Store into the global memory
+-                    const auto q_offset = (block_q_idx * BLOCK_Q + i) * static_cast<uint64_t>(stride_logits);
+-                    if constexpr (kIsCompressedLogits) {
+-                        if (seq_k_start[i] <= kv_offset + v_0_offset and kv_offset + v_0_offset < seq_k_end[i])
+-                            logits[q_offset + kv_offset + v_0_offset - seq_k_start[i]] = static_cast<logits_dtype_t>(v_0);
+-                        if (seq_k_start[i] <= kv_offset + v_1_offset and kv_offset + v_1_offset < seq_k_end[i])
+-                            logits[q_offset + kv_offset + v_1_offset - seq_k_start[i]] = static_cast<logits_dtype_t>(v_1);
+-                    } else {
+-                        logits[q_offset + kv_offset + v_0_offset] = static_cast<logits_dtype_t>(v_0);
+-                        logits[q_offset + kv_offset + v_1_offset] = static_cast<logits_dtype_t>(v_1);
+-                    }
+-                }
++                // Fence STS visibility + signal Epi
++                cutlass::arch::fence_view_async_shared();
++                full_epi_barriers[epi_stage_idx]->arrive();
+             }
+             num_total_kv_blocks += num_kv_blocks;
+ 
+             // Release Q empty
+             empty_q_barriers[q_stage_idx]->arrive();
+ 
+-            // Jump to the next block
+             CUTE_TIE(get_next_block_q_idx(), block_q_idx, q_iter_idx);
+         }
+     }
+
+From 0c41e5d1d9a8fb9221a9ea668379c3161b92cce8 Mon Sep 17 00:00:00 2001
+From: Yuanhang Sun <yuasun@nvidia.com>
+Date: Mon, 4 May 2026 04:24:34 -0700
+Subject: [PATCH 2/6] fix: cleanup SM90 FP8 MQA logits kernel for upstream
+
+Remove broken DG_OVERLAP_3WG env var (3WG path left 64 KV columns
+uninitialized in epi_buf), add BLOCK_KV static assert, remove unused
+WGMMA type alias, restore named register constants and production
+comment style.
+---
+ .../impls/smxx_fp8_fp4_mqa_logits.hpp         |  3 +-
+ .../deep_gemm/impls/sm90_fp8_mqa_logits.cuh   | 35 +++++++++++--------
+ 2 files changed, 21 insertions(+), 17 deletions(-)
+
+diff --git a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+index 6029ae4e0..9dbb0e5f1 100644
+--- a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
++++ b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+@@ -124,8 +124,7 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+                                 const int& block_q, const int& block_kv) {
+     constexpr int num_specialized_threads = 128;
+     constexpr int num_q_stages = 3, num_kv_stages = 3;
+-    const int num_math_threads = get_env("DG_OVERLAP_3WG", 0) ? 384 :
+-                                 (device_runtime->get_arch_major() == 10 ? 256 : 512);
++    const int num_math_threads = (device_runtime->get_arch_major() == 10 ? 256 : 512);
+ 
+     // Use compressed logits format when max_seqlen_k is specified
+     const bool is_compressed_logits = (max_seqlen_k > 0);
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index c426ffdcb..83408c5a3 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -27,7 +27,7 @@ template <uint32_t kNumHeads, uint32_t kHeadDim,
+           uint32_t kNumSMs,
+           uint32_t kNumTMAThreads, uint32_t kNumMathThreads,
+           typename logits_dtype_t>
+-CUTLASS_GLOBAL __launch_bounds__(kNumTMAThreads + kNumMathThreads + 128, 1)
++CUTLASS_GLOBAL __launch_bounds__(kNumTMAThreads + kNumMathThreads + 128 /* kNumEpiThreads */, 1)
+ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                          const uint32_t max_seqlen_k, const uint32_t stride_logits,
+                          uint32_t* cu_seq_len_k_start,
+@@ -37,10 +37,12 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                          const __grid_constant__ cute::TmaDescriptor tensor_map_kv,
+                          const __grid_constant__ cute::TmaDescriptor tensor_map_kv_scales,
+                          const __grid_constant__ cute::TmaDescriptor tensor_map_weights) {
++    // TODO: consider TMA multicast
++    // For one block, we process `[q_start:q_end, h, d] @ [kv_start:kv_end, d] -> [q_start:q_end, kv_start:kv_end]`
++    // Q should be load only at once for a block
+     const auto num_q_blocks = math::ceil_div(seq_len, BLOCK_Q);
+ 
+     // Types — N=64 split for wait<1> overlap
+-    using WGMMA = typename mma::sm90::FP8MMASelector<BLOCK_Q * kNumHeads>::type;
+     using WGMMA_HALF = typename mma::sm90::FP8MMASelector<BLOCK_Q * kNumHeads / 2>::type;
+     static constexpr uint32_t kBlockQPerBank = BLOCK_Q / 2;
+     static constexpr uint32_t kNumEpiThreads = 128;
+@@ -54,6 +56,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+     DG_STATIC_ASSERT(WGMMA_HALF::kNumAccum % kNumAccumPerReduce == 0, "Invalid accumulation");
+     DG_STATIC_ASSERT(WGMMA_HALF::kNumAccum / kNumAccumPerReduce == kBlockQPerBank, "Invalid accumulation");
+     DG_STATIC_ASSERT(kNumHeads % 8 == 0, "Invalid head");
++    DG_STATIC_ASSERT(BLOCK_KV == kNumEpiThreads * 2, "Invalid `BLOCK_KV`");
+ 
+     // Thread layout: TC[0..511] + Epi[512..639] + TMA[640..767]
+     static constexpr uint32_t kEpiStart = kNumMathThreads;
+@@ -69,6 +72,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+     __syncwarp();
+ 
+     // Shared memory configs
++    // NOTES: weight may be unaligned
+     static constexpr uint32_t kSwizzleAlignment = kHeadDim * 8;
+     static constexpr uint32_t SMEM_Q_SIZE_PER_STAGE = BLOCK_Q * kNumHeads * kHeadDim * sizeof(__nv_fp8_e4m3);
+     static constexpr uint32_t SMEM_WEIGHT_SIZE_PER_STAGE = BLOCK_Q * kNumHeads * sizeof(float);
+@@ -132,21 +136,24 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+             full_epi_barriers[i]->init(kNumMathThreads);
+             empty_epi_barriers[i]->init(kNumEpiThreads);
+         }
++        // Make initialized barrier visible in async proxy
+         cutlass::arch::fence_barrier_init();
+     }
+     __syncthreads();
+ 
++    // Register reconfigurations
++    constexpr uint32_t kNumTMARegisters = 32;
++    constexpr uint32_t kNumMathRegisters = 104;
++
+     // Block scheduler (shared by TC and Epi, computed independently)
+     const auto sm_idx = blockIdx.x;
+ 
+     // Wait for primary kernel completion
+     cudaGridDependencySynchronize();
+ 
+-    // ═══════════════════════════════════════════════════════════════════
+-    // TMA WG: threadIdx.x in [kTMAStart..kTMAStart+127]
+-    // ═══════════════════════════════════════════════════════════════════
+     if (threadIdx.x >= kTMAStart) {
+-        cutlass::arch::warpgroup_reg_dealloc<32>();
++        // TMA warp-group for loading data
++        cutlass::arch::warpgroup_reg_dealloc<kNumTMARegisters>();
+         if (not is_tma_load_warp)
+             return;
+ 
+@@ -214,11 +221,9 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+             }
+         }
+ 
+-    // ═══════════════════════════════════════════════════════════════════
+-    // Epi WG: threadIdx.x in [kEpiStart..kEpiStart+127]
+-    // ═══════════════════════════════════════════════════════════════════
+     } else if (threadIdx.x >= kEpiStart) {
+-        cutlass::arch::warpgroup_reg_dealloc<32>();
++        // Epilogue warp-group for post-processing
++        cutlass::arch::warpgroup_reg_dealloc<kNumTMARegisters>();
+         const uint32_t epi_tid = threadIdx.x - kEpiStart;
+         const uint32_t kv_col_lo = epi_tid;
+         const uint32_t kv_col_hi = epi_tid + 128;
+@@ -293,11 +298,11 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+             CUTE_TIE(get_next_block_q_idx(), block_q_idx, q_iter_idx);
+         }
+ 
+-    // ═══════════════════════════════════════════════════════════════════
+-    // TC WGs (4 warpgroups): threadIdx.x in [0..511]
+-    // ═══════════════════════════════════════════════════════════════════
+     } else {
+-        cutlass::arch::warpgroup_reg_alloc<104>();
++        // Math warp-groups for WGMMA
++        cutlass::arch::warpgroup_reg_alloc<kNumMathRegisters>();
++
++        // NOTES: use `__shfl_sync` to encourage NVCC to use unified registers
+         const auto& thread_idx = threadIdx.x % kNumMathThreads;
+         const auto& warp_idx = __shfl_sync(0xffffffff, thread_idx / 32, 0);
+         const auto& warpgroup_idx = warp_idx / 4;
+@@ -396,7 +401,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                 }
+                 ptx::warpgroup_commit_batch();
+ 
+-                // Wait epi-empty (producer acquire — skip on first kv-block)
++                // NOTES: skip epi-empty wait on first KV block (barrier is pre-consumed at init)
+                 CUTE_TIE_DECL(get_epi_pipeline(kv_block_idx), epi_stage_idx, epi_phase);
+                 if ((num_total_kv_blocks | kv_block_idx) != 0)
+                     empty_epi_barriers[epi_stage_idx]->wait(epi_phase ^ 1);
+
+From c7218cd04e0fff5d8425a805dffdf8be0a2bc0b4 Mon Sep 17 00:00:00 2001
+From: Yuanhang Sun <yuasun@nvidia.com>
+Date: Mon, 4 May 2026 04:28:32 -0700
+Subject: [PATCH 3/6] refactor: derive kNumEpiStages from kNumKVStages, restore
+ single-path dispatcher
+
+kNumEpiStages is always equal to kNumKVStages by design. Remove it
+from the template parameter list and derive it internally, which
+eliminates the SM90-specific dispatcher branch in generate_impl.
+---
+ .../impls/smxx_fp8_fp4_mqa_logits.hpp         | 29 +------------------
+ .../deep_gemm/impls/sm90_fp8_mqa_logits.cuh   |  4 +--
+ 2 files changed, 2 insertions(+), 31 deletions(-)
+
+diff --git a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+index 9dbb0e5f1..1c2fa5330 100644
+--- a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
++++ b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+@@ -46,33 +46,7 @@ class SMXXFP8MQALogitsRuntime final: public LaunchRuntime<SMXXFP8MQALogitsRuntim
+         DG_HOST_ASSERT(128 % args.num_heads == 0);
+         const auto arch = device_runtime->get_arch(true);
+ 
+-        if (arch == "90") {
+-            return fmt::format(R"(
+-#include <deep_gemm/impls/sm{}_fp8_mqa_logits.cuh>
+-
+-using namespace deep_gemm;
+-
+-static void __instantiate_kernel() {{
+-    auto ptr = reinterpret_cast<void*>(&sm{}_fp8_mqa_logits<
+-        {}, {},
+-        {},
+-        {}, {},
+-        {}, {}, {},
+-        {},
+-        {}, {},
+-        {}
+-    >);
+-}};
+-)", arch, arch,
+-    args.num_heads, args.head_dim,
+-    args.is_compressed_logits,
+-    args.block_q, args.block_kv,
+-    args.num_q_stages, args.num_kv_stages, 3,
+-    args.launch_args.grid_dim.first,
+-    args.num_specialized_threads, args.num_math_threads,
+-    to_string(args.logits_dtype));
+-        } else {
+-            return fmt::format(R"(
++        return fmt::format(R"(
+ #include <deep_gemm/impls/sm{}_fp8_mqa_logits.cuh>
+ 
+ using namespace deep_gemm;
+@@ -96,7 +70,6 @@ static void __instantiate_kernel() {{
+     args.launch_args.grid_dim.first,
+     args.num_specialized_threads, args.num_math_threads,
+     to_string(args.logits_dtype));
+-        }
+     }
+ 
+     static void launch_impl(const KernelHandle& kernel, const LaunchConfigHandle& config, Args args) {
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index 83408c5a3..777076610 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -23,7 +23,6 @@ template <uint32_t kNumHeads, uint32_t kHeadDim,
+           bool kIsCompressedLogits,
+           uint32_t BLOCK_Q, uint32_t BLOCK_KV,
+           uint32_t kNumQStages, uint32_t kNumKVStages,
+-          uint32_t kNumEpiStages,
+           uint32_t kNumSMs,
+           uint32_t kNumTMAThreads, uint32_t kNumMathThreads,
+           typename logits_dtype_t>
+@@ -47,11 +46,10 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+     static constexpr uint32_t kBlockQPerBank = BLOCK_Q / 2;
+     static constexpr uint32_t kNumEpiThreads = 128;
+     static constexpr uint32_t kNumAccumPerReduce = kNumHeads / 2;
++    static constexpr uint32_t kNumEpiStages = kNumKVStages;
+     using Barrier = cutlass::arch::ClusterTransactionBarrier;
+ 
+     DG_STATIC_ASSERT(kNumTMAThreads == 128 and kNumMathThreads % 128 == 0, "Invalid threads");
+-    DG_STATIC_ASSERT(kNumEpiStages >= 2, "Need double-buffer for epi pipeline");
+-    DG_STATIC_ASSERT(kNumEpiStages >= kNumKVStages, "Epi stages must cover KV pipeline depth");
+     DG_STATIC_ASSERT(kHeadDim % WGMMA_HALF::K == 0, "Invalid head dim");
+     DG_STATIC_ASSERT(WGMMA_HALF::kNumAccum % kNumAccumPerReduce == 0, "Invalid accumulation");
+     DG_STATIC_ASSERT(WGMMA_HALF::kNumAccum / kNumAccumPerReduce == kBlockQPerBank, "Invalid accumulation");
+
+From e4c8bf04636cf0656acf8c7c8a6268f3516ba280 Mon Sep 17 00:00:00 2001
+From: Yuanhang Sun <yuasun@nvidia.com>
+Date: Mon, 4 May 2026 04:30:58 -0700
+Subject: [PATCH 4/6] rename: is_ws -> has_epi_wg for clarity
+
+The original kernel is already warp-specialized (TMA + Math WGs).
+The variable controls whether an epilogue warpgroup is present.
+---
+ csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+index 1c2fa5330..ca7fd369e 100644
+--- a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
++++ b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+@@ -117,7 +117,7 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+                                                      num_heads, block_q, num_heads, 0);
+ 
+     // Calculate shared memory size
+-    const bool is_ws = (device_runtime->get_arch_major() == 9);
++    const bool has_epi_wg = (device_runtime->get_arch_major() == 9);
+     constexpr int num_epi_stages = 3;
+     constexpr int num_epi_threads = 128;
+     int smem_size = 0;
+@@ -129,7 +129,7 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+     smem_size += num_kv_stages * smem_kv_size_per_stage;
+     smem_size += num_q_stages * smem_weight_size_per_stage;
+     smem_size += num_kv_stages * kv_scale_size_per_stage;
+-    if (is_ws) {
++    if (has_epi_wg) {
+         smem_size += num_epi_stages * block_kv * (block_q * 4 + 1) * static_cast<int>(weights.element_size());
+         smem_size += (num_q_stages * 2 + num_kv_stages * 2 + num_epi_stages * 2) * 8;
+     } else {
+@@ -162,7 +162,7 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+         .num_specialized_threads = num_specialized_threads,
+         .num_math_threads = num_math_threads,
+         .launch_args = LaunchArgs(device_runtime->get_num_sms(),
+-                                  num_specialized_threads + num_math_threads + (is_ws ? num_epi_threads : 0),
++                                  num_specialized_threads + num_math_threads + (has_epi_wg ? num_epi_threads : 0),
+                                   smem_size)
+     };
+     const auto code = SMXXFP8MQALogitsRuntime::generate(args);
+
+From 441c493c5d04ecff9be2cef507f83adb5505de4c Mon Sep 17 00:00:00 2001
+From: Yuanhang Sun <yuasun@nvidia.com>
+Date: Mon, 4 May 2026 05:04:05 -0700
+Subject: [PATCH 5/6] refactor: replace DO_PARTIAL_REDUCE macro with lambda
+
+Both call sites use the same loop bound (kBlockQPerBank), so a
+capturing lambda with two parameters (accum, q_base) is cleaner
+and avoids the #define/#undef pattern.
+---
+ .../deep_gemm/impls/sm90_fp8_mqa_logits.cuh   | 61 +++++++++----------
+ 1 file changed, 29 insertions(+), 32 deletions(-)
+
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index 777076610..3801bfc3c 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -414,37 +414,37 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                 for (uint32_t i = 0; i < WGMMA_HALF::kNumAccum; ++ i)
+                     ptx::warpgroup_fence_operand(accum_A[i]);
+ 
+-                // Partial reduce bank A → STS to epi_buf
++                // Partial reduce → STS to epi_buf
+                 float* epi_buf = smem_epi[epi_stage_idx];
+-
+-                #define DO_PARTIAL_REDUCE(ACCUM, Q_BASE, Q_COUNT)                                   \
+-                    _Pragma("unroll")                                                                \
+-                    for (uint32_t i = 0; i < Q_COUNT; ++ i) {                                      \
+-                        auto shifted_accum = ACCUM + i * kNumAccumPerReduce;                        \
+-                        const auto transform = [&](const uint32_t& j) {                            \
+-                            return fmaxf(shifted_accum[j], 0) *                                    \
+-                                   weights[(Q_BASE) + i][(j / 4) * 2 + (j & 1)];                  \
+-                        };                                                                          \
+-                        float sum[4] = {transform(0), transform(1),                                \
+-                                        transform(2), transform(3)};                               \
+-                        _Pragma("unroll")                                                           \
+-                        for (uint32_t j = 1; j < kNumHeads / 8; ++ j) {                            \
+-                            _Pragma("unroll")                                                       \
+-                            for (uint32_t kk = 0; kk < 4; kk ++)                                  \
+-                                sum[kk] += transform(j * 4 + kk);                                 \
+-                        }                                                                           \
+-                        float v_0 = (sum[0] + sum[1]) * scale_kv_0;                                \
+-                        float v_1 = (sum[2] + sum[3]) * scale_kv_1;                                \
+-                        const uint32_t kv_col_0 = warp_offset + v_0_offset;                        \
+-                        const uint32_t kv_col_1 = warp_offset + v_1_offset;                        \
+-                        const uint32_t shfl_lane = lane_idx % 4;                                   \
+-                        ptx::st_shared(epi_buf + kv_col_0 * kEpiStride                             \
+-                                       + ((Q_BASE) + i) * 4 + shfl_lane, v_0);                    \
+-                        ptx::st_shared(epi_buf + kv_col_1 * kEpiStride                             \
+-                                       + ((Q_BASE) + i) * 4 + shfl_lane, v_1);                    \
++                const auto partial_reduce = [&](float* accum, const uint32_t q_base) {
++                    #pragma unroll
++                    for (uint32_t i = 0; i < kBlockQPerBank; ++ i) {
++                        auto shifted_accum = accum + i * kNumAccumPerReduce;
++                        const auto transform = [&](const uint32_t& j) {
++                            return fmaxf(shifted_accum[j], 0) *
++                                   weights[q_base + i][(j / 4) * 2 + (j & 1)];
++                        };
++                        float sum[4] = {transform(0), transform(1),
++                                        transform(2), transform(3)};
++                        #pragma unroll
++                        for (uint32_t j = 1; j < kNumHeads / 8; ++ j) {
++                            #pragma unroll
++                            for (uint32_t kk = 0; kk < 4; kk ++)
++                                sum[kk] += transform(j * 4 + kk);
++                        }
++                        float v_0 = (sum[0] + sum[1]) * scale_kv_0;
++                        float v_1 = (sum[2] + sum[3]) * scale_kv_1;
++                        const uint32_t kv_col_0 = warp_offset + v_0_offset;
++                        const uint32_t kv_col_1 = warp_offset + v_1_offset;
++                        const uint32_t shfl_lane = lane_idx % 4;
++                        ptx::st_shared(epi_buf + kv_col_0 * kEpiStride
++                                       + (q_base + i) * 4 + shfl_lane, v_0);
++                        ptx::st_shared(epi_buf + kv_col_1 * kEpiStride
++                                       + (q_base + i) * 4 + shfl_lane, v_1);
+                     }
++                };
+ 
+-                DO_PARTIAL_REDUCE(accum_A, 0, kBlockQPerBank)
++                partial_reduce(accum_A, 0);
+ 
+                 // Drain bank B — must complete before releasing KV SMEM
+                 ptx::warpgroup_wait<0>();
+@@ -455,10 +455,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+                 // Release KV empty — both banks fully drained
+                 empty_kv_barriers[kv_stage_idx]->arrive();
+ 
+-                // Partial reduce bank B → STS to epi_buf
+-                DO_PARTIAL_REDUCE(accum_B, kBlockQPerBank, kBlockQPerBank)
+-
+-                #undef DO_PARTIAL_REDUCE
++                partial_reduce(accum_B, kBlockQPerBank);
+ 
+                 // Fence STS visibility + signal Epi
+                 cutlass::arch::fence_view_async_shared();
+
+From 8425593ba618b7b98b5b569c0579b670eadde78a Mon Sep 17 00:00:00 2001
+From: Yuanhang Sun <yuasun@nvidia.com>
+Date: Mon, 4 May 2026 05:06:05 -0700
+Subject: [PATCH 6/6] =?UTF-8?q?style:=20minor=20cleanups=20=E2=80=94=20use?=
+ =?UTF-8?q?=20named=20constants,=20remove=20extra=20blank=20line?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- epi_tid + 128 -> epi_tid + kNumEpiThreads
+- num_epi_stages = 3 -> num_epi_stages = num_kv_stages
+- remove double blank line in TC WG
+---
+ csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp        | 2 +-
+ deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh | 3 +--
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+index ca7fd369e..17a39f0da 100644
+--- a/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
++++ b/csrc/jit_kernels/impls/smxx_fp8_fp4_mqa_logits.hpp
+@@ -118,7 +118,7 @@ static void smxx_fp8_mqa_logits(const torch::Tensor& q,
+ 
+     // Calculate shared memory size
+     const bool has_epi_wg = (device_runtime->get_arch_major() == 9);
+-    constexpr int num_epi_stages = 3;
++    constexpr int num_epi_stages = num_kv_stages;
+     constexpr int num_epi_threads = 128;
+     int smem_size = 0;
+     const int smem_q_size_per_stage = block_q * num_heads * head_dim * static_cast<int>(q.element_size());
+diff --git a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+index 3801bfc3c..3cf8e7393 100644
+--- a/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
++++ b/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+@@ -224,7 +224,7 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+         cutlass::arch::warpgroup_reg_dealloc<kNumTMARegisters>();
+         const uint32_t epi_tid = threadIdx.x - kEpiStart;
+         const uint32_t kv_col_lo = epi_tid;
+-        const uint32_t kv_col_hi = epi_tid + 128;
++        const uint32_t kv_col_hi = epi_tid + kNumEpiThreads;
+ 
+         uint32_t block_q_idx = sm_idx, q_iter_idx = 0;
+         uint32_t seq_k_start[BLOCK_Q], seq_k_end[BLOCK_Q];
+@@ -347,7 +347,6 @@ void sm90_fp8_mqa_logits(const uint32_t seq_len, const uint32_t seq_len_kv,
+             };
+         };
+ 
+-
+         while (block_q_idx < num_q_blocks) {
+             CUTE_TIE_DECL(load_schedule(), q_stage_idx, q_phase, kv_start, num_kv_blocks);
+ 

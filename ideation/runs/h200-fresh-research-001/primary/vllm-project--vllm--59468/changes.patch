@@ -1,0 +1,180 @@
+From 76ca4a8c454671229e7ee6f38c0e631dd2f1c11f Mon Sep 17 00:00:00 2001
+From: zixi-qi <zixi@inferact.ai>
+Date: Wed, 30 Sep 2026 00:37:53 +0000
+Subject: [PATCH] [Spec Decode] Don't reserve DFlash/DSpark draft slots in the
+ token budget
+
+The scheduler charges every request num_new_tokens plus
+max_num_new_slots_for_drafting against max_num_batched_tokens: K for
+DFlash and K - 1 for DSpark. Neither drafts in the target batch. Both
+run a separate query pass whose rows go into max_num_batched_tokens-row
+buffers, and the charge only kept that pass in bounds. A DSpark decode
+with K = 5 costs 10 tokens instead of 6, so a budget of 512 runs at
+most 51 requests.
+
+Return 0 slots for DFlash and DSpark, and instead cap
+max_num_active_seqs at max_num_batched_tokens // num_lookahead_tokens,
+with a warning when that lowers it. num_lookahead_tokens is the draft
+pass's query rows per request (K for anchor-sampling DSpark, K + 1 for
+DFlash and fill-in DSpark), which its KV writes require it to cover. The startup check on
+max_num_batched_tokens now compares against num_lookahead_tokens, which
+is at least every method's draft slots, so it still rejects a budget
+too small for one request's draft pass.
+
+Signed-off-by: zixi-qi <zixi@inferact.ai>
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ tests/test_config.py            |  4 ++--
+ tests/v1/core/test_scheduler.py | 40 +++++++++++++++++++++++++++++++++
+ vllm/config/speculative.py      | 12 +++++-----
+ vllm/config/vllm.py             | 29 +++++++++++++++++++-----
+ 4 files changed, 73 insertions(+), 12 deletions(-)
+
+diff --git a/tests/test_config.py b/tests/test_config.py
+index 734253edc9f8..a987646408f7 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -2075,8 +2075,8 @@ def test_draft_parallel_config_preserves_ep_without_model(
+     [
+         pytest.param("eagle3", False, 0, id="eagle3"),
+         pytest.param("eagle3", True, 7, id="p-eagle"),
+-        pytest.param("dflash", True, 8, id="dflash"),
+-        pytest.param("dspark", True, 7, id="dspark"),
++        pytest.param("dflash", True, 0, id="dflash"),
++        pytest.param("dspark", True, 0, id="dspark"),
+         pytest.param("mtp", False, 0, id="mtp"),
+         pytest.param("ngram", False, 0, id="ngram"),
+         pytest.param("draft_model", False, 1, id="draft-model"),
+diff --git a/tests/v1/core/test_scheduler.py b/tests/v1/core/test_scheduler.py
+index be3ea553d926..5b6cecd920ac 100644
+--- a/tests/v1/core/test_scheduler.py
++++ b/tests/v1/core/test_scheduler.py
+@@ -1849,6 +1849,46 @@ def test_draft_slots_budgeted_per_scheduled_request(tmp_path, monkeypatch):
+     assert scheduler.schedule().num_scheduled_tokens == {"0": 10, "1": 4}
+ 
+ 
++@pytest.mark.parametrize(("method", "max_num_reqs"), [("dflash", 4), ("dspark", 5)])
++def test_block_drafters_cap_requests_instead_of_draft_slots(
++    tmp_path, method, max_num_reqs
++):
++    (tmp_path / "config.json").write_text(
++        '{"architectures": ["OPTForCausalLM"], "model_type": "opt"}'
++    )
++    base = create_scheduler(
++        model=str(tmp_path),
++        max_num_batched_tokens=20,
++        num_speculative_tokens=4,
++        parallel_drafting=True,
++        skip_tokenizer_init=True,
++    )
++    # DFlash/DSpark need a resolvable draft model, so switch the ngram config in
++    # place and redo the config step. DSpark then has 4 lookahead tokens, not 5.
++    vllm_config = base.vllm_config
++    object.__setattr__(vllm_config.speculative_config, "method", method)
++    object.__setattr__(
++        vllm_config.speculative_config,
++        "draft_model_config",
++        SimpleNamespace(hf_config=SimpleNamespace()),
++    )
++    vllm_config._set_max_num_scheduled_tokens()
++    scheduler = Scheduler(
++        vllm_config=vllm_config,
++        kv_cache_config=base.kv_cache_config,
++        structured_output_manager=base.structured_output_manager,
++        block_size=base.block_size,
++    )
++    for request in create_requests(num_requests=8, num_tokens=2):
++        scheduler.add_request(request)
++
++    # Admission stops at 20 // num_lookahead_tokens, and no draft slots are
++    # charged: each admitted prompt is scheduled in full.
++    assert scheduler.schedule().num_scheduled_tokens == {
++        str(i): 2 for i in range(max_num_reqs)
++    }
++
++
+ # Note - these test cases mirror some of those in test_rejection_sampler.py
+ @pytest.mark.parametrize(
+     "spec_tokens,output_tokens,expected,expected_per_req",
+diff --git a/vllm/config/speculative.py b/vllm/config/speculative.py
+index 4c61ead82dab..874a3eceed26 100644
+--- a/vllm/config/speculative.py
++++ b/vllm/config/speculative.py
+@@ -1889,19 +1889,21 @@ def max_num_new_slots_for_drafting(self) -> int:
+         ==================== ============= ======== ================
+         EAGLE3               eagle3        No       0
+         P-EAGLE              eagle3        Yes      K - 1
+-        DFlash               dflash        Yes      K
+-        DSpark               dspark        Yes      K - 1
++        DFlash               dflash        Yes      0
++        DSpark               dspark        Yes      0
+         MTP                  mtp           No       0
+         N-gram               ngram         No       0
+         Draft model          draft_model   No       1
+         PARD                 draft_model   Yes      K
+         ==================== ============= ======== ================
++
++        DFlash and DSpark draft in a separate query pass rather than adding
++        rows to the target batch.
+         """
+         num_draft_tokens = self.num_speculative_tokens
+ 
+-        if self.use_dflash():
+-            # DFlash uses one bonus query followed by K mask queries.
+-            return num_draft_tokens
++        if self.use_dflash() or self.use_dspark():
++            return 0
+ 
+         if self.parallel_drafting:
+             if self.uses_draft_model():
+diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
+index b4298cd145b8..279d2be65ca2 100644
+--- a/vllm/config/vllm.py
++++ b/vllm/config/vllm.py
+@@ -2281,9 +2281,6 @@ def _set_max_num_scheduled_tokens(self):
+         worker is configured to handle.
+         """
+         if self.speculative_config is not None:
+-            scheduled_token_delta = (
+-                self.speculative_config.max_num_new_slots_for_drafting
+-            )
+             max_num_batched_tokens = self.scheduler_config.max_num_batched_tokens
+             if self.scheduler_config.max_num_scheduled_tokens is None:
+                 self.scheduler_config.max_num_scheduled_tokens = max_num_batched_tokens
+@@ -2307,12 +2304,34 @@ def _set_max_num_scheduled_tokens(self):
+                     " num_speculative_tokens.",
+                 )
+ 
+-            if max_num_batched_tokens <= scheduled_token_delta:
++            # num_lookahead_tokens is at least every method's per-request draft
++            # slots, and covers the DFlash/DSpark draft pass's query rows.
++            if max_num_batched_tokens <= self.num_lookahead_tokens:
+                 raise ValueError(
+                     "VllmConfig does not have enough slots to schedule a token and"
+                     " support the speculative decoding settings."
+-                    f" Got {max_num_batched_tokens=} and {scheduled_token_delta=}."
++                    f" Got {max_num_batched_tokens=} and"
++                    f" num_lookahead_tokens={self.num_lookahead_tokens}."
++                )
++            spec = self.speculative_config
++            if spec.use_dflash() or spec.use_dspark():
++                max_num_active_seqs = (
++                    self.scheduler_config.max_num_active_seqs
++                    or self.scheduler_config.max_num_seqs
+                 )
++                max_draft_seqs = max_num_batched_tokens // self.num_lookahead_tokens
++                if max_draft_seqs < max_num_active_seqs:
++                    logger.warning_once(
++                        "The %s draft pass needs %d query tokens per request within "
++                        "max_num_batched_tokens=%d. Overriding max_num_active_seqs "
++                        "from %d to %d.",
++                        spec.method,
++                        self.num_lookahead_tokens,
++                        max_num_batched_tokens,
++                        max_num_active_seqs,
++                        max_draft_seqs,
++                    )
++                    self.scheduler_config.max_num_active_seqs = max_draft_seqs
+ 
+     def _set_cudagraph_sizes(self):
+         """VLLM defines the default candidate list of batch sizes for CUDA graph

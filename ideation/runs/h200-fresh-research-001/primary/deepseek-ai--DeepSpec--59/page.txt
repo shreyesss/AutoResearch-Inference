@@ -1,0 +1,100 @@
+Conversation
+zhangwenhe1007
+commented
+Jul 8, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Currently, every DFlash/DSpark config caps max_length at 4096 and sets no RoPE scaling, so it is not possible to finetune a drafter for long context, which is where acceptance length degrades the most. This PR adds optional rope_scaling / max_position_embeddings config fields and a long-context config.
+The drafter's attention is built from the target config, so extending the target RoPE extends the drafter with it. On transformers 5.x, the RoPE config lives in
+rope_parameters
+, so the extension is merged in there (keeping the base rope_theta) rather than set on the old
+rope_scaling
+attribute. Nothing changes when the fields are unset.
+Files:
+deepspec/trainer/base_trainer.py: merge rope_scaling into target_config.rope_parameters, bump max_position_embeddings
+config/dflash/dflash_qwen3_8b_longctx.py: a long-context config (YaRN 4x to 128k, max_length 32768)
+scripts/test_long_context_rope.py: a CPU test
+README: a short note
+The test runs on CPU and confirms the extension propagates through build_qwen3_draft_config into the draft config, and that the resulting Qwen3RotaryEmbedding actually applies YaRN: attention_scaling goes from 1.0 to about 1.14, and the rotary is finite and rescaled at positions up to 128k. It uses a real Qwen3-8B config if the Hub is reachable, otherwise a synthetic one.
+What I did not run is a full long-context training pass, which also needs the target cache regenerated at the long context. So this enables the recipe and verifies the rope plumbing; the acceptance gains themselves are from my own experiments, not from this PR.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zhangwenhe1007
+marked this pull request as draft
+July 8, 2026 00:50
+[DFlash/DSpark] Long-context training via RoPE scaling + config
+…
+682c088
+Adds optional rope_scaling / max_position_embeddings config fields that extend the
+target/drafter RoPE for long-context finetuning, where draft acceptance drops most.
+The drafter attention is built from target_config, so the extension flows through.
+For transformers>=5 it is merged into rope_parameters, keeping the base rope_theta.
+No effect when unset.
+
+- deepspec/trainer/base_trainer.py: merge rope_scaling into target_config.rope_parameters, bump max_position_embeddings
+- config/dflash/dflash_qwen3_8b_longctx.py: long-context config (YaRN 4x to 128k, max_length 32768)
+- scripts/test_long_context_rope.py: CPU test that the extension reaches the drafter rotary (YaRN applied, finite at 128k)
+- README: long-context note
+
+Implementation prepared with AI assistance.
+zhangwenhe1007
+force-pushed
+the
+dflash-long-context
+branch
+    from
+2344f60
+to
+682c088
+Compare
+July 8, 2026 00:59
+zhangwenhe1007
+marked this pull request as ready for review
+July 8, 2026 01:00
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

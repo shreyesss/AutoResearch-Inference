@@ -1,0 +1,362 @@
+Conversation
+chaunceyjiang
+commented
+Sep 24, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Summary
+Tensor-parallel deployments can leave only 8, 16, or 32 query heads per rank. SM90 sparse prefill previously required 64 or 128 heads, forcing callers to pad queries and compute unused heads.
+Add a native SM90 kernel for 8/16/32 heads with QK dimensions 512 and 576.
+Support strided query/output head slices, allowing direct writes into padded activation buffers.
+Preserve attention sink, per-query top-k length, max-logit, and LSE semantics.
+Adapt dispatch and shared parameters to the current
+legacy::sm90
+layout, including fused FP8 API initialization.
+Explicitly reject multiple KV heads.
+The existing 64/128-head paths remain supported. SM100 head-count support remains unchanged. Callers must pass the actual head count to use the new kernel.
+Validation
+Full extension build for SM90a, SM100a, and SM103a passed.
+155 tests passed on H20, covering correctness, CUDA Graph replay, strided buffers, invalid indices, empty inputs, and API validation.
+Compute Sanitizer: 63 boundary cases passed with zero memory errors.
+All 24 benchmark configurations passed comparisons against padded FlashMLA.
+On H20, compared with padding to 64 heads:
+8/16 heads: 1.78–2.25× faster.
+32 heads: 1.04–1.11× faster.
+Geometric mean speedup across dim [512,576] x top-k [128,640]:
+Queries
+8 heads
+16 heads
+32 heads
+64 heads (control)
+128
+1.504x
+1.486x
+1.035x
+1.004x
+1024
+1.991x
+1.928x
+1.080x
+1.001x
+8192
+2.010x
+1.988x
+1.069x
+1.000x
+E2E
+Depends on
+vllm-project/vllm#61615
+vllm serve deepseek-ai/DeepSeek-V4.1-Flash \
+--seed 0 --port 8012 --max-model-len 500000 \
+--tokenizer-mode deepseek_v41 --tensor-parallel-size 4 \
+--tool-call-parser deepseek_v41 --enable-auto-tool-choice \
+--reasoning-parser deepseek_v41 --mm-encoder-tp-mode data \
+--speculative-config '{"method":"dspark","num_speculative_tokens":5,"draft_sample_method":"probabilistic","rejection_sample_method":"block","enable_adaptive_verification":true,"revision":"dba1be0a40aa45a94ad051997016db3960a90277"}' \
+--no-enable-prefix-caching --moe-backend humming -ep \
+--max-num-seqs 1024 \
+--max-num-batched-tokens 8192 \
+-cc '{"cudagraph_mode":"FULL_DECODE_ONLY"}'
+vllm bench serve --backend vllm --model deepseek-ai/DeepSeek-V4.1-Flash --tokenizer /mnt/nvme/shared/huggingface/hub/models--deepseek-ai--DeepSeek-V4.1-Flash/snapshots/dba1be0a40aa45a94ad051997016db3960a90277 --host 127.0.0.1 --port 8012 --dataset-name random --random-input-len 4096 --random-output-len 128 --random-range-ratio 0 --num-prompts 128 --max-concurrency 32 --request-rate inf --num-warmups 32 --seed 42 --temperature 0 --ignore-eos --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --save-detailed
+before (8a8e2baa)
+============ Serving Benchmark Result ============
+Successful requests:                     128       
+Failed requests:                         0         
+Maximum request concurrency:             32        
+Benchmark duration (s):                  44.81     
+Total input tokens:                      524288    
+Total generated tokens:                  16384     
+Request throughput (req/s):              2.86      
+Output token throughput (tok/s):         365.65    
+Peak output token throughput (tok/s):    479.00    
+Peak concurrent requests:                38.00     
+Total token throughput (tok/s):          12066.58  
+---------------Time to First Token----------------
+Mean TTFT (ms):                          2125.68   
+Median TTFT (ms):                        1261.16   
+P50 TTFT (ms):                           1261.16   
+P90 TTFT (ms):                           6104.82   
+P99 TTFT (ms):                           9332.20   
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          68.92     
+Median TPOT (ms):                        60.52     
+P50 TPOT (ms):                           60.52     
+P90 TPOT (ms):                           116.85    
+P99 TPOT (ms):                           137.52    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           232.41    
+Median ITL (ms):                         104.81    
+P50 ITL (ms):                            104.81    
+P90 ITL (ms):                            565.77    
+P99 ITL (ms):                            587.32    
+----------------End-to-end Latency----------------
+Mean E2EL (ms):                          10879.11  
+Median E2EL (ms):                        9979.42   
+P50 E2EL (ms):                           9979.42   
+P90 E2EL (ms):                           16918.36  
+P99 E2EL (ms):                           21397.50  
+---------------Speculative Decoding---------------
+Acceptance rate (%):                     48.57     
+Acceptance length:                       3.43      
+Drafts:                                  4821      
+Draft tokens:                            24105     
+Accepted tokens:                         11707     
+Per-position acceptance (%):
+  Position 0:                            69.47     
+  Position 1:                            53.43     
+  Position 2:                            45.65     
+  Position 3:                            38.93     
+  Position 4:                            35.35     
+==================================================
+this pr
+============ Serving Benchmark Result ============
+Successful requests:                     128       
+Failed requests:                         0         
+Maximum request concurrency:             32        
+Benchmark duration (s):                  41.68     
+Total input tokens:                      524288    
+Total generated tokens:                  16384     
+Request throughput (req/s):              3.07      
+Output token throughput (tok/s):         393.10    
+Peak output token throughput (tok/s):    537.00    
+Peak concurrent requests:                40.00     
+Total token throughput (tok/s):          12972.30  
+---------------Time to First Token----------------
+Mean TTFT (ms):                          2004.13   
+Median TTFT (ms):                        1185.15   
+P50 TTFT (ms):                           1185.15   
+P90 TTFT (ms):                           5631.14   
+P99 TTFT (ms):                           8598.88   
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          64.19     
+Median TPOT (ms):                        57.55     
+P50 TPOT (ms):                           57.55     
+P90 TPOT (ms):                           112.96    
+P99 TPOT (ms):                           140.59    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           210.81    
+Median ITL (ms):                         98.63     
+P50 ITL (ms):                            98.63     
+P90 ITL (ms):                            521.79    
+P99 ITL (ms):                            539.76    
+----------------End-to-end Latency----------------
+Mean E2EL (ms):                          10156.60  
+Median E2EL (ms):                        9100.24   
+P50 E2EL (ms):                           9100.24   
+P90 E2EL (ms):                           16490.38  
+P99 E2EL (ms):                           22549.22  
+---------------Speculative Decoding---------------
+Acceptance rate (%):                     46.68     
+Acceptance length:                       3.33      
+Drafts:                                  4950      
+Draft tokens:                            24750     
+Accepted tokens:                         11554     
+Per-position acceptance (%):
+  Position 0:                            70.26     
+  Position 1:                            51.15     
+  Position 2:                            42.91     
+  Position 3:                            35.86     
+  Position 4:                            33.23     
+==================================================
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+chaunceyjiang
+mentioned this pull request
+Oct 13, 2026
+[Perf][DSv4.1] Small-head sparse decode on SM90
+vllm-project/vllm#59418
+Open
+2 of 3 tasks
+[Feature] Support small-head sparse prefill on SM90
+…
+06af182
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+chaunceyjiang
+force-pushed
+the
+sm90-small-heads-sparse-prefill
+branch
+    from
+c1cb33e
+to
+06af182
+Compare
+October 14, 2026 08:58
+chaunceyjiang
+changed the title
+[Feature] add SM90 sparse prefill kernel for small query head counts
+[Feature] Support small-head sparse prefill on SM90
+Oct 14, 2026
+chaunceyjiang
+mentioned this pull request
+Oct 14, 2026
+[Perf] Enable small-head FlashMLA sparse prefill for DS V4.1 on SM90
+vllm-project/vllm#61615
+Open
+6 tasks done
+chaunceyjiang
+marked this pull request as ready for review
+October 15, 2026 09:43
+chaunceyjiang
+requested review from
+LucasWilkinson
+and
+zyongye
+October 15, 2026 09:51
+zyongye
+reviewed
+Oct 16, 2026
+View reviewed changes
+zyongye
+left a comment
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Thanks for this. The new kernel's MMA fragment layouts, masking, sink and LSE handling all check out as far as I can tell. A few things inline: the overlap check on strided
+out
+that is now skipped, a small shared-memory race in the softmax, test coverage, and an occupancy note for D_QK=576.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/api/sparse_prefill.cpp
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/cuda_kernels/legacy/sm90/prefill/sparse/small_heads.cuh
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tests/test_flash_mla_sparse_prefill.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tests/test_flash_mla_sparse_prefill.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/cuda_kernels/legacy/sm90/prefill/sparse/small_heads.cuh
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/cuda_kernels/legacy/sm90/prefill/sparse/small_heads.cuh
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+[Feature] Support small-head sparse prefill on SM90
+…
+ef08137
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+zyongye
+approved these changes
+Oct 16, 2026
+View reviewed changes
+Hide details
+View details
+zyongye
+merged commit
+e2afa5f
+into
+vllm-project
+:
+main
+Oct 16, 2026
+1 check passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+zyongye
+zyongye approved these changes
+LucasWilkinson
+Awaiting requested review from LucasWilkinson
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

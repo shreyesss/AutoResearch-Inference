@@ -1,0 +1,332 @@
+Conversation
+kjiang249
+commented
+Aug 5, 2026
+Copy link
+Copy Markdown
+Contributor
+Purpose
+When a large prefill is scheduled on only one DP engine, that engine performs a
+much longer model iteration while the other engines wait for it to finish. This
+creates uneven iteration times and delays ongoing decode requests.
+This PR adds an optional adaptive prefill delayer. It coordinates large prefill
+work onto the same engine steps across DP ranks, reducing iterations where one
+rank is doing prefill while others are decoding. Decode continues while prefill
+is delayed, with bounded fail-open and recovery behavior to guarantee progress.
+Test Plan
+Tested DeepSeek-V4 using:
+vllm serve
+"
+$MODEL
+"
+\
+    --trust-remote-code \
+    --kv-cache-dtype fp8 \
+    --block-size 256 \
+    --no-enable-prefix-caching \
+    --tensor-parallel-size 1 \
+    --data-parallel-size 8 \
+    --enable-expert-parallel \
+    --moe-backend deep_gemm_mega_moe \
+    --prefill-schedule-interval 1 \
+    --enable-adaptive-prefill-alignment \
+    --prefill-alignment-max-delay-passes 30 \
+    --prefill-alignment-target-step-lead 2 \
+    --max-model-len 16384 \
+    --max-num-batched-tokens 2048
+Added unit tests for coordinated release, delay limits, capacity release,
+missing acknowledgments, and DP-wave resets.
+Test Result
+10 passed in 9.68s
+Ruff checks passed
+All changed files are formatted
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+kjiang249
+force-pushed
+the
+adaptive-dp-prefill-alignment
+branch
+    from
+eb97607
+to
+521bef3
+Compare
+August 5, 2026 22:05
+kjiang249
+commented
+Aug 5, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+DCO is fixed in
+521bef32367b
+(the source tree is unchanged from the original PR commit). The pre-commit job is currently skipped by the repository authorization gate because this account has 3 merged PRs. Could a maintainer please add the
+ready
+or
+verified
+label so pre-commit can run?
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+xinli-sw
+commented
+Aug 7, 2026
+Copy link
+Copy Markdown
+Contributor
+@kjiang249
+plz first convert to ready for review
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+njhill
+commented
+Aug 7, 2026
+Copy link
+Copy Markdown
+Member
+Thanks
+@kjiang249
+, have you tried the existing
+--prefill-schedule-interval
+option? (see
+#44558
+), could you include some e2e performance benchmark comparisons?
+This adds multiple extra tuning knobs and additional complexity to the scheduler.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+commented
+Aug 11, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@kjiang249
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Aug 11, 2026
+mergify
+Bot
+added
+  the
+scheduler
+label
+Aug 20, 2026
+kjiang249
+commented
+Aug 24, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Hello,
+@njhill
+I run some experiments. For the dsv4-pro at c256 with isl/osl 8k/1k experiments:
+Configuration
+Total tok/s
+TTFT
+TPOT
+vLLM i4
+24,331.831
+3,321.166 ms
+89.817 ms
+vLLM i16
+27,047.271
+4,516.496 ms
+78.727 ms
+SGLang delayer off
+24,773.867
+2,205.452 ms
+89.511 ms
+SGLang delayer on
+42,276.061
+2,414.609 ms
+50.770 ms
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+kyleliang-nv
+mentioned this pull request
+Sep 1, 2026
+[Model Runner V2][DP] Cache scheduler-epoched target execution contracts
+#54810
+Draft
+kjiang249
+and others
+added
+2
+commits
+September 22, 2026 15:27
+[Perf] Add adaptive DP prefill alignment
+…
+effb888
+Coordinate deferred prefills across data-parallel engine ranks with a nonblocking observation, release, and acknowledgment protocol. Keep the disabled path unchanged and bound coordinator stalls with pass and wall-clock fail-open behavior.
+
+Co-authored-by: OpenAI Codex <codex@openai.com>
+Signed-off-by: Kaihang Jiang <kaihangj@nvidia.com>
+[Perf] Preserve adaptive prefill release identity
+…
+0ffb868
+Match acknowledgements using both release ID and target step, and report the actual prefill requests and tokens consumed by each engine. This preserves the validated protocol semantics across repeated request waves while retaining the separated coordinator implementation.
+
+Co-authored-by: OpenAI Codex <codex@openai.com>
+Signed-off-by: Kaihang Jiang <kaihangj@nvidia.com>
+kjiang249
+force-pushed
+the
+adaptive-dp-prefill-alignment
+branch
+    from
+521bef3
+to
+0ffb868
+Compare
+September 23, 2026 12:43
+benenzhu
+mentioned this pull request
+Oct 15, 2026
+[DARFT][Core][DP] Add an opt-in cross-DP prefill delayer (--dp-prefill-delayer)
+#61834
+Draft
+6 tasks
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon will be requested when the pull request is marked ready for review
+WoosukKwon is a code owner
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+robertgshaw2-redhat will be requested when the pull request is marked ready for review
+robertgshaw2-redhat is a code owner
+njhill
+Awaiting requested review from njhill
+njhill will be requested when the pull request is marked ready for review
+njhill is a code owner
+ywang96
+Awaiting requested review from ywang96
+ywang96 will be requested when the pull request is marked ready for review
+ywang96 is a code owner
+alexm-redhat
+Awaiting requested review from alexm-redhat
+alexm-redhat will be requested when the pull request is marked ready for review
+alexm-redhat is a code owner
+heheda12345
+Awaiting requested review from heheda12345
+heheda12345 will be requested when the pull request is marked ready for review
+heheda12345 is a code owner
+ApostaC
+Awaiting requested review from ApostaC
+ApostaC will be requested when the pull request is marked ready for review
+ApostaC is a code owner
+orozery
+Awaiting requested review from orozery
+orozery will be requested when the pull request is marked ready for review
+orozery is a code owner
+ivanium
+Awaiting requested review from ivanium
+ivanium will be requested when the pull request is marked ready for review
+ivanium is a code owner
+ZJY0516
+Awaiting requested review from ZJY0516
+ZJY0516 will be requested when the pull request is marked ready for review
+ZJY0516 is a code owner
+hmellor
+Awaiting requested review from hmellor
+hmellor will be requested when the pull request is marked ready for review
+hmellor is a code owner
+youkaichao
+Awaiting requested review from youkaichao
+youkaichao will be requested when the pull request is marked ready for review
+youkaichao is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin will be requested when the pull request is marked ready for review
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth will be requested when the pull request is marked ready for review
+tlrmchlsmth is a code owner
+houseroad
+Awaiting requested review from houseroad
+houseroad will be requested when the pull request is marked ready for review
+houseroad is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 will be requested when the pull request is marked ready for review
+yewentao256 is a code owner
+ProExpertProg
+Awaiting requested review from ProExpertProg
+ProExpertProg will be requested when the pull request is marked ready for review
+ProExpertProg is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+needs-rebase
+scheduler
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

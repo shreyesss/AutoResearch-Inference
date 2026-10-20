@@ -1,0 +1,231 @@
+{
+  "hypotheses": [
+    {
+      "id": "h200-transfer-20261020-01",
+      "parents": [
+        "hypothesis:e5cf92bf1d2ce1b5c49f362d3976fd1c0a6ed89c195ac4e7de932954bb763e57"
+      ],
+      "operation": "evolve",
+      "statement": "Fuse full Top-K selection with physical KV-slot mapping for eligible Hopper decode consumers, extending the earlier selector-only hypothesis. First inspect the pinned vLLM selector, installed DeepSelect extension, and downstream representation requirements to establish whether this fusion is absent and usable. SGLang #41561 reports a Hopper integration that writes mapped slots directly, suggesting that separate index processing, gathers, and copies may be removable. However, later sorting changes and withdrawn mocked tests leave the final contract unverified, while #41659 shows that some prefill consumers require raw positions. Limit the initial port to consumers needing physical slots, preserve required ordering and raw-ID fallbacks, and compare against both the native path and the same fast selector with separate mapping. H200 serving benefit remains unknown.",
+      "observed_bottleneck": "No target bottleneck is measured. Author-reported evidence: #41561 measures roughly 163–165 microseconds before versus 31–32 microseconds after for the replaced region on H20, CUDA 13.0/PyTorch 2.13, at specified 32K/128K widths and 1–32 rows. This is neither H200 evidence nor an end-to-end result. Observed supplied artifact: the page describes concrete operator integration and subsequent test objections; the final implementation is absent.",
+      "mechanism": "Transfer inference: selecting directly into the required physical-slot representation can remove intermediate index buffers, launches, page-table gathers, and output copies. Savings matter only when eligible calls occur and the removed work lies on the serving critical path.",
+      "proposed_change": "After the presence and eligibility check, adapt topk_page_transform to the pinned vLLM consumer contract behind a reversible dispatch guard. Keep scoring, precision, topology, communication, and speculation unchanged. Preserve native handling for raw-index consumers and unsupported shapes. Resolve the final ordering contract before deciding whether sorting can be removed.",
+      "code_surface": "Source integration: python/sglang/srt/layers/attention/dsv4/v41_indexer/full_topk.py and the topk_page_transform dependency attributed to #41364. Destination: installed vLLM DSA Top-K dispatch, logical-to-physical mapping, and decode/verify consumers; exact destination call sites and dependency implementation are not supplied.",
+      "applicability": "Conditional SM90 port; qualification deferred. H20 integration motivates investigation, but H200 build eligibility, baseline membership, graph compatibility, and actual consumer coverage remain unknown. This does not enable candidate-only scoring or Blackwell-only prefill fusion.",
+      "predicted_direction": "Lower selection/mapping latency and potentially lower decode TPOT or higher throughput. No numerical serving prediction. Little or no benefit is possible when the native path is already fused, eligible calls are rare, or other work dominates.",
+      "classification": "upstream_port",
+      "alternatives": [
+        {
+          "explanation": "Most savings may come from replacing torch.topk rather than fusing page mapping.",
+          "distinguishing_test": "Compare native selection, DeepSelect with separate mapping, and DeepSelect with fused mapping on identical logits, lengths, page tables, and ordering requirements."
+        },
+        {
+          "explanation": "Mapping may be unnecessary because a consumer needs raw positions, or removing sorting may change behavior.",
+          "distinguishing_test": "Trace each consumer's required representation and compare actual attention outputs through decode/verify. Exclude raw-position consumers from this port and test ordering-sensitive cases explicitly."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:sgl-project/sglang:41561:live-page",
+          "quote": "Write transformed int32 KV slots directly into the existing output buffer.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:sgl-project/sglang:41561:live-page",
+          "quote": "testing no real functionality",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:sgl-project/sglang:41659:live-page",
+          "quote": "request-local compressed positions",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "runtime:h200:runtime-inventory",
+          "quote": "--no-swa-bounded-replay",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known selection/epilogue fusion; no scientific novelty claim.",
+        "implementation": "Conditional cross-engine port with explicit consumer-representation guards.",
+        "workload": "Tests incremental value under real DSpark k5, prefix reuse, and the supplied H200 seq64 deployment.",
+        "nearest_prior_art": "SGLang #41561 and #41364; the earlier selector-only hypothesis named in parents.",
+        "specific_delta": "Adds fused physical-slot output to selector acceleration, while retaining a selector-only comparator and raw-position fallback."
+      },
+      "prior_art_query": "Top-K page mapping fusion",
+      "experiment": {
+        "control": "Use the attested vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and serving checkout 11c249d28b2962f7384b4ab1fd7c1664704e7524, supplied image/model revision, two TP1/DP4/EP4 replicas with API2, and all supplied seq64 settings. Strong comparator: the best eligible existing selector with separate mapping and identical ordering. Qualify any selector-only integration before treating it as available.",
+        "treatment": "First inspect source, extension build targets, effective dispatch, and existing logs for equivalent fusion. If absent and eligible, introduce only fused selection/mapping. Follow attestation, activation, correctness, unprofiled screening, separate mechanism diagnosis, then paired confirmation. Use native agent-f75 8K/1K prefixes and fixed-schedule Mooncake anchors adapted to seq64. Confirm small effects with at least five alternating paired full-run blocks, drift checks, and full-run intervals; exclude profiled runs from the frontier.",
+        "metrics": "Across every rank and replica, record fused-call hits divided by eligible physical-slot-only full-Top-K calls, eligible rows, widths, K, raw-ID fallback reasons, and graph/eager status. Diagnose launch count, temporary bytes, and exposed selection/mapping time separately. Serving metrics: request TPOT=(last-first token time)/(server output tokens-1), with fewer than two outputs marked undefined; TTFT tails, exact server tokens, throughput, qualified goodput, replay lag, draft/verify/accepted counter deltas, KV blocks, and preemption.",
+        "supports_if": "Real-path activation and reference correctness pass; fusion improves over the selector-only comparator; and a paired unprofiled primary-workload gain exceeds a preregistered useful-gain margin without violating quality or latency guardrails. Mechanism diagnostics show reduced exposed selection/mapping work.",
+        "rejects_if": "Inspection proves equivalent fusion already active with no useful delta, adequate primary-workload coverage establishes no eligible opportunities, correctness fails without a credible remedy, or sufficiently precise paired results rule out the useful-gain margin or establish regression.",
+        "inconclusive_if": "Dispatch coverage is missing, zero hits lack adequate opportunities, the final ordering contract is unresolved, confidence intervals span useful gain and no gain, or only the helper improves. Long-context-only gains do not establish primary-workload value.",
+        "held_out_condition": "Separate cache-isolated 1K/1K; long-context 32K/128K and wider supported shapes; ragged mixed arrivals; cold/warm prefixes; changing lengths across graph replays. Keep seq128 separate.",
+        "correctness": "Obtain and run relevant G01–G05 definitions. Exercise the real decode/verify call site against an independent reference, including width<K, partial pages at block64, invalid/padded entries, ties under the established contract, causal bounds, page reuse, raw-ID fallback, and graph replay with changing live lengths. Check attention outputs and generation quality when selected sets or ordering differ. Removed mocked tests do not count as integration coverage.",
+        "cost": "Cheap source/configuration inspection first; dependency integration and graph validation are additional work of unknown duration. No execution in this run. Parameterize node cost as P8*T/(3600*N_out), with P8 the unknown eight-GPU hourly price; report qualified-output cost separately."
+      },
+      "revision_reason": "Extends the real earlier selector-only hypothesis. The supplied sorting/test objections and raw-position counterexample narrow the transfer to verified physical-slot consumers and require an unfused DeepSelect comparator."
+    },
+    {
+      "id": "h200-transfer-20261020-02",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Evaluate a workload-matched SGLang control, then isolate its H200 group32 GEMM configuration tuning as the first optimization arm. The supplied #41251 reports substantial H200 improvements from a multi-change SGLang bundle, but compares against SGLang main under TP8/EP1, another checkpoint, disabled host Engram, and bounded replay. Those results cannot predict an engine replacement here. First establish whether SGLang can preserve the target model revision, two independent TP1/DP4/EP4 replicas, Marlin recipe, host Engram, prefix behavior, and real DSpark policy. If it can, compare matched engines and separately enable only applicable group32 tuning configurations. Hold weight expansion, compensated projections, communication, and other fusions fixed. The hypothesis is that better launch configurations reduce exposed GEMM time on actual target shapes; the bundle's contribution from this mechanism is unknown.",
+      "observed_bottleneck": "No target GEMM bottleneck is measured. Observed supplied artifact: the baseline startup excerpt selects MARLIN, without all-rank execution proof. Author report: #41251's eight-H200 bundle achieves output-throughput/GPU ratios of 2.0574–2.3498 against its SGLang-main control over three alternating paired sweeps of random 8K/1K traffic. Group32 tuning's isolated effect is unknown. Source topology, checkpoint, Engram, replay, and memory settings differ; source benchmark speculation configuration is unknown.",
+      "mechanism": "Transfer inference: fixed GEMM launch configurations better matched to actual Hopper matrix shapes may reduce inefficient tiling or execution overhead without changing operand formats. A matched SGLang control distinguishes this configuration effect from engine-wide scheduling and implementation differences.",
+      "proposed_change": "First construct a source/configuration parity matrix and inspect shape/config dispatch. If eligible, define S0 as a pinned matched SGLang control and S1 as the same build with only applicable H200 group32 configuration changes. Disable or hold constant every other #41251 component through verified controls or a minimal configuration-only ablation. Do not substitute TP8, device Engram, different activation formats, or different speculation to obtain a runnable matched arm.",
+      "code_surface": "Source: python/sglang/kernels/ops/gemm/configs/*NVIDIA_H200*dtype=fp8_w8a8*block_shape=[32, 32]*.json and their GEMM dispatch consumers. Inspect python/sglang/srt/layers/quantization/fp8.py and fp8_utils.py to separate configuration tuning from weight expansion and arithmetic changes. Exact target-shape eligibility and final patch contents are unknown.",
+      "applicability": "Qualification deferred pending parity and shape-dispatch checks. TP8-tuned matrices may differ from TP1 matrices. A runnable engine with unsupported target semantics is an unmatched configuration study, not evidence of improvement over the supplied baseline.",
+      "predicted_direction": "Conditionally lower GEMM time, decode TPOT, and cost per output token. TTFT or throughput may improve if these GEMMs are exposed. Engine-level direction and effect size remain unknown; tuning may tie or regress on target shapes.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "The published bundle benefit may primarily arise from BF16 expansions, mHC changes, Marlin padding, or other components rather than launch configurations.",
+          "distinguishing_test": "Compare S1 against S0 with identical math, weight representation, and all non-configuration components; record chosen GEMM configurations and kernel timings."
+        },
+        {
+          "explanation": "A cross-engine gain may come from changed prefix reuse, speculation, memory capacity, graph coverage, or request processing.",
+          "distinguishing_test": "Audit effective settings and counters, join requests to final DP ranks, and compare prefix-hit tokens, accepted tokens, graph fallbacks, usable KV capacity, and exact output lengths. Treat unmatched factors as separate arms."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:sgl-project/sglang:41251:live-page",
+          "quote": "three alternating paired sweeps",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:sgl-project/sglang:41251:live-page",
+          "quote": "preserving activation quantization boundaries",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:sgl-project/sglang:41251:live-page",
+          "quote": "Hopper retains its existing Torch selection path.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "code:h200-excerpts:compute",
+          "quote": "Using 'MARLIN' Mxfp4 MoE backend.",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:sgl-project/sglang:40744:live-page",
+          "quote": "mismatched collective sites permanently",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known kernel configuration tuning and controlled engine comparison.",
+        "implementation": "An explicitly matched SGLang deployment plus configuration-only ablation; no new kernel mechanism claimed.",
+        "workload": "Moves evaluation from cache-flushed random TP8 traffic to native prefixes and fixed arrival schedules under two EP4 replicas.",
+        "nearest_prior_art": "SGLang #41251's Hopper tuning bundle.",
+        "specific_delta": "Separates engine choice from group32 tuning and removes checkpoint, topology, replay, Engram, and numeric-recipe confounding before claiming baseline-relative value."
+      },
+      "prior_art_query": "Hopper group32 GEMM tuning",
+      "experiment": {
+        "control": "A: supplied pinned vLLM baseline, including Marlin selection subject to all-rank verification. S0: pinned SGLang with the same model/tokenizer semantics, two TP1/DP4/EP4 replicas/API2-equivalent frontend capacity, seq64, token/context limits, FP8 KV/block64, host Engram across DP, prefix caching, DSpark k5 probabilistic/block rejection, adaptive OFF, no bounded replay, and equivalent telemetry. Strong static comparator: best existing fixed eligible GEMM configuration selected on a disjoint calibration set.",
+        "treatment": "First inspect whether exact deployment semantics, target shapes, and tuning-only controls exist. Establish S0 readiness and correctness before timing. S1 changes only applicable group32 configuration entries. Measure A versus S0 as an engine comparison, S0 versus S1 as the tuning attribution, and A versus S1 for deployment value. Use attestation, activation, correctness, unprofiled native-workload screening, separate mechanism profiling, then at least five alternating paired full-run confirmation blocks for small gains, with drift checks and full-run intervals.",
+        "metrics": "All-rank tuned-kernel hits divided by eligible group32 GEMM calls, with M/N/K, selected configuration, phase, and graph coverage. Record request TPOT=(last-first token time)/(server output tokens-1), TTFT tails, exact server input/output tokens, node throughput, qualified goodput, replay lag, draft/verify/accepted deltas, prefix-hit tokens by final rank, KV blocks, preemption, peak memory, and errors. Separate profiled GEMM attribution from unprofiled serving results.",
+        "supports_if": "S1 activates on relevant shapes, passes correctness, and beats the strongest static S0 configuration by the preregistered useful-gain margin with corresponding exposed GEMM savings. Deployment improvement additionally requires S1 to beat A on a primary workload under matched semantics and quality/latency guardrails.",
+        "rejects_if": "Inspection finds no applicable untuned shapes or no useful configuration delta; matching requirements are demonstrably unsupported without a credible remedy; or adequately precise serving results rule out practical improvement or establish regression. A tuning win that still loses to vLLM is not a deployment win.",
+        "inconclusive_if": "Parity, final-rank attribution, kernel dispatch, or speculation counters are unverified; other bundle changes cannot be isolated; intervals are too wide; or performance depends on unreported output-length, cache, or memory differences.",
+        "held_out_condition": "Reserve distinct agent sessions and Mooncake arrival traces. Evaluate long-context, ragged mixed prefill/decode, and cold/warm prefix conditions separately; retain cache-isolated 1K/1K as a diagnostic. Keep topology changes and seq128 outside this arm.",
+        "correctness": "Run applicable G01–G05 once their definitions are available. Check tokenizer/chat/tool/reasoning behavior, stop conditions, prefix reuse, FP8 KV page handling, DSpark rejection and rollback, graph/eager parity, and all-rank collective participation. Verify tuning preserves quantization boundaries and assess numerical/output differences on paired quality tasks with truncations recorded. Aggregate equal scores or nonsignificant differences do not establish equivalence. The reported multi-node startup deadlock warrants targeted checks, not an assumed failure of this independent-EP4 layout.",
+        "cost": "Source/configuration parity checking is the inexpensive first gate. A second engine environment and configuration ablation add integration cost of unknown size. Startup and steady-state costs must be reported separately. Use P8*T/(3600*N_out), with node price P8 unset, plus a qualified-output denominator."
+      },
+      "revision_reason": "Scoped the published multi-change bundle to a matched engine control and one tuning mechanism. This addresses its configuration confounds and avoids attributing Blackwell-only selection or numeric changes to H200 group32 tuning."
+    },
+    {
+      "id": "h200-transfer-20261020-03",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Test direct-NVLink DeepEP dispatch in two attributable stages: compatible backend activation, followed by the triple-buffered prefetch change in #693. First verify the effective baseline transport, four-rank NVLink connectivity, and whether the pinned engine can reach the elastic direct-NVLink implementation while preserving Marlin and its activation payload. The supplied patch overlaps preparation of the next token with outstanding remote stores, but its positive evidence is an eight-H100, remote-only bandwidth test. Four-rank serving may have more local traffic, smaller messages, and greater resource contention. Compare unmodified DeepEP with the baseline before comparing patched and unmodified DeepEP at fixed compute and numeric settings. Resolve the buffer-lifetime invariant and graph behavior before performance testing. Historical mixed-configuration regressions motivate these controls but do not establish that DeepEP will lose here.",
+      "observed_bottleneck": "No target communication bottleneck is measured. The supplied startup excerpt selects Marlin; the reported allgather_reducescatter transport remains unverified. Author report: #693 raises average eight-H100 dispatch bandwidth from 250 to 280 GB/s, and 203 to 220 GB/s under imbalance ratio 1.5; combine is unchanged. Tests ignore local traffic. Payload dimensions, numeric format, repetitions, variance, and H200 serving effects are unknown.",
+      "mechanism": "Source code/review exposes three staging buffers and partial store-group waiting. Transfer inference: overlapping next-token loads and metadata preparation with prior remote stores can reduce serialized dispatch time. Increased shared-memory demand and the dispatch-warp cap can offset savings through occupancy loss or contention with expert computation.",
+      "proposed_change": "First establish transport and API compatibility. If feasible, integrate unmodified elastic direct-NVLink DeepEP while holding Marlin, routing semantics, payload format, topology, and speculation fixed. Then port only #693's pipeline with one shared host/device buffer-count definition and a verified reuse invariant. Preserve rollback to the original backend. If compute or activation format must change, separate that prerequisite rather than labeling the result communication-only.",
+      "code_surface": "DeepEP source paths: csrc/kernels/elastic/dispatch.hpp and deep_ep/include/deep_ep/impls/dispatch.cuh. Also inspect the pinned vLLM dispatch/combine adapter, workspace sizing, and Marlin input/output contract. A generic DeepEP option does not prove use of this elastic implementation; target adapter availability is unknown.",
+      "applicability": "Conditional SM90 integration/port; qualification deferred. Actual NVLink peer connectivity, elastic API support, Marlin compatibility, installed DeepEP revision, and graph-safe workspace requirements are unknown. Keep both EP4 replicas independent and do not introduce cross-node or eight-rank EP.",
+      "predicted_direction": "Potentially lower exposed dispatch latency and improved TPOT or throughput when remote dispatch is material. Combine has no source-reported improvement. Zero benefit or regression is plausible for local-heavy traffic, small batches, or resource contention; no H200 effect size is predicted.",
+      "classification": "upstream_port",
+      "alternatives": [
+        {
+          "explanation": "Four-rank traffic may be mostly local, or dispatch may already be hidden behind computation.",
+          "distinguishing_test": "Measure local/remote routed rows and bytes, message sizes, rank skew, and exposed dispatch time. Test representative locality mixtures, retaining remote-only traffic as a mechanism diagnostic."
+        },
+        {
+          "explanation": "Performance differences may result from dispatch geometry, changed GEMM layout, or activation quantization instead of buffering.",
+          "distinguishing_test": "Compare patched and unmodified DeepEP at matched geometry and against the best calibrated static unmodified setting; verify expert kernel and payload schemas on every rank. Keep format/backend changes separate."
+        },
+        {
+          "explanation": "Historical DeepEP regressions may reflect changed speculation or inconsistent benchmark records.",
+          "distinguishing_test": "Hold real DSpark k5 and rejection policy fixed, reconcile complete run records and exact tokens, and collect acceptance and step counters. Do not infer direction from the conflicting #23896 table and raw output."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:deepseek-ai/DeepEP:693:live-page",
+          "quote": "three shared-memory TMA buffers per dispatch warp",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:deepseek-ai/DeepEP:693:live-page",
+          "quote": "at most 14 dispatch warps",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:deepseek-ai/DeepEP:693:live-page",
+          "quote": "the two sources of truth diverge",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:sgl-project/sglang:18519:live-page",
+          "quote": "without --moe-a2a-backend deepep",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:59488:live-page",
+          "quote": "DeepEP, SM100 and DeepSeek V4 keep the grouped GEMM.",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:sgl-project/sglang:23896:live-page",
+          "quote": "The Balanced recipe underperforms Low-Latency on every metric by approximately 3–6%.",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known communication pipelining; no novelty claim.",
+        "implementation": "Conditional integration of elastic direct-NVLink dispatch into the pinned engine, followed by an isolated upstream pipeline port.",
+        "workload": "Four-rank mixed-locality EP serving with real DSpark and native prefix traffic, unlike the source's eight-rank remote-only bandwidth test.",
+        "nearest_prior_art": "DeepEP #693; historical SGLang DeepEP deployment reports.",
+        "specific_delta": "Separates backend activation from triple buffering and controls compute layout, payload format, dispatch geometry, and speculation."
+      },
+      "prior_art_query": "NVLink dispatch triple buffering",
+      "experiment": {
+        "control": "A: supplied pinned vLLM deployment with its effective transport verified, retaining Marlin, both TP1/DP4/EP4 replicas, API2, seq64, and all other baseline settings. B: compatible unmodified direct-NVLink DeepEP with the same expert computation and payload. Strong comparator: best legal static unmodified dispatch setting chosen on disjoint calibration traffic, plus an unmodified control matching the patch's dispatch geometry.",
+        "treatment": "First inspect effective source/config/logs, NVLink placement, adapter/API compatibility, and whether #693 is already included. Stage A versus B isolates backend activation; B versus C isolates triple buffering. Establish activation and correctness before unprofiled agent-f75 and fixed-schedule Mooncake screening. Diagnose communication separately with profiling, then confirm useful small effects using at least five alternating paired full-run blocks, drift checks, and run-level intervals. Do not combine this arm with SGLang migration or numeric changes.",
+        "metrics": "All-rank direct-NVLink and triple-buffer path hits divided by eligible MoE dispatch invocations, with remote routed rows/bytes as additional exposure denominators. Record local traffic fraction, per-rank expert counts, message sizes, dispatch/combine time, exposed critical-path time, shared memory, occupancy, and graph fallbacks. Serving metrics: request TPOT=(last-first token time)/(server output tokens-1), TTFT tails, exact tokens, throughput, qualified goodput, replay lag, draft/verify/accepted deltas, KV blocks, preemption, and failures.",
+        "supports_if": "C beats the strongest unmodified DeepEP comparator with verified pipeline activation and reduced exposed dispatch time; and C also improves over A on a predeclared primary workload beyond the useful-gain margin without quality or latency guardrail violations. Report backend activation and patch effects separately.",
+        "rejects_if": "Inspection establishes no useful delta, incompatible transport/compute contracts lack a credible remedy, synchronization correctness fails, or adequately precise primary-workload comparisons rule out practical improvement. A patch that improves B but still loses to A is not a baseline deployment improvement.",
+        "inconclusive_if": "The engine reaches another DeepEP implementation, telemetry or remote-traffic coverage is inadequate, the buffer invariant is unresolved, compute/format changes remain confounded, or only remote-only bandwidth improves. Wide intervals and substantial baseline drift also remain inconclusive.",
+        "held_out_condition": "Separate cold/warm 1K/1K diagnostics, long-context mixed prefill/decode, ragged arrivals, empty and uneven ranks, local-heavy routing, and skewed expert demand. Exercise both EP4 groups concurrently; keep seq128 separate.",
+        "correctness": "Run relevant G01–G05 after obtaining their definitions. Verify dispatch/combine token identity, routing weights, scale metadata, duplicate destinations, zero-token ranks, ragged batches, buffer sizing/alignment, repeated wraparound, and maximum supported graph tiers. Establish the three-buffer/store-group lifetime invariant and host/device sizing agreement; stress graph capture/replay and collective ordering. Preserve DSpark rejection and KV rollback. If reduction order changes, assess numerical and paired quality effects. The closed Hopper issue reports a workaround removing DeepEP, not a demonstrated fix.",
+        "cost": "Compatibility inspection is cheap; an elastic adapter and buffer/graph validation may require substantial integration work, with effort unknown. Stop before GPU testing if no comparable path exists. No execution in this run. Parameterize full-node cost as P8*T/(3600*N_out), with P8 unknown, and report qualified-output cost separately."
+      },
+      "revision_reason": "Separated transport activation from the pipeline patch after considering remote-only source measurements, resource/lifetime objections, communication-dependent GEMM selection, and confounded historical regressions."
+    }
+  ],
+  "gaps": [
+    "No tools, retrieval, file changes, agents, or GPU execution were used. These are conditional research hypotheses, not qualified deployment recommendations or measured improvements.",
+    "The repository list contains 15 entries despite references to 13. Supplied engineering material covers SGLang, DeepEP, FlashInfer, vLLM, and Humming; a comprehensive repository or literature review cannot be claimed.",
+    "The rubric's statement that available evidence is empty conflicts with the supplied PR, issue, runtime, and code excerpts. This assessment uses those excerpts while distinguishing inspected text from author-reported results and transfer inference.",
+    "No target latency, throughput, bottleneck, acceptance, or critical-path measurements are supplied. Marlin startup selection is shown for one worker; all-rank execution, attention dispatch, effective communication backend, placement, and NVLink connectivity remain unverified.",
+    "Most sources are truncated descriptions or discussions. Patch hashes and changed-path lists do not establish final implementation behavior. Final merge status, review resolution, dependency compatibility, and current test coverage remain unknown.",
+    "The SGLang ordering conflict and removed mocked tests require revision-specific inspection. The supplied #23896 raw throughput and comparison table disagree, and its speculation settings differ; neither reported direction establishes an isolated DeepEP effect.",
+    "G01–G05 definitions, production H200 SLOs, useful-gain thresholds, and quality/latency non-inferiority margins are not supplied. Freeze these before testing; the diagnostic 2-second TTFT/50-millisecond TPOT limits are provisional. Missing gates remain deferred rather than scored as passes.",
+    "AIPerf version compatibility, profiler launch/clean-marker integration, and complete counter coverage require separate verification. Full-run pairing must avoid request-level pseudoreplication; profiling results must remain outside the serving frontier.",
+    "Eight-GPU H200 node price is unknown. Prior ranking scenarios, B200 prices, helper speedups, and SGLang bundle ratios supply no numerical prediction for this baseline."
+  ]
+}

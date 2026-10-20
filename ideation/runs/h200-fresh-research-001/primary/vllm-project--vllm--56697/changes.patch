@@ -1,0 +1,492 @@
+From b05a5ca710a92b83c73c40584cfe9a39e1c93ef0 Mon Sep 17 00:00:00 2001
+From: Cheng Rui <286040359@qq.com>
+Date: Sun, 13 Sep 2026 05:10:32 -0700
+Subject: [PATCH] [Perf][Marlin] Reduce DS V4.1 Flash MoE padding on SM90
+
+Use 64-element MXFP4 intermediate alignment for regular SM90 Marlin
+with BF16 activations and no A8 input quantization. Preserve the
+existing policy for other paths and callers without an activation dtype.
+
+Cover the allocation, repack and TP loading contracts and add a
+reproducible kernel benchmark for the 384-to-320 padding reduction.
+
+Co-authored-by: Codex <noreply@openai.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+---
+ .../kernels/benchmark_mxfp4_marlin_padding.py | 174 ++++++++++++++++++
+ .../moe/test_moe_weight_loading_padded.py     |  35 ++++
+ .../quantization/test_marlin_tile_padding.py  | 120 ++++++++++++
+ .../layers/fused_moe/oracle/mxfp4.py          |  17 +-
+ .../layers/quantization/mxfp4.py              |   6 +-
+ .../layers/quantization/online/mxfp4.py       |   5 +-
+ .../layers/quantization/quark/quark_moe.py    |   5 +-
+ 7 files changed, 358 insertions(+), 4 deletions(-)
+ create mode 100644 benchmarks/kernels/benchmark_mxfp4_marlin_padding.py
+
+diff --git a/benchmarks/kernels/benchmark_mxfp4_marlin_padding.py b/benchmarks/kernels/benchmark_mxfp4_marlin_padding.py
+new file mode 100644
+index 000000000000..002bb4d5f4fc
+--- /dev/null
++++ b/benchmarks/kernels/benchmark_mxfp4_marlin_padding.py
+@@ -0,0 +1,174 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Compare MXFP4 MoE padding with identical logical weights and routes.
++
++Defaults reproduce DeepSeek-V4.1-Flash TP8 shapes. Weights and routing are
++synthetic; use a serving benchmark for model-level performance.
++"""
++
++import json
++import statistics
++from pathlib import Path
++from types import SimpleNamespace
++
++import torch
++import torch.nn.functional as F
++from flashinfer.testing import bench_gpu_time_with_cupti
++
++from vllm.model_executor.layers.fused_moe.activation import ApplyMoEActivationConfig
++from vllm.model_executor.layers.fused_moe.experts.marlin_moe import fused_marlin_moe
++from vllm.model_executor.layers.quantization.utils.marlin_utils import (
++    marlin_make_workspace_new,
++)
++from vllm.model_executor.layers.quantization.utils.marlin_utils_fp4 import (
++    prepare_moe_mxfp4_layer_for_marlin,
++)
++from vllm.scalar_type import scalar_types
++from vllm.utils.argparse_utils import FlexibleArgumentParser
++from vllm.utils.math_utils import round_up
++
++
++def main():
++    parser = FlexibleArgumentParser(description=__doc__)
++    parser.add_argument("--hidden-size", type=int, default=5120)
++    parser.add_argument("--intermediate-size", type=int, default=288)
++    parser.add_argument("--num-experts", type=int, default=384)
++    parser.add_argument("--topk", type=int, default=6)
++    parser.add_argument(
++        "--tokens", type=int, nargs="+", default=[1, 32, 128, 512, 2048]
++    )
++    parser.add_argument("--repeat-iters", type=int, default=30)
++    parser.add_argument("--output", type=Path)
++    args = parser.parse_args()
++    torch.manual_seed(0)
++    dtype = torch.bfloat16
++    e, k, n = args.num_experts, args.hidden_size, args.intermediate_size
++    assert k % 256 == 0 and n % 32 == 0
++    assert 0 < args.topk <= e
++    extents = [round_up(n, alignment) for alignment in (128, 64)]
++    if extents[0] == extents[1]:
++        raise ValueError("Choose an intermediate size with different padding extents")
++    weights, scales = [], []
++    for out_dim, in_dim in [(2 * n, k), (k, n)]:
++        weights.append(
++            torch.randint(
++                256, (e, out_dim, in_dim // 2), dtype=torch.uint8, device="cuda"
++            )
++        )
++        scales.append(
++            torch.randint(
++                119, 123, (e, out_dim, in_dim // 32), dtype=torch.uint8, device="cuda"
++            )
++        )
++    packed = {}
++    for padded in extents:
++
++        def pad_gate_up(tensor, padded=padded):
++            tensor = tensor.reshape(e, 2, n, -1)
++            return F.pad(tensor, (0, 0, 0, padded - n)).reshape(e, 2 * padded, -1)
++
++        packed[padded] = prepare_moe_mxfp4_layer_for_marlin(
++            SimpleNamespace(params_dtype=dtype),
++            pad_gate_up(weights[0]),
++            F.pad(weights[1], (0, (padded - n) // 2)),
++            pad_gate_up(scales[0]),
++            F.pad(scales[1], (0, (padded - n) // 32)),
++            None,
++            None,
++        )
++    del weights, scales
++
++    rows = []
++    for m in args.tokens:
++        x = torch.randn(m, k, device="cuda", dtype=dtype)
++        ids = torch.rand(m, e, device="cuda").topk(args.topk, dim=-1).indices.int()
++        routing = torch.rand(m, args.topk, device="cuda")
++        routing /= routing.sum(-1, keepdim=True)
++        calls = {}
++        for padded in extents:
++            w13, w2, s13, s2, _, _ = packed[padded]
++            workspace = marlin_make_workspace_new(x.device, 4)
++            cache13 = torch.empty(
++                m * args.topk * max(2 * padded, k), device=x.device, dtype=dtype
++            )
++            cache2 = torch.empty(m * args.topk * padded, device=x.device, dtype=dtype)
++            out = torch.empty_like(x)
++
++            def run(
++                x=x,
++                routing=routing,
++                ids=ids,
++                w13=w13,
++                w2=w2,
++                s13=s13,
++                s2=s2,
++                workspace=workspace,
++                cache13=cache13,
++                cache2=cache2,
++                out=out,
++            ):
++                return fused_marlin_moe(
++                    x,
++                    w13,
++                    w2,
++                    None,
++                    None,
++                    s13,
++                    s2,
++                    routing,
++                    ids,
++                    quant_type_id=scalar_types.float4_e2m1f.id,
++                    activation_config=ApplyMoEActivationConfig(clamp_limit=10.0),
++                    workspace=workspace,
++                    intermediate_cache13=cache13,
++                    intermediate_cache2=cache2,
++                    output=out,
++                )
++
++            calls[padded] = run
++        torch.testing.assert_close(
++            calls[extents[0]](), calls[extents[1]](), atol=0.03, rtol=0.03
++        )
++        times = {padded: [] for padded in extents}
++        for order in (extents, extents[::-1]):
++            for padded in order:
++                times[padded].extend(
++                    bench_gpu_time_with_cupti(
++                        calls[padded],
++                        dry_run_iters=5,
++                        repeat_iters=args.repeat_iters,
++                        use_cuda_graph=True,
++                        cold_l2_cache=True,
++                    )
++                )
++        medians = {p: float(statistics.median(t)) for p, t in times.items()}
++        row = {
++            "tokens": m,
++            "median_ms": medians,
++            "speedup": medians[extents[0]] / medians[extents[1]],
++            # Two expert GEMMs: 2*M*topk*K*(2*N) + 2*M*topk*N*K.
++            "useful_tflops": {
++                p: 6 * m * args.topk * k * n / (ms * 1e9) for p, ms in medians.items()
++            },
++            "samples_ms": {p: list(map(float, t)) for p, t in times.items()},
++        }
++        rows.append(row)
++        print(
++            json.dumps(
++                {key: value for key, value in row.items() if key != "samples_ms"}
++            )
++        )
++    result = {
++        "gpu": torch.cuda.get_device_name(),
++        "capability": torch.cuda.get_device_capability(),
++        "torch": torch.__version__,
++        "dtype": str(dtype),
++        "config": {key: value for key, value in vars(args).items() if key != "output"},
++        "rows": rows,
++    }
++    if args.output:
++        args.output.write_text(json.dumps(result, indent=2) + "\n")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/kernels/moe/test_moe_weight_loading_padded.py b/tests/kernels/moe/test_moe_weight_loading_padded.py
+index ef31de06d14a..bb154a4e9b62 100644
+--- a/tests/kernels/moe/test_moe_weight_loading_padded.py
++++ b/tests/kernels/moe/test_moe_weight_loading_padded.py
+@@ -23,6 +23,41 @@
+ from .utils import make_dummy_moe_config
+ 
+ 
++@pytest.mark.parametrize("tp_size,padded", [(4, 576), (8, 320)])
++@pytest.mark.parametrize("packing", [2, 32])
++def test_mxfp4_intermediate_padding_preserves_all_tp_shards(tp_size, padded, packing):
++    """Packed weights and block scales cover the checkpoint exactly once."""
++    experts = RoutedExperts.__new__(RoutedExperts)
++    torch.nn.Module.__init__(experts)
++    experts.moe_config = make_dummy_moe_config()
++    experts.moe_config.moe_parallel_config.tp_size = tp_size
++    hidden, intermediate = 64, 2304
++    local = intermediate // tp_size
++    w1 = torch.arange(intermediate * hidden // packing).reshape(
++        intermediate, hidden // packing
++    )
++    w3 = w1 + w1.numel()
++    w2 = torch.arange(hidden * intermediate // packing).reshape(
++        hidden, intermediate // packing
++    )
++    loaded_w1, loaded_w3, loaded_w2 = [], [], []
++    for rank in range(tp_size):
++        gate_up = torch.zeros(2 * padded, hidden // packing, dtype=w1.dtype)
++        down = torch.zeros(hidden, padded // packing, dtype=w2.dtype)
++        experts._load_w13(gate_up, 0, "w1", w1, rank)
++        experts._load_w13(gate_up, 0, "w3", w3, rank)
++        experts._load_w2(down, 1, w2, rank)
++        loaded_w1.append(gate_up[:local])
++        loaded_w3.append(gate_up[padded : padded + local])
++        loaded_w2.append(down[:, : local // packing])
++        assert torch.count_nonzero(gate_up[local:padded]) == 0
++        assert torch.count_nonzero(gate_up[padded + local :]) == 0
++        assert torch.count_nonzero(down[:, local // packing :]) == 0
++    torch.testing.assert_close(torch.cat(loaded_w1), w1)
++    torch.testing.assert_close(torch.cat(loaded_w3), w3)
++    torch.testing.assert_close(torch.cat(loaded_w2, dim=1), w2)
++
++
+ class TestGetHiddenDim:
+     """Unit tests for _get_hidden_dim."""
+ 
+diff --git a/tests/kernels/quantization/test_marlin_tile_padding.py b/tests/kernels/quantization/test_marlin_tile_padding.py
+index 027ffbf10c96..4554b826153c 100644
+--- a/tests/kernels/quantization/test_marlin_tile_padding.py
++++ b/tests/kernels/quantization/test_marlin_tile_padding.py
+@@ -6,11 +6,16 @@
+ """
+ 
+ from types import SimpleNamespace
++from unittest.mock import patch
+ 
+ import pytest
+ import torch
+ 
+ from vllm import _custom_ops as ops
++from vllm.model_executor.layers.fused_moe.oracle.mxfp4 import (
++    Mxfp4MoeBackend,
++    mxfp4_round_up_hidden_size_and_intermediate_size,
++)
+ from vllm.model_executor.layers.quantization.utils.marlin_utils import (
+     GPTQ_MARLIN_TILE,
+     apply_gptq_marlin_linear,
+@@ -186,6 +191,121 @@ def test_marlin_moe_pad_helpers_shapes():
+     assert bias_shards[..., N:].abs().sum() == 0
+ 
+ 
++@pytest.mark.parametrize("intermediate", [32, 64, 96, 192, 256, 288, 576])
++@pytest.mark.parametrize("act_dtype", [None, torch.float16, torch.bfloat16])
++@pytest.mark.parametrize(
++    "backend,platform,capability,input_dtype,alignment",
++    [
++        (Mxfp4MoeBackend.MARLIN, "cuda", 90, None, 64),
++        (Mxfp4MoeBackend.MARLIN, "cuda", 89, None, 128),
++        (Mxfp4MoeBackend.MARLIN, "cuda", 120, torch.float8_e4m3fn, 128),
++        (Mxfp4MoeBackend.MARLIN, "cuda", 90, torch.float8_e4m3fn, 128),
++        (Mxfp4MoeBackend.MARLIN, "xpu", None, None, 128),
++        (Mxfp4MoeBackend.BATCHED_MARLIN, "cuda", 90, None, 128),
++    ],
++)
++def test_mxfp4_marlin_intermediate_allocation(
++    intermediate, act_dtype, backend, platform, capability, input_dtype, alignment
++):
++    """Avoid an extra W4A16 tile without changing unvalidated backends."""
++    module = "vllm.model_executor.layers.fused_moe.oracle.mxfp4"
++    with (
++        patch(f"{module}.current_platform.is_cuda", return_value=platform == "cuda"),
++        patch(f"{module}.current_platform.is_xpu", return_value=platform == "xpu"),
++        patch(
++            f"{module}.current_platform.is_device_capability",
++            side_effect=lambda cc: capability == cc,
++        ),
++        patch(f"{module}.get_marlin_input_dtype", return_value=input_dtype),
++    ):
++        hidden, padded = mxfp4_round_up_hidden_size_and_intermediate_size(
++            backend, 5119, intermediate, act_dtype=act_dtype
++        )
++    assert hidden == 5120
++    if act_dtype != torch.bfloat16:
++        alignment = 128
++    assert padded == (intermediate + alignment - 1) // alignment * alignment
++    assert _is_tile_aligned(2 * padded, hidden)
++    assert _is_tile_aligned(hidden, padded)
++
++
++@pytest.mark.skipif(
++    not current_platform.is_cuda() or not current_platform.is_device_capability(90),
++    reason="Reduced MXFP4 Marlin padding is enabled on SM90.",
++)
++@pytest.mark.parametrize(
++    "shape", [(32, 256), (64, 256), (96, 512), (192, 512), (288, 5120), (576, 5120)]
++)
++@pytest.mark.parametrize("m", [1, 33])
++def test_mxfp4_marlin_moe_padded_round_trip(shape, m, monkeypatch):
++    """Repack both smaller expert matrices and compare to unpadded weights."""
++    from tests.kernels.utils import torch_experts
++    from tests.quantization.reference_mxfp4 import dq_mxfp4_torch
++    from vllm.config import VllmConfig, set_current_vllm_config
++    from vllm.model_executor.layers.fused_moe import fused_topk
++    from vllm.model_executor.layers.fused_moe.experts.marlin_moe import (
++        fused_marlin_moe,
++    )
++    from vllm.model_executor.layers.quantization.utils.marlin_utils_fp4 import (
++        prepare_moe_mxfp4_layer_for_marlin,
++    )
++
++    monkeypatch.delenv("VLLM_MARLIN_INPUT_DTYPE", raising=False)
++    torch.manual_seed(0)
++    dtype = torch.bfloat16
++    n, k = shape
++    e, topk = 4, 2
++    _, padded_n = mxfp4_round_up_hidden_size_and_intermediate_size(
++        Mxfp4MoeBackend.MARLIN, k, n, act_dtype=dtype
++    )
++    weights, scales, references = [], [], []
++    for out_dim, in_dim in [(2 * n, k), (k, n)]:
++        w = torch.randint(
++            256, (e, out_dim, in_dim // 2), dtype=torch.uint8, device="cuda"
++        )
++        s = torch.randint(
++            119, 123, (e, out_dim, in_dim // 32), dtype=torch.uint8, device="cuda"
++        )
++        references.append(dq_mxfp4_torch(w, s, dtype))
++        weights.append(w)
++        scales.append(s)
++
++    def pad_gate_up(tensor):
++        tensor = tensor.reshape(e, 2, n, -1)
++        return torch.nn.functional.pad(tensor, (0, 0, 0, padded_n - n)).reshape(
++            e, 2 * padded_n, -1
++        )
++
++    pw13, pw2, ps13, ps2, _, _ = prepare_moe_mxfp4_layer_for_marlin(
++        SimpleNamespace(params_dtype=dtype),
++        pad_gate_up(weights[0]),
++        torch.nn.functional.pad(weights[1], (0, (padded_n - n) // 2)),
++        pad_gate_up(scales[0]),
++        torch.nn.functional.pad(scales[1], (0, (padded_n - n) // 32)),
++        None,
++        None,
++    )
++    assert pw2.numel() * pw2.element_size() == e * k * padded_n // 2
++    a = torch.randn(m, k, dtype=dtype, device="cuda") / 4
++    score = torch.randn(m, e, dtype=dtype, device="cuda")
++    topk_weights, topk_ids, _ = fused_topk(a, score, topk, False)
++    out = fused_marlin_moe(
++        a,
++        pw13,
++        pw2,
++        None,
++        None,
++        ps13,
++        ps2,
++        topk_weights,
++        topk_ids,
++        quant_type_id=scalar_types.float4_e2m1f.id,
++    )
++    with set_current_vllm_config(VllmConfig()):
++        ref = torch_experts(a, *references, topk_weights, topk_ids)
++    torch.testing.assert_close(out, ref, atol=3e-2, rtol=3e-2)
++
++
+ def _gpu_marlin_unsupported() -> bool:
+     return not (
+         current_platform.is_cuda() and current_platform.has_device_capability(80)
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+index 7fed4124f569..c2c05305bd48 100644
+--- a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+@@ -31,6 +31,9 @@
+ from vllm.model_executor.layers.quantization.utils.flashinfer_utils import (
+     swap_w13_to_w31,
+ )
++from vllm.model_executor.layers.quantization.utils.marlin_utils import (
++    get_marlin_input_dtype,
++)
+ from vllm.model_executor.layers.quantization.utils.mxfp4_utils import (
+     _swizzle_mxfp4,
+ )
+@@ -733,6 +736,7 @@ def mxfp4_round_up_hidden_size_and_intermediate_size(
+     hidden_size: int,
+     intermediate_size: int,
+     activation: MoEActivation | None = None,
++    act_dtype: torch.dtype | None = None,
+ ) -> tuple[int, int]:
+     """Round up hidden_size and intermediate_size based on backend requirements."""
+     if backend in B12X_BACKENDS:
+@@ -750,7 +754,18 @@ def mxfp4_round_up_hidden_size_and_intermediate_size(
+         intermediate_size = round_up(intermediate_size, 128)
+         hidden_size = round_up(hidden_size, 128)
+     elif backend in (Mxfp4MoeBackend.MARLIN, Mxfp4MoeBackend.BATCHED_MARLIN):
+-        intermediate_size = round_up(intermediate_size, 128)
++        intermediate_alignment = 128
++        if (
++            backend == Mxfp4MoeBackend.MARLIN
++            and current_platform.is_cuda()
++            and current_platform.is_device_capability(90)
++            and act_dtype == torch.bfloat16
++            and get_marlin_input_dtype() is None
++        ):
++            # With hidden_size padded to 256, SM90 W4A16-BF16 supports both
++            # w13 and w2 with a 64-aligned intermediate dimension.
++            intermediate_alignment = 64
++        intermediate_size = round_up(intermediate_size, intermediate_alignment)
+         if current_platform.is_xpu():
+             hidden_size = round_up(hidden_size, 128)
+         else:
+diff --git a/vllm/model_executor/layers/quantization/mxfp4.py b/vllm/model_executor/layers/quantization/mxfp4.py
+index 33f6afac80a9..e49d23d89257 100644
+--- a/vllm/model_executor/layers/quantization/mxfp4.py
++++ b/vllm/model_executor/layers/quantization/mxfp4.py
+@@ -188,7 +188,10 @@ def maybe_roundup_sizes(
+             moe_parallel_config=moe_parallel_config,
+         )
+         return mxfp4_round_up_hidden_size_and_intermediate_size(
+-            self.mxfp4_backend, hidden_size, intermediate_size_per_partition
++            self.mxfp4_backend,
++            hidden_size,
++            intermediate_size_per_partition,
++            act_dtype=act_dtype,
+         )
+ 
+     def create_weights(
+@@ -531,6 +534,7 @@ def maybe_roundup_sizes(
+             hidden_size,
+             intermediate_size_per_partition,
+             activation=self.moe.activation,
++            act_dtype=act_dtype,
+         )
+ 
+     @staticmethod
+diff --git a/vllm/model_executor/layers/quantization/online/mxfp4.py b/vllm/model_executor/layers/quantization/online/mxfp4.py
+index 0115988e9265..f45c67d6c364 100644
+--- a/vllm/model_executor/layers/quantization/online/mxfp4.py
++++ b/vllm/model_executor/layers/quantization/online/mxfp4.py
+@@ -168,7 +168,10 @@ def maybe_roundup_sizes(
+             moe_parallel_config=moe_parallel_config,
+         )
+         return mxfp4_round_up_hidden_size_and_intermediate_size(
+-            self.mxfp4_backend, hidden_size, intermediate_size_per_partition
++            self.mxfp4_backend,
++            hidden_size,
++            intermediate_size_per_partition,
++            act_dtype=act_dtype,
+         )
+ 
+     def create_weights(
+diff --git a/vllm/model_executor/layers/quantization/quark/quark_moe.py b/vllm/model_executor/layers/quantization/quark/quark_moe.py
+index d2472524a5fe..32e7b7720e92 100644
+--- a/vllm/model_executor/layers/quantization/quark/quark_moe.py
++++ b/vllm/model_executor/layers/quantization/quark/quark_moe.py
+@@ -1317,7 +1317,10 @@ def maybe_roundup_sizes(
+         if self.mxfp4_backend is not None:
+             hidden_size, intermediate_size_per_partition = (
+                 mxfp4_round_up_hidden_size_and_intermediate_size(
+-                    self.mxfp4_backend, hidden_size, intermediate_size_per_partition
++                    self.mxfp4_backend,
++                    hidden_size,
++                    intermediate_size_per_partition,
++                    act_dtype=act_dtype,
+                 )
+             )
+         return hidden_size, intermediate_size_per_partition

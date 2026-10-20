@@ -1,0 +1,448 @@
+Conversation
+Leoyzen
+commented
+Sep 20, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Motivation
+The H200 [32,32] block-wise fp8_w8a8 tuned tables are missing several shapes and most M buckets. Decode and verify hit these shapes with small M; without a tuned entry the kernel falls back to an untuned config, and the M-key lookup snaps to the nearest bucket, so a gap of 6x between buckets shows up directly in step time.
+Modifications
+Adds 8 new H200 [32,32] fp8_w8a8 configs:
+N=512,K=5120
+N=1280,K=5120
+N=1536,K=5120
+N=32768,K=1280
+N=5120,K=8192
+N=5120,K=15360
+N=4608,K=5120
+N=5120,K=2304
+Extends 7 existing H200 [32,32] fp8_w8a8 configs with additional M buckets (4,6,8,12,16,32,64,128,256,1024,2048), keeping the existing M=1 and M=2 entries unchanged:
+N=1152,K=5120
+N=1792,K=5120
+N=25600,K=6144
+N=4096,K=1280
+N=5120,K=2048
+N=5120,K=576
+N=8192,K=1280
+All files are additive; no existing config entry is modified. No M >= 512 entry carries SWAP_AB or SPLIT_K, so the prefill path is unaffected.
+Accuracy Tests
+Config-only change; no kernel or numerics change. The tuned configs select different BLOCK_SIZE/GROUP_SIZE/num_stages for the same fp8 GEMM.
+Speed Tests and Profiling
+DeepSeek-V4.1-Flash on 4xH200 (SM90), same-protocol A/B with only these tuned tables switched (DSpark speculative decoding; ISL1024 / OSL256 / temp 0 / seed 42 / out=256; C = concurrent requests):
+Scenario
+Aggregate output tok/s
+vs before
+Cold 100k prefill
+18,323 -> 20,501
++11.9%
+C2
+-
++16.6%
+C3
+-
++11.5%
+C4
+-
++13.4%
+C32
+-
++17.9%
+C48
+-
++9.1%
+C64
+-
++10.6%
+C16
+-
+-5.1% (within run-to-run noise)
+C48 decode profile of
+_w8a8_block_fp8_matmul
+:
+total time
+share
+calls
+before
+405.84 ms
+28.8%
+1750
+after
+148.83 ms
+15.9%
+1238
+_w8a8_block_fp8_matmul_hopper
+: 0 -> 530 calls.
+The gap this closes: under DSpark verify, per-request token counts land between tuned M keys; e.g. M=6 hit the SWAP_AB fast path (2.3 ms/step) while M=12 had no tuned entry and fell back to the default config (13.8 ms/step, ~6x). The added buckets cover those M values so the lookup stays on the tuned path.
+Checklist
+Format your code according to the
+Format code with pre-commit
+.
+Add unit tests according to the
+Run and add unit tests
+.
+Update documentation according to
+Write documentations
+.
+Provide accuracy and speed benchmark results according to
+Test the accuracy
+and
+Benchmark the speed
+.
+Follow the SGLang code style
+guidance
+.
+Related
+Related
+[NVIDIA] DeepSeek V4 Perf Tracking
+#33636
+([NVIDIA] DeepSeek V4 Perf Tracking)
+Related
+dsv4.1: Hopper FP8 matmul kernels and tuning
+#39657
+(H200 block-FP8 tuned configs)
+Notes
+The tables come from an H200 (SM90) tuning sweep. The M buckets were chosen to cover the decode and verify token counts the model hits in practice.
+CI States
+Latest PR Test (Base): ❌
+Run #35552033322
+Latest PR Test (Extra): ❌
+Run #35552033225
+Latest PR Test (AMD ROCm 10): ❌
+Run #35552033290
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Leoyzen
+requested review from
+BBuf
+,
+DarkSharpness
+,
+HaiShaw
+,
+HydraQYH
+,
+celve
+and
+yuan-luo
+as
+code owners
+September 20, 2026 11:06
+github-actions
+Bot
+added
+  the
+jit-kernel
+label
+Sep 20, 2026
+Leoyzen
+added
+2
+commits
+September 20, 2026 19:10
+[Quantization] Add 8 novel H200 [32,32] fp8_w8a8 tuned configs
+…
+5e356aa
+Add tuned block-FP8 [32,32] tables for 8 H200 (SM90) shapes that had no
+config on main, so the tuned kernel path can be selected for them:
+
+  - N=512,K=5120
+  - N=1280,K=5120
+  - N=1536,K=5120
+  - N=32768,K=1280
+  - N=5120,K=8192
+  - N=5120,K=15360
+  - N=4608,K=5120
+  - N=5120,K=2304
+
+All 8 files are new; none of the existing H200 [32,32] tables are
+modified. Tables come from a local tuning sweep on the H200 SM90 part.
+[Quantization] Extend H200 [32,32] fp8_w8a8 tuned configs with more M…
+…
+5ecff7b
+… buckets
+
+The 7 existing H200 [32,32] block-FP8 tables only covered M=1 and M=2.
+Extend them with M buckets 4, 6, 8, 12, 16, 32, 64, 128, 256, 1024 and
+2048 so the tuned kernel path is also selected for those batch sizes:
+
+  - N=1152,K=5120
+  - N=1792,K=5120
+  - N=25600,K=6144
+  - N=4096,K=1280
+  - N=5120,K=2048
+  - N=5120,K=576
+  - N=8192,K=1280
+
+The added tiers come from a local H200/L20X tuning sweep. L20X is the
+OEM name of the same SM90 part as H200, so all tables are filed under
+NVIDIA_H200. The M=1 and M=2 entries of the existing files are
+unchanged.
+Leoyzen
+force-pushed
+the
+pr/h200-tuned-configs
+branch
+    from
+659d27e
+to
+5ecff7b
+Compare
+September 20, 2026 11:10
+Leoyzen
+commented
+Sep 20, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Hi
+@BBuf
+, could you help add the
+run-ci
+label when you get a chance? This is config-data-only: 8 new H200 [32,32] fp8_w8a8 tuned configs plus extra M buckets for 7 existing ones (decode/verify shapes). No code change.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into pr/h200-tuned-configs
+eca7d1f
+Oasis-Git
+mentioned this pull request
+Oct 2, 2026
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+Open
+17 of 56 tasks
+Frank-whw
+commented
+Oct 2, 2026
+Copy link
+Copy Markdown
+Thanks for the tuned tables — the small-M decode/verify shapes they cover are a real gap, and the "no
+M >= 512
+entry carries
+SWAP_AB
+/
+SPLIT_K
+" reasoning checks out across all 15 files (219 entries). Two things from testing this on our side.
+1. Blocker: the files land in a directory the runtime does not read
+get_w8a8_block_fp8_configs()
+in
+python/sglang/kernels/ops/gemm/fp8_kernel.py
+resolves its config directory relative to its own file:
+config_file_path
+=
+os
+.
+path
+.
+join
+(
+os
+.
+path
+.
+dirname
+(
+os
+.
+path
+.
+realpath
+(
+__file__
+)),
+"configs"
+,
+json_file_name
+)
+so on
+main
+it reads
+python/sglang/kernels/ops/gemm/configs/
+. This PR adds the tables under
+python/sglang/kernels/ops/quantization/configs/
+, which no longer exists — the contents API returns 404 for that path. The branch is based on
+6ad78f22
+, i.e. before that directory move, which is also why it no longer applies cleanly.
+Observed on
+main
+:
+python/sglang/kernels/ops/gemm/configs/
+→ 178 files, of which exactly
+7
+match
+NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32]
+— the same 7 shapes this PR extends.
+python/sglang/kernels/ops/quantization/configs/
+→ not present.
+none of the 8 new
+N=...,K=...
+shapes exist under
+gemm/configs
+.
+So as written the tables are never loaded.
+Fix: move all 15 files to
+python/sglang/kernels/ops/gemm/configs/
+.
+I rebased the content onto current
+main
+(7 extended files are purely additive — the
+main
+versions contain only
+M=1
+and
+M=2
+, identical to this PR's; 655 insertions, 0 modifications) and
+git apply --check
+passes.
+That the tables were previously inert is directly visible in the server log. DeepSeek-V4.1-Flash requests exactly 10 H200
+[32,32]
+shapes; before the move:
+Using default W8A8 Block FP8 kernel config ...  (x32 = 4 shapes x 8 TP ranks)
+  N=512,K=5120   N=1280,K=5120   N=1536,K=5120   N=5120,K=15360
+after the move:
+Using configuration from ...
+for all 10 shapes,
+0
+default-config warnings.
+2. Measured on 8×H200 / V4.1-Flash / TP8+EP4: neutral, and not the cells you report
+With the tables applied at the correct path, paired fresh-process A/B, identical argv and identical inputs (DSpark, decoder SWA bounded replay, HiCache L2, EPLB off),
+cached_tokens=0
+on every request:
+workload
+metric
+before
+after
+Δ
+8192 in / 1 out, c8, 3 rounds
+input tok/s
+19,468.9
+19,476.1
++0.04%
+same
+_w8a8_block_fp8_matmul
+ms/rank/capture
+416.49
+421.65
++1.24%
+1024 in / 256 out, temp 0, DSpark, c32, 2 rounds
+output tok/s
+1011.3
+980.4
+−3.05%
+same, c64, 2 rounds
+output tok/s
+1261.1
+1228.8
+−2.56%
+Within-arm spread is ±0.25% (prefill) and ±5% (decode), so every delta is at or below noise. I could not reproduce any of the +9–18% cells. Config selection did change as expected — e.g.
+N=1280,K=5120
+went from the default config to the
+M=2048
+bucket, and the three shapes that previously had only
+M=1,2
+now resolve to
+M=2048
+at 8K.
+To be clear about what this bounds: our deployment is 8×H200 with
+EP4
+(MoE-TP2), DSpark block 5, and a different harness (unique random token IDs, no
+flush-cache
+) than your 4×H200
+sgl-bench
+sweep. This is a negative result
+for this deployment
+, not a claim that the tables are worthless under yours. If it's useful I can re-run your exact recipe (
+sgl-bench serve
+, ISL1024/OSL256, num-prompts 384, max-concurrency 48, seed 42) after the path fix and post the numbers, and I can share the raw per-round JSON.
+3. Unrelated bug hit while building the harness
+Starting a server
+without
+--expert-distribution-recorder-mode
+and then calling
+POST /stop_expert_distribution_record
+kills the scheduler instead of returning an error:
+scheduler.py:5699 expert_distribution_handle -> stop_record()
+expert_distribution.py:193 -> _on_not_implemented()
+Exception: Please set ServerArgs.expert_distribution_recorder_mode to use ExpertDistributionRecorder.
+The client sees a dropped connection and the engine exits. Worth a
+_Noop
+guard returning a 400. Happy to file it separately if you'd rather keep this PR focused.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+DarkSharpness
+Awaiting requested review from DarkSharpness
+DarkSharpness is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+BBuf
+Awaiting requested review from BBuf
+BBuf is a code owner
+celve
+Awaiting requested review from celve
+celve is a code owner
+HydraQYH
+Awaiting requested review from HydraQYH
+HydraQYH is a code owner
+yuan-luo
+Awaiting requested review from yuan-luo
+yuan-luo is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+jit-kernel
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

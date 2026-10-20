@@ -1,0 +1,274 @@
+Conversation
+Juntian777
+commented
+Oct 18, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Overview
+With
+dp_shared_memory
+, node-local DP ranks share one registered
+/dev/shm
+mapping for the Engram host tables (2 layers x 94.4 GiB on DeepSeek-V4.1-Flash). Lookups are random row reads and on GB200 they are bound by GPU TLB misses: the registered mapping uses 64K pages.
+This PR allocates the shared table as host-NUMA cuMem instead, which the GPU maps with 2M pages. Rank 0 creates it and broadcasts a FABRIC handle; the other node-local DP ranks import and map it. Where FABRIC handles are unavailable (probed once: create + export), the existing
+/dev/shm
+path is used and logged. Rank 0 decides the backing and broadcasts it so every rank runs the same collectives. A mapping failure on any rank raises on all ranks.
+New NVIDIA-only
+vllm/models/deepseek_v41/nvidia/ops/engram_host_table.py
+(~125 lines of code).
+common/engram.py
+: +42/-7,
+DPSharedEngramStorage
+keeps its interface; startup log says
+via cuMem
+or
+via /dev/shm
+.
+No new config option.
+Not a duplicate: open Engram PRs cover pinned sizing (
+#59849
+), SP/PCP sharing (
+#57195
+,
+#61553
+), Mooncake and disk offload (
+#57023
+,
+#62238
+); none changes the shared host table backing.
+Performance
+GB200, DEP4,
+--numa-bind
+-equivalent binding (
+numactl
+per rank), dummy weights, uniformly random tokens. Same node, back-to-back A/B.
+Engram lookup, one layer, fresh ids every iteration:
+tokens
+/dev/shm
+cuMem
+16
+69 us
+49 us
+128
+184 us
+90 us
+1024
+1.21 ms
+0.47 ms
+4096
+3.78 ms
+1.21 ms
+32768
+9.92 ms
+4.36 ms
+vllm bench forward
+(median per-rank forward):
+case
+/dev/shm
+cuMem
+change
+prefill 32768
+346.76 ms
+333.93 ms
+-3.7%
+prefill 4 x 8192
+347.18 ms
+333.65 ms
+-3.9%
+prefill 4 x 8192 @ 16384 ctx
+353.86 ms
+338.71 ms
+-4.3%
+prefill 16384
+181.99 ms
+170.87 ms
+-6.1%
+prefill 4096
+56.72 ms
+50.87 ms
+-10.3%
+decode 64 @ 16384
+16.61 ms
+16.61 ms
+0%
+decode 128 @ 16384
+17.10 ms
+17.10 ms
+0%
+Decode lookups already overlap on the side stream. Real text repeats 15-22% of rows, so real prefill gains should be somewhat smaller than the random-token numbers.
+vllm bench forward --model deepseek-ai/DeepSeek-V4.1-Flash --tokenizer-mode deepseek_v41 --language-model-only -dp 4 --enable-expert-parallel --kv-cache-dtype fp8 --max-model-len 131072 --max-num-batched-tokens 32768 --gpu-memory-utilization 0.75 --attention-config
+'
+{"backend":"FLASHMLA_MEGA_ATTN_DSV41","indexer_kv_dtype":"mxfp4","indexer_sparse_logits":true}
+'
+--engram-config
+'
+{"cpu_offload":true,"embedding_across_dp":true,"use_thp":false}
+'
+--kernel-config
+'
+{"enable_flashinfer_autotune":false,"moe_backend":"deep_gemm_mega_moe","sparse_indexer_topk_backend":"deep_select"}
+'
+--case p32k=32768 --case chunk4=4
+*
+8192 --case chunk4mid=4
+*
+8192@16384c --case p16k=16384 --case p4k=4096 --case d64=64
+*
+1@16384 --case d128=128
+*
+1@16384
+Accuracy
+GSM8K on this branch (
+via cuMem
+in the startup log), DEP4 on one GB200 node, same server and lm-eval setup as
+#61039
+:
+--max-num-seqs 64 --max-num-batched-tokens 16384 --max-model-len 32768
+,
+FULL_DECODE_ONLY
+graphs up to 384,
+cpu_offload
++
+dp_shared_memory
+Engram tables, DSpark with 5 speculative tokens, standard rejection sampling, adaptive verification off. lm-eval 0.4.13, 1319 problems, 5-shot, temperature 0, 1024-token cap, concurrency 32.
+strict match
+flexible extract
+acceptance length, incl. bonus
+per-position acceptance
+this PR
+92.65% (±0.72)
+92.57%
+3.451
+0.795 / 0.651 / 0.458 / 0.333 / 0.214
+#61039
+(
+/dev/shm
+tables)
+92.57%
+92.49%
+3.423
+0.790 / 0.646 / 0.452 / 0.329 / 0.205
+Tests
+pytest tests/distributed/test_engram_dp_shard.py
+: 27 passed (GB200). The existing shared-storage lifetime/failure test now forces the
+/dev/shm
+fallback so both paths stay covered.
+Stress on GB200, DEP2 and DEP4: full-size 2 x 94.4 GiB tables, 50-200 lookup iterations at 32768 and 384 tokens with every value checked (0 mismatches); injected create/import failures raise on all ranks without hanging; repeated alloc/free cycles return host memory.
+pre-commit run
+on the changed files passes.
+AI assistance (Claude Code) was used for this change.
+🤖 Generated with
+Claude Code
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+[Perf][DSv4.1] Share Engram host tables as host-NUMA cuMem across DP …
+…
+e3b9eb9
+…ranks
+
+GPUs map host-NUMA cuMem with 2M pages instead of the 64K pages of a
+registered /dev/shm mapping, so TLB-bound Engram row lookups get 2-3x
+faster. Rank 0 exports a FABRIC handle that node-local DP ranks import;
+platforms without FABRIC handles keep the /dev/shm path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Juntian Liu <Juntianl777@gmail.com>
+Juntian777
+changed the title
+t
+[Perf][DSv4.1] Share Engram host tables as host-NUMA cuMem across DP ranks
+Oct 18, 2026
+mergify
+Bot
+added
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+labels
+Oct 18, 2026
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon will be requested when the pull request is marked ready for review
+WoosukKwon is a code owner
+youkaichao
+Awaiting requested review from youkaichao
+youkaichao will be requested when the pull request is marked ready for review
+youkaichao is a code owner
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+robertgshaw2-redhat will be requested when the pull request is marked ready for review
+robertgshaw2-redhat is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin will be requested when the pull request is marked ready for review
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth will be requested when the pull request is marked ready for review
+tlrmchlsmth is a code owner
+houseroad
+Awaiting requested review from houseroad
+houseroad will be requested when the pull request is marked ready for review
+houseroad is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 will be requested when the pull request is marked ready for review
+yewentao256 is a code owner
+ProExpertProg
+Awaiting requested review from ProExpertProg
+ProExpertProg will be requested when the pull request is marked ready for review
+ProExpertProg is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

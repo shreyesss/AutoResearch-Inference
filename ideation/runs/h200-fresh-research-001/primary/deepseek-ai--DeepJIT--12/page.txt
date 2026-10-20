@@ -1,0 +1,94 @@
+Conversation
+adenzhou1350
+commented
+Sep 14, 2026
+Copy link
+Copy Markdown
+Summary
+synchronize in-memory cache metadata and make same-key misses single-flight
+keep factories for different keys concurrent
+share a failed factory result with current waiters while allowing later retry
+release the Python GIL across the complete Runtime single-flight operation
+so a waiter cannot prevent the producer from publishing its result
+Testing
+python3 tests/test_memory_cache.py
+: PASS
+25 consecutive repetitions of the focused test: 25/25 PASS
+real-GPU same-key CUDA regression: 10/10 candidate-tree repetitions plus
+one exact-commit archive run PASS
+syntax-only translation unit including
+deep_jit/runtime/runtime.hpp
+: PASS
+python -m py_compile tests/test_cuda.py
+: PASS
+git diff --check
+: PASS
+The focused CPU regression covers 16-thread same-key deduplication, different
+keys remaining concurrent, shared failure, and successful retry. The CUDA
+suite also gains a bounded isolated-process regression in which two Python
+threads compile the same key and exactly one NVCC wrapper must run.
+The CUDA regression ran on an NVIDIA GeForce RTX 4060 Laptop GPU (compute
+capability 8.9, driver 592.82) in the official CUDA 13.0.2 Ubuntu 24.04 image
+with PyTorch 2.12.1+cu130. Every run observed one NVCC invocation and one shared
+non-null kernel address for two same-key Python threads, with no GIL deadlock.
+The broader CUDA suite passed the extension/header/lazy-init/fork/GIL/cache
+publication phases, then stopped at the existing TMA driver test with
+CUDA_ERROR_NOT_SUPPORTED
+on pre-Hopper Ada hardware; it is not presented as
+a full-suite PASS.
+Scope
+The thread-safety guarantee is limited to callers using
+MemCache::get_or_create
+. Direct concurrent access to the public compatibility
+container is unsupported. This change does not claim that the entire Runtime,
+Parser, disk cache, compiler backend, or device loader is thread-safe.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Make in-memory cache misses single-flight
+45d0078
+CharlesXu-HQ
+mentioned this pull request
+Sep 18, 2026
+Synchronize concurrent include hashing in Parser
+#16
+Open
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

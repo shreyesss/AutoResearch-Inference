@@ -1,0 +1,49 @@
+{
+  "reviews": [
+    {
+      "id": "h200-contiguous-mqa-epilogue-001",
+      "criteria": {
+        "credible_improvement_required": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The supplied installed excerpt contains \"fmaxf(shifted_accum[j], 0)\" and both uncompensated scale multiplications, establishing a concrete source delta. Replacing the epilogue instruction could reduce exposed contiguous-prefill time. The proposed cheap include/JIT/dispatch inspection addresses deployment eligibility before implementation. Equally compiled and warmed stock code is an appropriate simple comparator. Actual invocation and bottleneck exposure remain unknown; measuring them is a legitimate first falsification step."
+        },
+        "h200_applicability_and_correctness_required": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The matching SM90 header and author-reported H200 tests support a plausible narrow port. However, active artifact provenance and a sufficient numerical-domain invariant remain unknown. The author's \"bit-exact numerics\" assertion is not generally valid: intermediate doubling can overflow, scale halving can underflow, and exceptional-value behavior differs. The proposal correctly acknowledges these issues and specifies reference, top-k, graph/cache, distributed and quality checks, but their outcomes and applicable G01–G05 definitions are unavailable."
+        },
+        "discriminating_experiment": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The design specifies patched hits over independently identified eligible calls, all-rank coverage, cache-controlled negative controls, competing explanations, native anchors, separate diagnostics and held-out conditions. It preserves the required stage order, TPOT definition, unprofiled frontier and at least five alternating paired full-run confirmation blocks. Support/reject/inconclusive rules are meaningful. Practical-effect thresholds, numerical/quality tolerances, tail guardrails, adequate coverage and a maximum experiment budget still need operational definitions."
+        },
+        "traceable_engineering_support": {
+          "verdict": "pass",
+          "score": 5,
+          "rationale": "Observed evidence is supplied source text, not measured execution. DeepGEMM #452 includes before/after code and author claims of H200 gains: \"avg +3.7%\" and selected-shape timing using \"best of 3 reps\". The draft correctly treats lower serving TTFT as transfer inference. It challenges universal exactness and records missing distributions, worst-case regressions, CP meaning and the 8K case's D as unknown. The #303 slowdown anecdote is appropriately contextualized; neither its cause nor closure rationale establishes rejection of #452."
+        },
+        "practical_value_and_portfolio_coverage": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "A conditional three-line header port offers inexpensive initial falsification and straightforward source rollback, although JIT artifact isolation must also be verified. Cold/warm discrimination addresses whether native prefix-heavy traffic exposes useful work. The proposal avoids claiming direct paged-decode gains and keeps eight-GPU node pricing parameterized. Integration effort and serving benefit remain unknown. Its prefill mechanism complements decode and routing directions, but five-selection portfolio coverage cannot be established from one submitted hypothesis."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "An unchanged installed header does not prove the serving process executes it. Include resolution, loaded dependencies, JIT cache provenance and eligible invocation coverage must establish the effective baseline.",
+        "Finite accumulator observations alone cannot qualify the arithmetic. Bounds must cover doubled accumulators, weighted products, intermediate reductions and halved scales under actual compiler rounding and flush-to-zero behavior. The scalar overflow counterexample challenges universal equivalence; it does not establish a failure on reachable deployment inputs.",
+        "The highlighted 8K author benchmark uses BF16 logits. Supplied vLLM #61149 states \"SM90 and SM120 keep the FP8 format, FP32 weights and FP32 logits.\" That is an attributed branch-description claim, not proof of pinned deployment membership, but it makes dtype and compressed-row API matching an explicit transfer question.",
+        "Kernel throughput gains cannot establish primary-workload TTFT or goodput gains. Prefix reuse, other prefill stages and contention may remove the exposed benefit; the proposed controls appropriately test these alternatives.",
+        "The experiment's decision thresholds and stopping budget remain unspecified. Five paired blocks are a minimum design requirement, not assurance that a small effect will be resolved."
+      ],
+      "required_revision": "Retain as a deferred inspection candidate, not a qualified deployment selection. The weighted score is 78/100, but the unknown required applicability/correctness gate prevents qualification. Before a later bounded experiment, document the active artifact and shape/dtype/API mapping, establish an enforceable numerical eligibility domain or retain stock behavior, and predeclare correctness tolerances, practical-effect and regression thresholds, activation coverage and stopping limits. No demonstrated speedup is required before that experiment."
+    }
+  ],
+  "global_gaps": [
+    "Only one hypothesis was submitted. The rubric's five-selection portfolio objective and comprehensive thirteen-repository research coverage cannot be assessed from this review packet.",
+    "No independent GPU measurements, active dispatch traces or serving effects are supplied. The packet does contain relevant engineering excerpts; missing execution evidence does not negate their source-level support.",
+    "G01–G05 definitions, production H200 SLOs and node price remain unknown. Parameterized cost and explicitly provisional diagnostic thresholds are appropriate.",
+    "DeepGEMM #452 merge status and exhaustive review coverage are unknown. For #303's slowdown report, hardware, exact workload, effect size and causal explanation remain unknown."
+  ]
+}

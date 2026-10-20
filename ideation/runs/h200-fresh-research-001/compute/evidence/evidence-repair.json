@@ -1,0 +1,259 @@
+{
+  "claims": [
+    {
+      "source_id": "runtime:h200:runtime-inventory",
+      "quote": "\"--max-num-seqs\",\n        \"64\"",
+      "claim": "Observed deployment configuration is two replicas, each TP1/DP4/EP4, with seq64, DSpark five-token speculation and a 16384-token batch budget.",
+      "relation": "context",
+      "conditions": "H200; DeepSeek-V4.1-Flash revision 2cba9e42aa026125f3ed06c6d98c1db82f7ca027. User-supplied constraints are E384/H5120/I2304/top6, swiglu_limit10 and installed Humming 0.1.16.",
+      "reported_result": "The snapshot reports both servers running and healthy. It contains no comparative GPU experiment or serving performance result.",
+      "transfer_inference": "Preserve this topology and exact model geometry in comparisons. Two EP4 replicas are not one EP8 group; seq64 is a configured sequence limit, not a measured per-rank GEMM token count.",
+      "limitations": "Actual concurrency, per-rank token distributions, expert skew, all2all backend and baseline compute-time breakdown are unknown."
+    },
+    {
+      "source_id": "code:h200-excerpts:compute",
+      "quote": "Using 'MARLIN' Mxfp4 MoE backend.",
+      "claim": "Observed startup selected MARLIN and MarlinExperts. The installed automatic-priority list omits Humming.",
+      "relation": "supports",
+      "conditions": "Exact installed source and startup excerpt for the live H200 deployment.",
+      "reported_result": "Backend selection is directly evidenced by the startup log. No MARLIN-versus-Humming timing is supplied.",
+      "transfer_inference": "Performance hypothesis: explicit --moe-backend humming is the strongest simple backend comparator. A newer upstream claim that Humming is the SM90 default does not describe this installed runtime.",
+      "limitations": "The excerpts do not establish whether explicit Humming selection succeeds through this installed model's complete loader and expert path. Benefit over MARLIN is unknown."
+    },
+    {
+      "source_id": "code:h200-excerpts:compute",
+      "quote": "env_gemm_type: str | None = envs.VLLM_HUMMING_MOE_GEMM_TYPE",
+      "claim": "Observed selector code gives the environment override precedence; otherwise EP selects grouped_contiguous and non-EP selects indexed.",
+      "relation": "supports",
+      "conditions": "Relevant after selecting Humming. The live deployment uses EP4.",
+      "reported_result": "Implementation evidence establishes an existing selection mechanism, not execution or speed.",
+      "transfer_inference": "Performance hypotheses: compare MARLIN with Humming at unchanged activation precision, then compare Humming grouped against VLLM_HUMMING_MOE_GEMM_TYPE=indexed. Explicitly fixing the GEMM type avoids confusing backend activation with a default-policy change.",
+      "limitations": "Compatibility of indexed execution with the live communication path and its effect size remain unknown. The override does not activate Humming while MARLIN remains selected."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59488:patch",
+      "quote": "and (not parallel.use_all2all_kernels or parallel.use_ag_rs_all2all_kernels)",
+      "claim": "Observed patch code narrows automatic indexed selection to MXFP4, DeepSeek V4 routing, deepseek_v41/deepseek_v41_text, CUDA SM90, and no all2all kernels or allgather_reducescatter.",
+      "relation": "supports",
+      "conditions": "The environment override retains precedence. Other EP configurations retain grouped selection.",
+      "reported_result": "The supplied implementation establishes the dispatch predicate. Its docstring claims indexed is faster; the patch supplies no timing result.",
+      "transfer_inference": "Performance hypothesis: indexed Humming is a well-motivated comparator for this model, conditional on communication compatibility. The existing override can test it without first adopting the automatic-selection patch.",
+      "limitations": "Live all2all selection is unknown. The automatic rule excludes DeepEP; an environment override bypassing that rule is not evidence of supported execution."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59488:live-page",
+      "quote": "Humming takes the named format as a fixed input schema, with its input-schema fallback off.",
+      "claim": "The author separates GEMM selection from activation precision and describes enforcing named activation formats instead of silently substituting another format.",
+      "relation": "supports",
+      "conditions": "Reported startup validation uses 8x H200, TP8+EP, Humming and DeepSeek-V4.1-Flash; the per-token FP8 startup includes DSpark with one speculative token.",
+      "reported_result": "The author reports successful startup and one completion with indexed Humming and fp8_per_token, plus 41 selected MoE tests passing on H200. The supplied excerpt describes grouped/indexed throughput workloads but truncates before their results; the performance effect size is unknown.",
+      "transfer_inference": "Proposed correctness gate: confirm the actual backend, expert class and activation schema in startup logs. Treat BF16 versus per-token FP8 as a separate precision arm at fixed GEMM selection; use the named option only where its implementation is present.",
+      "limitations": "One completion is not model-quality validation. TP8+EP and one speculative token differ from live TP1/DP4/EP4 and DSpark five. Named-format support in the installed build is unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:60600:live-page",
+      "quote": "humming-kernels 0.1.16 refuses the pair.",
+      "claim": "The reported schema rejection directly challenges enabling MXFP4 weights with group-128 FP8 activations and float32 scales on installed Humming 0.1.16.",
+      "relation": "challenges",
+      "conditions": "vLLM d5ee309, Humming 0.1.16, H200 SM90, CUDA 13.0. Group-wise FP4 compatibility requires scale types incompatible with the requested float32 group scales.",
+      "reported_result": "The author reports rejection with fallback disabled and substitution to per-token FP8 when fallback is allowed. MXFP8 with e8m0 input scales passes schema compatibility but has no legal SM90 WGMMA schedule. A maintainer states that 0.1.17 will fix the schema issue.",
+      "transfer_inference": "Proposed correctness gate: exclude block-FP8 activation from the current 0.1.16 comparison unless actual compatibility and the resolved schema are established. Issue closure and a promised newer release do not repair the installed package. Current #59488 also rejects these unsupported named formats early.",
+      "limitations": "The maintainer comment does not establish installed 0.1.17 behavior, MXFP8 kernel support or performance. The separate reproduction used RTX 4090 for schema preflight, not H200 serving."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:60600:live-page",
+      "quote": "group-wise input scales are much slower than per-token on WGMMA",
+      "claim": "Reported dense-GEMM measurements challenge the assumption that finer activation-scale groups improve Hopper performance.",
+      "relation": "challenges",
+      "conditions": "H200, MXFP4 weights, dense GEMM M=4096/N=2048/K=4096; compatibility checks bypassed for group-wise float32 scales.",
+      "reported_result": "The author reports 535.7 us for group 128 and 1720 us for group 32, versus 72.2 us for per-token FP8 and 110.9 us for BF16. Bypassed group-128 execution reportedly matches the reference at error 0.0017–0.0032.",
+      "transfer_inference": "Performance hypothesis: per-token FP8 is a more defensible initial precision comparator than block FP8. A compatible group-scale kernel can still be slower.",
+      "limitations": "This is a dense probe with different dimensions from E384/H5120/I2304/top6, not routed EP4 MoE or serving. The error metric definition, model-quality impact and live effect size are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61875:live-page",
+      "quote": "DeepSeek-V4.1-Flash was not run",
+      "claim": "The author attributes a block-FP8 activation benefit to full-size experts under EP, while reporting regressions when TP shards the intermediate dimension.",
+      "relation": "supports",
+      "conditions": "DeepSeek-V4-Flash on 4x H200, TP4+EP, H4096/I2048; FP8 measured through an environment override. Decode uses 512 input/1024 output tokens at concurrency 128.",
+      "reported_result": "Reported results are approximately +25% decode throughput and +6.4% prefill-heavy throughput with EP, but -0.4% at low concurrency and -15% decode without EP. GSM8K changes from 0.951 to 0.948, characterized by the author as noise.",
+      "transfer_inference": "Performance hypothesis: activation precision may help full-size EP experts, but it requires an independent arm after selecting the GEMM path. These results do not estimate improvement for H5120/I2304 or indexed V4.1 execution.",
+      "limitations": "Strong contrary evidence is #60600 and current #59488: installed 0.1.16 rejects the claimed block-FP8 pair. The benchmark's Humming version and actual resolved schema are unknown, so fallback or a different build remains possible. The exact PR build was not rerun end to end."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61461:patch",
+      "quote": "return 12, hidden_size // 512, 256",
+      "claim": "Observed patch code adds an SM90-specific fused mHC configuration for at most eight tokens, replacing the inherited GB300-oriented selection in that band.",
+      "relation": "supports",
+      "conditions": "CUDA SM90, hidden_size divisible by 512, and hc_mult*(hc_mult+2) divisible by 12. For H5120 and hc_mult=4, the candidate configuration is (12,10,256), versus installed (2,8,128).",
+      "reported_result": "The patch establishes the selector and adjusts warmup enumeration to compile selected variants. It contains no measurement.",
+      "transfer_inference": "Performance hypothesis: reduce repeated post-mapping work by using fewer projection tiles and different thread/split allocation. Preserve H5120 rather than substituting another model's hidden size.",
+      "limitations": "Eligibility depends on actual kernel token count, not seq64. The patch leaves 9–32-token selection unchanged; above 32 tokens the selector returns the separate-kernel path. Live hc_mult and token-band occupancy are not shown in the inventory."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61461:live-page",
+      "quote": "H100/H200.\nThese GPUs are not measured.",
+      "claim": "H20 measurements support the small-token mHC launch change, but challenge treating its gain as established for H200 or saturated serving.",
+      "relation": "supports",
+      "conditions": "H20, hc_mult=4, CUDA graphs, cold L2; H5120 uses the V4.1 delayed fused kernel. Serving validation uses 8x H20, TP8, 1K input/1K output and DSpark five.",
+      "reported_result": "The author reports 9.1–14.1% lower H5120 operator latency at 1–8 tokens. C1 serving improves output throughput about 0.9% and TPOT p50 about 1%; C64 shows no separated gain. Residual streams are bit-identical, while coefficients differ in FP32 summation order.",
+      "transfer_inference": "Performance hypothesis: retain this as a targeted small-batch candidate, conditional on live time spent in the eligible band. Proposed correctness gate: validate coefficients, layer inputs and warmup behavior independently of timing.",
+      "limitations": "H200 benefit is unknown. A pre-existing H7168/M128 test fails in both arms. GSM8K 1274/1319 versus 1276/1319 does not prove numerical or generation equivalence."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:448:live-page",
+      "quote": "waiting for completion before reusing A registers",
+      "claim": "The author identifies an asynchronous WGMMA register-reuse race in SM90 TF32 mHC prenorm and fixes operand lifetime by waiting after committing the batch.",
+      "relation": "supports",
+      "conditions": "SM90 tf32_hc_prenorm_gemm; regression coverage includes split-K, PDL and side streams. Exact validation GPU model is unknown.",
+      "reported_result": "The author reports tests/test_hyperconnection.py passing on an SM90 GPU. The visible code includes warpgroup_wait<0>() after commit.",
+      "transfer_inference": "Proposed correctness gate: establish that the installed JIT header contains the repair, then require independent numerical-reference and repeatability checks before evaluating TF32-based overlap.",
+      "limitations": "No throughput effect size is reported. A review bot's double-buffering suggestion is a performance hypothesis, not tested evidence. Installed dependency inclusion and whole-model determinism are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59129:live-page",
+      "quote": "There is no throughput improvement claim for this correctness repair.",
+      "claim": "The PR packages the existing DeepGEMM register-lifetime repair and supplies stronger regression evidence; it is a correctness prerequisite rather than a performance optimization.",
+      "relation": "supports",
+      "conditions": "GPU results were recorded on H20/v0.30 before the PR split. Cases cover 256/512/1024 tokens, split-K variations, default/side streams and independent FP32 references.",
+      "reported_result": "The original header reportedly fails the regression; the repaired header passes six cases. A 12-shape/seed audit with five repeats is exactly repeatable after repair. The broader suite has 17 passed, 9 skipped and one unchanged failure. Installation-fixture checks pass.",
+      "transfer_inference": "Proposed correctness gate: verify the installed artifact, not merely repository source or PR existence, and use the same corrected baseline in performance comparisons.",
+      "limitations": "No full wheel build or latest-main GPU rerun was performed. Historical GLM evaluation is a small diagnostic, and kernel repeatability does not establish whole-model token determinism."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:60768:live-page",
+      "quote": "These mock capability checks validate dispatch only.",
+      "claim": "The draft proposes explicit SM90 coefficient-overlap activation while retaining the existing TF32 arithmetic; it does not port compensated BF16.",
+      "relation": "challenges",
+      "conditions": "Opt-in enable_mhc_overlap=true; existing DeepGEMM, shape, ubatching, FULL CUDA graph and small-batch restrictions remain. The 16-token threshold comes from GB200 measurements.",
+      "reported_result": "Fourteen CPU dispatch tests pass. Hopper replay, numerical correctness, quality and performance validation remain pending; the source makes no speedup claim.",
+      "transfer_inference": "Proposed correctness gates: confirm the TF32 repair, stream ordering, repeated graph replay, fallback paths and model quality before treating overlap as eligible. At live TP1/EP4, the SM100-only TP collective fusion is inapplicable; any benefit must come from other overlapped work.",
+      "limitations": "The installed source excludes SM90. GPU benefit, contention cost and an appropriate Hopper token threshold are unknown. The draft also reports merge conflicts."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:39664:live-page",
+      "quote": "three bf16 weight components, one activation read",
+      "claim": "The author describes compensated mHC projections using FP32 weights decomposed into BF16 components, plus shared slice reduction and Sinkhorn normalization.",
+      "relation": "context",
+      "conditions": "DeepSeek-V4.1 mHC; reported BF16x3 comparisons use K=20480 and M=4096/5000/8192. Hardware for those comparisons is unknown.",
+      "reported_result": "The author reports bitwise agreement with previous standalone implementations. A later H100 CI rerun passes two existing kernel test files; the description identifies those files as covering untouched kernels. No isolated speedup is supplied.",
+      "transfer_inference": "This supplies a numerical approach worth understanding, not proof that a vLLM port is correct or faster. Fixed-slice batch-invariance claims must be distinguished from equality to an independent high-precision reference.",
+      "limitations": "The supplied source is a PR narrative rather than kernel bodies. Coverage of the new compensated paths by the cited CI files is not established, and isolated performance is unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41251:live-page",
+      "quote": "mHC statistics, and padded Marlin MoE projections",
+      "claim": "The author identifies several Hopper inefficiencies and reports a bundle addressing dense GEMMs, indexer work, mHC projection/overlap, activation fusion and Marlin padding.",
+      "relation": "supports",
+      "conditions": "8x H200, SGLang TP8/EP1, Marlin MoE, decode graph maximum batch64; random 8192-input/1024-output requests, concurrency 1–64, three alternating paired sweeps.",
+      "reported_result": "The bundle reports approximately 2.06–2.35x output throughput per GPU and 2.17–2.48x user speed across tested concurrencies. Accuracy results vary across evaluations and do not establish identical generations.",
+      "transfer_inference": "Performance hypotheses: preserve activation-rounding boundaries, avoid unnecessary padding, and investigate independent coefficient work. The bundled gain cannot be assigned to compensated BF16 or overlap alone, or used as an estimate for vLLM.",
+      "limitations": "TP8/EP1 differs substantially from live TP1/DP4/EP4. Runtime, graph behavior and other optimized operators differ. No component ablation establishing mHC's share is supplied; #60777 provides contrary evidence for the direct vLLM BF16x3 port."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:60777:live-page",
+      "quote": "not a performance win in the tested shapes",
+      "claim": "The later H20 validation supersedes the draft's earlier CPU-only status and directly challenges adopting this compensated-BF16 vLLM implementation.",
+      "relation": "challenges",
+      "conditions": "H20 SM90; M=1/32/256/8192, K=5120/20480, splits=1/4/16, candidate token tiles 32/64/128; tuned DeepGEMM comparator.",
+      "reported_result": "The closing report gives 11 GPU tests passed and one failed: four of 792 projection elements exceed unchanged tolerance at M33/K20480/splits1/tile64. Precision/repeatability-filtered candidates are approximately 1.69–3.24x slower in hot-cache measurements; L2-flush retests are also slower.",
+      "transfer_inference": "Performance selection: deprioritize this implementation despite SGLang's bundled gains. Proposed correctness gate: require the original numerical suite to pass before considering any revised candidate, then compare the complete fused mHC boundary.",
+      "limitations": "H200 execution and serving performance are unknown. Serving dispatch was not wired. Prepared weights cost six bytes per original element plus any retained original; projection timings exclude preparation, allocation and the common epilogue. The closing excerpt truncates during its baseline-repair description."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62603:live-page",
+      "quote": "This PR runs block-FP8 MoE checkpoints on Hopper",
+      "claim": "The proposed SM90 integration targets block-FP8 weights, while the described existing DeepGEMM MegaMoE path requires SM100. It is not direct native-MXFP4 V4.1 evidence.",
+      "relation": "challenges",
+      "conditions": "FlashInfer 0.7.2 SM90 FP8 MegaMoE through flashinfer_moe_ep_cutedsl. The described pull kernel supports a SwiGLU clamp; the FP8 push kernel lacks one.",
+      "reported_result": "The source reports GLM block-FP8 execution and refers to separate converted-FP4 and DeepGEMM-fork work. Those references do not supply implementation or validation for the target MXFP4 checkpoint.",
+      "transfer_inference": "Proposed eligibility gates: distinguish a block-FP8 weight-conversion branch from both native MXFP4 weights and the separate activation-precision arm. Preserve swiglu_limit10; the described FP8 push branch cannot satisfy that requirement. SM90 TF32 mHC support does not imply SM90 DeepGEMM MegaMoE support.",
+      "limitations": "Installed FlashInfer version, exact E384/H5120/I2304/top6 support, conversion memory cost and model-quality impact are unknown. The referenced Hopper DeepGEMM fork is not established as installed or eligible."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62603:live-page",
+      "quote": "Runs are serial A/B/A on the same GPUs.",
+      "claim": "Reported GLM results support a fused dispatch/GEMM/combine backend for an eligible block-FP8 workload, but do not establish target-model gains.",
+      "relation": "supports",
+      "conditions": "Decode: GLM-5.3-Flash, 8x H200 DP8/EP8, 128K input/512 output, MTP3 synthetic acceptance. Prefill: 4x H200 TP2/DP2/EP4, 2048 input/one output, natural MTP3.",
+      "reported_result": "The author reports approximately +11–18% decode throughput, +23% saturated prefill throughput and 7–48% lower single-layer latency across tested token counts. At 11 requests/s, prefill TTFT p50 is 10% worse. GSM8K scores are close, not a proof of equivalence.",
+      "transfer_inference": "Performance hypothesis: fused communication and expert computation can help an eligible EP branch. These effect sizes cannot be transferred to native MXFP4 V4.1, two EP4 replicas or DSpark verification.",
+      "limitations": "Model, weights, topology and speculation differ. Some decode measurements precede later review fixes. Exact shipped geometry and swiglu_limit10 were not demonstrated in the supplied results."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62603:live-page",
+      "quote": "The kernel always processes its whole token buffer",
+      "claim": "The author identifies oversized token workspaces as a source of wasted work and adds smaller shared workspace choices.",
+      "relation": "supports",
+      "conditions": "SM90 FP8 MegaMoE; new workspace capacities are 64, 256 and 1024 tokens, selected using the largest batch across DP ranks.",
+      "reported_result": "The author reports that a single max_num_batched_tokens-sized buffer makes decode slower than baseline. No isolated effect size for workspace bucketing is supplied.",
+      "transfer_inference": "Performance hypothesis: workspace sizing is essential to evaluating this branch. Proposed correctness gate: every participating rank must select the same buffer, including idle or unevenly loaded ranks; seq64 alone cannot determine that buffer.",
+      "limitations": "Without DP-wide counts the adapter uses the default workspace. Exact live rank counts, graph-padding effects and workspace selection are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62603:live-page",
+      "quote": "Other checkpoints get one extra E4M3 rounding",
+      "claim": "The FP8 weight-layout transformation is exact only under the stated scale condition; it can introduce additional rounding for other checkpoints.",
+      "relation": "challenges",
+      "conditions": "FC1 gate/up rows are interleaved under one 128x128 scale using max(s_gate,s_up). The reported GLM checkpoint has power-of-two scales.",
+      "reported_result": "The author states that non-power-of-two checkpoint scales incur an extra rounding on half of FC1 rows. No target-checkpoint conversion result is supplied.",
+      "transfer_inference": "Proposed correctness gate: validate the complete target weight conversion, clamp semantics and layer outputs before treating the FP8-weight branch as an equivalent backend comparison.",
+      "limitations": "Target scale properties, numerical error, memory footprint and quality after conversion are unknown. This transformation is distinct from changing MoE activation precision."
+    },
+    {
+      "source_id": "github:flashinfer-ai/flashinfer:6517:live-page",
+      "quote": "H20 and EP4 plans unchanged",
+      "claim": "Reported H200 push-dispatch gains apply to selected EP8 plans; broader expert-count acceptance does not prove the target EP4 geometry is tuned or eligible.",
+      "relation": "challenges",
+      "conditions": "SM90 FP4 MegaMoE; measured H200 EP8 buckets cover DeepSeek-V4-Flash and MiMo-V2.5-Pro at M<=32, and DeepSeek-V4-Pro at M<=64.",
+      "reported_result": "The author reports roughly 10 us saved per call, 1.03–1.16x kernel speedups and bitwise-identical outputs on those plans, plus 68 tests passing on 8x H200.",
+      "transfer_inference": "For E384 and EP4, equal partitioning would give 96 experts per rank, satisfying count divisibility only. Full H5120/I2304/top6 geometry, plan shared-memory legality and swiglu_limit10 still determine eligibility. Do not transfer the EP8 push gain.",
+      "limitations": "The exact target shape was not reported as measured. FP4 clamp support is unknown from this excerpt. A review bot flags possible launch illegality for newly accepted geometries; its resolution is unknown. The implementation patch was unavailable in the supplied material."
+    },
+    {
+      "source_id": "github:flashinfer-ai/flashinfer:6517:live-page",
+      "quote": "otherwise outputs silently saturate or flush",
+      "claim": "The author describes checkpoint-conversion preconditions that are necessary for numerically valid FP4 MegaMoE execution.",
+      "relation": "supports",
+      "conditions": "The low-level layout transform expects Marlin byte order. MXFP4 nonzero groups require decoder scales within 2^-5 through 2^6, with excess moved into per-expert global scales.",
+      "reported_result": "The source reports conversion/execution tests and warns that frameworks must prepare checkpoint tensors correctly. It does not report target V4.1 checkpoint conversion.",
+      "transfer_inference": "Proposed correctness gate: verify packing, scale redistribution and global-scale application against an independent target-layer reference while retaining E384/H5120/I2304/top6 and swiglu_limit10.",
+      "limitations": "Availability of the required converter and loader integration in the installed runtime is unknown. Passing a layout transform alone does not establish end-to-end correctness or performance."
+    },
+    {
+      "source_id": "github:flashinfer-ai/flashinfer:6517:live-page",
+      "quote": "left pool blocks ≥ 32 of hot experts stale",
+      "claim": "The author reports a repeated-launch failure caused by inactive dispatch warps cleaning workspaces without the expert counts.",
+      "relation": "supports",
+      "conditions": "SM90 FP4 single_active_dispatch_warp plans; reproduced on 8x H20 with 97–128 tokens per rank and hot-expert routing, including CUDA graph capture.",
+      "reported_result": "The hot-expert regression reportedly fails before the fix and passes afterward. Outputs are bitwise unchanged and timing remains within noise.",
+      "transfer_inference": "Proposed correctness gate: require the cleanup repair and repeated-launch/graph-replay validation with skewed routing before selecting an affected FP4 branch. This is independent of push-dispatch speed.",
+      "limitations": "Affected-plan use in the target EP4 deployment and inclusion of the repair in the installed FlashInfer package are unknown."
+    },
+    {
+      "source_id": "fulltext:2603.19289",
+      "quote": "CPU-GPU expert transfers",
+      "claim": "The paper addresses expert-weight offloading and prefetching, a different bottleneck from the supplied Hopper compute candidates.",
+      "relation": "context",
+      "conditions": "Memory-constrained inference using CPU-offloaded experts and YALIS; the excerpt describes consumer and single-GPU datacenter settings without exact benchmark hardware or shapes.",
+      "reported_result": "The conclusion claims 5–14% TPOT improvement over on-demand loading. The supplied excerpt does not expose implementation or detailed experimental evidence.",
+      "transfer_inference": "Do not use this result to rank Humming, mHC or MegaMoE compute choices without evidence that expert-weight transfers bottleneck the live deployment. Engram cpu_offload in the inventory does not establish expert offloading.",
+      "limitations": "Exact hardware, model geometries, transfer volumes, workload and target applicability are unknown. The abstract and gapped conclusion are not implementation evidence."
+    }
+  ],
+  "unanswered": [
+    "Does the installed MXFP4 model path accept explicit --moe-backend humming and actually instantiate the intended grouped/indexed experts while preserving E384/H5120/I2304/top6 and swiglu_limit10?",
+    "Which all2all backend and kernel path are active? This can change indexed-Humming eligibility and the relevance of #59488's automatic rule.",
+    "What activation schema actually runs in each comparator, including any environment override or fallback? The block-FP8 benchmark's Humming version and resolved schema are unknown.",
+    "What are the live per-rank token-count, graph-padding and expert-skew distributions under DSpark five? seq64 does not establish occupancy of the mHC 1–8 or overlap <=16 bands.",
+    "How much live latency is spent in MARLIN expert GEMMs, mHC, communication and other operators? No profile or new GPU experiment establishes the attainable serving gain.",
+    "Does the installed DeepGEMM JIT artifact contain the SM90 register-lifetime repair, and does it pass independent-reference, side-stream and repeated-replay checks?",
+    "Does the (12,10,256) mHC configuration improve H200 execution at H5120, and is the required hc_mult=4 confirmed for the live path?",
+    "Can coefficient overlap help TP1/EP4 after stream overhead and resource contention, without the SM100 TP collective fusion?",
+    "Would a materially revised BF16x3 implementation pass unchanged tolerances and outperform the complete fused baseline on H200? The supplied vLLM implementation currently has contrary H20 evidence.",
+    "Which FlashInfer version and SM90 FP4/FP8 branches are installed? Exact geometry support, shared-memory legality, clamp support, loader conversion and cleanup-fix inclusion remain unknown.",
+    "Can the target MXFP4 checkpoint be converted to the proposed block-FP8 weight layout within the memory budget while preserving acceptable numerical behavior and swiglu_limit10?",
+    "Are DP-wide workspace counts and rank-consistent buffer selection available for each EP4 replica, including idle ranks and graph replay?",
+    "What performance and quality differences remain in matched comparisons on the exact live topology? Supplied external results cannot determine the winning backend, precision arm or mHC configuration."
+  ]
+}

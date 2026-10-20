@@ -1,0 +1,135 @@
+Conversation
+whycoming
+commented
+Jul 2, 2026
+Copy link
+Copy Markdown
+What
+Adds
+tests/test_speculative_sampling_exactness.py
+(plus a 7-line
+tests/conftest.py
+import shim, removable once packaging or a root conftest lands) — 8 CPU-only tests for the exactness ("lossless") guarantee of the rejection sampler:
+Lossless theorem (statistical):
+with proposals drawn from the declared
+draft_probs
+, the committed token at every position follows the target distribution — chi-square against an independent float64 reference, 20,000 rounds through
+verify_draft_tokens
+, thresholds set at ~1e-9 per-assert false-fail so the suite passes for any RNG stream (the fixed seed only makes failures reproducible).
+Negative control:
+proposals drawn from a distribution other than the declared
+draft_probs
+must be rejected (chi-square > 64; analytic non-centrality ~356, recomputed in-test so future edits cannot silently destroy its power). A distribution test that has never rejected anything proves nothing — and this is exactly the bug class of
+Draft sampling uses a different distribution than speculative rejection
+#31
+.
+Draft sampling uses a different distribution than speculative rejection
+#31
+regression (deterministic,
+xfail(strict=True)
+):
+seed-matched equivalence between
+sample_tokens
+and sampling from the distribution
+logits_to_probs
+feeds to rejection. Currently xfails because of
+Draft sampling uses a different distribution than speculative rejection
+#31
+(~1e-3 mismatch rate over 100k draws, deterministic for any seed). When the fix lands, the strict marker turns the XPASS into a reminder to delete it, arming the guard — happy to remove the marker on rebase if the fix merges first.
+Deterministic units:
+logits_to_probs
+vs an independent float64 reference (catches precision regressions the statistical tests are numerically blind to), greedy argmax-chain accept/reject, stop-token truncation semantics,
+sample_residual
+zero/near-zero-mass fallback (seed-matched to the target distribution), and the zero-draft path.
+Why
+Exactness is the core claim of speculative decoding, and
+#31
+showed it can silently break; the fix in
+#30
+ships without a regression test. vLLM has maintained the same style of statistical test for its rejection sampler for years (
+test_rejection_sampling_approximates_target_distribution
+).
+Verification
+Pinned environment (torch 2.9.1 CPU, transformers 5.10.2; Python 3.10 and 3.12):
+python -m pytest tests/test_speculative_sampling_exactness.py
+→
+7 passed, 1 xfailed in ~15 s
+(single CPU core).
+Minimal environment without transformers (matching a torch-only CI):
+2 passed, 5 skipped, 1 xfailed
+— the evaluator-dependent tests skip via
+importorskip
+instead of failing at collection.
+With the
+Fix speculative sampling, scheduler, mask, and loss metric correctness
+#30
+one-line
+sample_tokens
+fix applied locally: the xfail flips to strict-XPASS as designed; with the marker then removed,
+8 passed
+.
+Thresholds verified stable across several alternate seeds; chi-square critical values are hardcoded with their derivation in comments — no new dependencies.
+Complements
+#10
+(deterministic unit tests; no file or conftest overlap — this file adds only distributional and regression coverage). Refs
+#31
+,
+#30
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Add distribution-exactness tests for speculative rejection sampling
+…
+b87f730
+Statistical and deterministic tests for the lossless guarantee of
+verify_draft_tokens and the sampling helpers: per-position committed
+tokens match the target distribution (chi-square, any-seed thresholds),
+a negative control proves the thresholds can actually reject, and
+seed-matched regression tests pin the draft-side sampling distribution
+to the verification-side distribution (issue
+deepseek-ai#31
+) and the latter to an
+independent float64 reference.
+
+Refs
+deepseek-ai#31
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

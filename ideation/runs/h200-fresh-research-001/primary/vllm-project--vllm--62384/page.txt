@@ -1,0 +1,377 @@
+Conversation
+wangyicong52
+commented
+Oct 19, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Overview
+Extend
+#62183
+to support DeepSeek-V4.1-Flash decoder-side SWA bounded replay with PCP and APC, including prefix-hit continuation.
+Claims
+Retain each request's global trailing window on its original PCP owners while preserving cached compressed KV and indexer keys.
+Keep prompt-logprobs rows and existing non-PCP behavior; padded peers participate in the same collectives and only real outputs are scattered back.
+Validation
+Model: DeepSeek-V4.1-Flash-1017.
+Baseline: pinned nightly plus
+[Feature][PCP] Support APC and encoder-side SWA bounded replay for DeepSeek-V4.1-Flash
+#62183
+(
+fc47cc8fff8282b7fa2b257468b8595f91a1a741
+), encoder replay only.
+Candidate: identical baseline plus this PR at
+8689ce06b2ac945c82e44cdb5ff52e925fc096bc
+, with decoder replay enabled.
+Both services use the following launch command; node placement and the runtime overlay differ by arm:
+vllm serve /models/DeepSeek-V4.1-Flash-1017 \
+  --host 0.0.0.0 --port 18001 \
+  --served-model-name deepseek-v4.1-flash \
+  --language-model-only \
+  --tokenizer-mode deepseek_v41 \
+  --attention-backend FLASHMLA_SPARSE_DSV41 \
+  --kv-cache-dtype fp8_ds_mla \
+  --block-size 64 \
+  --tensor-parallel-size 2 \
+  --pipeline-parallel-size 1 \
+  --decode-context-parallel-size 1 \
+  --prefill-context-parallel-size 4 \
+  --enable-expert-parallel \
+  --all2all-backend allgather_reducescatter \
+  --engram-config
+'
+{"cpu_offload":true}
+'
+\
+  --moe-backend humming \
+  --max-model-len auto \
+  --max-num-batched-tokens 4096 \
+  --max-num-seqs 64 \
+  --gpu-memory-utilization 0.9 \
+  --enable-prefix-caching \
+  --swa-bounded-replay \
+  --enforce-eager \
+  --no-async-scheduling
+Uncached 8K prefill performance
+Node-local benchmark clients.
+Direct token-ID prompts: 8,192 input tokens, one output token, request rate infinity, no warmup, and
+N=10*C
+.
+C1/N10 seed
+210101
+, C8/N80 seed
+210108
+, and C32/N320 seed
+210132
+.
+Both arms receive the same unique prompts. Every accepted run has zero prefix-cache hit tokens.
+Case
+Baseline Input TPS
+Candidate Input TPS
+Candidate delta
+Baseline Mean TTFT
+Candidate Mean TTFT
+Candidate delta
+C1 / N10
+13,933.06
+21,994.20
++57.86%
+587.75 ms
+372.25 ms
+-36.66%
+C8 / N80
+14,240.95
+22,866.70
++60.57%
+4,399.97 ms
+2,739.59 ms
+-37.74%
+C32 / N320
+14,252.14
+22,894.56
++60.64%
+17,499.31 ms
+10,890.08 ms
+-37.77%
+All 820 requests across both arms succeeded. Decoder-side replay improves uncached 8K prefill throughput by 58-61% across C1-C32.
+Paired GSM8K accuracy
+Full 1,319 samples, four-shot, batch 64, seed 42, temperature 0, top-p 1, reasoning effort
+high
+, and
+max_tokens=8192
+, using EvalScope 1.11.1:
+Arm
+Correct
+Accuracy
+API errors
+Max-token stops
+Baseline
+1,286/1,319
+97.498%
+0
+0
+Candidate
+1,282/1,319
+97.195%
+0
+1
+The arms used the same sample indexes, prompts, targets, and total input-token count. Paired outcomes were 1,278 both-correct, 29 both-wrong, 8 baseline-only correct, and 4 candidate-only correct. The exact two-sided McNemar test gives
+p=0.387695
+, so the observed 0.303 percentage-point difference is not statistically significant.
+Both arms recorded exactly 674,816 / 803,206 local prefix-cache hit tokens (84.02%) and zero external cache-hit tokens. The sole candidate truncation was sample index 119, which reached 8,192 output tokens; the corresponding baseline request stopped normally at 6,955 output tokens.
+Both service pods remained Ready with zero restarts. The performance and accuracy runs had zero API failures, and post-test logs contained no critical runtime, CUDA, or engine errors.
+Details
+Reuse the existing replay batch, gather kernel and attention builders. The PCP-local batch retains its global scheduled view to derive tail boundaries and a common padding bound without CPU collectives. Select local slots before compaction, gather them in rank-major order, and align MoE routing IDs with the compact rows. Batches that would not shrink after padding keep full execution.
+Unlike
+#61554
+'s APC-disabled cold-prefill path, this builds on
+#62183
+for APC prefix hits and derives replay bounds from existing global PCP metadata. It retains the existing PCP restrictions and eager execution requirement, with no scheduler, generic model-runner or configuration changes. The branch is rebased on
+#62183
+now in main. AI assistance was used for implementation and static checks.
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used during the creation of this PR.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Tests on H20 platform.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+mrv2
+Model Runner V2 specific
+labels
+Oct 19, 2026
+wangyicong52
+force-pushed
+the
+feat/support-decoder-replay-with-pcp
+branch
+    from
+5647c87
+to
+2b8cfe9
+Compare
+October 19, 2026 03:32
+mergify
+Bot
+commented
+Oct 19, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@wangyicong52
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Oct 19, 2026
+[Feature][PCP] Support DeepSeek-V4.1 decoder SWA replay with APC
+…
+8689ce0
+Reuse the global scheduled PCP batch to trim decoder replay to the global tail while preserving APC slots and collective layouts.
+
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+wangyicong52
+force-pushed
+the
+feat/support-decoder-replay-with-pcp
+branch
+    from
+2b8cfe9
+to
+8689ce0
+Compare
+October 19, 2026 07:09
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Oct 19, 2026
+wangyicong52
+marked this pull request as ready for review
+October 20, 2026 05:13
+wangyicong52
+requested review from
+AndreasKaratzas
+,
+DarkLight1337
+,
+WoosukKwon
+,
+njhill
+,
+yewentao256
+and
+ywang96
+as
+code owners
+October 20, 2026 05:13
+claude
+Bot
+reviewed
+Oct 20, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+wangyicong52
+commented
+Oct 20, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Hey
+@LucasWilkinson
+, we’re continuing to work on dsv4.1 pcp support with decoder-side SWA bounded replay. Could you take a look when you have a chance? Thanks!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+This was referenced
+Oct 20, 2026
+[Bugfix][Model] Preserve target-token scoring rows during DeepSeek-V4.1 replay
+#62652
+Open
+[Roadmap] Q4 2026 OPD Teacher Serving in vLLM
+#62175
+Open
+[Bugfix][PCP] Make decoder replay slot gathers contiguous
+…
+400c641
+Ensure compacted replay slot mappings also work with the torch.distributed NCCL fallback. Correct the PCP replay warning and document builder warmup and empty decode entries.
+
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+DarkLight1337
+Awaiting requested review from DarkLight1337
+DarkLight1337 is a code owner
+ywang96
+Awaiting requested review from ywang96
+ywang96 is a code owner
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+AndreasKaratzas is a code owner
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+njhill
+Awaiting requested review from njhill
+njhill is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+mrv2
+Model Runner V2 specific
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

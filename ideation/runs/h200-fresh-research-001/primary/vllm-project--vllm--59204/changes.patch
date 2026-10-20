@@ -1,0 +1,640 @@
+From 1d4e9034a59d896eacce4f10a7341086b578c76b Mon Sep 17 00:00:00 2001
+From: chaunceyjiang <chaunceyjiang@gmail.com>
+Date: Tue, 29 Sep 2026 18:33:36 +0800
+Subject: [PATCH 1/2] [Kernel] Enable DeepSelect sparse indexer top-k on Hopper
+
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+---
+ cmake/external_projects/deepselect.cmake      |   5 +-
+ tests/kernels/test_top_k_per_row.py           | 153 +++++++++++++++---
+ .../test_sparse_indexer_topk_dispatch.py      |  30 ++++
+ vllm/config/kernel.py                         |   6 +-
+ vllm/model_executor/layers/indexer_topk.py    |  74 ++++++---
+ .../deepseek_v41/common/ops/cache_utils.py    |   4 +-
+ 6 files changed, 224 insertions(+), 48 deletions(-)
+
+diff --git a/cmake/external_projects/deepselect.cmake b/cmake/external_projects/deepselect.cmake
+index e2a5592e6167..ff30740e3847 100644
+--- a/cmake/external_projects/deepselect.cmake
++++ b/cmake/external_projects/deepselect.cmake
+@@ -29,10 +29,11 @@ endif()
+ FetchContent_MakeAvailable(deepselect)
+ message(STATUS "DeepSelect is available at ${deepselect_SOURCE_DIR}")
+ 
+-# DeepSelect kernels require CUDA 12.9+; 10.0f (family) covers SM100 and SM103.
++# DeepSelect kernels require CUDA 12.9+. 10.0f (family) covers SM100 and SM103;
++# Hopper uses the fp32 row kernels.
+ set(DEEPSELECT_SUPPORT_ARCHS)
+ if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL 12.9)
+-    list(APPEND DEEPSELECT_SUPPORT_ARCHS "10.0f")
++    list(APPEND DEEPSELECT_SUPPORT_ARCHS "9.0a" "10.0f")
+ endif()
+ 
+ cuda_archs_loose_intersection(DEEPSELECT_ARCHS "${DEEPSELECT_SUPPORT_ARCHS}" "${CUDA_ARCHS}")
+diff --git a/tests/kernels/test_top_k_per_row.py b/tests/kernels/test_top_k_per_row.py
+index b6c469181f09..0fa1e62cadc6 100644
+--- a/tests/kernels/test_top_k_per_row.py
++++ b/tests/kernels/test_top_k_per_row.py
+@@ -30,11 +30,17 @@ def _on_gfx950() -> bool:
+     return on_gfx950()
+ 
+ 
+-# DeepSelect is compiled for sm_100a/sm_103a only.
+ requires_sm100 = pytest.mark.skipif(
+     not current_platform.is_device_capability_family(100),
+     reason="DeepSelect requires SM100a/SM103a",
+ )
++requires_deep_select = pytest.mark.skipif(
++    not (
++        current_platform.is_device_capability(90)
++        or current_platform.is_device_capability_family(100)
++    ),
++    reason="DeepSelect requires SM90/SM100/SM103",
++)
+ requires_gfx950 = pytest.mark.skipif(
+     not _on_gfx950(), reason="This test exercises the gfx950 launch configuration"
+ )
+@@ -1599,8 +1605,10 @@ def test_workspace_topk_padded_stride(top_k: int, backend: str) -> None:
+             )
+ 
+ 
+-@requires_sm100
+-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
++@requires_deep_select
++@pytest.mark.parametrize(
++    "dtype", [torch.float32, pytest.param(torch.bfloat16, marks=requires_sm100)]
++)
+ @pytest.mark.parametrize("batch_size", [1, 8, 64])
+ @pytest.mark.parametrize("vocab_size", [4096, 131072])
+ @pytest.mark.parametrize("top_k", [512, 2048])
+@@ -1651,7 +1659,7 @@ def test_deep_select_topk(
+     ), "DeepSelect topk results don't match torch.topk"
+ 
+ 
+-@requires_sm100
++@requires_deep_select
+ @torch.inference_mode()
+ def test_deep_select_topk_preallocated_output() -> None:
+     """DeepSelect writes into a preallocated aligned buffer (no `end`)."""
+@@ -1686,6 +1694,107 @@ def test_deep_select_topk_preallocated_output() -> None:
+     ), "DeepSelect topk (preallocated output) results don't match torch.topk"
+ 
+ 
++@requires_deep_select
++@pytest.mark.parametrize("width", [256, 4096, 131072])
++@pytest.mark.parametrize("top_k", [512, 1024, 2048])
++@torch.inference_mode()
++def test_deep_select_sorted_decode_graph(width: int, top_k: int) -> None:
++    """Decode preserves logical order and masks short rows on graph replay."""
++    from vllm.model_executor.layers.indexer_topk import SparseIndexerTopk
++
++    set_random_seed(0)
++    logits = torch.randn(4, width, device="cuda", dtype=torch.float32)
++    lengths = torch.tensor(
++        [0, 1, min(top_k - 1, width), width], device="cuda", dtype=torch.int32
++    )
++    buffer = torch.full((4, top_k + 8), -2, device="cuda", dtype=torch.int32)
++    indices = buffer[:, :top_k]
++    selector = SparseIndexerTopk("deep_select")
++
++    def run():
++        selector(logits, lengths, 1, indices, top_k, width)
++
++    run()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        run()
++    # Change both data and bounds: capture must not freeze either.
++    logits.neg_()
++    lengths.copy_(lengths.flip(0))
++    graph.replay()
++    for row, end in enumerate(lengths.tolist()):
++        count = min(end, top_k)
++        picked = indices[row, :count].long()
++        assert torch.all(picked[1:] > picked[:-1])
++        torch.testing.assert_close(
++            logits[row, picked].sort().values,
++            logits[row, :end].topk(count).values.sort().values,
++            rtol=0,
++            atol=0,
++        )
++        assert torch.all(indices[row, count:] == -1)
++    assert torch.all(buffer[:, top_k:] == -2)
++
++
++@requires_deep_select
++@torch.inference_mode()
++def test_sparse_indexer_auto_deep_select_masked_candidates() -> None:
++    """Hopper auto handles candidate-filtered logits with mostly -inf values."""
++    from vllm.model_executor.layers.indexer_topk import SparseIndexerTopk
++
++    set_random_seed(0)
++    logits = torch.full((4, 131072), -float("inf"), device="cuda", dtype=torch.float32)
++    logits[:, ::32] = torch.randn(4, 4096, device="cuda", dtype=torch.float32)
++    lengths = torch.full((4,), logits.shape[1], device="cuda", dtype=torch.int32)
++    indices = torch.empty(4, 512, device="cuda", dtype=torch.int32)
++    selector = SparseIndexerTopk("auto")
++
++    assert selector.resolve_backend(logits, 512, logits.shape[0]) == "deep_select"
++    selector(logits, lengths, 1, indices, 512, logits.shape[1])
++
++    for row in range(logits.shape[0]):
++        picked = indices[row].long()
++        assert torch.all(picked[1:] > picked[:-1])
++        torch.testing.assert_close(
++            logits[row, picked].sort().values,
++            logits[row].topk(512).values.sort().values,
++            rtol=0,
++            atol=0,
++        )
++
++
++@requires_deep_select
++@torch.inference_mode()
++def test_deep_select_nan_decode_page_mapping() -> None:
++    """Dummy NaN scores must not turn DeepSelect's sentinel into a KV address."""
++    from vllm.model_executor.layers.indexer_topk import deep_select_topk
++    from vllm.models.deepseek_v41.common.ops.cache_utils import (
++        compute_global_topk_indices_and_lens,
++    )
++
++    logits = torch.randn(4, 4096, device="cuda", dtype=torch.float32)
++    logits[1] = float("nan")
++    lengths = torch.full((4,), 4096, device="cuda", dtype=torch.int32)
++    indices = torch.full((4, 512), -1, device="cuda", dtype=torch.int32)
++    table = torch.arange(256, device="cuda", dtype=torch.int32).view(4, 64)
++    reqs = torch.arange(4, device="cuda", dtype=torch.int32)
++    valid = torch.ones(4, device="cuda", dtype=torch.bool)
++
++    def run():
++        indices.fill_(-1)
++        deep_select_topk(logits, 512, end=lengths, output_idx=indices)
++        return compute_global_topk_indices_and_lens(indices, reqs, table, 64, valid)
++
++    run()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        slots, counts = run()
++    graph.replay()
++    torch.testing.assert_close(counts, counts.new_tensor([512, 0, 512, 512]))
++    assert torch.all(slots[1] == -1)
++    assert torch.all(slots[[0, 2, 3]] >= 0)
++
++
+ def _has_flashinfer_topk() -> bool:
+     if not current_platform.is_cuda():
+         return False
+@@ -1728,7 +1837,7 @@ def _has_cooperative_topk() -> bool:
+             not _has_flashinfer_topk(), reason="requires flashinfer top-k"
+         ),
+     ),
+-    pytest.param("deep_select", marks=requires_sm100),
++    pytest.param("deep_select", marks=requires_deep_select),
+ ]
+ 
+ 
+@@ -1803,7 +1912,7 @@ def test_sparse_indexer_decode_topk_explicit_backends(
+                 not _has_flashinfer_topk(), reason="requires flashinfer top-k"
+             ),
+         ),
+-        pytest.param("deep_select", marks=requires_sm100),
++        pytest.param("deep_select", marks=requires_deep_select),
+     ],
+ )
+ @torch.inference_mode()
+@@ -1845,7 +1954,7 @@ def test_sparse_indexer_decode_topk_short_seq_lens(
+ @pytest.mark.skipif(not current_platform.is_cuda(), reason="requires CUDA")
+ @torch.inference_mode()
+ def test_sparse_indexer_topk_backend_resolution() -> None:
+-    """Auto heuristic chain and fail-fast validation of explicit backends."""
++    """Auto dispatch and fail-fast validation of explicit backends."""
+     from vllm.config import VllmConfig, set_current_vllm_config
+     from vllm.model_executor.layers.indexer_topk import SparseIndexerTopk
+ 
+@@ -1867,14 +1976,18 @@ def resolve(
+         with set_current_vllm_config(cfg):
+             return SparseIndexerTopk().resolve_backend(t, k, num_rows)
+ 
+-    is_sm100 = current_platform.is_device_capability_family(100)
++    has_deep_select = current_platform.is_device_capability_family(100) or (
++        current_platform.is_device_capability(90)
++    )
+     has_coop = _has_cooperative_topk()
+     has_fi = _has_flashinfer_topk()
+ 
+-    # "auto" is the chain cooperative -> persistent -> per_row, with the
+-    # cooperative/persistent switch at cooperative_topk's cluster-wave row
+-    # limit. It must never select the opt-in backends by itself.
+-    if has_coop:
++    # On Hopper, auto uses DeepSelect whenever its tensor constraints are met.
++    if current_platform.is_device_capability(90) and has_deep_select:
++        assert resolve("auto", k=512, num_rows=1) == "deep_select"
++        assert resolve("auto", k=512, num_rows=128) == "deep_select"
++        assert resolve("auto", k=2048, num_rows=32) == "deep_select"
++    elif has_coop:
+         from vllm.model_executor.layers.indexer_topk import (
+             AUTO_COOPERATIVE_MAX_ROWS,
+         )
+@@ -1884,8 +1997,7 @@ def resolve(
+             resolve("auto", k=512, num_rows=AUTO_COOPERATIVE_MAX_ROWS) == "cooperative"
+         )
+         assert resolve("auto", k=512, num_rows=8) == "cooperative"
+-        # ...persistent past the row limit, even where DeepSelect would be
+-        # applicable.
++        # ...persistent past the row limit.
+         assert (
+             resolve("auto", k=512, num_rows=AUTO_COOPERATIVE_MAX_ROWS + 1)
+             == "persistent"
+@@ -1897,7 +2009,8 @@ def resolve(
+             resolve("auto", unaligned_logits, num_rows=AUTO_COOPERATIVE_MAX_ROWS)
+             == "cooperative"
+         )
+-    # ...and persistent past the row limit.
++    # Unaligned inputs do not meet DeepSelect's requirements and use the
++    # existing cooperative/persistent chain.
+     assert resolve("auto", unaligned_logits, num_rows=128) == "persistent"
+     # Unsupported topk (outside {512, 1024, 2048} for the workspace kernels)
+     # -> per_row fallback.
+@@ -1911,12 +2024,16 @@ def resolve(
+         assert resolve("cooperative") == "cooperative"
+     if has_fi:
+         assert resolve("flashinfer") == "flashinfer"
+-    if is_sm100:
++    if has_deep_select:
+         # Explicit deep_select has no row-count requirement.
+         assert resolve("deep_select", num_rows=1) == "deep_select"
+         with pytest.raises(RuntimeError, match="constraints"):
+             resolve("deep_select", unaligned_logits)
+ 
++    if current_platform.is_device_capability(90):
++        with pytest.raises(RuntimeError, match="constraints"):
++            resolve("deep_select", logits.to(torch.bfloat16))
++
+     # Fail-fast on unmet constraints.
+     with pytest.raises(RuntimeError, match="num_rows must be <= 64"):
+         resolve("cooperative", num_rows=128)
+@@ -1924,6 +2041,6 @@ def resolve(
+         resolve("persistent", k=3000)
+     with pytest.raises(RuntimeError, match="topk_tokens must be in"):
+         resolve("cooperative", k=3000)
+-    if not is_sm100:
+-        with pytest.raises(RuntimeError, match="SM100a/SM103a"):
++    if not has_deep_select:
++        with pytest.raises(RuntimeError, match="SM90/SM100/SM103"):
+             resolve("deep_select")
+diff --git a/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py b/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py
+index 9f94da459c15..b9fbc5dabeef 100644
+--- a/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py
++++ b/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py
+@@ -41,3 +41,33 @@ def test_kpool_indexer_dispatches_through_shared_topk_backend(backend: str) -> N
+             topk_indices_buffer=torch.empty(8, 2176, dtype=torch.int32, device="cuda"),
+         )
+     assert op.topk_backend == backend
++
++
++@pytest.mark.skipif(
++    not current_platform.is_device_capability(90), reason="requires Hopper"
++)
++@torch.inference_mode()
++def test_kpool_auto_uses_deep_select_on_hopper() -> None:
++    """GLM pool-level top-k uses the shared Hopper DeepSelect dispatch."""
++    _require_deep_gemm()
++    from vllm.model_executor.layers.indexer_topk import SparseIndexerTopk
++
++    logits = torch.randn(4, 262144, dtype=torch.float32, device="cuda")
++    pool_lens = torch.tensor([511, 512, 777, 2048], dtype=torch.int32, device="cuda")
++    output = torch.empty(4, 512, dtype=torch.int32, device="cuda")
++    selector = SparseIndexerTopk("auto")
++
++    assert selector.resolve_backend(logits, 512, 4) == "deep_select"
++    selector(logits, pool_lens, 1, output, 512, 2048)
++
++    for row, length in enumerate(pool_lens.tolist()):
++        count = min(length, 512)
++        picked = output[row, :count].long()
++        assert torch.all(picked[1:] > picked[:-1])
++        torch.testing.assert_close(
++            logits[row, picked].sort().values,
++            logits[row, :length].topk(count).values.sort().values,
++            rtol=0,
++            atol=0,
++        )
++        assert torch.all(output[row, count:] == -1)
+diff --git a/vllm/config/kernel.py b/vllm/config/kernel.py
+index ea0b7d60d1fc..12d2b64a5e4c 100644
+--- a/vllm/config/kernel.py
++++ b/vllm/config/kernel.py
+@@ -278,9 +278,9 @@ class KernelConfig:
+     sparse_indexer_topk_backend: SparseIndexerTopkBackend = "auto"
+     """Backend for the DSA sparse indexer decode top-k kernel. Available options:
+ 
+-    - "auto": The pre-existing chain (cooperative -> persistent -> per_row);
+-      the other backends are opt-in
+-    - "deep_select": Use DeepSelect kernels (SM100a/SM103a only)
++    - "auto": Use DeepSelect for compatible sparse-indexer decode top-k on
++      Hopper; otherwise use cooperative -> persistent -> per_row
++    - "deep_select": Use DeepSelect kernels (SM90 fp32, SM100a/SM103a)
+     - "cooperative": Use vLLM's cooperative_topk kernel
+     - "persistent": Use vLLM's persistent_topk kernel
+     - "per_row": Use vLLM's top_k_per_row_decode kernel
+diff --git a/vllm/model_executor/layers/indexer_topk.py b/vllm/model_executor/layers/indexer_topk.py
+index c3422445b2c5..ba49f4cbf55f 100644
+--- a/vllm/model_executor/layers/indexer_topk.py
++++ b/vllm/model_executor/layers/indexer_topk.py
+@@ -15,9 +15,8 @@
+ RADIX_TOPK_WORKSPACE_SIZE = 1024 * 1024
+ 
+ # cooperative_topk's hard row limit: one cluster wave covers at most this many
+-# rows. "auto" uses cooperative_topk for every batch within the limit and falls
+-# back to persistent_topk past it; explicit ``cooperative`` requests are
+-# validated against the same bound.
++# rows. The default chain falls back to persistent_topk past this limit;
++# explicit ``cooperative`` requests are validated against the same bound.
+ AUTO_COOPERATIVE_MAX_ROWS = 64
+ 
+ # ---------------------------------------------------------------------------
+@@ -43,12 +42,29 @@ def get_deep_select_stride_requirement() -> tuple[int, int]:
+     return torch.ops.deep_select.get_alignment_requirement()
+ 
+ 
++def is_deep_select_available() -> bool:
++    """Whether the DeepSelect extension supports the current GPU."""
++    return (
++        current_platform.is_cuda()
++        and (
++            current_platform.is_device_capability_family(100)
++            or current_platform.is_device_capability(90)
++        )
++        and hasattr(torch.ops.deep_select, "topk")
++    )
++
++
+ def is_deep_select_supported(input: torch.Tensor, topk: int) -> bool:
+     """Whether the kernel accepts this input (dtype/stride/topk constraints)."""
+     return (
+-        topk <= 4096
++        0 < topk <= 4096
++        and (
++            not current_platform.is_device_capability(90)
++            or input.dtype == torch.float32
++        )
+         and input.shape[1] < 2**23
+         and input.dtype in (torch.float32, torch.bfloat16)
++        and input.data_ptr() % 128 == 0
+         and input.stride(1) == 1
+         and input.stride(0)
+         * input.element_size()
+@@ -77,12 +93,14 @@ def deep_select_topk(
+     end: torch.Tensor | None = None,
+     output_idx: torch.Tensor | None = None,
+     indices_dtype: torch.dtype = torch.int32,
++    *,
++    sorted_index: bool = False,
+ ) -> torch.Tensor:
+     """Select the top-k indices per row of `input` with DeepSelect.
+ 
+     Args:
+         input: (num_rows, vocab_size), bf16 or fp32. stride(1) must be 1 and
+-            stride(0) must be 1024B-aligned.
++            stride(0) must be 1024B-aligned. Hopper supports fp32 only.
+         topk: Number of elements to select per row; must be <= 4096.
+         end: Optional (num_rows,) int32 tensor with the exclusive right
+             boundary of each row. Rows with `end[i] < topk` get their
+@@ -90,16 +108,14 @@ def deep_select_topk(
+         output_idx: Optional preallocated (num_rows, topk) output tensor whose
+             stride(0) is 32B-aligned (e.g. a slice of a wider buffer).
+         indices_dtype: Output dtype when `output_idx` is not provided.
++        sorted_index: Sort selected logical positions in ascending order.
+ 
+     Returns:
+         The (num_rows, topk) indices tensor.
+ 
+     """
+     assert input.dim() == 2 and input.stride(1) == 1
+-    assert (
+-        input.stride(0) * input.element_size() % get_deep_select_stride_requirement()[0]
+-        == 0
+-    )
++    assert is_deep_select_supported(input, topk)
+ 
+     num_rows = input.shape[0]
+     if output_idx is None:
+@@ -109,6 +125,10 @@ def deep_select_topk(
+     else:
+         assert output_idx.dtype == indices_dtype
+         assert output_idx.shape[0] >= num_rows and output_idx.shape[1] >= topk
++    output_alignment = get_deep_select_stride_requirement()[1]
++    assert output_idx.data_ptr() % output_alignment == 0
++    assert output_idx.stride(1) == 1
++    assert output_idx.stride(0) * output_idx.element_size() % output_alignment == 0
+ 
+     torch.ops.deep_select.topk(
+         input,
+@@ -116,7 +136,7 @@ def deep_select_topk(
+         None,  # begin is not supported
+         end,
+         False,  # sorted_value
+-        False,  # sorted_index
++        sorted_index,
+         None,  # output_value
+         output_idx,
+         None,  # output_idx_offset
+@@ -155,9 +175,7 @@ def __init__(self, backend: str | None = None) -> None:
+             )
+         self._backend = backend
+         self._is_cuda = current_platform.is_cuda()
+-        self._has_deep_select = self._is_cuda and (
+-            current_platform.is_device_capability_family(100)
+-        )
++        self._has_deep_select = is_deep_select_available()
+         self._has_flashinfer_topk = has_flashinfer()
+         self._cooperative_capable = self._is_cuda and (
+             current_platform.has_device_capability(90)
+@@ -168,8 +186,8 @@ def resolve_backend(
+         self, logits: torch.Tensor, topk_tokens: int, num_rows: int
+     ) -> str:
+         """Resolve the decode top-k implementation from the configured
+-        backend ("auto" = the pre-existing chain, or a validated explicit
+-        value)."""
++        backend ("auto" uses DeepSelect on compatible Hopper inputs, or a
++        validated explicit value)."""
+         if self._backend == "auto":
+             return self._resolve_auto(logits, topk_tokens, num_rows)
+ 
+@@ -187,7 +205,9 @@ def resolve_backend(
+             if not self._is_cuda:
+                 failures.append("requires a CUDA platform")
+             elif not self._has_deep_select:
+-                failures.append("requires SM100a/SM103a (10.x device family)")
++                failures.append(
++                    "requires the DeepSelect extension and SM90/SM100/SM103"
++                )
+             elif not is_deep_select_supported(logits, topk_tokens):
+                 failures.append(
+                     f"inputs violate DeepSelect's constraints: dtype={logits.dtype},"
+@@ -215,13 +235,13 @@ def resolve_backend(
+     def _resolve_auto(
+         self, logits: torch.Tensor, topk_tokens: int, num_rows: int
+     ) -> str:
+-        """The priority chain: cooperative -> persistent -> per_row.
+-        deep_select/flashinfer/torch are opt-in only.
+-
+-        cooperative_topk is preferred whenever it is applicable, i.e. within
+-        its AUTO_COOPERATIVE_MAX_ROWS row limit; larger batches go to
+-        persistent_topk.
+-        """
++        """The priority chain: DeepSelect -> cooperative -> persistent -> per_row."""
++        if (
++            self._has_deep_select
++            and current_platform.is_device_capability(90)
++            and is_deep_select_supported(logits, topk_tokens)
++        ):
++            return "deep_select"
+         if not self._cooperative_constraints(logits, topk_tokens, num_rows):
+             return "cooperative"
+         if self._is_cuda and topk_tokens in (512, 1024, 2048):
+@@ -289,7 +309,13 @@ def forward(
+         backend = self.resolve_backend(logits, topk_tokens, logits.shape[0])
+         if backend == "deep_select":
+             row_ends = self._row_ends(seq_lens, next_n, logits.shape[0])
+-            deep_select_topk(logits, topk_tokens, end=row_ends, output_idx=topk_indices)
++            deep_select_topk(
++                logits,
++                topk_tokens,
++                end=row_ends,
++                output_idx=topk_indices,
++                sorted_index=True,
++            )
+         elif backend == "cooperative":
+             (topk_workspace,) = current_workspace_manager().get_simultaneous(
+                 ((RADIX_TOPK_WORKSPACE_SIZE,), torch.uint8),
+diff --git a/vllm/models/deepseek_v41/common/ops/cache_utils.py b/vllm/models/deepseek_v41/common/ops/cache_utils.py
+index ad03c3294524..fc638ef3dfdf 100644
+--- a/vllm/models/deepseek_v41/common/ops/cache_utils.py
++++ b/vllm/models/deepseek_v41/common/ops/cache_utils.py
+@@ -742,6 +742,7 @@ def compute_global_topk_indices_and_lens(
+         token_to_req_indices,
+         block_table,
+         block_table.stride(0),
++        block_table.shape[1],
+         block_size,
+         is_valid_token,
+         TRITON_BLOCK_SIZE=1024,
+@@ -760,6 +761,7 @@ def _compute_global_topk_indices_and_lens_kernel(
+     token_to_req_indices_ptr,
+     block_table_ptr,
+     block_table_stride: tl.constexpr,
++    block_table_width: tl.constexpr,
+     block_size: tl.constexpr,
+     is_valid_token_ptr,
+     TRITON_BLOCK_SIZE: tl.constexpr,
+@@ -778,7 +780,7 @@ def _compute_global_topk_indices_and_lens_kernel(
+             mask=mask,
+             other=-1,
+         )
+-        is_valid = local_idx >= 0
++        is_valid = (local_idx >= 0) & (local_idx < block_table_width * block_size)
+ 
+         block_indices = local_idx // block_size
+         block_numbers = tl.load(
+
+From b4800c5f591988413c9d5a201c727d407f58bf18 Mon Sep 17 00:00:00 2001
+From: chaunceyjiang <chaunceyjiang@gmail.com>
+Date: Tue, 29 Sep 2026 18:40:10 +0800
+Subject: [PATCH 2/2] [Kernel] Enable DeepSelect sparse indexer top-k on Hopper
+
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+---
+ tests/kernels/test_top_k_per_row.py                 |  6 ++----
+ .../glm5next/test_sparse_indexer_topk_dispatch.py   |  1 -
+ vllm/model_executor/layers/indexer_topk.py          | 13 ++-----------
+ 3 files changed, 4 insertions(+), 16 deletions(-)
+
+diff --git a/tests/kernels/test_top_k_per_row.py b/tests/kernels/test_top_k_per_row.py
+index 0fa1e62cadc6..3057135ab5f3 100644
+--- a/tests/kernels/test_top_k_per_row.py
++++ b/tests/kernels/test_top_k_per_row.py
+@@ -1698,8 +1698,8 @@ def test_deep_select_topk_preallocated_output() -> None:
+ @pytest.mark.parametrize("width", [256, 4096, 131072])
+ @pytest.mark.parametrize("top_k", [512, 1024, 2048])
+ @torch.inference_mode()
+-def test_deep_select_sorted_decode_graph(width: int, top_k: int) -> None:
+-    """Decode preserves logical order and masks short rows on graph replay."""
++def test_deep_select_decode_graph(width: int, top_k: int) -> None:
++    """Decode respects dynamic row bounds and padding on graph replay."""
+     from vllm.model_executor.layers.indexer_topk import SparseIndexerTopk
+ 
+     set_random_seed(0)
+@@ -1725,7 +1725,6 @@ def run():
+     for row, end in enumerate(lengths.tolist()):
+         count = min(end, top_k)
+         picked = indices[row, :count].long()
+-        assert torch.all(picked[1:] > picked[:-1])
+         torch.testing.assert_close(
+             logits[row, picked].sort().values,
+             logits[row, :end].topk(count).values.sort().values,
+@@ -1754,7 +1753,6 @@ def test_sparse_indexer_auto_deep_select_masked_candidates() -> None:
+ 
+     for row in range(logits.shape[0]):
+         picked = indices[row].long()
+-        assert torch.all(picked[1:] > picked[:-1])
+         torch.testing.assert_close(
+             logits[row, picked].sort().values,
+             logits[row].topk(512).values.sort().values,
+diff --git a/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py b/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py
+index b9fbc5dabeef..a85ce52845ea 100644
+--- a/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py
++++ b/tests/models/glm5next/test_sparse_indexer_topk_dispatch.py
+@@ -63,7 +63,6 @@ def test_kpool_auto_uses_deep_select_on_hopper() -> None:
+     for row, length in enumerate(pool_lens.tolist()):
+         count = min(length, 512)
+         picked = output[row, :count].long()
+-        assert torch.all(picked[1:] > picked[:-1])
+         torch.testing.assert_close(
+             logits[row, picked].sort().values,
+             logits[row, :length].topk(count).values.sort().values,
+diff --git a/vllm/model_executor/layers/indexer_topk.py b/vllm/model_executor/layers/indexer_topk.py
+index ba49f4cbf55f..30fd1b45ebfd 100644
+--- a/vllm/model_executor/layers/indexer_topk.py
++++ b/vllm/model_executor/layers/indexer_topk.py
+@@ -93,8 +93,6 @@ def deep_select_topk(
+     end: torch.Tensor | None = None,
+     output_idx: torch.Tensor | None = None,
+     indices_dtype: torch.dtype = torch.int32,
+-    *,
+-    sorted_index: bool = False,
+ ) -> torch.Tensor:
+     """Select the top-k indices per row of `input` with DeepSelect.
+ 
+@@ -108,7 +106,6 @@ def deep_select_topk(
+         output_idx: Optional preallocated (num_rows, topk) output tensor whose
+             stride(0) is 32B-aligned (e.g. a slice of a wider buffer).
+         indices_dtype: Output dtype when `output_idx` is not provided.
+-        sorted_index: Sort selected logical positions in ascending order.
+ 
+     Returns:
+         The (num_rows, topk) indices tensor.
+@@ -136,7 +133,7 @@ def deep_select_topk(
+         None,  # begin is not supported
+         end,
+         False,  # sorted_value
+-        sorted_index,
++        False,  # sorted_index
+         None,  # output_value
+         output_idx,
+         None,  # output_idx_offset
+@@ -309,13 +306,7 @@ def forward(
+         backend = self.resolve_backend(logits, topk_tokens, logits.shape[0])
+         if backend == "deep_select":
+             row_ends = self._row_ends(seq_lens, next_n, logits.shape[0])
+-            deep_select_topk(
+-                logits,
+-                topk_tokens,
+-                end=row_ends,
+-                output_idx=topk_indices,
+-                sorted_index=True,
+-            )
++            deep_select_topk(logits, topk_tokens, end=row_ends, output_idx=topk_indices)
+         elif backend == "cooperative":
+             (topk_workspace,) = current_workspace_manager().get_simultaneous(
+                 ((RADIX_TOPK_WORKSPACE_SIZE,), torch.uint8),

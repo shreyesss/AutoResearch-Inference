@@ -1,0 +1,277 @@
+Conversation
+functionstackx
+commented
+Sep 21, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+human
+SemiAnalysisAI/InferenceX#3310
+Summary
+Enable
+Engram CPU offload on H200
+for DeepSeek-V4.1-Flash single-node Tensor Parallel, which runs at the existing
+TP4
+default.
+New exact-GPU
+h200
+override under
+strategy_overrides.single_node_tp.hardware_overrides
+, adding
+--engram-config '{"cpu_offload":true}'
+and nothing else.
+A short
+H200 Tensor Parallel
+guide section describing the cell.
+No change to the TP map.
+H200 already resolves to TP4 through
+tp.default: 4
+, so adding an explicit
+h200: 4
+would be a no-op. Leaving it out also keeps this PR free of textual conflicts with
+[DeepSeek] V4.1-Flash: TP2 with Engram offload on B200, B300, GB200 and GB300
+#1002
+, which edits that map.
+Why the offload
+The Engram tables are 183 GiB of the checkpoint. Row-sharded in HBM on 141 GB cards they crowd out the KV pool at TP4. Moving them to pinned host DRAM, read through UVA with unchanged output, frees 23.6 GiB per rank, 94 GiB across the replica.
+Measured on the InferenceX AgentX sweep, from the c1 server log of run
+35494445931
+:
+Quantity
+Value
+Engram offloaded per rank
+23.6 GiB
+Resident weights per GPU
+81.2 GiB
+KV per GPU
+38.5 GiB
+KV tokens (replica)
+20.0M
+No scheduler caps are needed at this replica size. Unlike the 180 GB B200 TP2 cell, the indexer's logits buffer fits alongside the weights with room to spare, so
+--max-num-batched-tokens
+and
+--max-cudagraph-capture-size
+stay at their upstream defaults.
+Validation
+InferenceX AgentX sweep green at 17 of 17 jobs, covering concurrency 1 through 128 plus evals, and the existing TP8 points re-ran green under the same config key:
+SemiAnalysisAI/InferenceX#3310
+, run 35494445931.
+node scripts/build-recipes-api.mjs
+renders the H200 page at
+--tensor-parallel-size 4
+with the Engram flag; H100 (TP8) and B300 (TP2) are unchanged.
+Relationship to
+#1002
+#1002
+adds TP2 with Engram offload for the Blackwell SKUs. This PR is independent: it touches only Hopper, adds its override after the
+b300
+block rather than before it, and makes no TP-map edit, so the two can merge in either order.
+🤖 Generated with
+Claude Code
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👀
+1
+gemini-code-assist[bot] reacted with eyes emoji
+All reactions
+👀
+1 reaction
+[DeepSeek] V4.1-Flash: Engram CPU offload on H200 at TP4
+…
+5fda19a
+H200 already resolves to the TP4 default. Add an exact-GPU override enabling
+--engram-config cpu_offload so the 183 GiB Engram tables move to pinned host
+DRAM instead of staying row-sharded in HBM: 23.6 GiB per rank, leaving
+81.2 GiB of resident weights and 38.5 GiB of KV per GPU (about 20M tokens),
+measured on the InferenceX AgentX sweep. No scheduler caps are required at
+this replica size and the TP map is unchanged.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Signed-off-by: functionstackx <47992694+functionstackx@users.noreply.github.com>
+vercel
+Bot
+commented
+Sep 21, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+The latest updates on your projects. Learn more about
+Vercel for GitHub
+.
+Project
+Deployment
+Actions
+Updated
+vllm-recipes
+Ready
+Preview
+Sep 21, 2026 2:50pm UTC
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+gemini-code-assist
+Bot
+reviewed
+Sep 21, 2026
+View reviewed changes
+gemini-code-assist
+Bot
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Code Review
+This pull request introduces a strategy override for H200 hardware in the DeepSeek-V4.1-Flash model configuration, enabling Engram CPU offload to optimize memory usage on 141 GB cards. It also updates the documentation guide to explain the H200 Tensor Parallel configuration and its benefits. There are no review comments, and I have no feedback to provide.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+vercel
+Bot
+deployed
+to
+Preview
+September 21, 2026 13:53
+View deployment
+functionstackx
+mentioned this pull request
+Sep 21, 2026
+[DeepSeek] V4.1-Flash: TP2 with Engram offload on MI355X, plus --no-swa-bounded-replay on ROCm
+#1006
+Merged
+Merge upstream main after the MI355X TP2 recipe landed
+…
+d507178
+Keep both guide sections: MI355X from
+vllm-project#1006
+and H200 from this branch.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Signed-off-by: functionstackx <47992694+functionstackx@users.noreply.github.com>
+vercel
+Bot
+deployed
+to
+Preview
+September 21, 2026 14:50
+View deployment
+functionstackx
+commented
+Sep 21, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+hi
+@esmeetu
+thanks for reviewing my mi355 TP2 emgram on recipe update PR, can i get an review for this too
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Hide details
+View details
+esmeetu
+merged commit
+5c5a902
+into
+vllm-project
+:
+main
+Sep 21, 2026
+4 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Hide environments
+Show environments
+This branch was successfully deployed
+1 active
+        deployment
+Preview
+—
+d5071788
+Deployed
+Sep 21, 2026
+by
+vercel[bot]
+View deployment
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+1 more reviewer
+gemini-code-assist[bot]
+gemini-code-assist[bot] left review comments
+Reviewers whose approvals may not affect merge requirements
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

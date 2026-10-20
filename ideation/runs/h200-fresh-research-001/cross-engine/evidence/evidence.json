@@ -1,0 +1,227 @@
+{
+  "claims": [
+    {
+      "source_id": "runtime:h200:runtime-inventory",
+      "quote": "--no-swa-bounded-replay",
+      "claim": "The supplied inventory establishes a specific vLLM deployment configuration, not a measured workload or performance baseline.",
+      "relation": "context",
+      "conditions": "Eight H200 GPUs; two running deployments, each TP1/DP4 with expert parallelism, described by the user as EP4. Model revision 2cba9e42aa026125f3ed06c6d98c1db82f7ca027; host Engram across DP; FP8 KV cache; block size 64; DSpark k5 with adaptive verification disabled; bounded SWA replay disabled.",
+      "reported_result": "Observed in the supplied snapshot: both health checks succeed. Limits include 64 sequences, 16384 batched tokens and maximum model length 1048576. These are configuration limits, not observed request lengths or concurrency.",
+      "transfer_inference": "Use this configuration as the control. Attribute engine, parallel layout, numeric recipe, speculation, Engram placement, replay policy and communication changes separately.",
+      "limitations": "Actual request distribution, baseline latency, throughput, acceptance statistics, GPU rank placement and NVLink connectivity are unknown. DeepEP inactivity is a supplied user premise; the inventory does not identify the active communication implementation."
+    },
+    {
+      "source_id": "code:h200-excerpts:compute",
+      "quote": "Using 'MARLIN' Mxfp4 MoE backend.",
+      "claim": "The startup log identifies Marlin as the selected MoE backend; Humming source availability does not establish its activation.",
+      "relation": "context",
+      "conditions": "Installed vLLM source excerpts and a live startup log for the H200 deployment.",
+      "reported_result": "Observed log entries select MARLIN and MarlinExperts. The supplied Humming selector defaults to grouped_contiguous under EP unless overridden. Separate mHC gates require SM100-family capability or TP4 without EP, excluding those paths from this TP1/EP4 configuration.",
+      "transfer_inference": "Treat Humming or FlashInfer adoption as a backend change from Marlin. Treat their activation quantization changes independently. Blackwell mHC comments and source presence provide no H200 activation or speed evidence.",
+      "limitations": "No GPU trace establishes per-layer execution or time fractions. Exact activation formats and baseline dispatch/combine costs are unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41561:live-page",
+      "quote": "Write transformed int32 KV slots directly into the existing output buffer.",
+      "claim": "The author reports a concrete Hopper Top-K/page-transform integration with substantial savings in the replaced region.",
+      "relation": "supports",
+      "conditions": "SGLang DeepSeek-V4.1 SM90 full-topk decode; depends on topk_page_transform introduced by PR #41364. Benchmarked on H20, CUDA 13.0 and PyTorch 2.13; rows 1/8/32, width 32K with K512, and rows 1/8, width 128K with K1024.",
+      "reported_result": "Author-reported region timings fall from approximately 163–165 microseconds to 31–32 microseconds, yielding 5.08–5.20x. Two complete runs each used 20 warmups and five groups of 100 measurements. This measures selection, ordering, mapping and output handling, not serving throughput.",
+      "transfer_inference": "Where downstream consumers require only physical slots, fuse selection and page lookup into the output epilogue, avoiding separate intermediate-index processing, gather and copy. Preserve required ordering, row-length and padding semantics without changing numeric formats or communications.",
+      "limitations": "The baseline's corresponding call site and eligible fraction are unknown. H200 kernel and serving effects are unknown. Raw logical IDs must remain available through a fallback wherever consumers require them."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41561:live-page",
+      "quote": "testing no real functionality",
+      "claim": "Later review history weakens the initial runtime-validation claims and makes the final ordering contract uncertain.",
+      "relation": "challenges",
+      "conditions": "The opening description specifies sorted_index=True and reports kernel, unit and runtime-integration tests. Later commits change sorting and remove mocked tests.",
+      "reported_result": "The visible history records a commit to skip decode index sorting. Subsequent review removes CPU wiring tests and the purported runtime-integration test because they stubbed or hand-assembled the relevant path. Direct real-kernel reference tests remain described.",
+      "transfer_inference": "Pin the intended revision and verify its actual ordering contract and raw-ID fallback. Validate through the real target decode/verify path rather than counting removed mocked tests as integration evidence.",
+      "limitations": "The final implementation is not supplied. Current test counts, actual-model validation, tie behavior and H200 generation quality are unknown. The excerpt is truncated and merge status is unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41659:live-page",
+      "quote": "request-local compressed positions",
+      "claim": "Some sparse-prefill consumers need raw positions, making unconditional page-mapped output the wrong transfer.",
+      "relation": "challenges",
+      "conditions": "SGLang low-ratio prefill using DeepGEMM selection and sparse attention. Physical slots remain necessary for specified alternative attention paths, tails and request windows.",
+      "reported_result": "The author describes writing selection directly into the raw-position buffer consumed by sparse prefill and deriving page indices only when needed. Selection-region timings are reported on B200; the row-pair scheduler result is on GB300.",
+      "transfer_inference": "Determine the representation each consumer needs before choosing fusion. For raw-position consumers, eliminate unnecessary mapping; for physical-slot-only consumers, fuse mapping into selection. Keep the row-pair scheduling optimization separate because it changes metadata traversal, not page mapping.",
+      "limitations": "No H200 timing is supplied for these changes. B200/GB300 performance does not establish an H200 effect. Target DeepGEMM usage and interface compatibility are unknown; the excerpt lists outstanding coverage work."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:40860:live-page",
+      "quote": "produce compact scores directly instead of a context-width score matrix",
+      "claim": "Candidate-only scoring provides a distinct, workload-qualified Hopper optimization beyond fusing full Top-K.",
+      "relation": "supports",
+      "conditions": "DeepSeek-V4.1-Flash, real 1P1D, eight H20-3e GPUs per node, TP8/EP8/DP1/CP1. Prefill uses shared BF16 index K; decode/verify reuses FP4 scoring tiles. Dependencies include published candidate block IDs, compact Top-K v2, page mapping and graph variants.",
+      "reported_result": "Author-reported TTFT reductions at 32K/64K/128K/256K are 5.09%/12.05%/20.67%/27.63%, using BS1, one output token and three measured requests per length. DSpark block5 decode/verify at steady BS8 reports throughput gains of 8.11%/12.51%/18.28%/29.96% at 16K/32K/64K/128K.",
+      "transfer_inference": "If the target already publishes equivalent candidate IDs, score candidate K positions directly, retain compact scores through selection, and map only selected results. Include long-context prefill and DSpark verification in a workload-qualified SGLang control.",
+      "limitations": "This combines scoring, metadata, selection and graph changes, so its gains cannot be assigned to Top-K fusion alone. H200 effects, actual target candidate density and activation of these interfaces are unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:40860:live-page",
+      "quote": "16K was effectively unchanged",
+      "claim": "Shorter-context and quality results limit claims of universal candidate-indexer improvement.",
+      "relation": "challenges",
+      "conditions": "Same H20-3e setup; GPQA Diamond uses 198 questions, one sample each, thinking enabled, temperature 1.0, seed 1 and a 65536-token output cap.",
+      "reported_result": "Author-reported 16K prefill TTFT is 3.345 seconds baseline versus 3.359 seconds candidate. GPQA accuracy remains 180/198, while truncations rise from 3 to 6. A proposed extra ordering fix was withdrawn after agreement that existing consumer-side sorting already handled valid entries and padding.",
+      "transfer_inference": "Qualify benefits by context length and phase. Check actual consumer contracts before adding sorting, and measure truncations and paired answer changes alongside aggregate accuracy.",
+      "limitations": "Equal aggregate scores do not establish generation or quality equivalence. Confidence intervals and target-workload results are unknown. Visible CI is failing; final resolution is unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41251:live-page",
+      "quote": "three alternating paired sweeps",
+      "claim": "The H200 results support evaluating a SGLang configuration bundle, but provide no isolated engine or Top-K multiplier.",
+      "relation": "context",
+      "conditions": "Eight H200 GPUs, TP8/EP1, Marlin, memory fraction 0.8, bounded SWA replay, decode graph maximum batch64, host Engram disabled. Checkpoint dba1be0a40aa45a94ad051997016db3960a90277; random 8192-input/1024-output requests; concurrency 1–64, temperature0, thinking disabled, warmup and cache flush.",
+      "reported_result": "Author-reported median paired ratios are 2.1674–2.4842x user speed, 2.0574–2.3498x output throughput/GPU and 1.3398–1.5658x TTFT speedup. This compares SGLang upstream main with a multi-change PR, not SGLang with the supplied vLLM baseline.",
+      "transfer_inference": "Construct a matched SGLang control on the target workload and hardware, preserving the model revision, Marlin recipe, TP1/DP4/EP4 x2, DSpark policy, host Engram and replay settings where supported. Report unsupported matches as configuration differences and ablate them separately.",
+      "limitations": "Checkpoint, topology, memory policy, Engram placement and replay differ from the target. Speculation configuration is not stated for this benchmark. No isolated contribution or target-system multiplier can be inferred."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41251:live-page",
+      "quote": "preserving activation quantization boundaries",
+      "claim": "The Hopper bundle includes numeric and GEMM changes that require attribution separate from integer selection fusion.",
+      "relation": "context",
+      "conditions": "Changes include group32 GEMM tuning, exact BF16 expansions of eligible FP8 weights, guarded compensated BF16 projections, mHC overlap, preserved intermediate SwiGLU rounding and deferred Marlin padding.",
+      "reported_result": "These mechanisms are author descriptions. H200 quality results include AIME24 440→437 at the 16384 cap and 451→454 at the 32768 cap; GSM8K is unchanged at 1278 at the 2048 cap and changes 1276→1274 at the 4096 cap.",
+      "transfer_inference": "Evaluate numeric/backend changes separately from Top-K/page mapping. Check activation rounding, accumulation differences, weight expansion memory cost and paired generation quality; exact weight expansion alone does not establish whole-model equivalence.",
+      "limitations": "Per-change timings, memory overhead, quality attribution and effects under Marlin TP1/DP4/EP4 x2 are unknown. The supplied material describes implementation but does not include the patch."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41251:live-page",
+      "quote": "Hopper retains its existing Torch selection path.",
+      "claim": "The added flattened-prefill fusion is Blackwell-specific and supplies a useful negative H200 control.",
+      "relation": "challenges",
+      "conditions": "Four GB300/SM103 GPUs, TP4/EP1, FlashInfer MXFP4 MoE and CuteDSL FP8 GEMM; 8K/32K inputs, 32 outputs, concurrency1/16. The added change was also checked separately on H200.",
+      "reported_result": "Author-reported GB300 median TTFT gains are 1.0170–1.0277x, with one regressing pair in each concurrency1 shape. The 5.45–14.33x helper improvement corresponds to only 1.0009–1.0081x output-throughput/GPU ratios in the longer-output suite. H200 ratios remain approximately 1.0. Exact integer mapping is reported, but GB300 AIME24 declines by 0.625 percentage points in both cap comparisons.",
+      "transfer_inference": "Use this as evidence that large helper gains can have small serving effects. H200 activation would require a separate implementation and validation; mocked SM100 dispatch on H200 establishes helper testing, not production-path execution.",
+      "limitations": "Accuracy and performance use different GB300 prefill budgets. The H200 add-on check has one paired sweep. Exact page/raw indices do not prove generation equivalence or an H200 speedup."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:41659:live-page",
+      "quote": "fixed here but not re-measured",
+      "claim": "Host-synchronization removal is relevant to host Engram, but its final effect is unmeasured and separate from selection fusion.",
+      "relation": "supports",
+      "conditions": "Author-described prefill changes batch flattened-K layout construction from host lengths, use pinned nonblocking H2D copies, and provide repeat_interleave output sizes from CPU lengths.",
+      "reported_result": "On four GB300 GPUs with 40K-token prompts, the author reports reducing synchronization sites per prefill step from 20 to 1. The remaining Engram-history copy was changed without remeasurement. The author also reports allocator exhaustion from delayed residual reuse after removing synchronization.",
+      "transfer_inference": "Inspect whether equivalent host Engram and metadata synchronization exists in the target. Attribute any removal separately and validate stream lifetimes and peak memory when the host can enqueue further ahead.",
+      "limitations": "Target synchronization counts, H200 latency gains and final post-change counts are unknown. The reported allocator problem is configuration-specific, not evidence that the target currently suffers it."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:43065:live-page",
+      "quote": "DP (purely local)",
+      "claim": "Engram gather/seam fusion and sequence-parallel collective fusion have different eligibility and attribution requirements.",
+      "relation": "context",
+      "conditions": "CUDA implementation descriptions include direct MXFP8 table gather, an exact BF16-dequantizing alternative, host-table support, and DP/SP/TP seam variants. SP requires a sharded region and symmetric workspace, using NVLS from three peers or peer load/store at two ranks.",
+      "reported_result": "The author reports bitwise gather agreement on SM90/SM100 and stable semaphore rotation over 200 SP launches. No performance effect size is supplied. TP4/EP4 GSM8K falls from 0.9113 to 0.9014; a same-configuration control has identical aggregate scores but only 36% exact-text agreement.",
+      "transfer_inference": "For TP1 with host Engram, investigate the local DP seam and compatible gather representation first. Treat SP layout and collective changes as separate experiments. Match the existing wkv operand format before claiming elimination of dequantization/requantization.",
+      "limitations": "End-to-end evaluation hardware and target integration are unknown. McNemar p=0.198 does not establish equivalence. Non-determinism complicates quality assessment, and online weight updates remain restricted with derived weight splits."
+    },
+    {
+      "source_id": "github:flashinfer-ai/flashinfer:3738:live-page",
+      "quote": "Raw benchmark tables are intentionally not embedded in this PR text.",
+      "claim": "FlashInfer describes a concrete SM90 mixed-input MoE alternative, but the supplied evidence lacks a numerical performance comparison.",
+      "relation": "supports",
+      "conditions": "Hopper CUTLASS paths include MXFP4xBF16, INT4xFP8 and MXFP4xFP8. Reported benchmarks use H20/H200 with DeepSeek-V3 and V4-Pro MoE shapes, not the supplied V4.1-Flash deployment.",
+      "reported_result": "The author describes precomputed scheduling/TMA state, weight-scale preprocessing, pre-MMA E8M0 scale fusion, runtime per-token FP8 quantization and correctness-filtered autotuning. Performance improvements are asserted, but readable timings and speedup values are absent.",
+      "transfer_inference": "A Marlin comparison can first hold the operand recipe fixed where supported. Evaluate FP8 activation quantization separately because it changes numerics. Include conversion, routing expansion, scheduling and repacking costs in end-to-end measurements.",
+      "limitations": "Target engine integration, EP4 compatibility, effect size, activation error, model quality and memory overhead are unknown. Listed correctness tests are not evidence of target-model quality equivalence."
+    },
+    {
+      "source_id": "github:vllm-project/humming:38:live-page",
+      "quote": "All tested correctness cases passed.",
+      "claim": "Correct low-precision kernels can still regress severely; activation-scale granularity is a material dependency.",
+      "relation": "challenges",
+      "conditions": "H100 80GB, Humming commit 79c1cef; MXFP4 E2M1 weights with group32 E8M0 scales, E4M3 activations with group32 scales supplied as FP32, BF16 output. CUDA Graph replay, 20 warmups and 200 measurements.",
+      "reported_result": "The reporter measures fused-E8M0 kernels 5.0–15.0x slower than generic Humming and 2.1–11.7x slower than QDQ plus BF16 GEMM across the listed shapes. The reporter suspects per-group synchronization; a maintainer instead suggests register spilling/configuration tuning. Neither explanation is established by the supplied evidence.",
+      "transfer_inference": "Keep group32, group128 and per-token activation formats distinct when comparing compute or DeepEP integration. Require both correctness and realistic performance checks; cached expanded weights introduce a separate memory tradeoff.",
+      "limitations": "This is H100 kernel evidence, not H200 serving evidence. Latest-version behavior is unknown. The faster experimental implementation uses additional N*K bytes for cached FP8 weights, so it is not memory-equivalent."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59488:live-page",
+      "quote": "DeepEP, SM100 and DeepSeek V4 keep the grouped GEMM",
+      "claim": "The proposed Humming indexed path is conditional on communication backend and explicit activation-format support.",
+      "relation": "context",
+      "conditions": "DeepSeek-V4.1 MXFP4 experts on SM90; indexed selection applies without all2all kernels or with allgather_reducescatter. BF16 and per-token FP8 activations are supported; described SM90 checks reject MXFP8 and block-dynamic FP8.",
+      "reported_result": "The author reports an eight-H200 TP8+EP startup and one completion with per-token FP8 and DSpark using one speculative token. A throughput protocol is described, but its numerical results are outside the supplied excerpt. Selector tests are reported.",
+      "transfer_inference": "Do not assume a DeepEP communication experiment preserves an indexed Humming compute path. Pin communication backend, GEMM type and activation schema as distinct factors. This remains a backend alternative to the active Marlin baseline.",
+      "limitations": "The target uses k5 and a different parallel layout. One completion does not establish model quality. Named-format support, serving gains and compatibility with the installed version are unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:40417:live-page",
+      "quote": "passes unit tests, but serving regressed",
+      "claim": "EP-aware shape corrections and kernel microbenchmarks can predict the wrong serving outcome.",
+      "relation": "challenges",
+      "conditions": "Humming, DeepSeek-V4.1-Flash MXFP4 experts, TP4/EP4, DSpark, random requests at concurrency32–48. The setup calls the devices H200-class, while the environment identifies NVIDIA L20X SM90.",
+      "reported_result": "The reporter observes 52.2→49.5 decode tokens/s/request after an EP-aware estimate, a 5.1% regression with permutation p=0.003 and n=10 per arm. Recalibrated ladder bands still regress 4.0%. Indexed microkernels favor local-row estimates, whereas grouped kernels favor the old scale; small graph tiers show no effect.",
+      "transfer_inference": "Use actual routed-row distributions, local expert counts and graph replay when evaluating alternate compute/dispatch combinations. Validate serving after microkernel tuning.",
+      "limitations": "This is a Humming result, not a Marlin defect or DeepEP measurement. Exact equivalence to the target H200 hardware is unestablished. It does not justify applying the proposed estimator change."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepEP:693:live-page",
+      "quote": "three shared-memory TMA buffers per dispatch warp",
+      "claim": "Direct-NVLink dispatch pipelining has a specific mechanism and positive H100 bandwidth results.",
+      "relation": "supports",
+      "conditions": "Eight H100 GPUs; direct NVLink dispatch; EP_DISABLE_GIN=1, hybrid mode disabled, test-first-only and local traffic ignored.",
+      "reported_result": "The author reports average dispatch bandwidth across eight ranks increasing 250→280 GB/s, and 203→220 GB/s with rank-unbalanced ratio1.5. Combine remains 300 GB/s and 209 GB/s respectively. The mechanism prefetches the next token's hidden data, scales, metadata and routing while previous remote stores remain in flight.",
+      "transfer_inference": "Because DeepEP is absent from the baseline, first isolate compatible DeepEP activation against the existing transport. Then compare unmodified and patched direct-NVLink dispatch with engine, EP4 placement, numeric payload and workload fixed. Prefetch/store overlap is the proposed transfer mechanism.",
+      "limitations": "H200 effects are unknown. Payload dimensions, numeric format, sample counts, variance, full topology and serving metrics are not supplied. Eight-rank remote-only bandwidth does not predict four-rank mixed-locality serving or combine performance."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepEP:693:live-page",
+      "quote": "at most 14 dispatch warps",
+      "claim": "Triple buffering introduces resource and synchronization constraints that can limit transfer.",
+      "relation": "challenges",
+      "conditions": "Direct NVLink uses three staging buffers; the non-NVLink path remains single-buffered. Buffer reuse follows tma_store_wait<1>().",
+      "reported_result": "The author describes increased shared-memory accounting and a 14-dispatch-warp cap. Visible code/review identifies separately defined host/device buffer counts and warns that safe reuse depends on their agreement and the store-group retirement invariant.",
+      "transfer_inference": "Verify the three-buffer lifetime invariant, shared-memory capacity, occupancy and applicable warp count on the target. Establish that its engine dispatches through this elastic direct-NVLink implementation before attributing any effect to the patch.",
+      "limitations": "The review warning is not a demonstrated failure. Its resolution, final merge status, target API compatibility, correctness stress coverage and H200 latency/occupancy tradeoffs are unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:18519:live-page",
+      "quote": "without --moe-a2a-backend deepep",
+      "claim": "Historical Hopper graph-capture failure makes DeepEP integration validation necessary; issue closure does not establish a DeepEP fix.",
+      "relation": "challenges",
+      "conditions": "SGLang v0.5.8, CUDA12.9, DeepSeek-V3-2 on two H800 nodes; the failing command uses TP16/DP8 and DeepEP dispatch/combine num_sms128.",
+      "reported_result": "The reporter encounters a DeepEP buffer alignment/size assertion during CUDA Graph startup. The successful follow-up uses TP16/EP16/DP16 and removes DeepEP; the issue is then closed.",
+      "transfer_inference": "Validate buffer sizing, startup and graph capture for the exact proposed DeepEP configuration. Treat the successful follow-up as a changed-configuration workaround, not proof that DeepEP was repaired.",
+      "limitations": "Multiple settings changed. Applicability to current DeepEP, direct-NVLink elastic dispatch, H200 EP4, Marlin and DSpark is unknown. No performance effect is reported."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:23896:live-page",
+      "quote": "The Balanced recipe underperforms Low-Latency on every metric by approximately 3–6%.",
+      "claim": "This reported DeepEP comparison is confounded and internally inconsistent, so it cannot establish an isolated communication regression.",
+      "relation": "challenges",
+      "conditions": "Four H20-3e GPUs, DeepSeek-V4-Flash-FP8, nominal 1024-input/1024-output workload, 1000 requests and concurrency100. Balanced adds DP attention and DeepEP while changing EAGLE from three steps/four draft tokens to one step/two draft tokens.",
+      "reported_result": "The comparison table reports 1249.95 versus 1297.25 output tokens/s against Balanced. However, the displayed raw TP4 result is 1222.06 tokens/s, below Balanced's 1249.95. Acceptance lengths differ, 1.97 versus 2.86. The author hypothesizes SM contention.",
+      "transfer_inference": "Keep speculation fixed when measuring dispatch alternatives, and reconcile repeated-run records before choosing a performance direction. Measure compute contention and communication overlap rather than assuming either explains the outcome.",
+      "limitations": "The throughput discrepancy is unresolved. Transport, parallelism and speculation effects are not separable. H200 results, numeric comparability to Marlin and isolated DeepEP costs are unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:40744:live-page",
+      "quote": "removing the DSPARK flags (identical everything else) starts cleanly in ~10 minutes.",
+      "claim": "A multi-node SGLang control with DSpark has a reported startup hazard, but it is not evidence against the target's two EP4 deployments or DeepEP.",
+      "relation": "challenges",
+      "conditions": "Two nodes with four H200 NVL GPUs each; TP8/EP8 across RoCE, FlashInfer MXFP4, bounded SWA replay and DSpark block5 on the identified development images.",
+      "reported_result": "The reporter observes three startup hangs across two images with DSpark. Supplied stack descriptions place one node at a post-load barrier and the other at a memory-probe all-reduce. Removing DSpark starts successfully and permits benchmarking.",
+      "transfer_inference": "Keep cross-node TP/EP and speculation changes separate from an engine comparison. Validate collective participation and startup if testing this topology; retaining two independent EP4 groups avoids assuming equivalence to TP8/EP8.",
+      "limitations": "This source does not identify DeepEP as active. It differs from the target in backend, topology and replay policy. Current fix status and applicability to matched SGLang TP1/DP4/EP4 are unknown."
+    }
+  ],
+  "unanswered": [
+    "Which target decode, verification and prefill consumers require raw logical IDs, which require physical slots, and which already use fused selection? Eligible call counts, score dtypes, ordering/tie requirements and baseline time fractions are unknown.",
+    "What are the actual workload distributions, cache-hit rates, arrival rates, concurrency, output lengths and DSpark acceptance statistics? Configuration limits do not answer these questions.",
+    "What NVLink topology, peer-access capability and GPU placement serve each EP4 group? The supplied target inventory does not establish that direct-NVLink DeepEP dispatch is usable.",
+    "Which communication backend is active in the Marlin baseline, and can the proposed DeepEP elastic implementation integrate without changing Marlin, routing layouts or numeric payloads?",
+    "Can SGLang match the target checkpoint, TP1/DP4/EP4 x2, k5 sampling/verification behavior, adaptiveOFF, host Engram, FP8 KV cache and no-swa-bounded-replay? Any unsupported match prevents a clean engine-only comparison.",
+    "What exact weight, activation and scale formats does each target layer use? Marlin selection and FP8 KV configuration do not specify the complete numeric recipe.",
+    "What are the H200 end-to-end latency, throughput/GPU, memory and quality effects of each isolated intervention? None of the supplied results measures the requested target configuration.",
+    "Do candidate-only scoring, raw-prefill selection, host synchronization removal and Engram seam fusion have equivalent target call sites? Their implementation dependencies and existing activation are unknown.",
+    "What correctness and paired generation-quality results hold under the target's mixed numeric recipes and DSpark k5? Aggregate score agreement, selector tests and a single completion do not establish equivalence.",
+    "What are the exact final revisions and merge states of the proposed changes? Truncated discussions, patch hashes and changed-path lists do not establish final implementation behavior; PR #41561's ordering and integration coverage particularly require clarification.",
+    "DeepEP #693 lacks payload shapes, numeric format, variance, correctness stress results and serving measurements. FlashInfer #3738 lacks readable numerical results, and the supplied vLLM #59488 excerpt omits its throughput results."
+  ]
+}

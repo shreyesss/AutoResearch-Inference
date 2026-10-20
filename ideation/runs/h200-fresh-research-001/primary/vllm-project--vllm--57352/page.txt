@@ -1,0 +1,1176 @@
+Conversation
+gf239
+commented
+Sep 17, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Overview
+With speculative decoding, the FlashInfer builder copies
+seq_lens
+from the GPU on every step.
+The copy waits for all queued GPU work, so the CPU cannot prepare the next step.
+This PR plans fa2 (Ampere, Ada) from CPU bounds instead, so the copy is gone.
+It extends
+#57214
+, which removed the same copy without speculative decoding.
+@WoosukKwon
+suggested planning from a close upper bound in
+#29134
+.
+No open PR removes this copy with speculative decoding.
+Claims
+Output tokens/s +1% to +23% with MTP and EAGLE3 on RTX 3080, 4090 and 4050.
+Acceptance length and gsm8k accuracy do not change.
+Without speculative decoding, only the pinned-buffer handling changes.
+Validation
+Output tokens/s, this PR vs sham (main with comment-only edits in the same files), 12 rounds, 95% CI:
+GPU
+Model, drafter
+c=1
+c=8
+c=32
+RTX 4090
+Qwen3.5-0.8B, MTP 3
++5.4% [+4.5, +6.4]
++4.9% [+3.4, +6.4]
++18.0% [+17.1, +19.0]
+RTX 4090
+Llama-3.1-8B, EAGLE3 3
++7.2% [+7.2, +7.3]
++5.8% [+4.7, +6.8]
++3.6% [+2.9, +4.2]
+RTX 4090
+Qwen3-8B, EAGLE3 3
++7.5% [+6.3, +8.7]
++5.7% [+5.0, +6.3]
++3.5% [+2.9, +4.2]
+RTX 4090
+Qwen3.8-27B 2.8-bit, MTP 3 ¹
++6.5% [+4.7, +8.3]
++2.8% [+1.9, +3.7]
++1.9% [+1.2, +2.5]
+RTX 3080
+Qwen3.5-0.8B, MTP 3
++10.1% [+8.8, +11.4]
++15.1% [+13.5, +16.8]
++14.2% [+13.5, +15.0]
+RTX 3080
+Qwen3-1.7B, EAGLE3 3
++22.6% [+22.4, +22.8]
++14.2% [+13.3, +15.2]
++5.9% [+5.4, +6.5]
+RTX 4050 Laptop
+Qwen3.5-0.8B, MTP 3
++4.8% [+4.8, +4.9]
++1.4% [+0.1, +2.7]
++1.2% [+0.4, +2.0]
+¹
+Intel/Qwen3.8-27B-bpw2.8-AutoRound
+; its config misses the 4-bit MTP entry, which I added.
+Median ITL is lower in every cell.
+ShareGPT prompts give the same gain (Speed details).
+7354 tests on RTX 3080, failures re-run on RTX 4090: no test fails on this PR that passes on main.
+Greedy outputs at c=1 match main: 16 of 16 prompts, two models.
+VLLM_DEBUG_SEQ_LENS_BOUNDS=1
+under load: no assertion. A lower bound raised by 1 trips it.
+VLLM_GPU_SYNC_CHECK=error
+with MTP and EAGLE3 under load: no sync reported, on main and on this PR.
+Not run on Hopper or Blackwell.
+Commands
+pytest tests/v1/attention/test_flashinfer_plan_from_bounds.py tests/v1/worker/test_seq_len_bounds.py
+pytest tests/v1/attention tests/v1/worker tests/v1/spec_decode tests/kernels/attention/test_flashinfer
+*
+.py
+pre-commit run --from-ref origin/main
+
+vllm serve
+<
+model
+>
+--max-model-len 4096 --max-num-seqs 32 --kv-cache-dtype fp8 --language-model-only \
+  --speculative-config
+'
+{"method":"mtp","num_speculative_tokens":3}
+'
+#
+or eagle3 with its head
+vllm bench serve --dataset-name random --random-input-len 1024 --random-output-len 256 \
+  --max-concurrency
+<
+c
+>
+--num-prompts
+<
+n
+>
+--ignore-eos --seed
+<
+round
+>
+gsm8k uses the prompts and scoring of
+tests/evals/gsm8k/gsm8k_eval.py
+: 1319 questions, 5-shot, greedy, 256 tokens.
+Tests
+RTX 3080, torch 2.13.0+cu130, flashinfer 0.7.0.post1.
+This PR: 2929 passed, 588 failed, 3837 skipped.
+The 588 failures re-run on an RTX 4090, on main and on this PR: the same outcome for every test.
+313 pass on both. 275 fail on both: 261 exceed shared memory, 13 need checkpoints that are not available offline, 1 does not support SM89.
+The tests from
+#57214
+and
+#57075
+pass.
+Accuracy
+gsm8k at c=32, RTX 3080. "Same answer" counts questions whose extracted answer matches the first main run.
+main
+main again
+this PR
+same answer, main again / this PR
+Qwen3.5-0.8B, MTP 3
+31.54%
+30.86%
+31.99%
+1069 / 1083 of 1319
+Qwen3-1.7B, EAGLE3 3
+68.01%
+66.11%
+67.10%
+1083 / 1078 of 1319
+Offline gsm8k, one
+LLM.generate
+over the 1319 prompts, RTX 3080.
+main
+main again
+this PR
+identical outputs, main again / this PR
+Qwen3.5-0.8B, MTP 3
+30.86%
+30.86%
+31.99%
+1319 / 833
+Qwen3-1.7B, EAGLE3 3
+68.16%
+66.26%
+67.40%
+589 / 443
+For scale, on main:
+switching split KV off changes 481 of 1319 offline outputs of the 0.8B model;
+two offline runs of the 1.7B EAGLE3 model differ in 730.
+Planning from the upper bound can give a row one more page.
+fa2 splits KV by the planned lengths, so the same terms are summed in another order.
+Speed details
+vllm bench serve
+, random dataset, 1024 input and 256 output tokens,
+--max-num-seqs 32
+,
+--max-model-len 4096
+, fp8 KV cache.
+Each round runs main, sham and this PR with one seed, in rotating order; 48 / 128 / 320 prompts at c=1 / 8 / 32.
+Paired differences over rounds, 95% intervals. Sham vs main: every tokens/s interval covers zero.
+RTX 4090, Qwen3.5-0.8B, MTP 3, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++5.4% [+4.5, +6.4]
++4.9% [+3.4, +6.4]
++18.0% [+17.1, +19.0]
+median ITL
+-5.3% [-6.0, -4.5]
+-5.5% [-6.4, -4.7]
+-22.7% [-22.8, -22.6]
+median ITL, ms, main and PR
+8.34, 7.87
+8.72, 8.24
+12.41, 9.60
+acceptance length
++0.0% [+0.0, +0.0]
+-0.3% [-1.4, +0.7]
++0.1% [-0.5, +0.7]
+RTX 4090, Llama-3.1-8B, EAGLE3 3, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++7.2% [+7.2, +7.3]
++5.8% [+4.7, +6.8]
++3.6% [+2.9, +4.2]
+median ITL
+-7.2% [-7.2, -7.1]
+-5.0% [-5.0, -4.9]
+-5.0% [-5.0, -4.9]
+median ITL, ms, main and PR
+21.29, 19.78
+24.04, 22.87
+29.91, 28.45
+acceptance length
++0.0% [+0.0, +0.0]
++0.4% [-0.7, +1.6]
++0.2% [-0.7, +1.1]
+RTX 4090, Qwen3-8B, EAGLE3 3, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++7.5% [+6.3, +8.7]
++5.7% [+5.0, +6.3]
++3.5% [+2.9, +4.2]
+median ITL
+-7.5% [-7.5, -7.4]
+-5.3% [-5.4, -5.3]
+-5.1% [-5.2, -5.1]
+median ITL, ms, main and PR
+22.12, 20.46
+24.29, 22.99
+30.59, 29.02
+acceptance length
+-0.1% [-1.2, +1.1]
++0.2% [-0.5, +0.8]
+-0.2% [-1.3, +0.8]
+RTX 3080, Qwen3.5-0.8B, MTP 3, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++10.1% [+8.8, +11.4]
++15.1% [+13.5, +16.8]
++14.2% [+13.5, +15.0]
+median ITL
+-8.7% [-9.6, -7.8]
+-15.2% [-15.6, -14.9]
+-14.6% [-14.7, -14.5]
+median ITL, ms, main and PR
+9.03, 8.24
+10.12, 8.56
+16.94, 14.45
+acceptance length
++0.0% [+0.0, +0.0]
+-0.1% [-1.5, +1.3]
++0.6% [-0.1, +1.4]
+RTX 3080, Qwen3-1.7B, EAGLE3 3, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++22.6% [+22.4, +22.8]
++14.2% [+13.3, +15.2]
++5.9% [+5.4, +6.5]
+median ITL
+-22.6% [-23.2, -22.1]
+-13.9% [-14.0, -13.8]
+-9.2% [-9.3, -9.1]
+median ITL, ms, main and PR
+10.56, 8.17
+12.38, 10.64
+20.43, 18.55
+acceptance length
++0.0% [+0.0, +0.0]
++0.3% [-0.8, +1.4]
+-0.4% [-1.2, +0.4]
+RTX 4050 Laptop, Qwen3.5-0.8B, MTP 3, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++4.8% [+4.8, +4.9]
++1.4% [+0.1, +2.7]
++1.2% [+0.4, +2.0]
+median ITL
+-5.7% [-5.7, -5.6]
+-1.0% [-1.0, -1.0]
+-1.1% [-1.1, -1.0]
+median ITL, ms, main and PR
+19.73, 18.61
+24.78, 24.53
+32.54, 32.19
+acceptance length
++0.0% [+0.0, +0.0]
+-0.5% [-1.7, +0.7]
+-0.6% [-1.4, +0.3]
+RTX 4090, Qwen3.8-27B 2.8-bit AutoRound, MTP 3, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++6.5% [+4.7, +8.3]
++2.8% [+1.9, +3.7]
++1.9% [+1.2, +2.5]
+median ITL
+-5.8% [-5.9, -5.8]
+-4.5% [-4.5, -4.4]
+-3.3% [-3.4, -3.3]
+median ITL, ms, main and PR
+27.49, 25.90
+35.41, 33.83
+41.19, 39.82
+acceptance length
++1.0% [-0.9, +2.9]
++0.2% [-1.2, +1.6]
+-0.2% [-1.3, +1.0]
+ShareGPT prompts and output lengths, same protocol. At c=32 one round gives +20.8%; the median over rounds is +5.9%.
+RTX 4090, Llama-3.1-8B, EAGLE3 3, ShareGPT, this PR vs sham
+c=1
+c=8
+c=32
+output tokens/s
++7.3% [+7.2, +7.3]
++5.2% [+4.6, +5.7]
++7.0% [+4.1, +9.9]
+median ITL
+-7.0% [-7.1, -7.0]
+-5.3% [-5.3, -5.2]
+-5.6% [-5.8, -5.5]
+median ITL, ms, main and PR
+21.14, 19.65
+23.49, 22.24
+27.81, 26.24
+acceptance length
++0.0% [+0.0, +0.0]
+-0.6% [-1.2, -0.1]
++0.1% [-0.4, +0.5]
+Details
+The runner passes a CPU lower bound next to the existing upper bound.
+fa2 plans from the upper bound and reads the exact lengths from the GPU.
+Where the two bounds fall on different pages, that build keeps the copy.
+Tradeoffs:
+Up to 8 extra pinned buffers (64 MB) per builder.
+Outputs are not bit-identical to main: a row can get one more planned page, so split-KV sums in another order (Accuracy).
+360 non-test lines, most in
+flashinfer.py
+.
+How it works
+The two bounds differ only by drafts that may still be rejected.
+fa2 plans from the upper bound. The builder then writes the exact lengths to the GPU, and fa2 reads those.
+A verification row whose bounds fall on different pages keeps the copy for that build.
+Kernels other than fa2 skip the copy only when both bounds are equal.
+plan()
+uploads from a pinned buffer. While an upload is pending, the wrapper takes a fresh buffer. A builder adds at most 8 buffers (64 MB); then
+plan()
+waits. This also covers the path from
+[Perf][Pooling] Avoid blocking seq_lens GPU-to-CPU copy for pooling in FlashInfer metadata builder
+#57214
+.
+The copy stays with context parallelism, sinks, adaptive verification, pipeline parallelism and the V1 runner.
+A wrapper created with
+backend="auto"
+picks its kernels on its first
+plan()
+. That first build keeps the copy.
+It relies on three fa2 details:
+plan()
+stages through
+_pin_memory_int_workspace_buffer
+, the kernel reads
+_paged_kv_last_page_len_buf
+on the device, and a non-positive last-page length is an empty page. Without these fields the copy stays.
+test_fa2_plan_from_upper_bound_matches_exact_plan
+fails if FlashInfer changes them.
+VLLM_DEBUG_SEQ_LENS_BOUNDS=1
+asserts
+lower <= seq_lens <= upper
+on the device in every build that uses the bounds. Off by default.
+Answers to
+#29134
+@yavarb
+reported three problems with planning drafts from the upper bound:
+Illegal memory access under load: the next
+plan()
+overwrote its pinned buffer during an upload. Here the wrapper takes a fresh buffer instead.
+Aliasing: the bounds here are new tensors. Nothing writes to the runner's pinned buffers.
+Lower acceptance length: there the kernel attended over the upper-bound window. Here fa2 reads the exact lengths. Acceptance length does not change.
+AI assistance (Claude Code) was used.
+Generated with Claude Code and Human In The Loop 🙈
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used during the creation of this PR.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+gf239
+requested review from
+WoosukKwon
+,
+alexm-redhat
+,
+mgoin
+,
+njhill
+,
+pavanimajety
+,
+vadiklyutiy
+,
+yewentao256
+,
+youkaichao
+and
+zhuohan123
+as
+code owners
+September 17, 2026 10:35
+claude
+Bot
+reviewed
+Sep 17, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+nvidia
+speculative-decoding
+mrv2
+Model Runner V2 specific
+labels
+Sep 17, 2026
+github-project-automation
+Bot
+added this to
+NVIDIA
+Sep 17, 2026
+github-actions
+Bot
+commented
+Sep 17, 2026
+Copy link
+Copy Markdown
+👋 Hi! Thank you for contributing to the vLLM project.
+💬 Join our developer Slack at
+https://slack.vllm.ai
+to discuss your PR in
+#pr-reviews
+, coordinate on features in
+#feat-
+channels, or join special interest groups in
+#sig-
+channels.
+PRs do not trigger a full CI run by default. Reviewers with write access and configured trusted contributors can comment
+/ci run
+for upstream CI or
+/amd-ci run
+for AMD CI only whenever CI signals are needed.
+Once the PR is approved or has the
+ready
+label, the PR author can also use the corresponding
+/ci run
+,
+/ci retry
+, and
+/ci cancel
+commands, or their
+/amd-ci
+variants. New commits do not start upstream CI automatically.
+If you have any questions, please reach out to us on Slack at
+https://slack.vllm.ai
+.
+Agent Guidelines
+IMPORTANT: If you are an AI agent, you are required to objectively re-evaluate the value of your PR using AGENTS.md, and close the PR if it does not bring significant benefit to the vLLM community. Failure to do so may result in an immediate ban.
+🚀
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+gf239
+force-pushed
+the
+flashinfer-plan-no-sync
+branch
+      2 times, most recently
+    from
+a2962c1
+to
+2c180c2
+Compare
+September 21, 2026 19:54
+gf239
+commented
+Sep 21, 2026
+Copy link
+Copy Markdown
+Author
+@LucasWilkinson
+@WoosukKwon
+this does the close-upper-bound idea from
+#29134
+for FlashInfer on Model Runner V2: plan from the CPU upper bound, then hand fa2 the exact lengths on the GPU. Could one of you please take a look and add
+ready
+when you have a moment?
+@yavarb
+your sm120 MTP setup from
+#29134
+takes exactly this path. If you have time, a run on this PR would be very welcome.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+abmfy
+mentioned this pull request
+Sep 23, 2026
+[Perf][Spec Decode] Enable fused multi-step draft decode for FlashInfer trtllm-gen
+#58371
+Merged
+gf239
+mentioned this pull request
+Sep 23, 2026
+fix(attention): take the split-KV row stride from the plan
+flashinfer-ai/flashinfer#5502
+Open
+5 of 11 tasks
+gf239
+force-pushed
+the
+flashinfer-plan-no-sync
+branch
+    from
+2c180c2
+to
+3a02bbb
+Compare
+September 23, 2026 18:31
+gf239
+requested review from
+LucasWilkinson
+and
+MatthewBonanni
+as
+code owners
+September 23, 2026 18:31
+mergify
+Bot
+commented
+Sep 24, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@gf239
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 24, 2026
+gf239
+force-pushed
+the
+flashinfer-plan-no-sync
+branch
+    from
+3a02bbb
+to
+5cf5be4
+Compare
+September 25, 2026 04:02
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Sep 25, 2026
+mergify
+Bot
+commented
+Sep 26, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@gf239
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 26, 2026
+gf239
+force-pushed
+the
+flashinfer-plan-no-sync
+branch
+    from
+5cf5be4
+to
+01ce9cf
+Compare
+September 29, 2026 16:19
+gf239
+changed the title
+[Perf][Attention] FlashInfer: plan without copying seq_lens from the GPU
+[Perf][Attention] FlashInfer: skip the seq_lens copy with speculative decoding
+Sep 29, 2026
+gf239
+commented
+Sep 29, 2026
+Copy link
+Copy Markdown
+Author
+@vadiklyutiy
+@mgoin
+thanks for extending
+#57214
+to all models without speculative decoding.
+This PR covers the remaining case: speculative decoding.
+The runner adds a CPU lower bound on
+seq_lens
+.
+fa2 plans from the upper bound and reads the exact lengths from the GPU.
+At c=1, output tokens/s rises 5–22% in five of six setups (tables at the top).
+Could you please take a look when you have time?
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Sep 29, 2026
+Sahil170595
+mentioned this pull request
+Sep 30, 2026
+[Bugfix][Attention] Keep FlashInfer's plan() staging buffer pageable
+#59493
+Open
+3 of 4 tasks
+Sahil170595
+commented
+Sep 30, 2026
+Copy link
+Copy Markdown
+Contributor
+Heads-up from
+#40756
+: the
+seq_lens.cpu()
+copy this PR removes is also what currently stops FlashInfer's
+plan()
+from racing with itself in the drafter.
+plan()
+stages its metadata in one pinned host buffer per wrapper and copies it to the GPU asynchronously, so re-planning the same wrapper before the GPU reaches that copy hands the queued launch the new plan.
+I measured it with this PR merged at 5cf5be4c2 (Qwen3.5-0.8B, MTP, FlashInfer, fp8 KV, RTX 4080): 40-62% of plans were issued while the wrapper's previous copy was still queued, against 0 on main.
+#59493
+keeps that staging buffer pageable, which removes the race without a sync. With both applied, outputs and acceptance matched this PR alone in every run, with throughput within run-to-run noise, so the two should compose.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sahil170595
+mentioned this pull request
+Sep 30, 2026
+[Bug]: MTP speculative decoding crash with illegal memory access on long sequences (Qwen3.6-27B-FP8, v0.19.1)
+#40756
+Open
+1 task done
+gf239
+commented
+Oct 2, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Author
+@Sahil170595
+thanks for checking this.
+This PR already handles that case.
+When it skips the
+seq_lens
+copy, every
+plan()
+goes through
+_PinnedPlanWorkspaces
+:
+if the wrapper's last copy is still queued,
+plan()
+gets another pinned buffer;
+if the builder already added 8 such buffers,
+plan()
+waits instead.
+So a queued copy never reads a buffer that is being rewritten.
+test_pinned_plan_workspace_is_not_reused_while_its_copy_is_pending
+tests this.
+The 40-62% you counted are these plans, so they are expected here.
+Your runs agree: outputs and acceptance were the same with and without
+#59493
+.
+#59493
+also covers DCP prefill and cascade, which call
+plan()
+directly. This PR does not change them.
+If
+#59493
+lands, I can remove these extra buffers from this PR.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+commented
+Oct 5, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@gf239
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Oct 5, 2026
+gf239
+force-pushed
+the
+flashinfer-plan-no-sync
+branch
+    from
+01ce9cf
+to
+712ba0e
+Compare
+October 8, 2026 17:52
+gf239
+requested a review
+  from
+wzhao18
+as a
+code owner
+October 8, 2026 17:52
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Oct 8, 2026
+gf239
+commented
+Oct 8, 2026
+Copy link
+Copy Markdown
+Author
+@vadiklyutiy
+@mgoin
+could you please take a look when you have time?
+The branch is rebased on current main and merges cleanly.
+I re-measured every row on that revision, 6 to 12 paired rounds, with 95% intervals in the table.
+Output tokens/s rises up to +18% on an RTX 4090 and up to +22% on an RTX 3080, and median ITL is lower in every cell.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+commented
+Oct 12, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@gf239
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Oct 12, 2026
+gf239
+force-pushed
+the
+flashinfer-plan-no-sync
+branch
+    from
+712ba0e
+to
+e6a0666
+Compare
+October 13, 2026 06:19
+gf239
+requested a review
+  from
+ZJY0516
+as a
+code owner
+October 13, 2026 06:19
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Oct 13, 2026
+maorv
+mentioned this pull request
+Oct 14, 2026
+[Bugfix] Read step-start seq_lens without holding the CUDA driver context lock
+#61622
+Open
+6 tasks done
+gf239
+commented
+Oct 16, 2026
+Copy link
+Copy Markdown
+Author
+@vadiklyutiy
+@mgoin
+could you please take a look when you have time?
+Problem: with spec decoding, the FlashInfer builder syncs on
+seq_lens
+every step.
+Fix: fa2 plans from CPU bounds, so step prep overlaps the GPU.
+Result: about −1.5 ms per step on RTX 4090, +6.5% to +7.5% tok/s at c=1 for 8B–27B models.
+Acceptance and gsm8k unchanged. Rebased after
+[Attention] Remove cascade attention
+#61126
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+commented
+Oct 18, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@gf239
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Oct 18, 2026
+gf239
+and others
+added
+6
+commits
+October 18, 2026 07:40
+[Perf][Attention] FlashInfer: plan from the CPU seq_lens bounds
+…
+f4a242b
+The FlashInfer builder copied seq_lens from the GPU on every build unless
+TRTLLM served all rows. The copy waits for all queued GPU work.
+
+Plan from the CPU upper bound instead. The runner adds a lower bound: the
+upper bound minus the drafts that the step in flight may reject. fa2
+wrappers get the exact lengths on the GPU after plan(); other kernels skip
+the copy only when both bounds are equal. The check reads the wrapper
+about to be planned, so a wrapper that has not picked its kernels yet
+keeps the copy. Each wrapper stages plan() through a ring of pinned
+buffers, so a buffer with a pending copy is never reused; a builder adds
+at most 8 buffers.
+
+Co-authored-by: Claude Opus 5 <noreply@anthropic.com>
+Signed-off-by: gf239 <gf239@users.noreply.github.com>
+[Perf][Attention] FlashInfer: always write the exact last-page lengths
+…
+4fbb23e
+The page-indices kernel wrote paged_kv_last_page_len_exact only when
+the build planned from the upper bound, through a constexpr variant.
+The exact seq_lens are on the device on every build, so the kernel now
+writes them always and the variant goes away. The buffer is read as
+before, only after a plan from the upper bound.
+
+Warm-up now compiles the only variant of the page-indices kernel;
+before, the variant used after a plan from the bounds compiled on the
+first live step.
+
+_plan() records the ring event in a finally block, so a plan() that
+raises does not leave its pinned buffer marked free.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: gf239 <gf239@users.noreply.github.com>
+[Perf][Attention] FlashInfer: VLLM_DEBUG_SEQ_LENS_BOUNDS checks the b…
+…
+08f911a
+…ounds on the device
+
+Planning from the CPU bounds relies on lower <= seq_lens <= upper.
+With VLLM_DEBUG_SEQ_LENS_BOUNDS=1 the builder asserts this on the
+device where it consumes the bounds, through torch._assert_async. It
+does not synchronize; a violation surfaces as a device-side assertion.
+Off by default, at no cost.
+
+The helper lives in attention/backends/utils.py so tests import it
+without flashinfer.
+
+A GPU test builds with the check on under sync debug mode "error".
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: gf239 <gf239@users.noreply.github.com>
+[Perf][Attention] Lower bounds on seq_lens as pure functions, with CP…
+…
+f9f12e3
+…U tests
+
+The runner and the speculator computed their lower bounds inline.
+compute_seq_lens_cpu_lower_bound (numpy) and
+compute_draft_seq_lens_cpu_lower_bound (torch) do the same arithmetic
+in the same modules, called from the same sites.
+
+tests/v1/worker/test_seq_len_bounds.py checks both against known
+values, so a +-1 change of either formula or clamp fails, and runs
+check_seq_lens_bounds on CPU tensors: in bounds passes, out of bounds
+raises. No GPU needed.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: gf239 <gf239@users.noreply.github.com>
+[Perf][Attention] FlashInfer test: name the fixed_split_size case by …
+…
+d0938bd
+…what it does
+
+fixed_split_size counts pages, not tokens: fixed_split_size=block_size
+splits KV into chunks of block_size pages, not into one-page chunks.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: gf239 <gf239@users.noreply.github.com>
+[Perf][Attention] Adapt the tests to
+vllm-project#57214
+,
+vllm-project…
+…
+3bc0709
+…#56531
+and the padded prompt tail test
+
+Since
+vllm-project#57214
+the FlashInfer builder takes the upper bound as exact when
+there is no speculative decoding. The bounds in the builder tests count
+drafts, so those builders now report NUM_SPEC speculative tokens.
+
+test_padded_prompt_tail_builds_as_spec_decode and the input batch that
+vllm-project#56531
+builds by hand in test_mamba_hybrid_model_state get the lower
+bound field the attention metadata now reads.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: gf239 <gf239@users.noreply.github.com>
+gf239
+force-pushed
+the
+flashinfer-plan-no-sync
+branch
+    from
+e6a0666
+to
+3bc0709
+Compare
+October 18, 2026 07:48
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Oct 18, 2026
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+njhill
+Awaiting requested review from njhill
+njhill is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin is a code owner
+pavanimajety
+Awaiting requested review from pavanimajety
+pavanimajety is a code owner
+vadiklyutiy
+Awaiting requested review from vadiklyutiy
+vadiklyutiy is a code owner
+zhuohan123
+Awaiting requested review from zhuohan123
+zhuohan123 is a code owner
+youkaichao
+Awaiting requested review from youkaichao
+youkaichao is a code owner
+alexm-redhat
+Awaiting requested review from alexm-redhat
+alexm-redhat is a code owner
+LucasWilkinson
+Awaiting requested review from LucasWilkinson
+LucasWilkinson is a code owner
+MatthewBonanni
+Awaiting requested review from MatthewBonanni
+MatthewBonanni is a code owner
+wzhao18
+Awaiting requested review from wzhao18
+wzhao18 is a code owner
+ZJY0516
+Awaiting requested review from ZJY0516
+ZJY0516 is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+mrv2
+Model Runner V2 specific
+nvidia
+speculative-decoding
+Projects
+NVIDIA
+Status: No status
++6 more
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

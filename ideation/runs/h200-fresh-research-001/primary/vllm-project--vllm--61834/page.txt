@@ -1,0 +1,457 @@
+Conversation
+benenzhu
+commented
+Oct 15, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Overview
+The DP ranks of a MoE engine step in lockstep. When any rank has prefill, the step becomes a long mixed (and, on some backends, eager) step for every rank. Agentic multi-turn traffic makes prefill frequent, so decode keeps getting interrupted.
+--dp-prefill-delayer
+(opt-in, default off) aligns prefill across the ranks and protects the decode steps after a prefill. It follows ATOM's PrefillDelayer.
+Claims
+Measured on a development branch with an earlier version of this change: DeepSeek-V4-Pro on 8x MI355X, DP8 attention + EP8, AgentX agentic workload, 1200 s runs, metrics over 300-1200 s, single runs per configuration.
+Concurrency
+Configuration
+P90 interactivity (tok/s/user)
+P50 interactivity (tok/s/user)
+Total tok/s/GPU
+TTFT p50 (s)
+Node
+64
+no delayer (
+--prefill-schedule-interval 32
+), mean of 2 runs
+16.65
+31.03
+22.0K
+3.76
+A, B
+64
++ prefill delayer (10 protected steps)
+45.54
+56.89
+22.2K
+8.63
+A
+128
+no delayer (
+--prefill-schedule-interval 32
+)
+7.29
+11.96
+23.8K
+7.47
+D
+128
+prefill delayer, 10 protected steps
+22.82
+26.97
+39.7K
+5.41
+C
+128
+prefill delayer, 20 protected steps
+26.36
+28.92
+38.6K
+10.03
+C
+The c128 rows use a later recipe with other changes; they differ only in the prefill policy. The no-delayer c128 row ran on a different node of the same type.
+The trade-off is TTFT: prefill waits for the other ranks, and long prompts wait for alignment chunk by chunk.
+Validation on this upstream branch is still to be added.
+Validation
+pytest tests/v1/core/test_prefill_delayer.py
+: 14 passed (CPU). The tests cover each FIRE / HOLD rule and bound, the per-rank state, the scheduler gating and the config check.
+pytest -m cpu_test tests/v1/core/test_scheduler.py tests/v1/core/test_async_scheduler.py
+and
+tests/engine/test_arg_utils.py
+: pass. They cover the changed
+defer_prefills
+expression with the delayer off.
+pre-commit run --files <changed files>
+: all hooks pass, mypy included.
+No GPU runs on this branch yet.
+Details
+Protocol.
+Once per engine step, each rank reports 6 ints in one CPU SUM all-reduce on the DP group: prefillable, pending prefill tokens (capped at
+max_num_batched_tokens
+), running decodes, KV usage >= 0.9, chunk in progress, prefill ran. Every rank then takes the same FIRE / HOLD decision for its next schedule.
+Placement.
+The all-reduce sits next to
+_has_global_unfinished_reqs()
+. Every rank reaches that point on every non-idle step (real, dummy and pause steps alike), which the existing DP state sync already relies on, so the extra collective cannot be skipped by one rank. The state resets at each DP wave boundary.
+Rules (ATOM's), in order:
+A step that ran prefill arms
+--dp-prefill-delayer-protected-steps
+(default 10) steps that HOLD while decodes run.
+FIRE if no rank has prefill, no rank decodes, or KV usage is high.
+FIRE after 200 held steps, or after 100 with a chunk in progress.
+HOLD until all ranks have prefill.
+FIRE when the pending tokens reach 0.9 x prefillable ranks x
+max_num_batched_tokens
+, or when the backlog stops growing for 10 steps.
+HOLD scope.
+HOLD defers all prefill compute, new requests and in-progress chunks, even on a rank without local decodes, so that ranks prefill together.
+Interaction with
+--prefill-schedule-interval
+.
+The delayer replaces it; setting both is an error.
+Cost.
+Off: none. On: one 6-int CPU all-reduce per step.
+Not supported:
+elastic EP and custom scheduler classes.
+Relation to
+[Perf] Add an adaptive prefill delayer for data-parallel serving
+#51199
+(cc
+@kjiang249
+). That PR coordinates releases through the DP coordinator (asynchronous, with acks and a 2-step lead); this one uses a synchronous per-step all-reduce in the engine loop and adds protected decode steps and a token fill target. We drove both decision functions in a CPU simulation of 8 lockstep ranks with agentic traffic:
+[Perf] Add an adaptive prefill delayer for data-parallel serving
+#51199
+'s all-ranks release rarely triggered; most of its releases came from its capacity and 30-pass fail-open bounds.
+This delayer had 2-4x fewer mixed steps and about half the mean decode latency.
+[Perf] Add an adaptive prefill delayer for data-parallel serving
+#51199
+had about 3x lower TTFT.
+The two are complementary, and I am happy to merge efforts.
+AI assistance (Claude Code) was used for this PR.
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used during the creation of this PR.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+[Core][DP] Add an opt-in cross-DP prefill delayer
+…
+2766131
+--dp-prefill-delayer (off by default) aligns prefill across the lockstep
+ranks of a data-parallel MoE engine, following ATOM's PrefillDelayer: once
+per engine step the ranks all-reduce a 6-int prefill state on the DP group
+and all take the same FIRE / HOLD decision for the next step. A step that
+ran prefill is followed by --dp-prefill-delayer-protected-steps (default 10)
+decode-only steps; otherwise prefill waits until every rank has some and
+the pending tokens fill 0.9 of the prefillable ranks' token budgets, with
+bounds for no decode, KV usage, held steps (200, or 100 with a chunk in
+progress) and a stalled backlog. The all-reduce runs where the existing DP
+state sync runs, so every rank reaches it in the same steps. It replaces
+--prefill-schedule-interval; setting both is an error.
+
+Signed-off-by: Taoyu Zhu <zhutaoyu97@gmail.com>
+mergify
+Bot
+added
+  the
+scheduler
+label
+Oct 15, 2026
+mergify
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@benenzhu
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Oct 15, 2026
+functionstackx
+reviewed
+Oct 15, 2026
+View reviewed changes
+functionstackx
+left a comment
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+is there any throughput vs e2el  improvmenets?
+won't --prefill-schedule-interval already solve the issue of prefill dp ranks interrupting decode
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+functionstackx
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Contributor
+https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Pro#scheduling-numa-binding-and-streaming
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+benenzhu
+commented
+Oct 16, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Author
+is there any throughput vs e2el improvmenets?
+won't --prefill-schedule-interval already solve the issue of prefill dp ranks interrupting decode
+@functionstackx
+Thanks for the question.
+at c128, yes
+on both
+throughput vs E2EL
+. At
+c64, no for E2EL
+: the delayer gives way higher TTFT at c64.
+Also I agree with you that
+E2E Normalized Interactivity
+matters more, this pr is overfitting to optimize only on
+throughput vs interactivity P90
+now.
+Throughput vs E2EL vs E2E Normalized Interactivity, same node, delayer off (
+--prefill-schedule-interval 32
+) vs on
+DeepSeek-V4-Pro on 8x MI355X, DP8 attention + EP8, AgentX, 1200 s runs.
+c64 off
+c64 on
+c128 off
+c128 on
+Output tok/s/GPU
+158
+145 (-8%)
+189
+350 (+85%)
+E2EL mean (s)
+34.1
+40.9 (+20%)
+68.3
+40.4 (-41%)
+TTFT mean (s)
+5.0
+25.3(+406%)
+10.0
+10.7(+7%)
+Interactivity p90 (tok/s/user, ITL only)
+17.1
+45.5(+166%)
+7.3
+23.5(+221%)
+E2E-normalized interactivity p50 (tok/s/user)
+22.5
+22.2
+9.6
+19.4
+E2E-normalized interactivity p90 (tok/s/user)
+9.5
+3.3
+4.5
+6.9
+Why
+--prefill-schedule-interval
+does not solve it here
+The interval coordinates
+when
+the DP ranks may prefill: they share the step counter, so on off-cadence steps every rank defers prefill. It does not coordinate
+whether
+they prefill: each rank decides from its own queue and sees nothing of the other ranks. Under agentic load this still lets prefill reach most steps:
+After a release step, a rank whose waiting queue did not fit the token budget (
+prefill_capacity_bound
+) stops throttling and prefills on every step until the queue drains. The check is local to the rank, but one prefilling rank makes the step mixed for all 8 ranks. With 90-130K-token prompts at c128, some rank is often in this state. This is our reading of the c128 result; we have not counted the mixed steps yet.
+A cadence step runs whatever prefill each rank has, even one small chunk on one rank, and the other ranks pay a full mixed step for it.
+The delayer adds the missing state exchange. Once per step the ranks all-reduce a few counters (pending prefill tokens, running decodes, KV pressure), and every rank takes the same decision. It fires when the pending tokens across the ranks reach about 90% of their budget, then keeps the next N steps decode-only.
+Next steps
+This PR is at an early stage. Our next goal is to lower TTFT, or at least bound it so that a TTFT SLA can be met:
+A time-based bound: release when the oldest waiting prefill has waited longer than a configured budget in ms.
+A sweep against interval 8 / 16 (with and without the long-prefill threshold) across concurrency, reported as throughput vs E2E-normalized interactivity and throughput vs TTFT.
+A looser alignment is a first candidate. We tried releasing with 6-7 of 8 ranks ready and a shorter partial-chunk hold, on the current recipe and against the same-node default. At about the same throughput (-1.8% to +1.3%), TTFT went down 28-39% and the E2E-normalized p90 went up 29-42%, while the ITL-only p90 went down 15-24%.
+Also related:
+#54627
+(just merged) has the same basic idea, holding prefill so that decode runs in longer stretches, but it applies only when data_parallel_size == 1. On MoE DP ranks it is a no-op. There, the existing cadence aligns when the ranks may prefill, but no rank sees the other ranks' queues. This PR adds that cross-rank state: one small all-reduce per step, so every rank takes the same prefill decision.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+benenzhu
+changed the title
+[Core][DP] Add an opt-in cross-DP prefill delayer (--dp-prefill-delayer)
+[DARFT][Core][DP] Add an opt-in cross-DP prefill delayer (--dp-prefill-delayer)
+Oct 16, 2026
+shen-shanshan
+self-assigned this
+Oct 19, 2026
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon will be requested when the pull request is marked ready for review
+WoosukKwon is a code owner
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+robertgshaw2-redhat will be requested when the pull request is marked ready for review
+robertgshaw2-redhat is a code owner
+njhill
+Awaiting requested review from njhill
+njhill will be requested when the pull request is marked ready for review
+njhill is a code owner
+ywang96
+Awaiting requested review from ywang96
+ywang96 will be requested when the pull request is marked ready for review
+ywang96 is a code owner
+alexm-redhat
+Awaiting requested review from alexm-redhat
+alexm-redhat will be requested when the pull request is marked ready for review
+alexm-redhat is a code owner
+heheda12345
+Awaiting requested review from heheda12345
+heheda12345 will be requested when the pull request is marked ready for review
+heheda12345 is a code owner
+ApostaC
+Awaiting requested review from ApostaC
+ApostaC will be requested when the pull request is marked ready for review
+ApostaC is a code owner
+orozery
+Awaiting requested review from orozery
+orozery will be requested when the pull request is marked ready for review
+orozery is a code owner
+ivanium
+Awaiting requested review from ivanium
+ivanium will be requested when the pull request is marked ready for review
+ivanium is a code owner
+ZJY0516
+Awaiting requested review from ZJY0516
+ZJY0516 will be requested when the pull request is marked ready for review
+ZJY0516 is a code owner
+hmellor
+Awaiting requested review from hmellor
+hmellor will be requested when the pull request is marked ready for review
+hmellor is a code owner
+youkaichao
+Awaiting requested review from youkaichao
+youkaichao will be requested when the pull request is marked ready for review
+youkaichao is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin will be requested when the pull request is marked ready for review
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth will be requested when the pull request is marked ready for review
+tlrmchlsmth is a code owner
+houseroad
+Awaiting requested review from houseroad
+houseroad will be requested when the pull request is marked ready for review
+houseroad is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 will be requested when the pull request is marked ready for review
+yewentao256 is a code owner
+ProExpertProg
+Awaiting requested review from ProExpertProg
+ProExpertProg will be requested when the pull request is marked ready for review
+ProExpertProg is a code owner
+1 more reviewer
+functionstackx
+functionstackx left review comments
+Reviewers whose approvals may not affect merge requirements
+At least 1 approving review is required to merge this pull request.
+Assignees
+shen-shanshan
+Labels
+needs-rebase
+scheduler
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

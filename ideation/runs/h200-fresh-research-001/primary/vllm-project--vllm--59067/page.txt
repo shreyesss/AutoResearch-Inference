@@ -1,0 +1,323 @@
+Conversation
+waizuichougou
+commented
+Sep 28, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Purpose
+Fix an MRV2 KV-sharing fast-prefill correctness bug when a scheduled batch
+contains both LoRA and non-LoRA requests.
+The fast-prefill path compacts the model input to
+logits_indices_padded
+, but
+the LoRA Punica metadata was still built for the original full token batch.
+The existing kernel call then used the first
+x.size(0)
+entries of the full
+mapping while retaining the full-batch sorted indices and token counts.  For a
+base request followed by a LoRA request, this can route the compact rows to the
+wrong adapter and can cause an out-of-bounds access in the LoRA shrink kernel.
+This PR is limited to eager execution. It selects the LoRA mapping with
+logits_indices_padded
+, rebuilds the Punica metadata for that compact
+mapping, and scopes it only to the Gemma3n/Gemma4 cross-decoder call.
+The original full-batch metadata remains active for the self-decoder and other
+model operations.
+Test Plan
+Unit tests:
+python -m pytest -q \
+  tests/lora/test_fast_prefill_lora_mapping.py \
+  tests/v1/worker/test_attn_utils.py -k
+'
+fast_prefill
+'
+End-to-end comparison used the same two-request batch in every run:
+Request 1: a 32-repeat long base-model prompt.
+Request 2:
+The answer is
+with a rank-1 LoRA adapter.
+max_tokens=1
+, greedy sampling,
+logprobs=5
+, three repetitions.
+Gemma 4 E2B-IT, MRV2 model runner, KV-sharing fast-prefill enabled for the
+fast runs.
+The PR correctness comparison covers eager execution with fast-prefill and
+eager execution with fast-prefill disabled.
+Test Result
+Configuration
+Repetitions
+Result
+Before fix, eager fast-prefill
+0/3 completed
+CUDA illegal memory access in the LoRA shrink kernel; no request result returned
+After fix, eager fast-prefill
+3/3 completed
+Both requests completed with token/logprob results; selected tokens:
+107
+,
+711
+After fix, eager full-prefill
+3/3 completed
+Both requests completed with token/logprob results; selected tokens:
+107
+,
+711
+For the eager comparison, fast-prefill and full-prefill selected the same
+token for both requests and produced the same LoRA-request top-5 token set.
+The maximum absolute difference among matching top-5 logprobs was
+0.076553
+.
+Representative LoRA-request top-5 logprobs from repetition 0:
+eager fast-prefill: 711:-1.555003, 506:-2.180003, 236743:-3.055003,
+                    236761:-3.117503, 106:-3.164378
+eager full-prefill: 711:-1.504600, 506:-2.254600, 236743:-3.098350,
+                    236761:-3.106163, 106:-3.137413
+Test results:
+44 passed, 26 deselected
+Essential Elements of an Effective PR Description Checklist
+The purpose of the PR, such as "Fix some issue (link existing issues this PR will resolve)".
+The test plan, such as providing test command.
+The test results, such as pasting the results comparison before and after, or e2e results
+(Optional) The necessary documentation update, such as updating
+supported_models.md
+and
+examples
+for a new model.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+waizuichougou
+requested review from
+WoosukKwon
+,
+jeejeelee
+,
+njhill
+and
+yewentao256
+as
+code owners
+September 28, 2026 16:08
+claude
+Bot
+reviewed
+Sep 28, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+mrv2
+Model Runner V2 specific
+bug
+Something isn't working
+labels
+Sep 28, 2026
+waizuichougou
+force-pushed
+the
+fix/mrv2-fast-prefill-lora-mapping
+branch
+    from
+29ab713
+to
+ea27ffc
+Compare
+September 28, 2026 16:17
+[Bugfix][MRV2] Fix LoRA mapping for eager fast prefill
+…
+cdd6880
+Signed-off-by: waizuichougou <2082431897@qq.com>
+waizuichougou
+force-pushed
+the
+fix/mrv2-fast-prefill-lora-mapping
+branch
+    from
+ea27ffc
+to
+cdd6880
+Compare
+September 29, 2026 00:19
+linitra24
+commented
+Sep 30, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the fix! Just to confirm, would this issue still occur in non-eager mode?
+👍
+1
+waizuichougou reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+waizuichougou
+commented
+Sep 30, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+Thanks for the fix! Just to confirm, would this issue still occur in non-eager mode?
+Thanks for your patience and review! After testing I found that the non-eager mode had the same problem. But supporting non-eager mode may require additional and complexer changes to how compact metadata is handled during compilation, CUDA Graph capture and replay. Would you prefer that I extend this pr or address it in a follow-up pr? In either case I will fully validate the non-eager mode fix with e2e tests before submitting it to make sure the fix is correct. Thanks again for you advice!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+waizuichougou
+changed the title
+[Bugfix][MRV2] Fix LoRA metadata handling for eager KV-sharing fast prefill
+[Bugfix][MRV2][LoRA] Fix LoRA metadata binding for eager KV-sharing fast prefill
+Oct 12, 2026
+waizuichougou
+mentioned this pull request
+Oct 12, 2026
+[Bugfix][MRV2][LoRA] Fix LoRA metadata binding for non-eager KV-sharing fast prefill
+#61162
+Open
+6 tasks done
+mergify
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@waizuichougou
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Oct 15, 2026
+Merge main into fix/mrv2-fast-prefill-lora-mapping
+…
+51170ec
+Resolve the model runner import conflict while preserving the eager fast-prefill LoRA mapping fix.
+
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+
+Signed-off-by: waizuichougou <2082431897@qq.com>
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Oct 16, 2026
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+jeejeelee
+Awaiting requested review from jeejeelee
+jeejeelee is a code owner
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+njhill
+Awaiting requested review from njhill
+njhill is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+bug
+Something isn't working
+mrv2
+Model Runner V2 specific
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

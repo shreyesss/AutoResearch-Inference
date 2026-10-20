@@ -1,0 +1,1468 @@
+From 67221e72d50cf15f1c19a889bc6820287b44fd1a Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Tue, 4 Aug 2026 12:25:53 +0800
+Subject: [PATCH 1/8] [Kernel] Add the FlashInfer SM90 MXFP4 x FP8 "humming"
+ fused MoE backend
+
+Wires FlashInfer's SM90 humming path (MXFP4 weights, FP8 activations
+quantized inside the kernel via pre-MMA E8M0 scale fusion) into the
+MXFP4 MoE oracle, so DeepSeek-V4 checkpoints can run it on Hopper.
+
+The weight preprocessing folds the E8M0 scale into an exponent offset
+and carries a per-expert fp32 residual, which FlashInferExperts.apply
+folds into per-token, expert-contiguous routed scales. Several details
+here look simplifiable but silently produce wrong numerics if changed,
+so they are commented at the point of use: the 5-slot quant_scales
+layout, the gate/up swap without de-interleave, the stable argsort
+instead of a boolean mask (which would break cudagraph capture), and
+indexing residuals by local expert id under EP.
+
+Validated against a dequantized reference forward on real weights at
+ep=1/2/4 (bad_frac=0) and end to end on H20.
+
+Signed-off-by: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+---
+ .../model_executor/layers/fused_moe/config.py |  6 ++
+ .../experts/flashinfer_cutlass_moe.py         | 79 +++++++++++++++++
+ .../layers/fused_moe/oracle/mxfp4.py          | 88 ++++++++++++++++++-
+ 3 files changed, 172 insertions(+), 1 deletion(-)
+
+diff --git a/vllm/model_executor/layers/fused_moe/config.py b/vllm/model_executor/layers/fused_moe/config.py
+index 8736b1393d82..8a92927223a9 100644
+--- a/vllm/model_executor/layers/fused_moe/config.py
++++ b/vllm/model_executor/layers/fused_moe/config.py
+@@ -252,6 +252,12 @@ class FusedMoEQuantConfig:
+     _w2: FusedMoEQuantDesc
+     is_scale_swizzled: bool = True
+ 
++    # Selects the FlashInfer SM90 "humming" MXFP4-weight x FP8-activation path
++    # (PR #3738). When set, FlashInferExperts builds the 5-slot humming
++    # quant_scales and per-token residual scales; the per-expert residuals are
++    # carried in _w1/_w2.alpha_or_gscale.
++    use_wfp4afp8_humming: bool = False
++
+     # MXFP4-specific TRTLLM parameters for SwiGLU activation clamping.
+     # These correspond to gemm1_alpha, gemm1_beta, gemm1_clamp_limit
+     # in TrtLlmMxfp4ExpertsBase.
+diff --git a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
+index 1614e41b3303..1c6ee0dffc35 100644
+--- a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
++++ b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
+@@ -281,6 +281,7 @@ def apply(
+             swiglu_limit = self.gemm1_clamp_limit
+         use_mxfp8_act_scaling = False
+         use_w4_group_scaling = False
++        use_wfp4afp8_humming = False
+         # Select quantization metadata based on FP8 format/path
+         if (
+             self.quant_dtype == torch.float8_e4m3fn
+@@ -315,6 +316,83 @@ def apply(
+             # FlashInfer API requires weight to be long for nvfp4
+             fc1_expert_weights = w1.view(torch.long)
+             fc2_expert_weights = w2.view(torch.long)
++        elif self.quant_config.use_wfp4afp8_humming:
++            # SM90 humming (MXFP4 weight x kernel-internal FP8 act). The
++            # per-expert fp32 residuals arrive via g1/g2_alphas; fold them into
++            # per-token, expert-contiguous routed-token scales (validated by
++            # scripts/humming_offline_check.py).
++            assert self.w1_scale is not None and self.w2_scale is not None
++            assert self.g1_alphas is not None and self.g2_alphas is not None
++            assert hidden_states.dtype == torch.bfloat16
++            # Plain SwiGLU, no clamp: this is the activation path validated by
++            # the offline check + M1 correctness (which pass no swiglu_* args).
++            # Must reset the clamp set at the top of apply, else the kernel
++            # switches to the un-validated SwigluBias path.
++            swiglu_alpha = None
++            swiglu_beta = None
++            swiglu_limit = None
++            # 2^6 exponent-bias compensation from humming's FP4->FP8 conversion
++            # (matches HUMMING_EPILOGUE_COMPENSATION in the flashinfer reference
++            # test test_moe_fp8_mxfp4_humming_prescale_hopper_correctness).
++            HUMMING_EPILOGUE_COMPENSATION = 64.0
++            # topk_ids are GLOBAL expert ids; the kernel filters to this rank's
++            # [start_expert, end_expert) and remaps to local. The per-expert
++            # residuals (g1/g2_alphas) are LOCAL (length num_local_experts), so
++            # index them by local id. Non-local tokens get a sentinel local id
++            # and are sorted to the tail; the kernel only reads the leading
++            # num_valid_local rows in local-expert order.
++            num_local = self.num_experts  # == moe_config.num_local_experts
++            start_expert = self.ep_rank * num_local
++            sel = topk_ids.to(torch.long).reshape(-1)
++            local_id = sel - start_expert
++            is_local = (local_id >= 0) & (local_id < num_local)
++            # Clamp OOB ids to 0 for a safe gather; masked out below.
++            gather_id = torch.where(is_local, local_id, torch.zeros_like(local_id))
++            fc1_route = self.g1_alphas[gather_id] * HUMMING_EPILOGUE_COMPENSATION
++            fc2_route = self.g2_alphas[gather_id] * HUMMING_EPILOGUE_COMPENSATION
++
++            # Sort key = local expert id, with non-local tokens pushed to the
++            # tail (sentinel num_local). Stable argsort keeps output size fixed
++            # (= topk_ids.numel()), so it is cudagraph-safe; the leading
++            # num_valid_local entries then match the kernel's permuted rows,
++            # ordered by local expert id. At ep_size=1 this reduces to the
++            # global expert-contiguous order (validated in
++            # scripts/humming_offline_check.py).
++            sort_key = torch.where(
++                is_local, local_id, torch.full_like(local_id, num_local)
++            )
++            # Both GEMMs' per-token residual scales live in the same expert-
++            # permuted token space (kernel reads fc1 via [permuted_row], fc2 via
++            # [token], both in that space), so fc1 and fc2 share one perm.
++            perm = torch.argsort(sort_key, stable=True)
++            fc1_residual_token = fc1_route.reshape(-1)[perm].contiguous()
++            fc2_residual_token = fc2_route.reshape(-1)[perm].contiguous()
++            fc2_act_global = torch.ones((), device=self.device, dtype=torch.float32)
++            # Positional contract with the humming kernel: it indexes these five
++            # slots by position, so the order below is load-bearing and a
++            # reordering fails silently with wrong values rather than raising.
++            #   0 fc1 weight E8M0 exponent offsets (int32-viewed)
++            #   1 fc1 per-token residual, in expert-permuted token order
++            #   2 fc2 activation global scale (1.0; fc2 input is kernel-produced)
++            #   3 fc2 weight E8M0 exponent offsets (int32-viewed)
++            #   4 fc2 per-token residual, same permuted order as slot 1
++            quant_scales = [
++                self.w1_scale.view(torch.int32),
++                fc1_residual_token,
++                fc2_act_global,
++                self.w2_scale.view(torch.int32),
++                fc2_residual_token,
++            ]
++            fc1_expert_weights = w1
++            fc2_expert_weights = w2
++            fc1_expert_biases = self.w1_bias
++            fc2_expert_biases = self.w2_bias
++            a1q_scale = None
++            use_w4_group_scaling = True
++            use_wfp4afp8_humming = True
++            # The humming kernel asserts float32 routing weights.
++            topk_weights = topk_weights.to(torch.float32)
++
+         elif self.weight_quant_dtype == "mxfp4":
+             assert self.w1_scale is not None and self.w2_scale is not None
+             assert w1.is_contiguous() and w2.is_contiguous()
+@@ -388,6 +466,7 @@ def apply(
+             use_deepseek_fp8_block_scale=self.use_deepseek_fp8_block_scale,
+             use_mxfp8_act_scaling=use_mxfp8_act_scaling,
+             use_w4_group_scaling=use_w4_group_scaling,
++            use_wfp4afp8_humming=use_wfp4afp8_humming,
+         )
+ 
+     def moe_sum(self, input: torch.Tensor, output: torch.Tensor) -> None:
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+index 4a8c72327862..768e3e2a8c4c 100644
+--- a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+@@ -112,6 +112,9 @@ class Mxfp4MoeBackend(Enum):
+     # FlashInfer CUTLASS backends
+     FLASHINFER_CUTLASS_MXFP4_MXFP8 = "FLASHINFER_CUTLASS_MXFP4_MXFP8"
+     FLASHINFER_CUTLASS_MXFP4_BF16 = "FLASHINFER_CUTLASS_MXFP4_BF16"
++    # FlashInfer CUTLASS "humming" MXFP4 weight x FP8 activation (SM90 only,
++    # pre-MMA E8M0 scale fusion, FlashInfer PR #3738).
++    FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING = "FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING"
+     # Marlin
+     BATCHED_MARLIN = "BATCHED_MARLIN"
+     MARLIN = "MARLIN"
+@@ -181,6 +184,7 @@ def backend_to_kernel_cls(
+     elif backend in (
+         Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_BF16,
+         Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_MXFP8,
++        Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING,
+     ):
+         from vllm.model_executor.layers.fused_moe.experts.flashinfer_cutlass_moe import (  # noqa: E501
+             FlashInferExperts,
+@@ -295,6 +299,9 @@ def map_mxfp4_backend(runner_backend: MoEBackend) -> list[Mxfp4MoeBackend]:
+             Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_MXFP8,
+         ],
+         "flashinfer_cutlass_afp8": [Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_MXFP8],
++        "flashinfer_cutlass_humming": [
++            Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING
++        ],
+         "triton": [Mxfp4MoeBackend.TRITON],
+         "triton_unfused": [Mxfp4MoeBackend.TRITON_UNFUSED],
+         "humming": [Mxfp4MoeBackend.HUMMING],
+@@ -381,7 +388,9 @@ def _backend_activation_key(backend: Mxfp4MoeBackend) -> QuantKey | None:
+         return kFp8StaticTensorSym
+     if backend == Mxfp4MoeBackend.AITER_MXFP4_MXFP4:
+         return kMxfp4Dynamic
+-    return None  # BF16 activation
++    # Humming quantizes activations to FP8 *inside* the kernel (bf16 in, no
++    # input_sf from vLLM), so from vLLM's view the activation is unquantized.
++    return None  # BF16 activation (also humming, kernel-internal FP8 act)
+ 
+ 
+ def _user_moe_activation_override() -> QuantKey | None:
+@@ -695,6 +704,7 @@ def mxfp4_round_up_hidden_size_and_intermediate_size(
+     elif backend in (
+         Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_BF16,
+         Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_MXFP8,
++        Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING,
+     ):
+         intermediate_size = round_up(intermediate_size, 128)
+         hidden_size = round_up(hidden_size, 128)
+@@ -1352,6 +1362,63 @@ def convert_weight_to_mxfp4_moe_kernel_format(
+             w2_bias,
+         )
+ 
++    if mxfp4_backend == Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING:
++        from flashinfer.fused_moe import (
++            interleave_moe_scales_for_sm90_mixed_gemm,
++            interleave_moe_weights_for_sm90_mixed_gemm,
++            preprocess_moe_weights_for_sm90_mixed_gemm_humming,
++        )
++
++        # vLLM w13 is block-laid-out gate(w1) on top, up(w3) below. The kernel's
++        # SwiGLU convention (silu on the second chunk) is the reverse, so swap
++        # to up-then-gate (validated by scripts/humming_offline_check.py). Unlike
++        # the gpt-oss CUTLASS branch, DSv4 weights are NOT row-interleaved, so we
++        # only swap the two halves (no de-interleave).
++        w1_g, w3_u = torch.chunk(w13_weight.data, 2, dim=1)
++        w13_swapped = torch.cat([w3_u, w1_g], dim=1).contiguous()
++        s1_g, s3_u = torch.chunk(w13_weight_scale.data, 2, dim=1)
++        w13_scale_swapped = torch.cat([s3_u, s1_g], dim=1).contiguous()
++        w13_bias_swapped = None
++        if w13_bias is not None:
++            b1_g, b3_u = torch.chunk(w13_bias.data, 2, dim=1)
++            w13_bias_swapped = torch.cat([b3_u, b1_g], dim=1).contiguous()
++
++        # Humming preprocessing: rewrite MXFP4 payload + fold E8M0 scale into a
++        # small exp-offset; residual (per-expert fp32) is applied in the epilogue
++        # via the routed-token activation scale. interleave=False first, then the
++        # SM90 mixed-gemm interleave (mirrors the reference test path).
++        w13_proc, w13_off, w13_residual = (
++            preprocess_moe_weights_for_sm90_mixed_gemm_humming(
++                w13_swapped.view(torch.uint8),
++                w13_scale_swapped.view(torch.uint8),
++                interleave=False,
++            )
++        )
++        w2_proc, w2_off, w2_residual = (
++            preprocess_moe_weights_for_sm90_mixed_gemm_humming(
++                w2_weight.data.view(torch.uint8),
++                w2_weight_scale.data.view(torch.uint8),
++                interleave=False,
++            )
++        )
++        w13_il = interleave_moe_weights_for_sm90_mixed_gemm(w13_proc, "fp4_fp8")
++        w2_il = interleave_moe_weights_for_sm90_mixed_gemm(w2_proc, "fp4_fp8")
++        w13_scale_il = interleave_moe_scales_for_sm90_mixed_gemm(w13_off)
++        w2_scale_il = interleave_moe_scales_for_sm90_mixed_gemm(w2_off)
++
++        # Stash per-expert fp32 residuals for the quant config / apply to consume.
++        layer.humming_w13_residual = w13_residual.contiguous()
++        layer.humming_w2_residual = w2_residual.contiguous()
++
++        return (
++            w13_il,
++            w2_il,
++            w13_scale_il,
++            w2_scale_il,
++            w13_bias_swapped,
++            w2_bias,
++        )
++
+     if mxfp4_backend == Mxfp4MoeBackend.HUMMING:
+         from vllm.model_executor.layers.quantization.utils.humming_utils import (
+             convert_to_humming_moe_kernel_format,
+@@ -1811,6 +1878,25 @@ def make_mxfp4_moe_quant_config(
+             gemm1_clamp_limit=swiglu_limit,
+             is_scale_swizzled=True,
+         )
++    elif mxfp4_backend == Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING:
++        # SM90 humming: MXFP4 weights, kernel-internal FP8 activation. From
++        # vLLM's view the activation is unquantized (bf16 in, no input_sf).
++        # Per-expert fp32 residuals are carried in alpha_or_gscale (-> g1/g2
++        # _alphas) and folded per-token in FlashInferExperts.apply.
++        assert layer is not None
++        return FusedMoEQuantConfig(
++            _a1=FusedMoEQuantDesc(),
++            _a2=FusedMoEQuantDesc(),
++            _w1=FusedMoEQuantDesc(
++                "mxfp4", None, w1_scale,
++                getattr(layer, "humming_w13_residual", None), None, w1_bias,
++            ),
++            _w2=FusedMoEQuantDesc(
++                "mxfp4", None, w2_scale,
++                getattr(layer, "humming_w2_residual", None), None, w2_bias,
++            ),
++            use_wfp4afp8_humming=True,
++        )
+     elif mxfp4_backend == Mxfp4MoeBackend.AITER_MXFP4_FP8:
+         # W4A8: MXFP4 weights + static FP8 activations
+         return mxfp4_w4a8_moe_quant_config(
+
+From 728b458340bf7c5902230cc77663f185a9b06544 Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Wed, 5 Aug 2026 10:34:56 +0800
+Subject: [PATCH 2/8] Expose the FlashInfer SM90 humming MoE kernel as
+ --moe-backend
+
+Adds "flashinfer_cutlass_humming" to the MoEBackend literal so the
+FlashInfer CUTLASS SM90 MXFP4-weight x FP8-activation path can be
+selected explicitly. The name collides with the unrelated third-party
+"humming" package backend, so the --help text separates the two.
+
+Also fails fast on the two ways the backend can be misdirected: an
+explicit request on non-SM90 hardware, and a GPT-OSS row-interleaved
+w13 layout, which the humming weight preprocessing would run with the
+right shapes but the wrong numerics.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Signed-off-by: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+---
+ .../test_mxfp4_humming_backend_selection.py   | 166 ++++++++++++++++++
+ vllm/config/kernel.py                         |   8 +-
+ .../layers/fused_moe/oracle/mxfp4.py          |  64 ++++++-
+ 3 files changed, 233 insertions(+), 5 deletions(-)
+ create mode 100644 tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+
+diff --git a/tests/kernels/moe/test_mxfp4_humming_backend_selection.py b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+new file mode 100644
+index 000000000000..6fb680869f33
+--- /dev/null
++++ b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+@@ -0,0 +1,166 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Selection-logic tests for `--moe-backend flashinfer_cutlass_humming`.
++
++The backend maps to the FlashInfer CUTLASS SM90 MXFP4-weight x FP8-activation
++"humming" kernel. These tests are CPU-only: they cover argument plumbing,
++the string -> enum mapping, and the guards that keep a misdirected request
++from reaching the kernel, not the kernel itself.
++"""
++
++from typing import get_args
++from unittest.mock import patch
++
++import pytest
++import torch
++
++from tests.kernels.moe.utils import make_dummy_moe_config
++from vllm.config import get_attr_docs
++from vllm.config.kernel import KernelConfig, MoEBackend
++from vllm.engine.arg_utils import EngineArgs, get_kwargs
++from vllm.model_executor.layers.fused_moe.oracle.mxfp4 import (
++    Mxfp4MoeBackend,
++    _check_explicit_backend_platform,
++    convert_gpt_oss_weight_to_mxfp4_moe_kernel_format,
++    convert_weight_to_mxfp4_moe_kernel_format,
++    map_mxfp4_backend,
++    select_deepseek_v4_mxfp4_moe_backend,
++)
++from vllm.utils.argparse_utils import FlexibleArgumentParser
++
++HUMMING_BACKEND = "flashinfer_cutlass_humming"
++
++ORACLE = "vllm.model_executor.layers.fused_moe.oracle.mxfp4"
++
++
++def _parse(argv: list[str]) -> EngineArgs:
++    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
++    return EngineArgs.from_cli_args(parser.parse_args(argv))
++
++
++def test_literal_contains_backend():
++    assert HUMMING_BACKEND in get_args(MoEBackend)
++
++
++def test_kernel_config_accepts_backend():
++    assert KernelConfig(moe_backend=HUMMING_BACKEND).moe_backend == HUMMING_BACKEND
++
++
++def test_engine_args_accepts_backend():
++    assert EngineArgs(moe_backend=HUMMING_BACKEND).moe_backend == HUMMING_BACKEND
++
++
++def test_cli_normalizes_dashed_form():
++    """`--moe-backend` lowercases and turns dashes into underscores."""
++    args = _parse(["--moe-backend", "flashinfer-cutlass-humming"])
++    assert args.moe_backend == HUMMING_BACKEND
++
++
++def test_cli_rejects_unknown_backend():
++    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
++    with pytest.raises(SystemExit):
++        parser.parse_args(["--moe-backend", "flashinfer_cutlass_hum"])
++
++
++def test_cli_offers_backend_as_a_choice():
++    assert HUMMING_BACKEND in get_kwargs(KernelConfig)["moe_backend"]["choices"]
++
++
++def test_cli_help_disambiguates_the_two_hummings():
++    """The `--help` text must separate this backend from the `humming` package
++    backend, since the names collide."""
++    help_text = get_attr_docs(KernelConfig)["moe_backend"]
++    assert HUMMING_BACKEND in help_text
++    assert "third-party" in help_text
++
++
++def test_map_backend_string():
++    assert map_mxfp4_backend(HUMMING_BACKEND) == [
++        Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING
++    ]
++
++
++def test_map_backend_does_not_steal_humming_package_backend():
++    """`--moe-backend humming` must keep pointing at the third-party package."""
++    assert map_mxfp4_backend("humming") == [Mxfp4MoeBackend.HUMMING]
++
++
++def test_explicit_request_on_non_sm90_is_actionable():
++    config = make_dummy_moe_config()
++    config.moe_backend = HUMMING_BACKEND
++    with patch(f"{ORACLE}.current_platform") as platform:
++        platform.is_cuda.return_value = True
++        platform.is_device_capability.return_value = False
++        platform.get_device_capability.return_value = 120
++        with pytest.raises(ValueError, match="SM90"):
++            select_deepseek_v4_mxfp4_moe_backend(config)
++
++
++def test_explicit_request_on_sm90_passes_the_guard():
++    with patch(f"{ORACLE}.current_platform") as platform:
++        platform.is_cuda.return_value = True
++        platform.is_device_capability.side_effect = lambda c: c == 90
++        _check_explicit_backend_platform(
++            HUMMING_BACKEND, map_mxfp4_backend(HUMMING_BACKEND)
++        )
++
++
++@pytest.mark.parametrize("backend", ["marlin", "humming", "triton_unfused"])
++def test_guard_only_fires_for_the_flashinfer_humming_backend(backend):
++    with patch(f"{ORACLE}.current_platform") as platform:
++        platform.is_cuda.return_value = True
++        platform.is_device_capability.return_value = False
++        _check_explicit_backend_platform(backend, map_mxfp4_backend(backend))
++
++
++def _dummy_mxfp4_weights(num_experts=2, intermediate_size=128, hidden_size=128):
++    """MXFP4 payloads as stored on the layer: w13 is (E, 2I, K // 2) uint8."""
++    w13 = torch.zeros(
++        (num_experts, 2 * intermediate_size, hidden_size // 2), dtype=torch.uint8
++    )
++    w2 = torch.zeros(
++        (num_experts, hidden_size, intermediate_size // 2), dtype=torch.uint8
++    )
++    w13_scale = torch.zeros(
++        (num_experts, 2 * intermediate_size, hidden_size // 32), dtype=torch.uint8
++    )
++    w2_scale = torch.zeros(
++        (num_experts, hidden_size, intermediate_size // 32), dtype=torch.uint8
++    )
++    return w13, w2, w13_scale, w2_scale
++
++
++def test_gpt_oss_layout_is_refused():
++    """GPT-OSS stores w13 row-interleaved; the humming weight preprocessing
++    only handles the DeepSeek-V4 block layout, so it must refuse rather than
++    return silently wrong numerics."""
++    w13, w2, w13_scale, w2_scale = _dummy_mxfp4_weights()
++    with pytest.raises(ValueError, match="DeepSeek-V4 MXFP4 expert layout"):
++        convert_gpt_oss_weight_to_mxfp4_moe_kernel_format(
++            Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING,
++            torch.nn.Module(),
++            w13,
++            w2,
++            w13_scale,
++            w2_scale,
++        )
++
++
++@pytest.mark.parametrize(
++    "intermediate_size,hidden_size", [(64, 128), (128, 64), (192, 128)]
++)
++def test_unaligned_shapes_are_refused(intermediate_size, hidden_size):
++    """Both GEMM dims must be multiples of 128; report which one is not
++    instead of failing inside the FlashInfer interleave."""
++    w13, w2, w13_scale, w2_scale = _dummy_mxfp4_weights(
++        intermediate_size=intermediate_size, hidden_size=hidden_size
++    )
++    with pytest.raises(ValueError, match="multiples of 128"):
++        convert_weight_to_mxfp4_moe_kernel_format(
++            Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING,
++            torch.nn.Module(),
++            w13,
++            w2,
++            w13_scale,
++            w2_scale,
++        )
+diff --git a/vllm/config/kernel.py b/vllm/config/kernel.py
+index 2716319e39fe..20afef93dea9 100644
+--- a/vllm/config/kernel.py
++++ b/vllm/config/kernel.py
+@@ -128,6 +128,7 @@ def with_default(
+     "cutlass",
+     "flashinfer_trtllm",
+     "flashinfer_cutlass",
++    "flashinfer_cutlass_humming",
+     "flashinfer_cutedsl",
+     "flashinfer_b12x",
+     "b12x",
+@@ -244,6 +245,10 @@ class KernelConfig:
+     - "cutlass": Use vLLM CUTLASS kernels
+     - "flashinfer_trtllm": Use FlashInfer with TRTLLM-GEN kernels
+     - "flashinfer_cutlass": Use FlashInfer with CUTLASS kernels
++    - "flashinfer_cutlass_humming": Use the FlashInfer CUTLASS "humming"
++      MXFP4-weight x FP8-activation fused MoE kernel (SM90 only, activations
++      are quantized to FP8 inside the kernel). Unrelated to the "humming"
++      backend below, which is a separate third-party package.
+     - "flashinfer_cutedsl": Use FlashInfer with CuteDSL kernels (FP4 only)
+     - "flashinfer_b12x": Use FlashInfer CuteDSL fused MoE for SM12x
+       (RTX Pro 6000 / DGX Spark)
+@@ -257,7 +262,8 @@ class KernelConfig:
+       an NVFP4 checkpoint is consumed prequantized, MXFP4 weights are
+       requantized at load
+     - "marlin": Use Marlin kernels (weight-only quantization)
+-    - "humming": Use Humming Mixed Precision kernels
++    - "humming": Use Humming Mixed Precision kernels (third-party `humming`
++      package; not the FlashInfer CUTLASS path above)
+     - "triton_unfused": Use Triton unfused MoE kernels
+     - "aiter": Use AMD AITer kernels (ROCm only)
+     - "flydsl": Use AMD FlyDSL kernels (ROCm only)
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+index 768e3e2a8c4c..1da25834e55c 100644
+--- a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+@@ -430,6 +430,25 @@ def _make_log_unsupported(backend: Mxfp4MoeBackend, reason: str | None) -> str:
+     return f"{base} since {reason}." if reason else f"{base}."
+ 
+ 
++def _check_explicit_backend_platform(
++    runner_backend: MoEBackend, backends: list[Mxfp4MoeBackend]
++) -> None:
++    """Fail fast on an explicitly requested backend that this device can never
++    run, so the user gets a hardware hint instead of the generic
++    "does not support the deployment configuration" from `_return_or_raise`."""
++    if Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING not in backends:
++        return
++    if current_platform.is_cuda() and current_platform.is_device_capability(90):
++        return
++    raise ValueError(
++        f"moe_backend={runner_backend!r} selects the FlashInfer CUTLASS "
++        "humming MXFP4-weight x FP8-activation MoE kernel, which is "
++        "implemented for SM90 (Hopper) only; this device reports compute "
++        f"capability {current_platform.get_device_capability()}. Drop the "
++        "flag to fall back to the automatic backend selection."
++    )
++
++
+ def _return_or_raise(
+     backend: Mxfp4MoeBackend,
+     config: FusedMoEConfig,
+@@ -511,6 +530,7 @@ def select_mxfp4_moe_backend(
+         requested_backends = _get_requested_backends(
+             runner_backend, requested_activation_key
+         )
++        _check_explicit_backend_platform(runner_backend, requested_backends)
+         if activation_format == mk.FusedMoEActivationFormat.BatchedExperts:
+             requested_backends = [
+                 Mxfp4MoeBackend.BATCHED_MARLIN if b == Mxfp4MoeBackend.MARLIN else b
+@@ -620,6 +640,7 @@ def select_deepseek_v4_mxfp4_moe_backend(
+     runner_backend = config.moe_backend
+     if runner_backend != "auto":
+         requested_backends = _get_requested_backends(runner_backend, None)
++        _check_explicit_backend_platform(runner_backend, requested_backends)
+         if activation_format == mk.FusedMoEActivationFormat.BatchedExperts:
+             requested_backends = [
+                 Mxfp4MoeBackend.BATCHED_MARLIN if b == Mxfp4MoeBackend.MARLIN else b
+@@ -950,6 +971,20 @@ def swap_every_two_rows(x, axis=-1):
+             w2_bias,
+         )
+ 
++    elif mxfp4_backend == Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING:
++        # The humming weight preprocessing (see
++        # convert_weight_to_mxfp4_moe_kernel_format) assumes the DeepSeek-V4
++        # block layout (gate/up as two contiguous halves) and only swaps the
++        # halves. GPT-OSS-style checkpoints store w13 row-interleaved, which
++        # would run through the kernel with the right shapes but the wrong
++        # numerics, so refuse it instead of returning silently wrong values.
++        raise ValueError(
++            "moe_backend='flashinfer_cutlass_humming' only supports the "
++            "DeepSeek-V4 MXFP4 expert layout; this checkpoint uses the "
++            "GPT-OSS row-interleaved w13 layout, which the humming weight "
++            "preprocessing does not handle. Use --moe-backend auto instead."
++        )
++
+     elif mxfp4_backend in (
+         Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_BF16,
+         Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_MXFP8,
+@@ -1363,6 +1398,19 @@ def convert_weight_to_mxfp4_moe_kernel_format(
+         )
+ 
+     if mxfp4_backend == Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING:
++        # The SM90 mixed-gemm interleave assumes both GEMM dims are already
++        # rounded to 128 (see
++        # mxfp4_round_up_hidden_size_and_intermediate_size); check here so a
++        # bad shape reports the dimension instead of failing inside FlashInfer.
++        humming_n = w13_weight.shape[1] // 2
++        humming_k = w13_weight.shape[2] * 2
++        if humming_n % 128 != 0 or humming_k % 128 != 0:
++            raise ValueError(
++                "moe_backend='flashinfer_cutlass_humming' requires "
++                "intermediate_size and hidden_size to be multiples of 128, "
++                f"got intermediate_size={humming_n}, hidden_size={humming_k}."
++            )
++
+         from flashinfer.fused_moe import (
+             interleave_moe_scales_for_sm90_mixed_gemm,
+             interleave_moe_weights_for_sm90_mixed_gemm,
+@@ -1888,12 +1936,20 @@ def make_mxfp4_moe_quant_config(
+             _a1=FusedMoEQuantDesc(),
+             _a2=FusedMoEQuantDesc(),
+             _w1=FusedMoEQuantDesc(
+-                "mxfp4", None, w1_scale,
+-                getattr(layer, "humming_w13_residual", None), None, w1_bias,
++                "mxfp4",
++                None,
++                w1_scale,
++                getattr(layer, "humming_w13_residual", None),
++                None,
++                w1_bias,
+             ),
+             _w2=FusedMoEQuantDesc(
+-                "mxfp4", None, w2_scale,
+-                getattr(layer, "humming_w2_residual", None), None, w2_bias,
++                "mxfp4",
++                None,
++                w2_scale,
++                getattr(layer, "humming_w2_residual", None),
++                None,
++                w2_bias,
+             ),
+             use_wfp4afp8_humming=True,
+         )
+
+From c56fe65c275ccbab91dc81fecbaf70dbe91914be Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Wed, 5 Aug 2026 10:36:16 +0800
+Subject: [PATCH 3/8] Probe for the FlashInfer humming MoE kernel before
+ selecting it
+
+The humming symbols only exist in flashinfer-python >= 0.6.16, so on an
+older install an explicit --moe-backend flashinfer_cutlass_humming used
+to surface as an ImportError from inside weight loading. Add
+has_flashinfer_humming_moe() and check it where the backend is chosen,
+so the failure names the version to install.
+
+The probe looks for the symbols the humming path actually calls rather
+than a version, and deliberately does not build on
+has_flashinfer_cutlass_fused_moe(): that helper also demands nvfp4 and
+TRT-LLM symbols which this path never touches and which are missing from
+builds where humming runs correctly.
+
+Signed-off-by: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+---
+ .../test_mxfp4_humming_backend_selection.py   | 92 ++++++++++++++++---
+ .../layers/fused_moe/oracle/mxfp4.py          | 38 +++++---
+ vllm/utils/flashinfer.py                      | 35 +++++++
+ 3 files changed, 135 insertions(+), 30 deletions(-)
+
+diff --git a/tests/kernels/moe/test_mxfp4_humming_backend_selection.py b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+index 6fb680869f33..8f1fb4593487 100644
+--- a/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
++++ b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+@@ -8,6 +8,7 @@
+ from reaching the kernel, not the kernel itself.
+ """
+ 
++from contextlib import contextmanager
+ from typing import get_args
+ from unittest.mock import patch
+ 
+@@ -20,7 +21,7 @@
+ from vllm.engine.arg_utils import EngineArgs, get_kwargs
+ from vllm.model_executor.layers.fused_moe.oracle.mxfp4 import (
+     Mxfp4MoeBackend,
+-    _check_explicit_backend_platform,
++    _check_explicit_backend_requirements,
+     convert_gpt_oss_weight_to_mxfp4_moe_kernel_format,
+     convert_weight_to_mxfp4_moe_kernel_format,
+     map_mxfp4_backend,
+@@ -85,32 +86,93 @@ def test_map_backend_does_not_steal_humming_package_backend():
+     assert map_mxfp4_backend("humming") == [Mxfp4MoeBackend.HUMMING]
+ 
+ 
++@contextmanager
++def _patched_platform(*, is_sm90: bool, humming_available: bool = True):
++    """Run the oracle against a synthetic device and FlashInfer build."""
++    with (
++        patch(f"{ORACLE}.current_platform") as platform,
++        patch(f"{ORACLE}.has_flashinfer_humming_moe", return_value=humming_available),
++    ):
++        platform.is_cuda.return_value = True
++        platform.is_rocm.return_value = False
++        platform.is_device_capability.side_effect = lambda c: is_sm90 and c == 90
++        platform.has_device_capability.side_effect = (
++            lambda c: (90 if is_sm90 else 120) >= c
++        )
++        platform.get_device_capability.return_value = 90 if is_sm90 else 120
++        yield platform
++
++
+ def test_explicit_request_on_non_sm90_is_actionable():
+     config = make_dummy_moe_config()
+     config.moe_backend = HUMMING_BACKEND
+-    with patch(f"{ORACLE}.current_platform") as platform:
+-        platform.is_cuda.return_value = True
+-        platform.is_device_capability.return_value = False
+-        platform.get_device_capability.return_value = 120
+-        with pytest.raises(ValueError, match="SM90"):
+-            select_deepseek_v4_mxfp4_moe_backend(config)
++    with _patched_platform(is_sm90=False), pytest.raises(ValueError, match="SM90"):
++        select_deepseek_v4_mxfp4_moe_backend(config)
+ 
+ 
+ def test_explicit_request_on_sm90_passes_the_guard():
+-    with patch(f"{ORACLE}.current_platform") as platform:
+-        platform.is_cuda.return_value = True
+-        platform.is_device_capability.side_effect = lambda c: c == 90
+-        _check_explicit_backend_platform(
++    with _patched_platform(is_sm90=True):
++        _check_explicit_backend_requirements(
+             HUMMING_BACKEND, map_mxfp4_backend(HUMMING_BACKEND)
+         )
+ 
+ 
++def test_explicit_request_on_old_flashinfer_names_the_version():
++    """Without the probe this surfaces as an ImportError from deep inside
++    weight loading; the user needs to be told which version to install."""
++    config = make_dummy_moe_config()
++    config.moe_backend = HUMMING_BACKEND
++    with (
++        _patched_platform(is_sm90=True, humming_available=False),
++        pytest.raises(ValueError, match="flashinfer-python>=0.6.16"),
++    ):
++        select_deepseek_v4_mxfp4_moe_backend(config)
++
++
++def test_auto_selection_never_reaches_the_backend():
++    """The backend is opt-in only: it appears in no automatic priority list, so
++    a DeepSeek-V4 MXFP4 model on SM90 must not land on it without an explicit
++    request, even where the kernel is available."""
++    config = make_dummy_moe_config()  # moe_backend stays "auto"
++    with _patched_platform(is_sm90=True):
++        try:
++            backend, _ = select_deepseek_v4_mxfp4_moe_backend(config)
++        except (ValueError, NotImplementedError):
++            pass  # nothing suitable on this synthetic device; still not humming
++        else:
++            assert backend is not Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING
++
++
+ @pytest.mark.parametrize("backend", ["marlin", "humming", "triton_unfused"])
+ def test_guard_only_fires_for_the_flashinfer_humming_backend(backend):
+-    with patch(f"{ORACLE}.current_platform") as platform:
+-        platform.is_cuda.return_value = True
+-        platform.is_device_capability.return_value = False
+-        _check_explicit_backend_platform(backend, map_mxfp4_backend(backend))
++    with _patched_platform(is_sm90=False, humming_available=False):
++        _check_explicit_backend_requirements(backend, map_mxfp4_backend(backend))
++
++
++def test_probe_ignores_symbols_the_humming_path_never_uses():
++    """The probe must not require nvfp4/TRT-LLM symbols. FlashInfer builds
++    exist that carry the humming kernel but not `fp4_quantize` /
++    `nvfp4_block_scale_interleave`; rejecting those would tell the user to
++    upgrade a FlashInfer that already works."""
++    from types import SimpleNamespace
++
++    from vllm.utils import flashinfer as fi
++
++    def cutlass_fused_moe(*, use_wfp4afp8_humming=False): ...
++
++    humming_only = SimpleNamespace(
++        cutlass_fused_moe=cutlass_fused_moe,
++        preprocess_moe_weights_for_sm90_mixed_gemm_humming=lambda *a, **k: None,
++        interleave_moe_weights_for_sm90_mixed_gemm=lambda *a, **k: None,
++        interleave_moe_scales_for_sm90_mixed_gemm=lambda *a, **k: None,
++    )
++    fi.has_flashinfer_humming_moe.cache_clear()
++    with (
++        patch.object(fi, "has_flashinfer_moe", return_value=True),
++        patch.object(fi, "_get_submodule", return_value=humming_only),
++    ):
++        assert fi.has_flashinfer_humming_moe() is True
++    fi.has_flashinfer_humming_moe.cache_clear()
+ 
+ 
+ def _dummy_mxfp4_weights(num_experts=2, intermediate_size=128, hidden_size=128):
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+index 1da25834e55c..e96ea51a6eb5 100644
+--- a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+@@ -45,6 +45,7 @@
+ )
+ from vllm.model_executor.layers.quantization.utils.w8a8_utils import all_close_1d
+ from vllm.platforms import current_platform
++from vllm.utils.flashinfer import has_flashinfer_humming_moe
+ from vllm.utils.import_utils import has_triton_kernels
+ from vllm.utils.math_utils import round_up
+ 
+@@ -430,23 +431,30 @@ def _make_log_unsupported(backend: Mxfp4MoeBackend, reason: str | None) -> str:
+     return f"{base} since {reason}." if reason else f"{base}."
+ 
+ 
+-def _check_explicit_backend_platform(
++def _check_explicit_backend_requirements(
+     runner_backend: MoEBackend, backends: list[Mxfp4MoeBackend]
+ ) -> None:
+-    """Fail fast on an explicitly requested backend that this device can never
+-    run, so the user gets a hardware hint instead of the generic
+-    "does not support the deployment configuration" from `_return_or_raise`."""
++    """Fail fast on an explicitly requested backend this deployment can never
++    run, so the user gets an actionable hint instead of the generic "does not
++    support the deployment configuration" from `_return_or_raise` -- or, for a
++    FlashInfer too old to carry the kernel, an ImportError raised deep inside
++    weight loading."""
+     if Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_FP8_HUMMING not in backends:
+         return
+-    if current_platform.is_cuda() and current_platform.is_device_capability(90):
+-        return
+-    raise ValueError(
+-        f"moe_backend={runner_backend!r} selects the FlashInfer CUTLASS "
+-        "humming MXFP4-weight x FP8-activation MoE kernel, which is "
+-        "implemented for SM90 (Hopper) only; this device reports compute "
+-        f"capability {current_platform.get_device_capability()}. Drop the "
+-        "flag to fall back to the automatic backend selection."
+-    )
++    if not (current_platform.is_cuda() and current_platform.is_device_capability(90)):
++        raise ValueError(
++            f"moe_backend={runner_backend!r} selects the FlashInfer CUTLASS "
++            "humming MXFP4-weight x FP8-activation MoE kernel, which is "
++            "implemented for SM90 (Hopper) only; this device reports compute "
++            f"capability {current_platform.get_device_capability()}. Drop the "
++            "flag to fall back to the automatic backend selection."
++        )
++    if not has_flashinfer_humming_moe():
++        raise ValueError(
++            f"moe_backend={runner_backend!r} needs the FlashInfer humming "
++            "MXFP4 x FP8 MoE kernel, which the installed FlashInfer does not "
++            "provide; it requires flashinfer-python>=0.6.16."
++        )
+ 
+ 
+ def _return_or_raise(
+@@ -530,7 +538,7 @@ def select_mxfp4_moe_backend(
+         requested_backends = _get_requested_backends(
+             runner_backend, requested_activation_key
+         )
+-        _check_explicit_backend_platform(runner_backend, requested_backends)
++        _check_explicit_backend_requirements(runner_backend, requested_backends)
+         if activation_format == mk.FusedMoEActivationFormat.BatchedExperts:
+             requested_backends = [
+                 Mxfp4MoeBackend.BATCHED_MARLIN if b == Mxfp4MoeBackend.MARLIN else b
+@@ -640,7 +648,7 @@ def select_deepseek_v4_mxfp4_moe_backend(
+     runner_backend = config.moe_backend
+     if runner_backend != "auto":
+         requested_backends = _get_requested_backends(runner_backend, None)
+-        _check_explicit_backend_platform(runner_backend, requested_backends)
++        _check_explicit_backend_requirements(runner_backend, requested_backends)
+         if activation_format == mk.FusedMoEActivationFormat.BatchedExperts:
+             requested_backends = [
+                 Mxfp4MoeBackend.BATCHED_MARLIN if b == Mxfp4MoeBackend.MARLIN else b
+diff --git a/vllm/utils/flashinfer.py b/vllm/utils/flashinfer.py
+index f77b669cc266..d1e7cd76ddc3 100644
+--- a/vllm/utils/flashinfer.py
++++ b/vllm/utils/flashinfer.py
+@@ -9,6 +9,7 @@
+ import functools
+ import importlib
+ import importlib.util
++import inspect
+ import os
+ import shutil
+ from collections.abc import Callable
+@@ -301,6 +302,40 @@ def has_flashinfer_cutlass_fused_moe() -> bool:
+     return True
+ 
+ 
++@functools.cache
++def has_flashinfer_humming_moe() -> bool:
++    """Return `True` if the FlashInfer CUTLASS SM90 "humming" MXFP4-weight x
++    FP8-activation fused MoE path is available (FlashInfer >= 0.6.16)."""
++    # Deliberately not chained on has_flashinfer_cutlass_fused_moe(): that also
++    # requires nvfp4/TRT-LLM symbols which the humming path never touches, and
++    # which are absent from builds where humming works fine.
++    if not has_flashinfer_moe():
++        return False
++
++    fused_moe = _get_submodule("flashinfer.fused_moe")
++    if not fused_moe:
++        return False
++
++    # Only the preprocessing helper is humming-specific; the interleave helpers
++    # predate it and are shared with the SM90 W4A16 path.
++    required_functions = [
++        "cutlass_fused_moe",
++        "preprocess_moe_weights_for_sm90_mixed_gemm_humming",
++        "interleave_moe_weights_for_sm90_mixed_gemm",
++        "interleave_moe_scales_for_sm90_mixed_gemm",
++    ]
++    if any(not hasattr(fused_moe, name) for name in required_functions):
++        return False
++
++    # The kernel-side opt-in is a keyword argument rather than a symbol, so it
++    # needs a signature check to tell a humming-capable build from an older one.
++    try:
++        params = inspect.signature(fused_moe.cutlass_fused_moe).parameters
++    except (TypeError, ValueError):
++        return False
++    return "use_wfp4afp8_humming" in params
++
++
+ @functools.cache
+ def has_flashinfer_cutedsl_grouped_gemm_nt_masked() -> bool:
+     """Return ``True`` if FlashInfer CUTLASS fused MoE is available."""
+
+From b1a3828e34e8acdd4da0f80e583c8e896e674ded Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Mon, 3 Aug 2026 16:18:42 +0800
+Subject: [PATCH 4/8] Document the FlashInfer MXFP4 MoE variants in the kernel
+ feature table
+
+The flashinfer experts row listed only nvfp4 and fp8, but the backend
+has covered MXFP4 weights since the SM90 W4A16 and SM100 MXFP8 paths.
+Add the type along with a note for the SM90 MXFP4 x FP8 variant, whose
+activations are quantized inside the kernel rather than by vLLM.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Signed-off-by: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+---
+ docs/design/moe_kernel_features.md | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/docs/design/moe_kernel_features.md b/docs/design/moe_kernel_features.md
+index 0b1a9151ec69..95f34f2cd592 100644
+--- a/docs/design/moe_kernel_features.md
++++ b/docs/design/moe_kernel_features.md
+@@ -85,7 +85,7 @@ To be used with a particular `FusedMoEPrepareAndFinalizeModular` subclass, MoE k
+ | deep gemm | standard,</br>batched | fp8 | G(128),A,T | silu, gelu | <sup>6</sup> | Y | </br>[`DeepGemmExperts`][vllm.model_executor.layers.fused_moe.experts.deep_gemm_moe.DeepGemmExperts],</br>[`BatchedDeepGemmExperts`][vllm.model_executor.layers.fused_moe.experts.batched_deep_gemm_moe.BatchedDeepGemmExperts] |
+ | cutlass_fp4 | standard,</br>batched | nvfp4 | A,T | silu | Y | Y | [`CutlassExpertsFp4`][vllm.model_executor.layers.fused_moe.experts.cutlass_moe.CutlassExpertsFp4] |
+ | cutlass_fp8 | standard,</br>batched | fp8 | A,T | silu, gelu | Y | Y | [`CutlassExpertsFp8`][vllm.model_executor.layers.fused_moe.experts.cutlass_moe.CutlassExpertsFp8],</br>[`CutlasBatchedExpertsFp8`][vllm.model_executor.layers.fused_moe.experts.cutlass_moe.CutlassBatchedExpertsFp8] |
+-| flashinfer | standard | nvfp4,</br>fp8 | T | <sup>5</sup> | N | Y | [`FlashInferExperts`][vllm.model_executor.layers.fused_moe.experts.flashinfer_cutlass_moe.FlashInferExperts] |
++| flashinfer | standard | mxfp4<sup>7</sup>,</br>nvfp4,</br>fp8 | G(32),T | <sup>5</sup> | N | Y | [`FlashInferExperts`][vllm.model_executor.layers.fused_moe.experts.flashinfer_cutlass_moe.FlashInferExperts] |
+ | gpt oss triton | standard | N/A | N/A | <sup>5</sup> | Y | Y | [`triton_kernel_fused_experts`][vllm.model_executor.layers.fused_moe.experts.gpt_oss_triton_kernels_moe.triton_kernel_fused_experts],</br>[`OAITritonExperts`][vllm.model_executor.layers.fused_moe.experts.gpt_oss_triton_kernels_moe.OAITritonExperts] |
+ | marlin | standard,</br>batched | <sup>3</sup> / N/A | <sup>3</sup> / N/A | silu,</br>swigluoai | Y | Y | [`fused_marlin_moe`][vllm.model_executor.layers.fused_moe.experts.marlin_moe.fused_marlin_moe],</br>[`MarlinExperts`][vllm.model_executor.layers.fused_moe.experts.marlin_moe.MarlinExperts],</br>[`BatchedMarlinExperts`][vllm.model_executor.layers.fused_moe.experts.marlin_moe.BatchedMarlinExperts] |
+ | trtllm | standard | mxfp4,</br>nvfp4 | G(16),G(32) | <sup>5</sup> | N | Y | [`TrtLlmMxfp4ExpertsMonolithic`][vllm.model_executor.layers.fused_moe.experts.trtllm_mxfp4_moe.TrtLlmMxfp4ExpertsMonolithic],</br>[`TrtLlmMxfp4ExpertsModular`][vllm.model_executor.layers.fused_moe.experts.trtllm_mxfp4_moe.TrtLlmMxfp4ExpertsModular],</br>[`TrtLlmNvFp4ExpertsMonolithic`][vllm.model_executor.layers.fused_moe.experts.trtllm_nvfp4_moe.TrtLlmNvFp4ExpertsMonolithic],</br>[`TrtLlmNvfp4ExpertsModular`][vllm.model_executor.layers.fused_moe.experts.trtllm_nvfp4_moe.TrtLlmNvFp4ExpertsModular] |
+@@ -101,6 +101,7 @@ To be used with a particular `FusedMoEPrepareAndFinalizeModular` subclass, MoE k
+     4. This is a naive implementation of experts that supports batched format. Mainly used for testing.
+     5. The `activation` parameter is ignored and SwiGlu is used by default instead.
+     6. Only handled by or supported when used with modular kernels.
++    7. The MXFP4-weight x FP8-activation variant is SM90-only and opt-in via `--moe-backend flashinfer_cutlass_humming`; its activations are quantized inside the kernel rather than by vLLM.
+ 
+ ## Modular Kernel "families"
+ 
+
+From 72d44831ba550acfa39c0d1a3085fd569d8a199b Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Wed, 5 Aug 2026 16:00:37 +0800
+Subject: [PATCH 5/8] Hoist per-forward constants out of the humming apply path
+
+The SM90 humming branch rebuilt several constants on every forward: the
+epilogue compensation was re-applied to the gathered residuals, and two
+temporaries were materialised only to serve as the `other` operand of a
+where.
+
+Fold the compensation into the residual tables once, cached rather than
+applied in place because g1/g2_alphas are shared with the nvfp4 paths.
+Pass scalars to where instead of zeros_like/full_like, and keep a single
+ones scalar rather than allocating one per call.
+
+Saves roughly five kernels per MoE layer per step, which at 43 layers is
+not nothing on a decode step, and changes no numerics.
+
+Signed-off-by: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+---
+ .../experts/flashinfer_cutlass_moe.py         | 38 +++++++++++++++----
+ 1 file changed, 30 insertions(+), 8 deletions(-)
+
+diff --git a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
+index 1c6ee0dffc35..3b2a12302c6b 100644
+--- a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
++++ b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
+@@ -85,6 +85,12 @@ def __init__(
+             " float16 quantization are currently supported."
+         )
+         self.device = moe_config.device
++        # Constants the SM90 humming branch would otherwise rebuild on every
++        # forward; see apply(). Filled lazily there because g1/g2_alphas are
++        # only populated once weights are loaded.
++        self._humming_g1_scaled: torch.Tensor | None = None
++        self._humming_g2_scaled: torch.Tensor | None = None
++        self._humming_one: torch.Tensor | None = None
+         self.num_experts = moe_config.num_local_experts
+         self.ep_rank = moe_config.moe_parallel_config.ep_rank
+         self.ep_size = moe_config.moe_parallel_config.ep_size
+@@ -343,13 +349,27 @@ def apply(
+             # num_valid_local rows in local-expert order.
+             num_local = self.num_experts  # == moe_config.num_local_experts
+             start_expert = self.ep_rank * num_local
++            # The epilogue compensation is a constant, so fold it into the
++            # residuals once instead of re-scaling the gathered values on every
++            # forward. g1/g2_alphas are shared with the nvfp4 paths above and
++            # must not be scaled in place.
++            if self._humming_g1_scaled is None or self._humming_g2_scaled is None:
++                self._humming_g1_scaled = (
++                    self.g1_alphas * HUMMING_EPILOGUE_COMPENSATION
++                ).contiguous()
++                self._humming_g2_scaled = (
++                    self.g2_alphas * HUMMING_EPILOGUE_COMPENSATION
++                ).contiguous()
++            g1_scaled = self._humming_g1_scaled
++            g2_scaled = self._humming_g2_scaled
+             sel = topk_ids.to(torch.long).reshape(-1)
+             local_id = sel - start_expert
+             is_local = (local_id >= 0) & (local_id < num_local)
+-            # Clamp OOB ids to 0 for a safe gather; masked out below.
+-            gather_id = torch.where(is_local, local_id, torch.zeros_like(local_id))
+-            fc1_route = self.g1_alphas[gather_id] * HUMMING_EPILOGUE_COMPENSATION
+-            fc2_route = self.g2_alphas[gather_id] * HUMMING_EPILOGUE_COMPENSATION
++            # Send OOB ids to 0 for a safe gather; masked out below. Scalar
++            # `other` avoids materialising a zeros tensor each call.
++            gather_id = torch.where(is_local, local_id, 0)
++            fc1_route = g1_scaled[gather_id]
++            fc2_route = g2_scaled[gather_id]
+ 
+             # Sort key = local expert id, with non-local tokens pushed to the
+             # tail (sentinel num_local). Stable argsort keeps output size fixed
+@@ -358,16 +378,18 @@ def apply(
+             # ordered by local expert id. At ep_size=1 this reduces to the
+             # global expert-contiguous order (validated in
+             # scripts/humming_offline_check.py).
+-            sort_key = torch.where(
+-                is_local, local_id, torch.full_like(local_id, num_local)
+-            )
++            sort_key = torch.where(is_local, local_id, num_local)
+             # Both GEMMs' per-token residual scales live in the same expert-
+             # permuted token space (kernel reads fc1 via [permuted_row], fc2 via
+             # [token], both in that space), so fc1 and fc2 share one perm.
+             perm = torch.argsort(sort_key, stable=True)
+             fc1_residual_token = fc1_route.reshape(-1)[perm].contiguous()
+             fc2_residual_token = fc2_route.reshape(-1)[perm].contiguous()
+-            fc2_act_global = torch.ones((), device=self.device, dtype=torch.float32)
++            if self._humming_one is None:
++                self._humming_one = torch.ones(
++                    (), device=self.device, dtype=torch.float32
++                )
++            fc2_act_global = self._humming_one
+             # Positional contract with the humming kernel: it indexes these five
+             # slots by position, so the order below is load-bearing and a
+             # reordering fails silently with wrong values rather than raising.
+
+From 6a8204a445ebcd915b55cc4db62b207f4ab20027 Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 18:12:40 +0800
+Subject: [PATCH 6/8] Pass humming residuals per local expert, not per routed
+ token
+
+FlashInfer #4431 changed the humming quant-scale contract: slots 1 and 4 are
+now [num_local_experts] fp32 arrays and the fused MoE runtime selects each
+routed row's residual with the expert-permuted token map it already builds.
+
+The caller therefore stops duplicating that permutation. This drops the
+torch.argsort and both gathers, which nsys measured at 27.4 us/layer-step
+against 1.6 us for a purpose-built sort kernel, and removes the coupling where
+a change to the kernel's internal ordering would silently produce wrong values
+here rather than an error. Routing still passes global expert ids; the kernel
+maps them to rank-local indices before reading the arrays.
+
+The fixed 2^6 compensation is still the caller's job, so the cached scaled
+copies stay.
+
+Signed-off-by: Zheng Duan <zhengd@nvidia.com>
+Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>
+---
+ .../experts/flashinfer_cutlass_moe.py         | 57 +++++--------------
+ 1 file changed, 14 insertions(+), 43 deletions(-)
+
+diff --git a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
+index 3b2a12302c6b..8a8cbd2dc76d 100644
+--- a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
++++ b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutlass_moe.py
+@@ -324,8 +324,10 @@ def apply(
+             fc2_expert_weights = w2.view(torch.long)
+         elif self.quant_config.use_wfp4afp8_humming:
+             # SM90 humming (MXFP4 weight x kernel-internal FP8 act). The
+-            # per-expert fp32 residuals arrive via g1/g2_alphas; fold them into
+-            # per-token, expert-contiguous routed-token scales (validated by
++            # per-expert fp32 residuals arrive via g1/g2_alphas and are handed
++            # to the kernel as-is: since flashinfer #4431 slots 1 and 4 are
++            # [num_local_experts] and the kernel selects each routed row's
++            # residual with its own expert map (validated by
+             # scripts/humming_offline_check.py).
+             assert self.w1_scale is not None and self.w2_scale is not None
+             assert self.g1_alphas is not None and self.g2_alphas is not None
+@@ -341,18 +343,12 @@ def apply(
+             # (matches HUMMING_EPILOGUE_COMPENSATION in the flashinfer reference
+             # test test_moe_fp8_mxfp4_humming_prescale_hopper_correctness).
+             HUMMING_EPILOGUE_COMPENSATION = 64.0
+-            # topk_ids are GLOBAL expert ids; the kernel filters to this rank's
+-            # [start_expert, end_expert) and remaps to local. The per-expert
+-            # residuals (g1/g2_alphas) are LOCAL (length num_local_experts), so
+-            # index them by local id. Non-local tokens get a sentinel local id
+-            # and are sorted to the tail; the kernel only reads the leading
+-            # num_valid_local rows in local-expert order.
+-            num_local = self.num_experts  # == moe_config.num_local_experts
+-            start_expert = self.ep_rank * num_local
+-            # The epilogue compensation is a constant, so fold it into the
+-            # residuals once instead of re-scaling the gathered values on every
+-            # forward. g1/g2_alphas are shared with the nvfp4 paths above and
+-            # must not be scaled in place.
++            # The compensation is a constant, so fold it into the residuals once
++            # instead of re-scaling on every forward. g1/g2_alphas are shared
++            # with the nvfp4 paths above and must not be scaled in place.
++            # topk_ids stay GLOBAL expert ids: the kernel's permutation converts
++            # valid routes to rank-local indices before reading these arrays, so
++            # EP needs nothing extra here.
+             if self._humming_g1_scaled is None or self._humming_g2_scaled is None:
+                 self._humming_g1_scaled = (
+                     self.g1_alphas * HUMMING_EPILOGUE_COMPENSATION
+@@ -360,31 +356,6 @@ def apply(
+                 self._humming_g2_scaled = (
+                     self.g2_alphas * HUMMING_EPILOGUE_COMPENSATION
+                 ).contiguous()
+-            g1_scaled = self._humming_g1_scaled
+-            g2_scaled = self._humming_g2_scaled
+-            sel = topk_ids.to(torch.long).reshape(-1)
+-            local_id = sel - start_expert
+-            is_local = (local_id >= 0) & (local_id < num_local)
+-            # Send OOB ids to 0 for a safe gather; masked out below. Scalar
+-            # `other` avoids materialising a zeros tensor each call.
+-            gather_id = torch.where(is_local, local_id, 0)
+-            fc1_route = g1_scaled[gather_id]
+-            fc2_route = g2_scaled[gather_id]
+-
+-            # Sort key = local expert id, with non-local tokens pushed to the
+-            # tail (sentinel num_local). Stable argsort keeps output size fixed
+-            # (= topk_ids.numel()), so it is cudagraph-safe; the leading
+-            # num_valid_local entries then match the kernel's permuted rows,
+-            # ordered by local expert id. At ep_size=1 this reduces to the
+-            # global expert-contiguous order (validated in
+-            # scripts/humming_offline_check.py).
+-            sort_key = torch.where(is_local, local_id, num_local)
+-            # Both GEMMs' per-token residual scales live in the same expert-
+-            # permuted token space (kernel reads fc1 via [permuted_row], fc2 via
+-            # [token], both in that space), so fc1 and fc2 share one perm.
+-            perm = torch.argsort(sort_key, stable=True)
+-            fc1_residual_token = fc1_route.reshape(-1)[perm].contiguous()
+-            fc2_residual_token = fc2_route.reshape(-1)[perm].contiguous()
+             if self._humming_one is None:
+                 self._humming_one = torch.ones(
+                     (), device=self.device, dtype=torch.float32
+@@ -394,16 +365,16 @@ def apply(
+             # slots by position, so the order below is load-bearing and a
+             # reordering fails silently with wrong values rather than raising.
+             #   0 fc1 weight E8M0 exponent offsets (int32-viewed)
+-            #   1 fc1 per-token residual, in expert-permuted token order
++            #   1 fc1 residual, one fp32 per local expert (x 2^6)
+             #   2 fc2 activation global scale (1.0; fc2 input is kernel-produced)
+             #   3 fc2 weight E8M0 exponent offsets (int32-viewed)
+-            #   4 fc2 per-token residual, same permuted order as slot 1
++            #   4 fc2 residual, same per-local-expert layout as slot 1
+             quant_scales = [
+                 self.w1_scale.view(torch.int32),
+-                fc1_residual_token,
++                self._humming_g1_scaled,
+                 fc2_act_global,
+                 self.w2_scale.view(torch.int32),
+-                fc2_residual_token,
++                self._humming_g2_scaled,
+             ]
+             fc1_expert_weights = w1
+             fc2_expert_weights = w2
+
+From 6c9e3aabf8dba1e1515b654840b8dba5b35eb430 Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Wed, 26 Aug 2026 18:05:18 +0800
+Subject: [PATCH 7/8] Require the per-local-expert humming residual contract
+
+FlashInfer #3738 shipped the SM90 humming kernel with one residual scale per
+routed token; #4431 changed it to one per local expert, which is the contract
+this backend is written against. Every symbol and keyword the probe looked at
+is present in both, so a #3738-only build was selected and then handed the
+wrong contract. That usually raises a shape error, but when num_tokens * top_k
+equals the local expert count it passes the check and computes silently wrong
+results.
+
+#4431 changed no Python signature, so there is nothing to introspect. The
+kernel-side shape check that enforces the contract ships as JIT source inside
+the wheel, so read that instead, and fail closed if it is not there.
+
+Signed-off-by: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+---
+ .../test_mxfp4_humming_backend_selection.py   | 65 +++++++++++++++++++
+ vllm/utils/flashinfer.py                      | 45 ++++++++++++-
+ 2 files changed, 108 insertions(+), 2 deletions(-)
+
+diff --git a/tests/kernels/moe/test_mxfp4_humming_backend_selection.py b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+index 8f1fb4593487..50872390379d 100644
+--- a/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
++++ b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+@@ -170,11 +170,76 @@ def cutlass_fused_moe(*, use_wfp4afp8_humming=False): ...
+     with (
+         patch.object(fi, "has_flashinfer_moe", return_value=True),
+         patch.object(fi, "_get_submodule", return_value=humming_only),
++        patch.object(fi, "_has_per_local_expert_residual", return_value=True),
+     ):
+         assert fi.has_flashinfer_humming_moe() is True
+     fi.has_flashinfer_humming_moe.cache_clear()
+ 
+ 
++def test_probe_rejects_a_build_that_predates_the_per_local_expert_residual():
++    """FlashInfer #3738 shipped the humming kernel with per-routed-token
++    residuals and #4431 changed them to per-local-expert. Every symbol and
++    keyword this probe used to look at is present in both, so a #3738-only
++    build would be selected and then handed the wrong contract -- silently
++    wrong whenever `num_tokens * top_k` equals the local expert count."""
++    from types import SimpleNamespace
++
++    from vllm.utils import flashinfer as fi
++
++    def cutlass_fused_moe(*, use_wfp4afp8_humming=False): ...
++
++    pre_4431 = SimpleNamespace(
++        cutlass_fused_moe=cutlass_fused_moe,
++        preprocess_moe_weights_for_sm90_mixed_gemm_humming=lambda *a, **k: None,
++        interleave_moe_weights_for_sm90_mixed_gemm=lambda *a, **k: None,
++        interleave_moe_scales_for_sm90_mixed_gemm=lambda *a, **k: None,
++    )
++    fi.has_flashinfer_humming_moe.cache_clear()
++    with (
++        patch.object(fi, "has_flashinfer_moe", return_value=True),
++        patch.object(fi, "_get_submodule", return_value=pre_4431),
++        patch.object(fi, "_has_per_local_expert_residual", return_value=False),
++    ):
++        assert fi.has_flashinfer_humming_moe() is False
++    fi.has_flashinfer_humming_moe.cache_clear()
++
++
++@pytest.mark.parametrize(
++    "shape_check,expected",
++    [
++        ("fc1 residual scale must have one element per local expert", True),
++        ("fc1 token scale must have one element per routed token", False),
++    ],
++)
++def test_residual_contract_is_read_off_the_shipped_jit_source(shape_check, expected):
++    """The two builds differ only in C++, so the probe reads the kernel-side
++    shape check that FlashInfer ships as JIT source next to the package."""
++    from vllm.utils import flashinfer as fi
++
++    class _FakeSource:
++        def __truediv__(self, _part):
++            return self
++
++        def read_bytes(self):
++            return shape_check.encode()
++
++    fi._has_per_local_expert_residual.cache_clear()
++    with patch.object(fi.importlib.resources, "files", return_value=_FakeSource()):
++        assert fi._has_per_local_expert_residual() is expected
++    fi._has_per_local_expert_residual.cache_clear()
++
++
++def test_residual_contract_probe_survives_a_missing_source_tree():
++    """Some redistributions strip the JIT sources. Failing closed costs the
++    user this backend; failing open would hand the kernel a wrong contract."""
++    from vllm.utils import flashinfer as fi
++
++    fi._has_per_local_expert_residual.cache_clear()
++    with patch.object(fi.importlib.resources, "files", side_effect=FileNotFoundError):
++        assert fi._has_per_local_expert_residual() is False
++    fi._has_per_local_expert_residual.cache_clear()
++
++
+ def _dummy_mxfp4_weights(num_experts=2, intermediate_size=128, hidden_size=128):
+     """MXFP4 payloads as stored on the layer: w13 is (E, 2I, K // 2) uint8."""
+     w13 = torch.zeros(
+diff --git a/vllm/utils/flashinfer.py b/vllm/utils/flashinfer.py
+index d1e7cd76ddc3..4c6fab978a7d 100644
+--- a/vllm/utils/flashinfer.py
++++ b/vllm/utils/flashinfer.py
+@@ -8,6 +8,7 @@
+ import contextlib
+ import functools
+ import importlib
++import importlib.resources
+ import importlib.util
+ import inspect
+ import os
+@@ -305,7 +306,8 @@ def has_flashinfer_cutlass_fused_moe() -> bool:
+ @functools.cache
+ def has_flashinfer_humming_moe() -> bool:
+     """Return `True` if the FlashInfer CUTLASS SM90 "humming" MXFP4-weight x
+-    FP8-activation fused MoE path is available (FlashInfer >= 0.6.16)."""
++    FP8-activation fused MoE path is available and speaks the per-local-expert
++    residual contract this backend targets (FlashInfer >= 0.6.18)."""
+     # Deliberately not chained on has_flashinfer_cutlass_fused_moe(): that also
+     # requires nvfp4/TRT-LLM symbols which the humming path never touches, and
+     # which are absent from builds where humming works fine.
+@@ -333,7 +335,46 @@ def has_flashinfer_humming_moe() -> bool:
+         params = inspect.signature(fused_moe.cutlass_fused_moe).parameters
+     except (TypeError, ValueError):
+         return False
+-    return "use_wfp4afp8_humming" in params
++    if "use_wfp4afp8_humming" not in params:
++        return False
++
++    return _has_per_local_expert_residual()
++
++
++# The residual slots of the humming quant_scales list. FlashInfer #4431 changed
++# them from one value per routed token to one per local expert -- the contract
++# this backend is written against -- and did so without touching any Python
++# signature, so neither a symbol nor a keyword tells the two apart. What does
++# is the kernel-side shape check that enforces the contract, which ships as JIT
++# source inside the wheel.
++_FI_MOE_BINDING = (
++    "data",
++    "csrc",
++    "fused_moe",
++    "cutlass_backend",
++    "flashinfer_cutlass_fused_moe_binding.cu",
++)
++_FI_PER_LOCAL_EXPERT_RESIDUAL = b"one element per local expert"
++
++
++@functools.cache
++def _has_per_local_expert_residual() -> bool:
++    """Return `True` if FlashInfer expects per-local-expert humming residuals.
++
++    A build that predates FlashInfer #4431 wants one residual per routed token
++    instead. Passing the wrong one usually raises a shape error, but when
++    `num_tokens * top_k` happens to equal the local expert count it passes the
++    check and silently computes the wrong result, so this is checked up front
++    rather than left to the kernel.
++    """
++    try:
++        binding = importlib.resources.files("flashinfer")
++        for part in _FI_MOE_BINDING:
++            binding = binding / part
++        source = binding.read_bytes()
++    except (ImportError, OSError):
++        return False
++    return _FI_PER_LOCAL_EXPERT_RESIDUAL in source
+ 
+ 
+ @functools.cache
+
+From ac2c217e40f0ae192b053b729373e02207791b96 Mon Sep 17 00:00:00 2001
+From: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+Date: Thu, 27 Aug 2026 17:21:56 +0800
+Subject: [PATCH 8/8] Name the FlashInfer version the probe actually requires
+
+The probe was extended to reject builds without #4431, but the error it raises
+still told the user to install >=0.6.16. That is worse than unhelpful for the
+case the check exists for: someone on a build carrying the humming kernel
+without #4431 already satisfies it, and someone on 0.6.17 would upgrade within
+the line where the kernel is reverted and fail again.
+
+Also fold the four config-surface assertions into one parametrized test and
+drop the two that only exercised argparse behaviour shared by every backend
+name, so what is left is specific to this change.
+
+Signed-off-by: zhengd-nv <200704041+zhengd-nv@users.noreply.github.com>
+---
+ .../test_mxfp4_humming_backend_selection.py   | 50 +++++++------------
+ .../layers/fused_moe/oracle/mxfp4.py          |  7 ++-
+ 2 files changed, 23 insertions(+), 34 deletions(-)
+
+diff --git a/tests/kernels/moe/test_mxfp4_humming_backend_selection.py b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+index 50872390379d..439b07b8de75 100644
+--- a/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
++++ b/tests/kernels/moe/test_mxfp4_humming_backend_selection.py
+@@ -27,44 +27,29 @@
+     map_mxfp4_backend,
+     select_deepseek_v4_mxfp4_moe_backend,
+ )
+-from vllm.utils.argparse_utils import FlexibleArgumentParser
+ 
+ HUMMING_BACKEND = "flashinfer_cutlass_humming"
+ 
+ ORACLE = "vllm.model_executor.layers.fused_moe.oracle.mxfp4"
+ 
+ 
+-def _parse(argv: list[str]) -> EngineArgs:
+-    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
+-    return EngineArgs.from_cli_args(parser.parse_args(argv))
++# A new `--moe-backend` value only becomes usable once it has landed in all of
++# these; each is a separate mechanism and any one of them can be missed without
++# the others noticing.
++_CONFIG_SURFACES = {
++    "literal": lambda: HUMMING_BACKEND in get_args(MoEBackend),
++    "kernel_config": lambda: KernelConfig(moe_backend=HUMMING_BACKEND).moe_backend
++    == HUMMING_BACKEND,
++    "engine_args": lambda: EngineArgs(moe_backend=HUMMING_BACKEND).moe_backend
++    == HUMMING_BACKEND,
++    "cli_choices": lambda: HUMMING_BACKEND
++    in get_kwargs(KernelConfig)["moe_backend"]["choices"],
++}
+ 
+ 
+-def test_literal_contains_backend():
+-    assert HUMMING_BACKEND in get_args(MoEBackend)
+-
+-
+-def test_kernel_config_accepts_backend():
+-    assert KernelConfig(moe_backend=HUMMING_BACKEND).moe_backend == HUMMING_BACKEND
+-
+-
+-def test_engine_args_accepts_backend():
+-    assert EngineArgs(moe_backend=HUMMING_BACKEND).moe_backend == HUMMING_BACKEND
+-
+-
+-def test_cli_normalizes_dashed_form():
+-    """`--moe-backend` lowercases and turns dashes into underscores."""
+-    args = _parse(["--moe-backend", "flashinfer-cutlass-humming"])
+-    assert args.moe_backend == HUMMING_BACKEND
+-
+-
+-def test_cli_rejects_unknown_backend():
+-    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
+-    with pytest.raises(SystemExit):
+-        parser.parse_args(["--moe-backend", "flashinfer_cutlass_hum"])
+-
+-
+-def test_cli_offers_backend_as_a_choice():
+-    assert HUMMING_BACKEND in get_kwargs(KernelConfig)["moe_backend"]["choices"]
++@pytest.mark.parametrize("surface", _CONFIG_SURFACES)
++def test_backend_name_reaches_every_config_surface(surface):
++    assert _CONFIG_SURFACES[surface]()
+ 
+ 
+ def test_cli_help_disambiguates_the_two_hummings():
+@@ -119,12 +104,13 @@ def test_explicit_request_on_sm90_passes_the_guard():
+ 
+ def test_explicit_request_on_old_flashinfer_names_the_version():
+     """Without the probe this surfaces as an ImportError from deep inside
+-    weight loading; the user needs to be told which version to install."""
++    weight loading; the user needs to be told which version to install, and the
++    version named has to be the one the probe actually accepts."""
+     config = make_dummy_moe_config()
+     config.moe_backend = HUMMING_BACKEND
+     with (
+         _patched_platform(is_sm90=True, humming_available=False),
+-        pytest.raises(ValueError, match="flashinfer-python>=0.6.16"),
++        pytest.raises(ValueError, match="flashinfer-python>=0.6.18"),
+     ):
+         select_deepseek_v4_mxfp4_moe_backend(config)
+ 
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+index e96ea51a6eb5..3fb31064cc98 100644
+--- a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+@@ -452,8 +452,11 @@ def _check_explicit_backend_requirements(
+     if not has_flashinfer_humming_moe():
+         raise ValueError(
+             f"moe_backend={runner_backend!r} needs the FlashInfer humming "
+-            "MXFP4 x FP8 MoE kernel, which the installed FlashInfer does not "
+-            "provide; it requires flashinfer-python>=0.6.16."
++            "MXFP4 x FP8 MoE kernel speaking the per-local-expert residual "
++            "contract from FlashInfer #4431, which the installed FlashInfer "
++            "does not provide; it requires flashinfer-python>=0.6.18. Note "
++            "that a build carrying the kernel without #4431 is also rejected: "
++            "it takes one residual scale per routed token instead."
+         )
+ 
+ 

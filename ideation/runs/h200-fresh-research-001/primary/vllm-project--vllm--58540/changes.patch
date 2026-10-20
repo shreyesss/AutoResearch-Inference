@@ -1,0 +1,802 @@
+From 1f7d1771277e72c43879ea1cf32890155ee93cbd Mon Sep 17 00:00:00 2001
+From: chaunceyjiang <chaunceyjiang@gmail.com>
+Date: Tue, 20 Oct 2026 15:54:20 +0800
+Subject: [PATCH] [MoE] DeepSeek-V4: add Hopper (SM90) FP8 FlashInfer moe_ep
+ mega backend
+
+Signed-off-by: chaunceyjiang <chaunceyjiang@gmail.com>
+---
+ tests/kernels/moe/test_flashinfer_moe_ep.py   | 183 +++++++++++++++---
+ tests/models/test_deepseek_v4_fi_moe_ep.py    |  38 ++++
+ tests/utils_/test_flashinfer_utils.py         |  16 ++
+ vllm/config/kernel.py                         |   6 +
+ .../fused_moe/experts/flashinfer_moe_ep.py    |   4 +-
+ .../layers/fused_moe/flashinfer_moe_ep.py     |  98 ++++++++--
+ .../layers/fused_moe/oracle/mxfp4.py          |  15 +-
+ vllm/utils/flashinfer.py                      |   8 +-
+ 8 files changed, 319 insertions(+), 49 deletions(-)
+
+diff --git a/tests/kernels/moe/test_flashinfer_moe_ep.py b/tests/kernels/moe/test_flashinfer_moe_ep.py
+index 7ce3124ae144..79dd6946b01d 100644
+--- a/tests/kernels/moe/test_flashinfer_moe_ep.py
++++ b/tests/kernels/moe/test_flashinfer_moe_ep.py
+@@ -1,6 +1,6 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+-"""End-to-end tests for the FlashInfer MoE-EP adapter on real Blackwell GPUs.
++"""End-to-end tests for the FlashInfer MoE-EP adapter on Blackwell and Hopper.
+ 
+ Each test spawns one process per GPU, bootstraps vLLM's expert-parallel
+ groups, builds a ``FlashInferMoeEp`` adapter from bf16 expert weights at the
+@@ -9,7 +9,8 @@
+ CuTeDSL kernel (NVFP4 activations and weights, E4M3 scales per 16) as well as
+ the DeepGEMM kernel (FP8 activations and FP4 weights, power-of-two scales per
+ 32). The expected output is then known in closed form and compared bit for
+-bit.
++bit. Hopper tests use packed MXFP4 weights at the DSV4.1 and DSpark geometry,
++checking remote routing, clamped SwiGLU, and CUDA graph replay.
+ 
+ A test that needs no SM100 also checks the adapter's kwargs against the
+ installed FlashInfer's config types, so config drift fails on any CI runner
+@@ -25,7 +26,11 @@
+ import vllm.model_executor.layers.fused_moe.modular_kernel as mk
+ from tests.distributed.eplb_utils import distributed_run, set_env_vars_and_device
+ from vllm.config import VllmConfig, set_current_vllm_config
+-from vllm.config.kernel import FLASHINFER_MOE_EP_CUTEDSL, FLASHINFER_MOE_EP_DEEP_GEMM
++from vllm.config.kernel import (
++    FLASHINFER_MOE_EP_CUTEDSL,
++    FLASHINFER_MOE_EP_DEEP_GEMM,
++    FLASHINFER_MOE_EP_SM90,
++)
+ from vllm.distributed.parallel_state import ensure_model_parallel_initialized
+ from vllm.model_executor.layers.fused_moe import flashinfer_moe_ep as fi_ep
+ from vllm.model_executor.layers.fused_moe.activation import MoEActivation
+@@ -102,7 +107,7 @@ def _topk_weights(top_k: int) -> tuple[float, ...]:
+ 
+ 
+ def _routing_method(backend: str) -> RoutingMethodType:
+-    if backend == FLASHINFER_MOE_EP_DEEP_GEMM:
++    if backend in (FLASHINFER_MOE_EP_DEEP_GEMM, FLASHINFER_MOE_EP_SM90):
+         return RoutingMethodType.DeepseekV4
+     return RoutingMethodType.Default
+ 
+@@ -188,12 +193,13 @@ def _moe_config(
+     world_size: int,
+     device: torch.device,
+     backend: str,
++    sequence_parallel: bool = False,
+ ) -> FusedMoEConfig:
+     parallel = FusedMoEParallelConfig.make(
+-        tp_size_=1,
++        tp_size_=world_size if sequence_parallel else 1,
+         pcp_size_=1,
+-        dp_size_=world_size,
+-        sp_size_=1,
++        dp_size_=1 if sequence_parallel else world_size,
++        sp_size_=world_size if sequence_parallel else 1,
+         vllm_parallel_config=vllm_config.parallel_config,
+     )
+     return FusedMoEConfig(
+@@ -209,7 +215,7 @@ def _moe_config(
+         moe_parallel_config=parallel,
+         in_dtype=torch.bfloat16,
+         moe_backend=backend,
+-        max_num_tokens=MAX_TOKENS_PER_RANK,
++        max_num_tokens=1024 if sequence_parallel else MAX_TOKENS_PER_RANK,
+     )
+ 
+ 
+@@ -241,22 +247,35 @@ def _check_expert_views_alias_kernel_memory(
+     assert torch.equal(output, _expected_output(geometry, topk_ids, topk_weights))
+ 
+ 
++@torch.inference_mode()
+ def _init_warmup_forward(
+-    env: dict[str, str], world_size: int, geometry: Geometry, backend: str
++    env: dict[str, str],
++    world_size: int,
++    geometry: Geometry,
++    backend: str,
++    sequence_parallel: bool = False,
+ ) -> None:
+     set_env_vars_and_device(env)
+     vllm_config = VllmConfig()
+-    vllm_config.parallel_config.data_parallel_size = world_size
++    vllm_config.parallel_config.data_parallel_size = (
++        1 if sequence_parallel else world_size
++    )
++    vllm_config.parallel_config.tensor_parallel_size = (
++        world_size if sequence_parallel else 1
++    )
+     vllm_config.parallel_config.enable_expert_parallel = True
+     vllm_config.kernel_config.moe_backend = backend
+ 
+     with set_current_vllm_config(vllm_config):
+         ensure_model_parallel_initialized(
+-            tensor_model_parallel_size=1, pipeline_model_parallel_size=1
++            tensor_model_parallel_size=world_size if sequence_parallel else 1,
++            pipeline_model_parallel_size=1,
+         )
+         rank = torch.distributed.get_rank()
+         device = torch.device(f"cuda:{rank}")
+-        moe = _moe_config(vllm_config, geometry, world_size, device, backend)
++        moe = _moe_config(
++            vllm_config, geometry, world_size, device, backend, sequence_parallel
++        )
+         supported, reason = FlashInferMoeEpExperts.is_supported_config(
+             FlashInferMoeEpExperts,
+             moe,
+@@ -266,35 +285,128 @@ def _init_warmup_forward(
+         )
+         assert supported, reason
+ 
++        hidden_states = _hidden_states(geometry, device)
++        if backend == FLASHINFER_MOE_EP_SM90:
++            # Pin the per-token FP8 scale to 1 so X_SIGNAL stays exact.
++            hidden_states[:, 1::16] = 448
++            moe.swiglu_limit = 10.0
++            weights = _sm90_packed_weights(
++                geometry, rank, moe.num_local_experts, device
++            )
++        else:
++            weights = _local_expert_weights(
++                geometry, rank, moe.num_local_experts, device
++            )
+         adapter = FlashInferMoeEp(
+             moe,
+-            _local_expert_weights(geometry, rank, moe.num_local_experts, device),
++            weights,
+             apply_topk_in_fc1=apply_topk_in_fc1(moe),
+         )
+         try:
+             adapter.warmup()
+ 
+             topk_ids, topk_weights = _routing(geometry, rank, device)
+-            output = adapter(_hidden_states(geometry, device), topk_ids, topk_weights)
++            output = adapter(hidden_states, topk_ids, topk_weights)
+             torch.accelerator.synchronize()
+ 
+             expected = _expected_output(geometry, topk_ids, topk_weights)
++            if backend == FLASHINFER_MOE_EP_SM90:
++                # Distinct gate/up values also guard their checkpoint ordering.
++                # clamp(gate=12)=10; SiLU(10)*up=4 rounds to 40 in BF16.
++                expected = (expected.float() * (40.0 / H_SIGNAL)).bfloat16()
+             assert output.dtype == expected.dtype and output.shape == expected.shape
+-            assert torch.equal(output, expected), (
+-                f"rank {rank}: max abs diff "
+-                f"{(output.float() - expected.float()).abs().max().item()}, "
+-                f"nonzero output channels per token "
+-                f"{[torch.nonzero(row).flatten().tolist() for row in output]}"
+-            )
++            if backend == FLASHINFER_MOE_EP_SM90:
++                torch.testing.assert_close(output, expected, rtol=0.01, atol=0.01)
++            else:
++                assert torch.equal(output, expected), (
++                    f"rank {rank}: max abs diff "
++                    f"{(output.float() - expected.float()).abs().max().item()}, "
++                    f"nonzero output channels per token "
++                    f"{[torch.nonzero(row).flatten().tolist() for row in output]}"
++                )
+ 
+             if backend == FLASHINFER_MOE_EP_CUTEDSL:
+                 _check_expert_views_alias_kernel_memory(
+                     adapter, geometry, rank, moe.num_local_experts, device
+                 )
++            if backend == FLASHINFER_MOE_EP_SM90:
++                if sequence_parallel:
++                    # Cross the small/decode workspace boundary, then capture
++                    # the smaller bucket again to check masking and reuse.
++                    large = adapter(
++                        hidden_states.repeat(64, 1),
++                        topk_ids.repeat(64, 1),
++                        topk_weights.repeat(64, 1),
++                    )
++                    torch.accelerator.synchronize()
++                    torch.testing.assert_close(
++                        large, expected.repeat(64, 1), rtol=0.01, atol=0.01
++                    )
++                graph = torch.cuda.CUDAGraph()
++                with torch.cuda.graph(graph):
++                    captured = adapter(hidden_states, topk_ids, topk_weights)
++                graph.replay()
++                torch.accelerator.synchronize()
++                torch.testing.assert_close(captured, expected, rtol=0.01, atol=0.01)
++                hidden_states.zero_()
++                graph.replay()
++                torch.accelerator.synchronize()
++                assert torch.count_nonzero(captured) == 0
++                graph.reset()
+         finally:
+             adapter.destroy()
+ 
+ 
++def _sm90_packed_weights(geometry, rank, num_local_experts, device):
++    """Exact E2M1 sparse experts with raw K32 E8M0 scales."""
++    h, i = geometry.hidden_size, geometry.intermediate_size
++    w13 = torch.zeros(
++        (num_local_experts, 2 * i, h // 2), dtype=torch.uint8, device=device
++    )
++    w2 = torch.zeros((num_local_experts, h, i // 2), dtype=torch.uint8, device=device)
++    for local in range(num_local_experts):
++        expert = rank * num_local_experts + local
++        for t in range(NUM_TOKENS_PER_RANK):
++            w13[local, 0, 8 * t] = 7
++            w13[local, i, 8 * t] = 4
++        w2[local, expert, 0] = expert % 7 + 1
++        w2[local, expert, 1] = 7
++    return FlashInferMoeEpWeights(
++        w13,
++        w2,
++        torch.full(
++            (num_local_experts, 2 * i, h // 32), 127, dtype=torch.uint8, device=device
++        ),
++        torch.full(
++            (num_local_experts, h, i // 32), 127, dtype=torch.uint8, device=device
++        ),
++    )
++
++
++@pytest.mark.skipif(
++    not current_platform.is_device_capability(90), reason="Requires Hopper"
++)
++@pytest.mark.parametrize(
++    "geometry,sequence_parallel",
++    [
++        (Geometry("dsv41", 5120, 2304, 384, 6), False),
++        (Geometry("dsv41-dspark", 5120, 2304, 128, 3), False),
++        (Geometry("dsv41-sp", 5120, 2304, 384, 6), True),
++    ],
++    ids=["dsv41", "dsv41-dspark", "dsv41-sp"],
++)
++def test_sm90_dsv41_packed_weights_dispatch_and_clamp(geometry, sequence_parallel):
++    """Exercise real model shapes and remote routing through the adapter."""
++    ep = pytest.importorskip("flashinfer.moe_ep")
++    if not hasattr(ep, "Sm90_Fp8_Mxfp4_Bf16_PullCutedsl_MegaMoeConfig"):
++        pytest.skip("FlashInfer does not have the SM90 MXFP4 megakernel")
++    if torch.accelerator.device_count() < 4:
++        pytest.skip("Need four GPUs")
++    distributed_run(
++        _init_warmup_forward, 4, geometry, FLASHINFER_MOE_EP_SM90, sequence_parallel
++    )
++
++
+ @pytest.mark.skipif(
+     not current_platform.is_device_capability_family(100),
+     reason="The FlashInfer MoE-EP megakernels require SM100",
+@@ -313,7 +425,11 @@ def test_init_warmup_forward_is_exact_on_grid_inputs(
+     distributed_run(_init_warmup_forward, world_size, geometry, backend)
+ 
+ 
+-@pytest.mark.parametrize("backend", BACKENDS, ids=("cutedsl", "deep_gemm"))
++@pytest.mark.parametrize(
++    "backend",
++    (*BACKENDS, FLASHINFER_MOE_EP_SM90),
++    ids=("cutedsl", "deep_gemm", "sm90"),
++)
+ def test_adapter_kwargs_match_installed_flashinfer(
+     monkeypatch: pytest.MonkeyPatch, backend: str
+ ):
+@@ -324,6 +440,10 @@ def test_adapter_kwargs_match_installed_flashinfer(
+     index and the DeepGEMM import.
+     """
+     moe_ep = pytest.importorskip("flashinfer.moe_ep")
++    if backend == FLASHINFER_MOE_EP_SM90 and not hasattr(
++        moe_ep, "Sm90_Fp8_Mxfp4_Bf16_PullCutedsl_MegaMoeConfig"
++    ):
++        pytest.skip("FlashInfer does not have the SM90 MXFP4 megakernel")
+     layer_args: list[tuple] = []
+ 
+     class FakeMegaLayer:
+@@ -352,18 +472,27 @@ def destroy(self) -> None:
+         max_num_tokens=MAX_TOKENS_PER_RANK,
+         swiglu_limit=10.0,
+         routing_method=_routing_method(backend),
++        sp_size=1,
++        dp_size=2,
++        pcp_size=1,
+     )
+     weight = torch.zeros(1, dtype=torch.bfloat16)
+-    FlashInferMoeEp(
++    adapter = FlashInferMoeEp(
+         moe,
+         FlashInferMoeEpWeights(w13=weight, w2=weight),
+         apply_topk_in_fc1=apply_topk_in_fc1(moe),
+     )
++    tensors = adapter._tensors(weight, torch.zeros(1, dtype=torch.int32), torch.ones(1))
++    expected_dtype = torch.int64 if backend == FLASHINFER_MOE_EP_SM90 else torch.int32
++    assert tensors.topk_ids.dtype == adapter.topk_indices_dtype == expected_dtype
+ 
+     ((_, _, _, mega_config),) = layer_args
+-    expected = (
+-        moe_ep.Nvfp4CutedslMegaMoeConfig
+-        if backend == FLASHINFER_MOE_EP_CUTEDSL
+-        else moe_ep.DeepGemmMegaMoeConfig
+-    )
++    if backend == FLASHINFER_MOE_EP_SM90:
++        expected = moe_ep.Sm90_Fp8_Mxfp4_Bf16_PullCutedsl_MegaMoeConfig
++    else:
++        expected = (
++            moe_ep.Nvfp4CutedslMegaMoeConfig
++            if backend == FLASHINFER_MOE_EP_CUTEDSL
++            else moe_ep.DeepGemmMegaMoeConfig
++        )
+     assert isinstance(mega_config.megakernel, expected)
+diff --git a/tests/models/test_deepseek_v4_fi_moe_ep.py b/tests/models/test_deepseek_v4_fi_moe_ep.py
+index d98bb26a2a3b..9013f9884d35 100644
+--- a/tests/models/test_deepseek_v4_fi_moe_ep.py
++++ b/tests/models/test_deepseek_v4_fi_moe_ep.py
+@@ -12,6 +12,7 @@
+     FLASHINFER_MOE_EP_BACKENDS,
+     FLASHINFER_MOE_EP_CUTEDSL,
+     FLASHINFER_MOE_EP_DEEP_GEMM,
++    FLASHINFER_MOE_EP_SM90,
+     MEGA_MOE_BACKENDS,
+     NATIVE_MEGA_MOE_BACKENDS,
+     PASSTHROUGH_ALL2ALL_BACKEND,
+@@ -146,6 +147,7 @@ def _megakernel_moe(moe_backend: str, **overrides) -> SimpleNamespace:
+         routing_method=RoutingMethodType.DeepseekV4,
+         router_logits_dtype=torch.float32,
+         hidden_dim=256,
++        intermediate_size=256,
+         is_lora_enabled=False,
+         skip_final_all_reduce=False,
+         in_dtype=torch.bfloat16,
+@@ -176,12 +178,48 @@ def megakernel_host(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+         parallel_config=SimpleNamespace(enable_dbo=False, enable_eplb=False),
+     )
+     monkeypatch.setattr(fi_ep, "get_current_vllm_config", lambda: config)
++    monkeypatch.setattr(
++        fi_ep.current_platform,
++        "get_device_capability",
++        lambda: SimpleNamespace(major=10, minor=0),
++    )
+     monkeypatch.setattr(
+         FlashInferMoeEpExperts, "_supports_current_device", staticmethod(lambda: True)
+     )
+     return config
+ 
+ 
++def test_sm90_backend_preserves_packed_mxfp4_weights():
++    """The Hopper adapter must not dequantize the checkpoint before Humming."""
++    tensors = [torch.zeros(2, 128, 64, dtype=torch.uint8) for _ in range(4)]
++    weights = fi_ep.mxfp4_moe_ep_weights(FLASHINFER_MOE_EP_SM90, *tensors)
++    assert (weights.w13, weights.w2, weights.w13_scale, weights.w2_scale) == tuple(
++        tensors
++    )
++
++
++def test_sm90_backend_rejects_incompatible_device_and_recipe(
++    megakernel_host, monkeypatch
++):
++    moe = _megakernel_moe(FLASHINFER_MOE_EP_SM90)
++    supported, reason = _is_supported(moe, kMxfp4Static, None)
++    assert not supported and "device capability" in reason
++    monkeypatch.setattr(
++        fi_ep.current_platform,
++        "get_device_capability",
++        lambda: SimpleNamespace(major=9, minor=0),
++    )
++    assert _is_supported(moe, kMxfp4Static, None) == (True, "")
++    assert "NVFP4 weights" in _is_supported(moe, kNvfp4Static, kNvfp4Dynamic)[1]
++    moe.routing_method = RoutingMethodType.Default
++    assert "routing method" in _is_supported(moe, kMxfp4Static, None)[1]
++    moe.routing_method = RoutingMethodType.DeepseekV4
++    megakernel_host.parallel_config.enable_eplb = True
++    assert "EPLB" in _is_supported(moe, kMxfp4Static, None)[1]
++    blackwell = _megakernel_moe(FLASHINFER_MOE_EP_CUTEDSL)
++    assert "device capability" in _is_supported(blackwell, kMxfp4Static, None)[1]
++
++
+ def test_megakernel_requires_expert_parallel(megakernel_host):
+     """The oracle rejects the megakernel through the experts' support check."""
+     moe = _megakernel_moe(FLASHINFER_MOE_EP_CUTEDSL)
+diff --git a/tests/utils_/test_flashinfer_utils.py b/tests/utils_/test_flashinfer_utils.py
+index 3d28486ff50b..9da10324c10e 100644
+--- a/tests/utils_/test_flashinfer_utils.py
++++ b/tests/utils_/test_flashinfer_utils.py
+@@ -3,6 +3,7 @@
+ import importlib.util
+ from collections.abc import Iterator
+ from pathlib import Path
++from types import SimpleNamespace
+ 
+ import pytest
+ 
+@@ -58,3 +59,18 @@ def test_has_flashinfer_requires_ninja(
+     _make_exe(tmp_path / "cuda" / "bin" / "nvcc")
+     monkeypatch.setenv("PATH", str(tmp_path / "cuda" / "bin"))
+     assert not fi.has_flashinfer()
++
++
++@pytest.mark.parametrize("has_class", [False, True])
++def test_one_sided_availability_requires_the_wrapper(monkeypatch, has_class):
++    """A module without the legacy wrapper must not break other EP backends."""
++    module = SimpleNamespace(moe_a2a_get_workspace_size_per_rank=lambda: 0)
++    if has_class:
++        module.MoeAlltoAll = object
++    monkeypatch.setattr(fi, "has_flashinfer_comm", lambda: True)
++    monkeypatch.setattr(fi, "_get_submodule", lambda name: module)
++    fi.has_flashinfer_nvlink_one_sided.cache_clear()
++    try:
++        assert fi.has_flashinfer_nvlink_one_sided() == has_class
++    finally:
++        fi.has_flashinfer_nvlink_one_sided.cache_clear()
+diff --git a/vllm/config/kernel.py b/vllm/config/kernel.py
+index a1b141237f3d..9ab12e7cfb2e 100644
+--- a/vllm/config/kernel.py
++++ b/vllm/config/kernel.py
+@@ -130,6 +130,7 @@ def with_default(
+     "flashinfer_cutlass",
+     "flashinfer_cutedsl",
+     "flashinfer_moe_ep_cutedsl",
++    "flashinfer_moe_ep_sm90",
+     "flashinfer_b12x",
+     "b12x",
+     "flashinfer_moe_ep_mega_deep_gemm",
+@@ -148,12 +149,14 @@ def with_default(
+ 
+ FLASHINFER_MOE_EP_CUTEDSL = "flashinfer_moe_ep_cutedsl"
+ FLASHINFER_MOE_EP_DEEP_GEMM = "flashinfer_moe_ep_mega_deep_gemm"
++FLASHINFER_MOE_EP_SM90 = "flashinfer_moe_ep_sm90"
+ 
+ # Backends implemented by the shared FlashInfer MoE-EP adapter.
+ FLASHINFER_MOE_EP_BACKENDS = frozenset(
+     {
+         FLASHINFER_MOE_EP_CUTEDSL,
+         FLASHINFER_MOE_EP_DEEP_GEMM,
++        FLASHINFER_MOE_EP_SM90,
+     }
+ )
+ # Those backends dispatch and combine themselves, so the framework must not
+@@ -314,6 +317,9 @@ class KernelConfig:
+     - "flashinfer_moe_ep_cutedsl": Use FlashInfer's CuTeDSL MoE-EP
+       mega-kernel with NVFP4 weights (MXFP4 checkpoints are requantized at
+       load); requires Blackwell, expert parallelism, and NVSHMEM
++    - "flashinfer_moe_ep_sm90": Use FlashInfer's Hopper MXFP4/FP8 pull
++      CuTeDSL megakernel; requires MXFP4 weights, DeepSeek-V4 routing,
++      expert parallelism, and NVSHMEM
+     - "flashinfer_b12x": Use FlashInfer CuteDSL fused MoE for SM12x
+       (RTX Pro 6000 / DGX Spark)
+     - "b12x": Use b12x FP4 MoE kernels on SM12x
+diff --git a/vllm/model_executor/layers/fused_moe/experts/flashinfer_moe_ep.py b/vllm/model_executor/layers/fused_moe/experts/flashinfer_moe_ep.py
+index 8fbfcd917839..28c02b7c3cbf 100644
+--- a/vllm/model_executor/layers/fused_moe/experts/flashinfer_moe_ep.py
++++ b/vllm/model_executor/layers/fused_moe/experts/flashinfer_moe_ep.py
+@@ -180,9 +180,7 @@ def apply(
+     ) -> None:
+         if self._adapter is None:
+             raise RuntimeError("FlashInfer MoE-EP weights have not been processed")
+-        output.copy_(
+-            self._adapter(hidden_states, topk_ids.to(torch.int32), topk_weights)
+-        )
++        output.copy_(self._adapter(hidden_states, topk_ids, topk_weights))
+ 
+ 
+ def epilogue_from_quant_config(
+diff --git a/vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py b/vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py
+index 63345a417438..b9ba05f3aa9e 100644
+--- a/vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py
++++ b/vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py
+@@ -15,6 +15,7 @@
+     FLASHINFER_MOE_EP_BACKENDS,
+     FLASHINFER_MOE_EP_CUTEDSL,
+     FLASHINFER_MOE_EP_DEEP_GEMM,
++    FLASHINFER_MOE_EP_SM90,
+ )
+ from vllm.distributed import get_ep_group
+ from vllm.model_executor.layers.fused_moe.config import RoutingMethodType
+@@ -30,14 +31,14 @@
+     from vllm.model_executor.layers.fused_moe.config import FusedMoEConfig
+     from vllm.model_executor.layers.fused_moe.routed_experts import RoutedExperts
+ 
+-FlashInferMoeEpKernel = Literal["cutedsl", "deep_gemm"]
++FlashInferMoeEpKernel = Literal["cutedsl", "deep_gemm", "sm90"]
+ FlashInferMoeEpWeightFormat = Literal["nvfp4", "mxfp4"]
+ _WEIGHT_FORMATS: dict[QuantKey | None, FlashInferMoeEpWeightFormat] = {
+     kNvfp4Static: "nvfp4",
+     kMxfp4Static: "mxfp4",
+ }
+ 
+-_SUPPORTED_CAPABILITIES = frozenset({(10, 0), (10, 3)})
++_SUPPORTED_CAPABILITIES = frozenset({(9, 0), (10, 0), (10, 3)})
+ 
+ 
+ def supports_current_device() -> bool:
+@@ -71,6 +72,7 @@ def supports_current_device() -> bool:
+ class FlashInferMoeEpBackendSpec:
+     kernel: FlashInferMoeEpKernel
+     weight_formats: frozenset[FlashInferMoeEpWeightFormat]
++    capabilities: frozenset[tuple[int, int]] = frozenset({(10, 0), (10, 3)})
+ 
+ 
+ @dataclass(frozen=True)
+@@ -98,6 +100,11 @@ class FlashInferMoeEpEpilogue:
+         kernel="deep_gemm",
+         weight_formats=frozenset({"mxfp4"}),
+     ),
++    FLASHINFER_MOE_EP_SM90: FlashInferMoeEpBackendSpec(
++        kernel="sm90",
++        weight_formats=frozenset({"mxfp4"}),
++        capabilities=frozenset({(9, 0)}),
++    ),
+ }
+ 
+ assert frozenset(_BACKEND_SPECS) == FLASHINFER_MOE_EP_BACKENDS
+@@ -131,6 +138,12 @@ def flashinfer_moe_ep_unsupported_reasons(
+     """
+     spec = flashinfer_moe_ep_backend_spec(moe.moe_backend)
+     unsupported: list[str] = []
++    capability = current_platform.get_device_capability()
++    if (
++        capability is None
++        or (capability.major, capability.minor) not in spec.capabilities
++    ):
++        unsupported.append(f"device capability {capability}")
+     weight_format = _WEIGHT_FORMATS.get(weight_key)
+     if weight_format is None:
+         unsupported.append(f"weight scheme {weight_key}")
+@@ -147,7 +160,7 @@ def flashinfer_moe_ep_unsupported_reasons(
+     if moe.swiglu_alpha is not None or moe.swiglu_beta is not None:
+         unsupported.append("custom SwiGLU alpha or beta")
+     if (
+-        spec.kernel == "deep_gemm"
++        spec.kernel in ("deep_gemm", "sm90")
+         and moe.routing_method is not RoutingMethodType.DeepseekV4
+     ):
+         unsupported.append(f"routing method {moe.routing_method.name}")
+@@ -157,8 +170,12 @@ def flashinfer_moe_ep_unsupported_reasons(
+         unsupported.append("runtime weight transfer")
+     if vllm_config.parallel_config.enable_dbo:
+         unsupported.append("dual batch overlap")
+-    if spec.kernel == "deep_gemm" and vllm_config.parallel_config.enable_eplb:
++    if spec.kernel in ("deep_gemm", "sm90") and (
++        vllm_config.parallel_config.enable_eplb
++    ):
+         unsupported.append("EPLB")
++    if spec.kernel == "sm90" and (moe.hidden_dim % 128 or moe.intermediate_size % 128):
++        unsupported.append("hidden/intermediate dimensions not divisible by 128")
+     return tuple(unsupported)
+ 
+ 
+@@ -231,7 +248,7 @@ def mxfp4_moe_ep_weights(
+     w2_scale: torch.Tensor,
+ ) -> FlashInferMoeEpWeights:
+     spec = flashinfer_moe_ep_backend_spec(moe_backend)
+-    if spec.kernel == "deep_gemm":
++    if spec.kernel in ("deep_gemm", "sm90"):
+         return FlashInferMoeEpWeights(w13, w2, w13_scale, w2_scale)
+     return FlashInferMoeEpWeights(
+         w13=_dequant_mxfp4_experts(w13, w13_scale),
+@@ -297,6 +314,19 @@ def __init__(
+         if epilogue is None:
+             epilogue = FlashInferMoeEpEpilogue()
+         ep_group = get_ep_group()
++        max_num_tokens = moe.max_num_tokens
++        # SP pads every TP shard equally, so all EP ranks select the same
++        # workspace without a host collective (including during graph capture).
++        bucket_workspaces = (
++            spec.kernel == "sm90"
++            and moe.sp_size == ep_group.world_size
++            and moe.dp_size == 1
++            and moe.pcp_size == 1
++        )
++        if bucket_workspaces:
++            max_num_tokens = (
++                max(moe.max_num_tokens, moe.max_capture_size) + moe.sp_size - 1
++            ) // moe.sp_size
+         bootstrap = api.BootstrapConfig(
+             world_size=ep_group.world_size,
+             rank=ep_group.rank_in_group,
+@@ -305,7 +335,7 @@ def __init__(
+         )
+         fleet_params = api.FleetParams(
+             num_experts=moe.num_experts,
+-            max_tokens_per_rank=moe.max_num_tokens,
++            max_tokens_per_rank=max_num_tokens,
+             token_hidden_size=moe.hidden_dim,
+         )
+         weight_pack = api.MoEWeightPack(
+@@ -330,6 +360,18 @@ def __init__(
+                 fc1_norm_const=None,
+                 knobs=None,
+             )
++        elif spec.kernel == "sm90":
++            from flashinfer.moe_ep import (
++                Sm90_Fp8_Mxfp4_Bf16_PullCutedsl_MegaMoeConfig,
++            )
++
++            if not apply_topk_in_fc1:
++                raise ValueError("SM90 MegaMoE requires pre-FC2 router weights")
++            megakernel = Sm90_Fp8_Mxfp4_Bf16_PullCutedsl_MegaMoeConfig(
++                intermediate_size=moe.intermediate_size,
++                top_k=moe.experts_per_token,
++                gate_up_clamp=moe.swiglu_limit,
++            )
+         else:
+             megakernel = api.DeepGemmMegaMoeConfig(
+                 intermediate_size=moe.intermediate_size,
+@@ -352,9 +394,12 @@ def __init__(
+         )
+         self._device = weights.w13.device
+         self._hidden_size = moe.hidden_dim
+-        self._max_num_tokens = moe.max_num_tokens
++        self._max_num_tokens = max_num_tokens
++        self._workspace_buckets: list[tuple[int, Any]] = []
++        self._bucket_workspaces = bucket_workspaces
+         self._num_experts = moe.num_experts
+         self._top_k = moe.experts_per_token
++        self._topk_indices_dtype = torch.int64 if spec.kernel == "sm90" else torch.int32
+         self._epilogue: FlashInferMoeEpEpilogue | None = epilogue
+         self._return_workspace_view = moe.routing_method is RoutingMethodType.DeepseekV4
+ 
+@@ -368,7 +413,7 @@ def output_is_reduced(self) -> bool:
+ 
+     @property
+     def topk_indices_dtype(self) -> torch.dtype:
+-        return torch.int32
++        return self._topk_indices_dtype
+ 
+     @property
+     def is_monolithic(self) -> bool:
+@@ -383,7 +428,7 @@ def _tensors(
+         epilogue = cast(FlashInferMoeEpEpilogue, self._epilogue)
+         return self._moe_ep_tensors_cls(
+             hidden_states=hidden_states,
+-            topk_ids=topk_ids,
++            topk_ids=topk_ids.to(self.topk_indices_dtype),
+             topk_weights=topk_weights,
+             fc1_alpha=epilogue.fc1_alpha,
+             fc2_alpha=epilogue.fc2_alpha,
+@@ -404,6 +449,11 @@ def __call__(
+                 f"the workspace supports at most {self._max_num_tokens}"
+             )
+         tensors = self._tensors(hidden_states, topk_ids, topk_weights)
++        for capacity, workspace in self._workspace_buckets:
++            if hidden_states.shape[0] <= capacity:
++                return self._mega_layer.forward(
++                    tensors, workspace=workspace, return_workspace_view=True
++                )
+         if self._return_workspace_view and getattr(
+             self._mega_layer, "supports_output_view", False
+         ):
+@@ -421,7 +471,9 @@ def warmup(self) -> None:
+             device=self._device,
+         )
+         topk_ids = (
+-            torch.arange(self._top_k, dtype=torch.int32, device=self._device)
++            torch.arange(
++                self._top_k, dtype=self.topk_indices_dtype, device=self._device
++            )
+             .mul_(self._num_experts // self._top_k)
+             .view(1, self._top_k)
+         )
+@@ -431,7 +483,15 @@ def warmup(self) -> None:
+             dtype=torch.float32,
+             device=self._device,
+         )
+-        self._mega_layer.warmup(self._tensors(hidden_states, topk_ids, topk_weights))
++        tensors = self._tensors(hidden_states, topk_ids, topk_weights)
++        self._mega_layer.warmup(tensors)
++        if self._bucket_workspaces and not self._workspace_buckets:
++            capacity = 128
++            while capacity < self._max_num_tokens:
++                workspace = self._mega_layer.create_workspace(capacity)
++                self._mega_layer.warmup(tensors, workspace=workspace)
++                self._workspace_buckets.append((capacity, workspace))
++                capacity *= 4
+ 
+     def kernel_weights(
+         self,
+@@ -443,7 +503,9 @@ def kernel_weights(
+         """
+         if self._mega_layer is None:
+             raise RuntimeError("FlashInfer MoE-EP layer was destroyed")
+-        (fc1_weight, fc1_sf), (fc2_weight, fc2_sf) = self._mega_layer._transformed
++        fc1, fc2 = self._mega_layer._transformed
++        fc1_weight, fc1_sf = fc1[:2]
++        fc2_weight, fc2_sf = fc2[:2]
+         return (
+             _expert_major_bytes(fc1_weight),
+             _expert_major_bytes(fc1_sf),
+@@ -454,7 +516,16 @@ def kernel_weights(
+     def expert_weight_views(self) -> tuple[torch.Tensor, ...]:
+         """Every per-expert tensor the kernel reads: weights plus epilogue."""
+         epilogue = cast(FlashInferMoeEpEpilogue, self._epilogue)
+-        vectors = (epilogue.fc1_alpha, epilogue.fc2_alpha, epilogue.fc1_norm_const)
++        vectors: tuple[torch.Tensor | None, ...] = (
++            epilogue.fc1_alpha,
++            epilogue.fc2_alpha,
++            epilogue.fc1_norm_const,
++        )
++        if self._mega_layer is not None:
++            fc1, fc2 = self._mega_layer._transformed
++            if len(fc1) == 4:
++                # SM90 Humming stores an additional residual scale per expert.
++                vectors = (*vectors, fc1[3], fc2[3])
+         return (*self.kernel_weights(), *(v for v in vectors if v is not None))
+ 
+     def destroy(self) -> None:
+@@ -463,6 +534,7 @@ def destroy(self) -> None:
+             return
+         mega_layer.destroy()
+         self._mega_layer = None
++        self._workspace_buckets.clear()
+         self._epilogue = None
+ 
+     def __del__(self) -> None:
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+index 8052bb6cdb1f..15c539399431 100644
+--- a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+@@ -11,6 +11,7 @@
+ from vllm.config.kernel import (
+     FLASHINFER_MOE_EP_CUTEDSL,
+     FLASHINFER_MOE_EP_DEEP_GEMM,
++    FLASHINFER_MOE_EP_SM90,
+     MoEBackend,
+ )
+ from vllm.config.quantization import QuantizationConfigArgs
+@@ -169,6 +170,7 @@ class Mxfp4MoeBackend(Enum):
+     # FlashInfer MoE-EP megakernels: routing outside, dispatch/GEMMs/combine fused.
+     FLASHINFER_MOE_EP_CUTEDSL = "FLASHINFER_MOE_EP_CUTEDSL"
+     FLASHINFER_MOE_EP_DEEP_GEMM = "FLASHINFER_MOE_EP_DEEP_GEMM"
++    FLASHINFER_MOE_EP_SM90 = "FLASHINFER_MOE_EP_SM90"
+ 
+ 
+ # Backends that share the same TRTLLM weight format
+@@ -194,6 +196,7 @@ class Mxfp4MoeBackend(Enum):
+ FLASHINFER_MOE_EP_MXFP4_BACKENDS = (
+     Mxfp4MoeBackend.FLASHINFER_MOE_EP_CUTEDSL,
+     Mxfp4MoeBackend.FLASHINFER_MOE_EP_DEEP_GEMM,
++    Mxfp4MoeBackend.FLASHINFER_MOE_EP_SM90,
+ )
+ 
+ 
+@@ -367,6 +370,7 @@ def map_mxfp4_backend(runner_backend: MoEBackend) -> list[Mxfp4MoeBackend]:
+         ],
+         "flashinfer_cutlass_afp8": [Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_MXFP8],
+         "flashinfer_moe_ep_cutedsl": [Mxfp4MoeBackend.FLASHINFER_MOE_EP_CUTEDSL],
++        "flashinfer_moe_ep_sm90": [Mxfp4MoeBackend.FLASHINFER_MOE_EP_SM90],
+         "flashinfer_moe_ep_mega_deep_gemm": [
+             Mxfp4MoeBackend.FLASHINFER_MOE_EP_DEEP_GEMM
+         ],
+@@ -2051,11 +2055,14 @@ def shuffle_weight(w: torch.Tensor) -> torch.Tensor:
+             mxfp4_moe_ep_weights,
+         )
+ 
+-        # DeepGEMM consumes MXFP4 directly; CuTeDSL gets bf16 and requantizes.
++        # SM90/DeepGEMM consume MXFP4; Blackwell CuTeDSL requantizes from bf16.
++        backend_names = {
++            Mxfp4MoeBackend.FLASHINFER_MOE_EP_CUTEDSL: FLASHINFER_MOE_EP_CUTEDSL,
++            Mxfp4MoeBackend.FLASHINFER_MOE_EP_DEEP_GEMM: FLASHINFER_MOE_EP_DEEP_GEMM,
++            Mxfp4MoeBackend.FLASHINFER_MOE_EP_SM90: FLASHINFER_MOE_EP_SM90,
++        }
+         weights = mxfp4_moe_ep_weights(
+-            FLASHINFER_MOE_EP_CUTEDSL
+-            if mxfp4_backend == Mxfp4MoeBackend.FLASHINFER_MOE_EP_CUTEDSL
+-            else FLASHINFER_MOE_EP_DEEP_GEMM,
++            backend_names[mxfp4_backend],
+             w13_weight,
+             w2_weight,
+             w13_weight_scale,
+diff --git a/vllm/utils/flashinfer.py b/vllm/utils/flashinfer.py
+index 54fa01ed69fd..ff1cd45c8309 100644
+--- a/vllm/utils/flashinfer.py
++++ b/vllm/utils/flashinfer.py
+@@ -409,10 +409,14 @@ def has_flashinfer_nvlink_two_sided() -> bool:
+ 
+ @functools.cache
+ def has_flashinfer_nvlink_one_sided() -> bool:
+-    """Return `True` if FlashInfer trtllm_moe_alltoall module is available."""
++    """Return `True` if FlashInfer's one-sided all2all API is available."""
+     if not has_flashinfer_comm():
+         return False
+-    return importlib.util.find_spec("flashinfer.comm.trtllm_moe_alltoall") is not None
++    module = _get_submodule("flashinfer.comm.trtllm_moe_alltoall")
++    return module is not None and all(
++        hasattr(module, name)
++        for name in ("MoeAlltoAll", "moe_a2a_get_workspace_size_per_rank")
++    )
+ 
+ 
+ @functools.cache

@@ -1,0 +1,137 @@
+FILE vllm/model_executor/layers/fused_moe/oracle/mxfp4.py:367-392; SHA256 0c421ba763bfb25b764429937eeca55cf86554f7a2d5a7634a010b332045c3b9
+def _get_priority_backends() -> list[Mxfp4MoeBackend]:
+    """Get available backends in priority order. SM100+ prefers DeepGEMM FP4 /
+    TRTLLM MXFP8; SM90 falls through to Triton_unfused or Marlin (the
+    backend-level ``is_supported_config`` check filters by device capability).
+    """
+    if current_platform.is_rocm():
+        return [
+            Mxfp4MoeBackend.AITER_MXFP4_BF16,
+            Mxfp4MoeBackend.EMULATION,
+        ]
+    if current_platform.is_xpu():
+        return [Mxfp4MoeBackend.XPU]
+    if current_platform.is_cpu():
+        return [Mxfp4MoeBackend.CPU]
+    _AVAILABLE_BACKENDS = [
+        Mxfp4MoeBackend.FLASHINFER_TRTLLM_MXFP4_MXFP8,
+        Mxfp4MoeBackend.DEEPGEMM_MXFP4,
+        # TRITON_UNFUSED has bug with MTP support
+        # TODO re-enable after kernel is fixed
+        # TRITON_UNFUSED
+        Mxfp4MoeBackend.MARLIN,
+        Mxfp4MoeBackend.BATCHED_MARLIN,
+    ]
+    return _AVAILABLE_BACKENDS
+
+
+
+FILE vllm/model_executor/layers/fused_moe/experts/fused_humming_moe.py:108-123; SHA256 0cd9d4f84708c64879dadf97cae3a69b3c68cc001ea6da347273c0e96d7980d0
+def get_humming_moe_gemm_type(moe_config: FusedMoEConfig | None = None) -> str:
+    env_gemm_type: str | None = envs.VLLM_HUMMING_MOE_GEMM_TYPE
+    if env_gemm_type is not None and env_gemm_type.lower() != "auto":
+        env_gemm_type = env_gemm_type.lower()
+        if env_gemm_type == "grouped":
+            gemm_type = "grouped_contiguous"
+        else:
+            gemm_type = env_gemm_type
+    elif moe_config is not None and moe_config.moe_parallel_config.use_ep:
+        gemm_type = "grouped_contiguous"
+    else:
+        gemm_type = "indexed"
+
+    logger.info_once(f"Using {gemm_type} gemm for humming moe")  # noqa
+    return gemm_type
+
+
+FILE vllm/model_executor/kernels/mhc/tilelang_kernels.py:58-98; SHA256 61a384a091344d8207a04b2b7c74d30a81626eec4c068cf1dd034699cbfc34b5
+# every (tile_n, n_thr) pair is one more kernel to compile. Tuned on GB300
+# (hc_mult 4, hidden_size 5120 and 7168) against the separate post + split-k
+# GEMM it replaces; the bands are coarse because the loss against a per-shape
+# optimum is ~1-2%, while one fixed config gives up to 18% at the top of the
+# range.
+_FUSED_POST_PRE_N_THR = 128
+_FUSED_POST_PRE_MAX_TOKENS = 32
+
+
+def mhc_fused_post_pre_split_config(
+    num_tokens: int, hidden_size: int, hc_mult: int
+) -> tuple[int, int, int] | None:
+    """Pick ``(tile_n, n_splits, n_thr)`` for the fused post + pre-norm GEMM.
+
+    Returns None when a separate post kernel followed by a split-k GEMM is the
+    better choice, or when the hidden size does not divide evenly across the
+    fused kernel's block. One source of truth for the dispatch decision, the
+    compile key and the launch, which must agree.
+    """
+    if num_tokens > _FUSED_POST_PRE_MAX_TOKENS:
+        return None
+    n_thr = _FUSED_POST_PRE_N_THR
+    if hidden_size % n_thr:
+        return None
+    # The projection tiles supply the parallelism a small token count cannot,
+    # so the tile grows with the batch: 1.3x at one token and 1.03x at 32
+    # against a split-k GEMM given the split its own estimator computes.
+    if num_tokens < 16:
+        tile_n, n_splits = 2, 8
+    else:
+        tile_n, n_splits = 6, 8
+    # The kernel drops projection tiles and k-slices it cannot fill evenly.
+    mix_size = hc_mult * (hc_mult + 2)
+    while tile_n > 1 and mix_size % tile_n:
+        tile_n -= 1
+    while n_splits > 1 and hidden_size % (n_splits * n_thr):
+        n_splits //= 2
+    return tile_n, n_splits, n_thr
+
+
+def require_fused_post_pre_config(
+
+FILE vllm/models/deepseek_v41/nvidia/ops/mhc.py:30-72; SHA256 c8233a70004719017ff6a5826ca538c92ea6319a9c7c0090dc8fc2e603db25e7
+    from vllm.distributed.device_communicators.cuda_communicator import CudaCommunicator
+
+    from .cute_dsl import AllReduceMHC
+
+logger = init_logger(__name__)
+
+# GB200 TP4/FlashInfer improves through 16 tokens; larger screens tie or regress.
+MHC_OVERLAP_MAX_TOKENS = 16
+
+# The fused all-reduce + mHC kernel of the overlap path, built once by
+# init_mhc_all_reduce.
+_all_reduce_mhc: "AllReduceMHC | None" = None
+
+
+def supports_mhc_overlap(vllm_config: VllmConfig) -> bool:
+    """Check kernel requirements and safety of sharing the coefficient stream."""
+    config = vllm_config.model_config.hf_config
+    # DeepGEMM's prenorm kernel requires K % 64 == 0, N % 8 == 0, and N <= 32.
+    mix_size = config.hc_mult * (config.hc_mult + 2)
+    return (
+        current_platform.is_device_capability_family(100)
+        and is_deep_gemm_supported()
+        and config.hidden_size % 64 == 0
+        and 0 < mix_size <= 32
+        and mix_size % 8 == 0
+        and not vllm_config.parallel_config.use_ubatching
+    )
+
+
+def supports_mhc_all_reduce(vllm_config: VllmConfig) -> bool:
+    parallel = vllm_config.parallel_config
+    config = vllm_config.model_config.hf_config
+    if (
+        parallel.tensor_parallel_size != 4
+        or parallel.enable_expert_parallel
+        or config.hidden_size != 5120
+        or config.hc_mult != 4
+    ):
+        return False
+    # The custom all-reduce's MNNVL buffers succeed exactly when NVLink
+    # multicast does, which the fused kernel's own mailbox needs too.
+    comm = cast("CudaCommunicator", get_tp_group().device_communicator).ca_comm
+    return comm is not None and bool(comm.mnnvl_lamport_ag_multicast_ptr)
+
+LIVE STARTUP LOG
+(Worker_DP0_EP0 pid=1545) INFO 10-20 11:38:52 [model_executor/.../oracle/mxfp4.py:721] Using 'MARLIN' Mxfp4 MoE backend.
+(Worker_DP0_EP0 pid=1545) INFO 10-20 11:50:09 [model_executor/.../oracle/mxfp4.py:2019] Using MarlinExperts

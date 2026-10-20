@@ -1,0 +1,288 @@
+{
+  "question": "DeepGEMM #452 is a separate contiguous prefill MQA epilogue optimization, not the paged candidate-only decode patches. The live header still uses fmaxf and unhalved KV scales. Compare source-author H200 microbenchmarks against actual invocation/shape and exposed prefill time. The source claim that x+abs(x)=2relu(x) is exact for all finite float32 is too broad: finite x can overflow when doubled, and NaN behavior differs; require range/scaling/reference and top-k-set checks. H200 serving gain unmeasured. Prefer the smallest reversible JIT-header integration and a cold-prefill versus warm-cache discriminator. Extract short exact evidence, negative cases, distinction between contiguous and paged MQA, and deployment uncertainty. Do not treat a microbenchmark multiplier as serving improvement.",
+  "created_at": "2026-10-20T12:34:42Z",
+  "sources": [
+    {
+      "id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "source": "github",
+      "kind": "resource",
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/452",
+      "title": "perf: Use full-rate FADD relu in SM90 FP8 MQA logits epilogue by Chtholly-Boss · Pull Request #452 · deepseek-ai/DeepGEMM · GitHub",
+      "body": "Conversation\nChtholly-Boss\ncommented\nSep 18, 2026\nCopy link\nCopy Markdown\nSummary\nReplace\nfmaxf(x, 0)\nwith\nx + fabsf(x)\nin the SM90 FP8 MQA logits epilogue, recovering the 2× throughput gap between FMNMX (half-rate) and FADD (full-rate) on Hopper. The factor-of-2 introduced by the identity is resolved by folding\n0.5f\ninto the existing\nscale_kv\nmultiply — zero extra instructions, bit-exact numerics.\nBackground\nOn SM90,\nfmaxf(x, 0)\ncompiles to a single FMNMX, which issues at 64 ops/clk/SM — half the rate of FADD/FFMA (128 ops/clk/SM). Meanwhile\nx + |x|\ncompiles to a single FADD with the absolute-value operand modifier, which is a free encoding bit in the instruction word:\nFADD R3, R3, |R3|    ; one instruction, full rate (cuobjdump, sm_90a)\nThe relu executes once per\n(token, head, kv)\nscore element in the MQA logits epilogue, so at 64 vs 128 ops/clk/SM the FMNMX form doubles the FP32 pipe time spent on relu alone.\nSince\nx + |x| = 2 · relu(x)\nholds exactly for all finite IEEE-754 floats (\n+0\nfor x ≤ 0), the doubled sum is simply halved by folding\n* 0.5f\ninto the already-existing\nscale_kv\nmultiplication (an exponent decrement, also exact):\n//\nBefore:\nreturn\nfmaxf(shifted_accum[j],\n0\n) * weights[i][(j /\n4\n) *\n2\n+ (j &\n1\n)];\n...\nfloat\nv_0 = (sum[\n0\n] + sum[\n1\n]) * scale_kv_0;\n//\nAfter:\nreturn\n(shifted_accum[j] + fabsf(shifted_accum[j])) * weights[i][(j /\n4\n) *\n2\n+ (j &\n1\n)];\n...\nfloat\nv_0 = (sum[\n0\n] + sum[\n1\n]) * (scale_kv_0 *\n0\n.\n5f\n);\nThe same technique is already used by the SM100 kernel (\nsm100_mqa_logits.cuh\n, packed\nFADD2\nvariant); this PR brings it to SM90. Verified via\ncuobjdump -sass\n: zero FMNMX across all JIT-instantiated\nsm90_fp8_mqa_logits\ncubins.\nPerformance (H200, 132 SMs, SM90A)\nProduction indexer shapes, best of 3 reps, before → after:\nShape\nBefore\nAfter\nGain\nH=32, D=128, SQ=512, SKV=140k, FP32 logits\n1018 TFLOPS\n1093 TFLOPS\n+7.4%\nSQ=512, SKV=130560, H=64, BF16, CP=1\n1042 TFLOPS\n1126 TFLOPS\n+8.1%\nSQ=512, SKV=130560, H=32, BF16, CP=0\n941 TFLOPS\n989 TFLOPS\n+5.1%\nSQ=2048, SKV=8192, H=64, BF16, CP=1\n980 TFLOPS\n1027 TFLOPS\n+4.8%\nFull\ntests/test_attention.py\nsweep (192 contiguous MQA cases on SM90):\navg +3.7%\n(SK=65536 subset +4.4%, H=64 subset +5.5%, best case +11.3%). Gains scale with the relu's share of kernel time: larger SKV, more heads, smaller head dim → bigger win. Paged MQA logits (separate kernel, untouched) is unaffected.\nCorrectness\nx + |x| = 2 · relu(x)\nexactly for all finite IEEE-754 floats (x > 0:\nx + x = 2x\n; x ≤ 0:\nx + (−x) = +0\n); the ÷2 via\n* 0.5f\nis an exact exponent decrement.\nAll 192 SM90 cases in\ntests/test_attention.py\npass (numeric diff vs simulated reference, 20× bitwise self-consistency, mask equality) — verified on H200.\nNaN semantics differ (\nx + |x|\npropagates NaN;\nfmaxf(NaN, 0)\nreturns 0), but WGMMA accumulator outputs are finite in practice; this matches the SM100 kernel's existing behavior.\nChanges\ndeep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh\n— 3 lines modified (transform lambda + two\n* 0.5f\nfolds).\nSorry, something went wrong.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\nAll reactions\nUse full-rate FADD relu in SM90 FP8 MQA logits epilogue\n…\nee53a16\nFMNMX (fmaxf(x, 0)) issues at 64 ops/clk/SM on SM90, half the rate of\nFADD/FFMA (128 ops/clk/SM), while the abs operand modifier is a free\nencoding bit on FADD. Since x + |x| == 2 * relu(x) exactly for finite\nfloats, the compensating 0.5f is folded into the existing scale_kv\nmultiply: zero extra instructions, bit-exact numerics.\n\nNaN semantics differ (x + |x| propagates NaN; fmaxf(NaN, 0) returns 0),\nmatching the existing SM100 kernel (sm100_mqa_logits.cuh).\n\nMeasured on H200: +7.4% on the production indexer shape\n(H=32, D=128, SQ=512, SKV=140k), avg +3.7% over the 192-case\ntest_attention.py sweep.\nChtholly-Boss\nchanged the title\nUse full-rate FADD relu in SM90 FP8 MQA logits epilogue\nperf: Use full-rate FADD relu in SM90 FP8 MQA logits epilogue\nSep 18, 2026\nds-review-bot\nreviewed\nSep 18, 2026\nView reviewed changes\nComment thread\ndeep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh\nauto shifted_accum = accum + i * kNumAccumPerReduce;\nconst auto transform = [&](const uint32_t& j) {\nreturn\nfmaxf\n(shifted_accum[j]\n, 0\n) * weights[i][(j / 4) * 2 + (j & 1)];\nreturn (shifted_accum[j]\n+ fabsf(shifted_accum[j])\n) * weights[i][(j / 4) * 2 + (j & 1)];\nds-review-bot\nSep 18, 2026\nCopy link\nCopy Markdown\nCollaborator\nThere was a problem hiding this comment.\nChoose a reason for hiding this comment\nThe reason will be displayed to describe this comment to others.\nLearn more\n.\nChoose a reason\nSpam\nAbuse\nOff Topic\nOutdated\nDuplicate\nResolved\nLow Quality\nHide\ncomment\n🔵\nsuggestion\n: Non-blocking:\nshifted_accum[j] + fabsf(shifted_accum[j])\nis a deliberately non-obvious spelling of\n2 * relu(x)\n, and the compensating\n0.5f\nlives ~12 lines away inside the\nscale_kv\nmultiply. Please add a short comment here so a future refactor doesn't split the pair and silently double the logits, e.g.:\n//\nx + |x| == 2 * relu(x) exactly for finite floats. FADD with the |.| operand modifier is\n//\nfull-rate on SM90 whereas FMNMX (fmaxf) is half-rate. The 2x is cancelled by the 0.5f\n//\nfolded into scale_kv below. Note: NaN propagates here (fmaxf(NaN, 0) would return 0),\n//\nconsistent with the SM100 kernel.\n🤖 v5\nSorry, something went wrong.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\nAll reactions\nComment thread\ndeep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh\n}\nfloat v_0 = (sum[0] + sum[1]) * scale_kv_0;\nfloat v_1 = (sum[2] + sum[3]) * scale_kv_1;\nfloat v_0 = (sum[0] + sum[1]) *\n(\nscale_kv_0\n* 0.5f)\n;\nds-review-bot\nSep 18, 2026\nCopy link\nCopy Markdown\nCollaborator\nThere was a problem hiding this comment.\nChoose a reason for hiding this comment\nThe reason will be displayed to describe this comment to others.\nLearn more\n.\nChoose a reason\nSpam\nAbuse\nOff Topic\nOutdated\nDuplicate\nResolved\nLow Quality\nHide\ncomment\n🔵\nsuggestion\n: Non-blocking / stylistic: since\nscale_kv_0\n/\nscale_kv_1\nare only consumed here, consider folding the\n0.5f\nat the load site instead (L247-248, e.g.\nfloat scale_kv_0 = 0.5f * ptx::ld_shared(...)\nwith a comment referencing the\nx + |x|\ntransform). That makes the hoisting explicit rather than relying on the compiler, keeps the two\nv_0\n/\nv_1\nlines unchanged from before, and co-locates the explanation of the factor 2 with a single definition point. Generated code should be identical either way.\n🤖 v5\nSorry, something went wrong.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\nAll reactions\nds-review-bot\ncommented\nSep 18, 2026\nCopy link\nCopy Markdown\nCollaborator\n🤖 ds-review-bot Code Review\nv6\n已核对完整 epilogue、调用约束及 SM100 既有实现，未发现需要修复的回归；ReLU 倍增与两路缩放补偿一致。当前环境没有 CUDA 工具链或 GPU，未复跑测试或验证性能。\nv5\nLGTM — approve.\nThe MR replaces\nfmaxf(x, 0)\nwith\nx + fabsf(x)\nin the SM90 FP8 MQA logits epilogue (\nsm90_fp8_mqa_logits.cuh\n) and folds the compensating\n* 0.5f\ninto the existing per-KV\nscale_kv\nmultiply. The diff is exactly 3 lines and matches the description.\nVerified points:\nNumerics:\nx + |x| == 2*relu(x)\nis exact for all finite IEEE-754 floats (x>0: 2x; x<=0: exactly +0).\nscale_kv * 0.5f\nis an exact exponent decrement. Result is bit-identical to the previous path for finite accumulators.\nPlacement of the\n0.5f\nfold is correct: applied once per output element after the intra-thread reduction\n(sum[0]+sum[1])\n/\n(sum[2]+sum[3])\nand before the\n__shfl_xor_sync\ninter-thread reduction, so each of the\nkNumHeads\ncontributing terms is halved exactly once.\nscale_kv_0/1\nare loop-invariant across the\nBLOCK_Q\nloop, so\nscale_kv * 0.5f\nis hoisted by nvcc — genuinely zero extra instructions per element.\nNaN semantics:\nfmaxf(NaN, 0)\nreturned 0, whereas\nNaN + |NaN|\npropagates NaN. This matches the SM100 kernel (\nsm100_mqa_logits.cuh\nL492-506 already uses the identical\nx + |x|\ntrick via\n__fadd2_rn\nfollowed by\n/ 2\n), and WGMMA FP8 accumulators are finite in practice, so this is acceptable and consistent rather than new risk.\nScope: the paged MQA logits kernel is untouched, as stated.\nNo blocking issues. Performance claims (+3.7% avg, +7.4% on production shape, zero FMNMX in SASS) are plausible given FMNMX is half-rate on SM90 and the abs operand modifier is a free encoding bit on FADD; they were not re-measured here (no Hopper GPU in this environment). Two non-blocking, purely maintainability-oriented suggestions are left inline.\nv4\nCorrect, low-risk SM90 micro-optimization. The MR replaces the half-rate\nfmaxf(x, 0)\nReLU in the SM90 FP8 MQA logits epilogue with a full-rate FADD using the free absolute-value operand modifier (\nx + |x|\n), and compensates the resulting exact factor of 2 by folding\n* 0.5f\ninto the already-present\nscale_kv\nmultiply. I verified the change end to end: (1) for every finite IEEE-754 float,\nx + |x| == 2*relu(x)\nexactly (+0 for x <= 0, and\nx + x == 2x\nexactly for x > 0); (2) the factor-of-2 is uniform across the per-term weight multiply and across both the intra-thread and inter-thread (shuffle-xor) reductions, so it factors out exactly; (3)\nscale_kv * 0.5f\nis an exact power-of-two scaling for normal scales, so\nfl((2*sum) * (scale/2)) == fl(sum * scale)\nis bit-exact versus the previous\nfmaxf\npath. The change is local (3 lines in one file: line 286 transform plus the two\n* 0.5f\nfolds at lines 297-298), preserves the kernel's dataflow/synchronization, and is consistent with the existing SM100\nsm100_mqa_logits.cuh\nimplementation that already uses the same\nfabsf\n+\n/2\nidentity. The claimed SASS result (a single FADD with the abs operand modifier replacing FMNMX) is consistent with the documented SM90 issue rates. Verified caveats, none blocking: (a) only non-finite inputs differ, since\nfmaxf(NaN, 0) == 0\nwhile\nx + |x|\npropagates NaN and\nx == -inf\ngives\nNaN\n; WGMMA accumulator outputs are finite in practice and this matches the SM100 kernel, so it is acceptable; (b) the exactness of the halving relies on\nscale_kv\nbeing normal (subnormal halving could lose a bit, and the doubled accumulator could overflow only near FLT_MAX), which realistic FP8 dequant scales and attention logits never approach. No correctness, safety, API, or concurrency issues found, and no changes requested.\nFiles reviewed\n: 1\nIssues found\n: 🔵 2 suggestion\nInline comments posted\n: 2\nAll reactions\nSorry, something went wrong.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\nChtholly-Boss\ncommented\nSep 18, 2026\nCopy link\nCopy Markdown\nAuthor\n@RayWang96\n@zheanxu\nfriendly ping for review — tiny 3-line bit-exact perf fix, details in the PR description.\nAll reactions\nSorry, something went wrong.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\nSign up for free\nto join this conversation on GitHub\n.\n    Already have an account?\nSign in to comment\nReviewers\nds-review-bot\nds-review-bot left review comments\nAssignees\nNo one assigned\nLabels\nNone yet\nProjects\nNone yet\nMilestone\nNo milestone\nDevelopment\nSuccessfully merging this pull request may close these issues.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\n2 participants\nAdd this suggestion to a batch that can be applied as a single commit.\nThis suggestion is invalid because no changes were made to the code.\nSuggestions cannot be applied while the pull request is closed.\nSuggestions cannot be applied while viewing a subset of changes.\nOnly one suggestion per line can be applied in a batch.\nAdd this suggestion to a batch that can be applied as a single commit.\nApplying suggestions on deleted lines is not supported.\nYou must change the existing code in this line in order to create a valid suggestion.\nOutdated suggestions cannot be applied.\nThis suggestion has been applied or marked resolved.\nSuggestions cannot be applied from pending reviews.\nSuggestions cannot be applied on multi-line comments.\nSuggestions cannot be applied while the pull request is queued to merge.\nSuggestion cannot be applied right now. Please check back later.",
+      "created_at": null,
+      "updated_at": null,
+      "fetched_at": "2026-10-20T12:15:53Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:deepseek-ai/DeepGEMM:452",
+      "tags": [
+        "h100",
+        "deepseek",
+        "throughput",
+        "performance"
+      ],
+      "metadata": {
+        "id": "github:deepseek-ai/DeepGEMM:452",
+        "repo": "deepseek-ai/DeepGEMM",
+        "number": 452,
+        "fetched_at": "2026-10-20T12:15:50Z",
+        "discussion_coverage": "HTML-visible only; not exhaustive formal reviews or paginated replies",
+        "url": "https://github.com/deepseek-ai/DeepGEMM/pull/452",
+        "html_sha256": "71db6dc6108cf0ed79c430381cf16dcfa97e51738e0e7154f9c732b947a98cda",
+        "text_sha256": "6f266dd7c34f5955e996c2da012c28b5102914b962291723f29f8f0473f9722e",
+        "characters": 11941,
+        "title": "perf: Use full-rate FADD relu in SM90 FP8 MQA logits epilogue by Chtholly-Boss · Pull Request #452 · deepseek-ai/DeepGEMM · GitHub",
+        "patch_status": 200,
+        "patch_sha256": "17bdd76fa76615aeb216ac9526078bfd5446938e637616118ec501f8aac117c6",
+        "patch_commit_shas": [
+          "ee53a16b089d441cbfc4020cd558c1f05f623d97"
+        ],
+        "changed_paths": [
+          "deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh"
+        ]
+      },
+      "content_hash": "86647911b39fcc80f4c638b9d95d476d29785090c0a439780139b9ab41465718"
+    },
+    {
+      "id": "github:deepseek-ai/DeepGEMM:303:live-page",
+      "source": "github",
+      "kind": "resource",
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/303",
+      "title": "Eliminate redundant global stores in SM90 MQA logits kernels by Gregory-Pereira · Pull Request #303 · deepseek-ai/DeepGEMM · GitHub",
+      "body": "Conversation\nGregory-Pereira\ncommented\nApr 11, 2026\nCopy link\nCopy Markdown\nSeeks to address:\n#279\nSorry, something went wrong.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\nAll reactions\nEliminate redundant global stores in SM90 MQA logits kernels\n…\n2f9199d\nSigned-off-by: greg pereira <grpereir@redhat.com>\nGregory-Pereira\nmarked this pull request as draft\nApril 11, 2026 17:06\nGregory-Pereira\nadded\n3\ncommits\nApril 11, 2026 10:40\nremove reduced writes and increased num_kv_stages = 5\n…\n69a2f5d\nSigned-off-by: greg pereira <grpereir@redhat.com>\nHalve SM90 math threads and BLOCK_KV to fit 2 threadblocks per SM, mo…\n…\n515009a\n…ving weights from registers to on-demand shared memory loads to stay within register budget\n\nSigned-off-by: greg pereira <grpereir@redhat.com>\nkeep 1 block per SM, but with halved threads (256 math) and halved BL…\n…\nbf3643e\n…OCK_KV (128)\n\nSigned-off-by: greg pereira <grpereir@redhat.com>\nGregory-Pereira\nclosed this\nApr 11, 2026\nllag9810\ncommented\nMay 11, 2026\nCopy link\nCopy Markdown\nHi, I noticed this PR was closed. Could you share why? I am seeing a similar slowdown with fp8_mqa_logits on long-context prefill and want to understand the reason. Thanks.\nAll reactions\nSorry, something went wrong.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\nSign up for free\nto join this conversation on GitHub\n.\n    Already have an account?\nSign in to comment\nReviewers\nNo reviews\nAssignees\nNo one assigned\nLabels\nNone yet\nProjects\nNone yet\nMilestone\nNo milestone\nDevelopment\nSuccessfully merging this pull request may close these issues.\nUh oh!\nThere was an error while loading.\nPlease reload this page\n.\n2 participants\nAdd this suggestion to a batch that can be applied as a single commit.\nThis suggestion is invalid because no changes were made to the code.\nSuggestions cannot be applied while the pull request is closed.\nSuggestions cannot be applied while viewing a subset of changes.\nOnly one suggestion per line can be applied in a batch.\nAdd this suggestion to a batch that can be applied as a single commit.\nApplying suggestions on deleted lines is not supported.\nYou must change the existing code in this line in order to create a valid suggestion.\nOutdated suggestions cannot be applied.\nThis suggestion has been applied or marked resolved.\nSuggestions cannot be applied from pending reviews.\nSuggestions cannot be applied on multi-line comments.\nSuggestions cannot be applied while the pull request is queued to merge.\nSuggestion cannot be applied right now. Please check back later.",
+      "created_at": null,
+      "updated_at": null,
+      "fetched_at": "2026-10-20T12:15:49Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:deepseek-ai/DeepGEMM:303",
+      "tags": [
+        "deepseek",
+        "speculation"
+      ],
+      "metadata": {
+        "id": "github:deepseek-ai/DeepGEMM:303",
+        "repo": "deepseek-ai/DeepGEMM",
+        "number": 303,
+        "fetched_at": "2026-10-20T12:15:46Z",
+        "discussion_coverage": "HTML-visible only; not exhaustive formal reviews or paginated replies",
+        "url": "https://github.com/deepseek-ai/DeepGEMM/pull/303",
+        "html_sha256": "23ff5caa1e94d2d6ca5759c044a53119e41d5050b5eb4b6198b7c092f40cf501",
+        "text_sha256": "8b72b441509548fe9aa1861461749e3b809b9735d0ca2d78f077491b2be28192",
+        "characters": 2557,
+        "title": "Eliminate redundant global stores in SM90 MQA logits kernels by Gregory-Pereira · Pull Request #303 · deepseek-ai/DeepGEMM · GitHub",
+        "patch_status": 200,
+        "patch_sha256": "2fa34c16d58796396a4f5fba88460892704e25f5219dbcc32051c6de34f6604d",
+        "patch_commit_shas": [
+          "2f9199d8871c3af0878d6b7177ee7b06485d6bcd",
+          "69a2f5dde48dda12f07204bd9ffee7cddcd06a1c",
+          "515009a5c2ef260349f9e537fa272ec80ae9adb5",
+          "bf3643e7b116e224c14597db4fd353350658aa1f"
+        ],
+        "changed_paths": [
+          "csrc/jit_kernels/impls/smxx_fp8_mqa_logits.hpp",
+          "deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh",
+          "deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh"
+        ]
+      },
+      "content_hash": "2ccfbceac8d9d17d47a696a396c4c774bd308d223c57da3eb2a414c3a80e46de"
+    },
+    {
+      "id": "code:h200:mqa-epilogue",
+      "source": "runtime_snapshot",
+      "kind": "code",
+      "url": "/home/ubuntu/AutoResearch-Inference/ideation/runs/h200-fresh-research-001/baseline/source/vllm/third_party/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh",
+      "title": "Installed contiguous SM90 FP8 MQA logits epilogue",
+      "body": "                // Reduce over the head dim and store\n                const auto& kv_offset = kv_start + kv_block_idx * BLOCK_KV + warp_offset;\n                static constexpr uint32_t kNumAccumPerReduce = kNumHeads / 2;\n                DG_STATIC_ASSERT(WGMMA::kNumAccum % kNumAccumPerReduce == 0, \"Invalid accumulation\");\n                DG_STATIC_ASSERT(WGMMA::kNumAccum / kNumAccumPerReduce == BLOCK_Q, \"Invalid accumulation\");\n                DG_STATIC_ASSERT(kNumHeads % 8 == 0, \"Invalid head\");\n                #pragma unroll\n                for (uint32_t i = 0; i < BLOCK_Q; ++ i) {\n                    auto shifted_accum = accum + i * kNumAccumPerReduce;\n                    const auto transform = [&](const uint32_t& j) {\n                        return fmaxf(shifted_accum[j], 0) * weights[i][(j / 4) * 2 + (j & 1)];\n                    };\n\n                    // Intra-thread reduction\n                    float sum[4] = {transform(0), transform(1), transform(2), transform(3)};\n                    #pragma unroll\n                    for (uint32_t j = 1; j < kNumHeads / 8; ++ j) {\n                        #pragma unroll\n                        for (uint32_t k = 0; k < 4; k ++)\n                            sum[k] += transform(j * 4 + k);\n                    }\n                    float v_0 = (sum[0] + sum[1]) * scale_kv_0;\n                    float v_1 = (sum[2] + sum[3]) * scale_kv_1;\n\n                    // Inter-thread reduction\n                    #pragma unroll\n                    for (uint32_t j = 0; j < 2; ++ j) {",
+      "created_at": null,
+      "updated_at": null,
+      "fetched_at": "2026-10-20T12:31:45Z",
+      "state": null,
+      "merged_at": null,
+      "parent": null,
+      "tags": [],
+      "metadata": {
+        "inspection": "read-only text; not a measured bottleneck"
+      },
+      "content_hash": "09a6bae8623f9a648b1f963a7d22df1cbfe9046bb652fd93cd5003101352e5a9"
+    },
+    {
+      "id": "runtime:h200:runtime-inventory",
+      "source": "runtime_snapshot",
+      "kind": "code",
+      "url": "/home/ubuntu/AutoResearch-Inference/ideation/runs/h200-fresh-research-001/baseline/runtime-inventory.json",
+      "title": "Read-only H200 runtime-inventory",
+      "body": "{\n  \"captured_at\": \"2026-10-20T12:12:07.786058+00:00\",\n  \"containers\": [\n    {\n      \"args\": [\n        \"serve\",\n        \"deepseek-ai/DeepSeek-V4.1-Flash\",\n        \"--revision\",\n        \"2cba9e42aa026125f3ed06c6d98c1db82f7ca027\",\n        \"--served-model-name\",\n        \"deepseek-v4.1-flash\",\n        \"--host\",\n        \"0.0.0.0\",\n        \"--port\",\n        \"8100\",\n        \"--tensor-parallel-size\",\n        \"1\",\n        \"--tokenizer-mode\",\n        \"deepseek_v41\",\n        \"--reasoning-parser\",\n        \"deepseek_v41\",\n        \"--tool-call-parser\",\n        \"deepseek_v41\",\n        \"--enable-auto-tool-choice\",\n        \"--mm-encoder-tp-mode\",\n        \"data\",\n        \"--mm-processor-cache-type\",\n        \"shm\",\n        \"--mm-processor-cache-gb\",\n        \"8\",\n        \"--max-model-len\",\n        \"1048576\",\n        \"--max-num-seqs\",\n        \"64\",\n        \"--max-num-batched-tokens\",\n        \"16384\",\n        \"--max-cudagraph-capture-size\",\n        \"512\",\n        \"--gpu-memory-utilization\",\n        \"0.9\",\n        \"--enable-chunked-prefill\",\n        \"--disable-uvicorn-access-log\",\n        \"--model-loader-extra-config\",\n        \"{\\\"enable_multithread_load\\\":true,\\\"num_threads\\\":128}\",\n        \"--data-parallel-size\",\n        \"4\",\n        \"--enable-expert-parallel\",\n        \"--enable-prefix-caching\",\n        \"--prefix-caching-hash-algo\",\n        \"sha256\",\n        \"--no-swa-bounded-replay\",\n        \"--engram-config\",\n        \"{\\\"cpu_offload\\\":true,\\\"embedding_across_dp\\\":true}\",\n        \"--kv-cache-dtype\",\n        \"fp8\",\n        \"--block-size\",\n        \"64\",\n        \"--speculative-config\",\n        \"{\\\"method\\\":\\\"dspark\\\",\\\"num_speculative_tokens\\\":5,\\\"draft_sample_method\\\":\\\"probabilistic\\\",\\\"rejection_sample_method\\\":\\\"block\\\",\\\"enable_adaptive_verification\\\":false}\",\n        \"--no-disable-uvicorn-access-log\",\n        \"--enable-log-requests\",\n        \"--enable-log-outputs\",\n        \"--enable-log-deltas\",\n        \"--enable-force-include-usage\",\n        \"--enable-per-request-metrics\",\n        \"--enable-prompt-tokens-details\",\n        \"--enable-request-id-headers\",\n        \"--kv-cache-metrics\",\n        \"--kv-cache-metrics-sample\",\n        \"1.0\",\n        \"--cudagraph-metrics\",\n        \"--enable-mfu-metrics\",\n        \"--per-request-spec-decode-metrics\",\n        \"detailed\",\n        \"--api-server-count\",\n        \"2\",\n        \"--data-parallel-rpc-port\",\n        \"29510\"\n      ],\n      \"id\": \"b463d7fcced4dccdfb7b5dca73e5dcbd565bd5cefeabd673cbd338c8e1e3c3cd\",\n      \"image_id\": \"sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c\",\n      \"name\": \"dsv41-h200-vllm-latency-2xdep4-sla-0\",\n      \"running\": true,\n      \"source_sha256\": {\n        \"vllm/v1/attention/backend.py\": \"77ac35180c1e0f854c6307f5deb3c7c0ac4a9e8702578d406ce058981488a137\",\n        \"vllm/v1/attention/backends/mla/sparse_swa.py\": \"3585df3b635ac26ce6820e202bfd4e619eaa7142c84929bd445dd12e2090aafb\",\n        \"vllm/v1/worker/gpu/attn_utils.py\": \"301a515ce79567108719561958d1c14c3cd65b58f8d26fe666100a49868e0dd8\"\n      },\n      \"started_at\": \"2026-10-20T11:37:31.896379828Z\"\n    },\n    {\n      \"args\": [\n        \"serve\",\n        \"deepseek-ai/DeepSeek-V4.1-Flash\",\n        \"--revision\",\n        \"2cba9e42aa026125f3ed06c6d98c1db82f7ca027\",\n        \"--served-model-name\",\n        \"deepseek-v4.1-flash\",\n        \"--host\",\n        \"0.0.0.0\",\n        \"--port\",\n        \"8101\",\n        \"--tensor-parallel-size\",\n        \"1\",\n        \"--tokenizer-mode\",\n        \"deepseek_v41\",\n        \"--reasoning-parser\",\n        \"deepseek_v41\",\n        \"--tool-call-parser\",\n        \"deepseek_v41\",\n        \"--enable-auto-tool-choice\",\n        \"--mm-encoder-tp-mode\",\n        \"data\",\n        \"--mm-processor-cache-type\",\n        \"shm\",\n        \"--mm-processor-cache-gb\",\n        \"8\",\n        \"--max-model-len\",\n        \"1048576\",\n        \"--max-num-seqs\",\n        \"64\",\n        \"--max-num-batched-tokens\",\n        \"16384\",\n        \"--max-cudagraph-capture-size\",\n        \"512\",\n        \"--gpu-memory-utilization\",\n        \"0.9\",\n        \"--enable-chunked-prefill\",\n        \"--disable-uvicorn-access-log\",\n        \"--model-loader-extra-config\",\n        \"{\\\"enable_multithread_load\\\":true,\\\"num_threads\\\":128}\",\n        \"--data-parallel-size\",\n        \"4\",\n        \"--enable-expert-parallel\",\n        \"--enable-prefix-caching\",\n        \"--prefix-caching-hash-algo\",\n        \"sha256\",\n        \"--no-swa-bounded-replay\",\n        \"--engram-config\",\n        \"{\\\"cpu_offload\\\":true,\\\"embedding_across_dp\\\":true}\",\n        \"--kv-cache-dtype\",\n        \"fp8\",\n        \"--block-size\",\n        \"64\",\n        \"--speculative-config\",\n        \"{\\\"method\\\":\\\"dspark\\\",\\\"num_speculative_tokens\\\":5,\\\"draft_sample_method\\\":\\\"probabilistic\\\",\\\"rejection_sample_method\\\":\\\"block\\\",\\\"enable_adaptive_verification\\\":false}\",\n        \"--no-disable-uvicorn-access-log\",\n        \"--enable-log-requests\",\n        \"--enable-log-outputs\",\n        \"--enable-log-deltas\",\n        \"--enable-force-include-usage\",\n        \"--enable-per-request-metrics\",\n        \"--enable-prompt-tokens-details\",\n        \"--enable-request-id-headers\",\n        \"--kv-cache-metrics\",\n        \"--kv-cache-metrics-sample\",\n        \"1.0\",\n        \"--cudagraph-metrics\",\n        \"--enable-mfu-metrics\",\n        \"--per-request-spec-decode-metrics\",\n        \"detailed\",\n        \"--api-server-count\",\n        \"2\",\n        \"--data-parallel-rpc-port\",\n        \"29610\"\n      ],\n      \"id\": \"71831560bd4dde3f89e48b1b3fad20f8c053ba785931ed559fa6dff1f05a2da8\",\n      \"image_id\": \"sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c\",\n      \"name\": \"dsv41-h200-vllm-latency-2xdep4-sla-1\",\n      \"running\": true,\n      \"source_sha256\": {\n        \"vllm/v1/attention/backend.py\": \"77ac35180c1e0f854c6307f5deb3c7c0ac4a9e8702578d406ce058981488a137\",\n        \"vllm/v1/attention/backends/mla/sparse_swa.py\": \"3585df3b635ac26ce6820e202bfd4e619eaa7142c84929bd445dd12e2090aafb\",\n        \"vllm/v1/worker/gpu/attn_utils.py\": \"301a515ce79567108719561958d1c14c3cd65b58f8d26fe666100a49868e0dd8\"\n      },\n      \"started_at\": \"2026-10-20T11:37:31.893990543Z\"\n    }\n  ],\n  \"gpu_inventory\": \"name, uuid, memory.total [MiB], driver_version\\nNVIDIA H200, GPU-fc81ee05-2051-5148-0563-47bdb726dbc4, 143771 MiB, 580.126.20\\nNVIDIA H200, GPU-26ab32b4-5b17-86f8-520b-556a52c80542, 143771 MiB, 580.126.20\\nNVIDIA H200, GPU-09581f2f-45de-d97f-e86d-2202eae12f80, 143771 MiB, 580.126.20\\nNVIDIA H200, GPU-56d0c21b-d144-4cb0-3d91-d225899170ad, 143771 MiB, 580.126.20\\nNVIDIA H200, GPU-063054c6-28aa-6713-5714-3e2918f45b0e, 143771 MiB, 580.126.20\\nNVIDIA H200, GPU-06da6ef4-6e44-cae5-8378-7b3b76dcc528, 143771 MiB, 580.126.20\\nNVIDIA H200, GPU-63d6a52f-f4e3-722c-2821-4b411f9e2ec8, 143771 MiB, 580.126.20\\nNVIDIA H200, GPU-19da1f45-836d-e6ba-b843-2c094835e213, 143771 MiB, 580.126.20\",\n  \"health\": {\n    \"http://127.0.0.1:8100\": {\n      \"body\": \"\",\n      \"ok\": true\n    },\n    \"http://127.0.0.1:8101\": {\n      \"body\": \"\",\n      \"ok\": true\n    }\n  },\n  \"loadgen_sha256\": \"7ce987f257ee68632d404376032660a705dc2aa402794180c8dac6cc64fdd36c\",\n  \"models\": {\n    \"body\": \"{\\\"object\\\":\\\"list\\\",\\\"data\\\":[{\\\"id\\\":\\\"deepseek-v4.1-flash\\\",\\\"object\\\":\\\"model\\\",\\\"created\\\":1792498328,\\\"owned_by\\\":\\\"vllm\\\",\\\"root\\\":\\\"deepseek-ai/DeepSeek-V4.1-Flash\\\",\\\"parent\\\":null,\\\"max_model_len\\\":1048576,\\\"permission\\\":[{\\\"id\\\":\\\"modelperm-a05d5e3a03f0e579\\\",\\\"object\\\":\\\"model_permission\\\",\\\"created\\\":1792498328,\\\"allow_create_engine\\\":false,\\\"allow_sampling\\\":true,\\\"allow_logprobs\\\":true,\\\"allow_search_indices\\\":false,\\\"allow_view\\\":true,\\\"allow_fine_tuning\\\":false,\\\"organization\\\":\\\"*\\\",\\\"group\\\":null,\\\"is_blocking\\\":false}]}]}\",\n    \"ok\": true\n  },\n  \"router\": {\n    \"args\": [\n      \"/home/ubuntu/Deepseek_serve/.venv/bin/python\",\n      \"/home/ubuntu/Deepseek_serve/lib/router.py\",\n      \"--port\",\n      \"8000\",\n      \"--backends\",\n      \"http://127.0.0.1:8100\",\n      \"http://127.0.0.1:8101\"\n    ],\n    \"pid\": 109189,\n    \"settings\": {\n      \"DSV41_ROUTER_CONNECTION_LIMIT\": null,\n      \"DSV41_ROUTER_LOAD_FACTOR\": null,\n      \"DSV41_ROUTER_RETRY_CONNECTION_ERRORS\": null\n    },\n    \"source_sha256\": \"7e6aa83973625ef2cd6489b35273fc77b156693a8e49a998cae927fe4c66ebce\"\n  },\n  \"serving_commit\": \"11c249d28b2962f7384b4ab1fd7c1664704e7524\",\n  \"serving_dirty\": \"\"\n}\n",
+      "created_at": null,
+      "updated_at": null,
+      "fetched_at": "2026-10-20T12:18:14Z",
+      "state": null,
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "deepseek-v4.1-flash",
+        "deepseek",
+        "mla",
+        "performance",
+        "speculation",
+        "kv-cache"
+      ],
+      "metadata": {
+        "sha256": "b73ed56691a8af1f09bcfc553860c01d473935a6935188c046dbfc0a254efbc9"
+      },
+      "content_hash": "d630371e0eace43eeb30e3cb1ac782a9e47a29a6a700676c06105c79a36b43ad"
+    }
+  ],
+  "claims": [
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "Paged MQA logits (separate kernel, untouched) is unaffected.",
+      "claim": "Author-stated scope: #452 changes the contiguous SM90 FP8 MQA logits epilogue, separately from paged candidate-only decode optimizations.",
+      "relation": "supports",
+      "conditions": "Execution must reach sm90_fp8_mqa_logits.cuh; the paged MQA kernel is outside this patch.",
+      "reported_result": "The author reports improvements for contiguous MQA and no effect on the separate paged kernel.",
+      "transfer_inference": "Attribute potential gains only to requests that execute the changed contiguous kernel. Do not transfer these measurements to paged decode.",
+      "limitations": "The supplied sources contain no target execution trace or candidate-only decode patch implementation. Runtime invocation frequency is unknown.",
+      "id": "E1"
+    },
+    {
+      "source_id": "code:h200:mqa-epilogue",
+      "quote": "return fmaxf(shifted_accum[j], 0) * weights[i][(j / 4) * 2 + (j & 1)];",
+      "claim": "Observed source text: the installed contiguous epilogue retains fmaxf and multiplies the reduced sums directly by scale_kv_0 and scale_kv_1, without half-scale factors at those multiplication sites.",
+      "relation": "supports",
+      "conditions": "Supplied read-only snapshot of the vendored SM90 contiguous MQA epilogue.",
+      "reported_result": "The visible epilogue does not contain #452's replacement or its two compensating half-scale factors.",
+      "transfer_inference": "This identifies a concrete patch candidate if the running process actually builds and invokes this header.",
+      "limitations": "Source inspection is not proof of the loaded implementation, generated instructions, invocation, or a measured bottleneck. Upstream scale definitions are outside the supplied code excerpt.",
+      "id": "E2"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "FADD R3, R3, |R3|    ; one instruction, full rate (cuobjdump, sm_90a)",
+      "claim": "Author claim: replacing FMNMX with FADD using its absolute-value operand modifier improves the instruction throughput of the ReLU operation.",
+      "relation": "supports",
+      "conditions": "SM90A code generation; the author gives FMNMX and FADD rates of 64 and 128 operations per clock per SM, respectively.",
+      "reported_result": "The author reports zero FMNMX instructions across the tested JIT-instantiated contiguous MQA cubins and no additional instructions from scale compensation.",
+      "transfer_inference": "The mechanism is plausible when this epilogue consumes meaningful kernel time. Inspect generated code for the target's actual specializations.",
+      "limitations": "Disassembly files and target compiler details are not supplied. Doubling one instruction's issue rate does not double kernel or serving throughput.",
+      "id": "E3"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "Production indexer shapes, best of 3 reps, before → after:",
+      "claim": "Author-reported H200 microbenchmarks support a modest, shape-dependent contiguous-kernel improvement.",
+      "relation": "supports",
+      "conditions": "H200, 132 SMs, SM90A. Listed cases: H=32/D=128/SQ=512/SKV=140k/FP32 logits; SQ=512/SKV=130560/H=64/BF16/CP=1; SQ=512/SKV=130560/H=32/BF16/CP=0; SQ=2048/SKV=8192/H=64/BF16/CP=1.",
+      "reported_result": "Respectively: 1018→1093 TFLOPS (+7.4%), 1042→1126 (+8.1%), 941→989 (+5.1%), and 980→1027 (+4.8%). The 192-case contiguous sweep reportedly averaged +3.7%, with SK=65536 averaging +4.4%, H=64 averaging +5.5%, and a best case of +11.3%.",
+      "transfer_inference": "Compare actual invocation shapes, head counts, dimensions, dtypes, and modes before choosing a representative microbenchmark. Larger SKV, more heads, and smaller head dimensions are author-proposed favorable conditions.",
+      "limitations": "Independent reproduction, timing distributions, uncertainty, worst-case results, and per-case regressions are unknown. D is unspecified for three listed cases, and CP is undefined in the excerpt. These are not serving measurements.",
+      "id": "E4"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "pass (numeric diff vs simulated reference, 20× bitwise self-consistency, mask equality)",
+      "claim": "Author-reported testing supports correctness on the tested inputs, but does not establish universal bitwise equivalence or unchanged top-k selections.",
+      "relation": "supports",
+      "conditions": "192 SM90 cases in tests/test_attention.py, reportedly run on H200.",
+      "reported_result": "The author reports all cases passing numeric comparison, repeated-run bitwise self-consistency, and mask equality. The visible review states that its environment lacked CUDA tools or a GPU and did not rerun tests or performance measurements.",
+      "transfer_inference": "Require baseline-versus-patch comparisons against an appropriate reference, mask checks, and downstream top-k-set checks, including near ties and the deployed tie policy.",
+      "limitations": "Self-consistency measures repeatability, not equivalence to the original implementation. Input ranges, tolerances, reference details, top-k values, and top-k-set results are unknown.",
+      "id": "E5"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "holds exactly for all finite IEEE-754 floats",
+      "claim": "Analyst challenge: the universal exactness claim is too broad for this floating-point transformation with delayed compensation.",
+      "relation": "challenges",
+      "conditions": "Float32 addition, weighted products, reductions, and multiplication of the KV scale by 0.5.",
+      "reported_result": "The source claims exactness and bit-exact numerics, but supplies no overflow-boundary or subnormal-scale results.",
+      "transfer_inference": "A finite positive x such as FLT_MAX overflows when doubled under round-to-nearest float32 arithmetic. With unit weight and original scale 0.5, the original scalar contribution remains finite, while doubling x before applying the compensated scale 0.25 produces infinity. Weighted products and reductions also need overflow headroom; halving a subnormal scale can round or underflow. Require bounds and tests for accumulators, weights, scales, and intermediate reductions.",
+      "limitations": "This is an analytical counterexample, not an observed target failure. The target's numerical ranges, scaling constraints, rounding and flush-to-zero settings, and boundary-test outcomes are unknown. Finite accumulator inputs alone do not establish safety.",
+      "id": "E6"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "NaN semantics differ (\nx + |x|\npropagates NaN;\nfmaxf(NaN, 0)\nreturns 0)",
+      "claim": "Author-acknowledged challenge: the replacement changes NaN handling.",
+      "relation": "challenges",
+      "conditions": "A NaN reaches the ReLU transform.",
+      "reported_result": "The author states that x + |x| propagates NaN, whereas fmaxf(NaN, 0) returns zero, and asserts that WGMMA accumulators are finite in practice.",
+      "transfer_inference": "Test exceptional values explicitly and establish the target's finite-input invariant. Matching the claimed SM100 behavior does not establish equivalence to the installed SM90 baseline.",
+      "limitations": "No target NaN telemetry, invariant proof, or exceptional-value test results are supplied.",
+      "id": "E7"
+    },
+    {
+      "source_id": "runtime:h200:runtime-inventory",
+      "quote": "\"--max-num-batched-tokens\",\n        \"16384\"",
+      "claim": "Observed configuration establishes an H200 deployment, but does not establish a match to the author's kernel workloads.",
+      "relation": "context",
+      "conditions": "Eight NVIDIA H200 GPUs are listed with driver 580.126.20. Two running containers serve DeepSeek-V4.1-Flash with TP=1, DP=4, expert parallelism, FP8 KV cache, block size 64, chunked prefill, and five speculative tokens.",
+      "reported_result": "Both health checks succeeded. Configuration permits model length 1048576, up to 64 sequences, and 16384 batched tokens.",
+      "transfer_inference": "Hardware-family overlap makes testing relevant. Record actual contiguous versus paged calls and their SQ, SKV, H, D, dtypes, and execution modes; configuration limits are not observed kernel shapes.",
+      "limitations": "Actual requests, concurrency, chunk sizes, kernel dispatch, head dimensions, clock settings, and exposed prefill time are unknown. FP8 KV configuration alone does not prove use of this epilogue.",
+      "id": "E8"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "avg +3.7%",
+      "claim": "H200 serving improvement remains unmeasured; the reported kernel gains cannot be used as serving multipliers.",
+      "relation": "challenges",
+      "conditions": "Transfer depends on the changed kernel's exposed share of the target latency and on overlap, scheduling, and other bottlenecks.",
+      "reported_result": "Only kernel throughput improvements are supplied; no before/after target prefill latency, TTFT, throughput, or tail-latency results are provided.",
+      "transfer_inference": "For the 1018→1093 TFLOPS case, fixed-work kernel time would fall by about 6.9%. Under a simple serial model, if that kernel occupies fraction f of baseline latency, the latency reduction is f × (1 − 1018/1093). Measure f on the critical path rather than assuming it.",
+      "limitations": "The exposed fraction f is unknown. Summed kernel time can overstate critical-path exposure, and the serial model does not capture serving interactions.",
+      "id": "E9"
+    },
+    {
+      "source_id": "runtime:h200:runtime-inventory",
+      "quote": "\"--enable-prefix-caching\"",
+      "claim": "Observed prefix caching makes cold-prefill versus warm-prefix comparison a useful discriminator for this optimization.",
+      "relation": "context",
+      "conditions": "The runtime enables both prefix caching and chunked prefill.",
+      "reported_result": "Caching is configured, but cache-hit rates and comparative timings are not supplied.",
+      "transfer_inference": "Warm JIT compilation for both variants, then compare matched requests with uncached prefixes and confirmed warm-prefix hits. Measure changed-kernel calls, shapes, exposed prefill time, TTFT, and cache-hit tokens. Little or no benefit is expected where cache hits remove most relevant prefill work; paged-only execution is another negative control.",
+      "limitations": "These are proposed discriminators, not observed results. Actual cache reuse, residual prefill work, and serving effect sizes are unknown.",
+      "id": "E10"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "— 3 lines modified (transform lambda + two\n* 0.5f\nfolds).",
+      "claim": "The reported patch scope supports a small, reversible JIT-header experiment, with the transform and both scale compensations kept together.",
+      "relation": "supports",
+      "conditions": "One changed path: deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh. The visible review warns that separating the transform from compensation can double logits.",
+      "reported_result": "The author describes one transform replacement and two half-scale folds. No target integration result is supplied.",
+      "transfer_inference": "Prefer an isolated copy of the installed header with those coupled changes and an explanatory comment. Verify include resolution, rebuild affected JIT artifacts, inspect actual specializations, and preserve the original header and artifacts for rollback before correctness and serving comparisons.",
+      "limitations": "The active JIT include path, cache invalidation behavior, running artifact provenance, and #452 merge status are unknown. No integration or test was performed in this analysis.",
+      "id": "E11"
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:303:live-page",
+      "quote": "I am seeing a similar slowdown with fp8_mqa_logits on long-context prefill",
+      "claim": "A separate closed PR contains an anecdotal long-context prefill complaint, not evidence that #452 fixes the target deployment.",
+      "relation": "context",
+      "conditions": "#303 explored stores, staging, thread counts, block sizes, and weight placement. Its changed paths include both contiguous and paged SM90 MQA headers and a JIT launcher.",
+      "reported_result": "#303 was marked draft and closed on April 11, 2026. A later commenter reported a similar slowdown and asked why it was closed.",
+      "transfer_inference": "Treat this as motivation to profile long-context prefill. Keep its broader kernel changes separate from the three-line epilogue experiment.",
+      "limitations": "The complaint's hardware, exact workload, baseline, slowdown magnitude, and cause are unknown. Closure rationale and validated performance results are absent.",
+      "id": "E12"
+    }
+  ],
+  "unanswered": [
+    "Does the serving process compile and invoke the inspected contiguous SM90 header, and which JIT artifacts are active?",
+    "What are the actual SQ, SKV, H, D, dtypes, execution modes, invocation counts, and contiguous-versus-paged split?",
+    "How much cold-prefill and end-to-end latency is exposed to this kernel on the critical path?",
+    "What accumulator, weight, scale, and intermediate-reduction ranges occur, and do overflow, subnormal, NaN, reference, mask, and top-k-set checks pass?",
+    "What are the upstream scale definitions, target compiler settings, floating-point modes, JIT cache behavior, GPU clocks, and workload conditions relative to the author's microbenchmarks?",
+    "What are the kernel timing variance, worst-case regressions, and cold-prefix versus warm-prefix serving results?",
+    "Which candidate-only paged decode patches are being compared? Their implementations are not supplied.",
+    "What is #452's merge status? The supplied page is truncated, and its state and merged_at fields are null.",
+    "Why was #303 closed? No supplied evidence resolves that question."
+  ],
+  "quote_validation": {
+    "valid": false,
+    "errors": [
+      "Quote not found: github:deepseek-ai/DeepGEMM:452:live-page"
+    ]
+  },
+  "limitations": "Quote existence is checked; entailment and transfer remain judgments. No experimental result is created."
+}

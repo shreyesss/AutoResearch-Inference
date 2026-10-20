@@ -1,0 +1,1 @@
+The generated rubric is preserved. The frozen copy corrects its prose score scale from 0–1 to the actual runner contract (0–5, weighted /5). Weights, criteria and threshold are unchanged. This correction precedes proposal generation.

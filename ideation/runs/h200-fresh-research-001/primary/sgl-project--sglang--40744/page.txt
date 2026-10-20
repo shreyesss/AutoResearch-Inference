@@ -1,0 +1,272 @@
+[Bug] DSV v4.1 Flash 2x4 H200 TP8/EP8 + DSPARK causes startup deadlock after DSpark draft weight load on dev-cu13-dsv41 and latest dev-cu13 image
+#40744
+New issue
+Copy link
+New issue
+Copy link
+Open
+Open
+[Bug] DSV v4.1 Flash 2x4 H200 TP8/EP8 + DSPARK causes startup deadlock after DSpark draft weight load on dev-cu13-dsv41 and latest dev-cu13 image
+#40744
+Copy link
+Description
+erincetin
+opened
+on Sep 22, 2026
+Issue body actions
+Checklist
+I searched related issues but found no solution.
+The bug persists in the latest version.
+Issues without environment info and a minimal reproducible demo are hard to resolve and may receive no feedback.
+If this is not a bug report but a general question, please start a discussion at
+https://github.com/sgl-project/sglang/discussions
+. Otherwise, it will be closed.
+Please use English. Otherwise, it will be closed.
+Describe the bug
+Serving
+deepseek-ai/DeepSeek-V4.1-Flash
+with
+--speculative-algorithm DSPARK
+on
+2 nodes × 4 H200 (TP8 + EP8, LeaderWorkerSet, one 4-GPU pod per node over RoCE)
+deterministically deadlocks during startup, right after the DSpark draft weights finish loading. Three consecutive attempts across two different images all hang at the same point with the same split stack; removing the DSPARK flags (identical everything else) starts cleanly in ~10 minutes.
+The split we capture on every occurrence (py-spy dump, all 8 scheduler processes):
+Node 0 schedulers (leader, TP0-3) — parked after
+Load weight end ... type=DeepseekV4ForCausalLMDSpark
+:
+monitored_barrier (torch/distributed/distributed_c10d.py:5435)
+dist_barrier_after_load (model_runner_components/load_model_utils.py:380)   # also seen :344 on dev-cu13
+load_model (model_runner.py:1307)
+initialize (model_runner.py:653)
+Node 1 schedulers (worker, TP4-7) — parked earlier, inside the KV-pool memory probe:
+all_reduce (torch/distributed/distributed_c10d.py:3252)
+wrapper (torch/distributed/c10d_logger.py:83)
+get_available_gpu_memory (utils/common.py:550)
+_profile_available_bytes (kv_cache_configurator.py:2214)
+The worker-side ranks have posted the memory-probe all-reduce and wait for the leader-side ranks, while the leader-side ranks wait at a different synchronization point (post-load barrier). The two node halves sit at mismatched collective sites permanently — GPU utilization 0%, GPU memory and logs frozen from that point on. No watchdog fires (the stall happens before the scheduler loop starts).
+This looks like the same unsynchronized-decision family as
+#39886
+(DSpark CUDA-graph memory check not synchronized across ranks → ranks disagree on collective participation) and the runtime variant in
+#33289
+(multi-node TP + DSpark → per-rank divergence → unmatched collectives). Our case adds a multi-node TP8/EP8 startup reproduction with full per-node py-spy stacks.
+Reproduction rate:
+3/3 with DSPARK on 2 nodes (2×
+dev-cu13
+, 1×
+dev-cu13-dsv41
+); 0 failures without DSPARK — the identical non-DSPARK cell starts cleanly in ~10 min and served a full benchmark suite.
+Reproduction
+Reproduction
+Model:
+deepseek-ai/DeepSeek-V4.1-Flash
+python -m sglang.launch_server \
+  --model-path /.cache/deepseek-v41-flash \
+  --served-model-name deepseek-ai/DeepSeek-V4.1-Flash \
+  --tensor-parallel-size 8 \
+  --mem-fraction-static 0.8 \
+  --host 0.0.0.0 --port 30000 --enable-metrics \
+  --nnodes 2 --node-rank 0 \
+  --dist-init-addr
+<
+leader-host
+>
+:29500 \
+  --chunked-prefill-size 16384 \
+  --max-running-requests 256 \
+  --ep-size 8 \
+  --attention-backend dsv4 \
+  --moe-runner-backend flashinfer_mxfp4 \
+  --cuda-graph-max-bs-decode 64 \
+  --max-prefill-tokens 32768 \
+  --enable-decoder-swa-bounded-replay \
+  --reasoning-parser auto --tool-call-parser auto \
+  --trust-remote-code \
+  --speculative-algorithm DSPARK \
+  --speculative-dspark-block-size 5
+(
+--node-rank 1
++ same
+--dist-init-addr
+on the second node)
+Failure timeline:
+Attempt
+Image
+Result
+1
+lmsysorg/sglang:dev-cu13
+(digest
+sha256:0e1b14e302619…
+, built 2026-09-22, commit
+582389ce
+)
+Hangs; last log
+Load weight end … DeepseekV4ForCausalLMDSpark
+; stacks above; pod restart reproduces it
+2
+lmsysorg/sglang:v0.5.20-cu130
+Not applicable — V4.1-Flash not supported in the release yet (
+unrecognized arguments: --enable-decoder-swa-bounded-replay
+)
+3
+lmsysorg/sglang:dev-cu13-dsv41
+(build commit
+da64c5cbb8cf6bfd39be19da43573fdfd484c43a
+, action run 34631178591)
+Same hang, same split stacks
+Control:
+same image + same flags
+without
+--speculative-algorithm DSPARK --speculative-dspark-block-size 5
+starts cleanly (health 200, ~10 min).
+Notes / additional data
+py-spy dumps of all 8 scheduler processes from hung runs are available on request; they are uniform per node (node 0 =
+dist_barrier_after_load
+, node 1 =
+_profile_available_bytes
+all_reduce) across both
+dev-cu13
+and
+dev-cu13-dsv41
+.
+The stall line in
+load_model_utils.py
+differs slightly between images (380 on
+dev-cu13-dsv41
+, 344 on
+dev-cu13
+) — consistent with code movement between builds, same function.
+Environment
+python3 -m sglang.check_env
+from the
+leader pod
+of the reproducing TP8 run (
+dev-cu13-dsv41
+):
+Python: 3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]
+CUDA available: True
+GPU 0,1,2,3: NVIDIA H200 NVL
+GPU 0,1,2,3 Compute Capability: 9.0
+CUDA_HOME: /usr/local/cuda
+NVCC: Cuda compilation tools, release 13.0, V13.0.88
+CUDA Driver Version: 580.126.20
+PyTorch: 2.13.0+cu130
+sglang: 0.0.0.dev1+gda64c5cbb
+sglang-kernel: 0.4.6.post1
+flashinfer_python: 0.6.18
+flashinfer_cubin: 0.6.18
+flashinfer_jit_cache: 0.6.18+cu130
+triton: 3.7.1
+transformers: 5.12.1
+numpy: 2.3.5
+aiohttp: 3.14.3
+fastapi: 0.141.1
+huggingface_hub: 1.31.0
+torchao: Module Not Found
+vllm: Module Not Found
+xgrammar: 0.2.1
+
+NVIDIA Topology:
+GPU0
+GPU1 GPU2
+GPU3 NIC0
+NIC1 NIC2
+NIC3 NIC4
+NIC5 NIC6
+NIC7
+GPU0 X NV6
+NV6 NV6
+NODE NODE
+NODE NODE
+SYS SYS
+SYS SYS
+GPU1 NV6  X NV6 NV6
+NODE NODE
+NODE NODE
+SYS SYS
+SYS SYS
+GPU2 NV6  NV6 X NV6
+SYS SYS
+SYS SYS
+NODE NODE
+NODE NODE
+GPU3 NV6  NV6 NV6  X SYS SYS
+SYS SYS
+NODE NODE
+NODE NODE
+NIC0 NODE
+NODE SYS
+SYS X PIX
+NODE NODE
+SYS SYS
+SYS SYS
+NIC1 NODE
+NODE SYS
+SYS PIX
+X NODE  NODE SYS  SYS SYS  SYS
+NIC2 NODE
+NODE SYS
+SYS NODE
+NODE X 
+PIX SYS
+SYS SYS
+SYS
+NIC3 NODE
+NODE SYS
+SYS NODE
+NODE PIX
+X SYS  SYS SYS  SYS
+NIC4 SYS  SYS NODE  NODE SYS  SYS SYS  SYS PIX  X NODE  NODE
+NIC5 SYS  SYS NODE  NODE SYS  SYS SYS  SYS PIX  X NODE  NODE
+NIC6 SYS  SYS NODE  NODE SYS  SYS NODE  NODE NODE  NODE PIX  X
+NIC7 SYS  SYS NODE  NODE SYS  SYS NODE  NODE NODE  NODE X PIX
+
+NIC Legend:
+  NIC0: mlx5_0, NIC1: mlx5_1, NIC2: mlx5_2, NIC3: mlx5_3,
+  NIC4: mlx5_4, NIC5: mlx5_5, NIC6: mlx5_6, NIC7: mlx5_7
+
+ulimit soft: 1024
+(worker pod output is identical — same image, same H200 NVL topology)
+Hardware: 2 nodes × 4 NVIDIA H200 NVL (SM90); leader pod on one node, worker pod on the other; intra-node NVLink (NV6), inter-node RoCEv2 ConnectX-7 (4×100G ports granted, GDRDMA verified ~19 GB/s busbw with tuned NCCL env)
+Networking:
+NCCL_IB_HCA=mlx5_0:1,mlx5_1:1,mlx5_4:1,mlx5_5:1
+,
+NCCL_BUFFSIZE=16777216
+,
+NCCL_IB_QPS_PER_CONNECTION=8
+,
+MIN/MAX_NCHANNELS=8/16
+,
+NCHANNELS_PER_NET_PEER=8
+,
+CROSS_NIC=0
+; no DeepEP (
+moe_a2a_backend=none
+), no DP attention,
+kv_cache_dtype=fp8_e4m3
+Orchestration: Kubernetes LeaderWorkerSet, one 4-GPU pod per node, 32 vCPU / 256Gi mem per pod, rendezvous
+<leader>:29500
+Reactions are currently unavailable
+Activity
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+No labels
+No labels
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

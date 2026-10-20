@@ -1,0 +1,271 @@
+Conversation
+GenTang
+commented
+Jul 26, 2026
+Copy link
+Copy Markdown
+Summary
+Please refer to
+#22
+for the detailed bug description, root-cause analysis, and reproduction steps.
+This PR:
+Applies the RMSNorm weight fusion in the no-grad
+mhc_pre
+path.
+Adds regression tests for the grad-enabled and no-grad paths, with and without
+norm_weight
+.
+Fixes
+#22
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+fix rmsnorm fusion bug
+e3fa791
+ds-review-bot
+reviewed
+Jul 26, 2026
+View reviewed changes
+Comment thread
+tile_kernels/modeling/mhc/functional.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tests/mhc/test_functional_mhc_pre.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tests/mhc/test_functional_mhc_pre.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tile_kernels/modeling/mhc/functional.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tests/mhc/test_functional_mhc_pre.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tests/mhc/test_functional_mhc_pre.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+ds-review-bot
+commented
+Jul 26, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+The inference path now applies the RMSNorm weight fusion consistently with the grad-enabled path, and the added tests cover both weighted and unweighted cases.
+v4
+The MR fixes bug
+#22
+: the no-grad (inference)
+mhc_pre
+path sent the RAW
+fn
+weight into the fused
+mhc_pre_big_fuse
+kernel (which has no
+norm_weight
+argument) and therefore SILENTLY DROPPED the optional RMSNorm
+norm_weight
+applied by the grad-enabled path. The fix folds
+norm_weight
+into
+fn
+BEFORE the fused GEMM: since the weight is constant during inference,
+(residual * norm_weight) @ fn == residual @ (fn * norm_weight)
+, and the fused kernel divides by the SAME (unweighted) rms-denominator as the grad path and the torch reference; dtype/round-to-tf32 handling also match, so the math is CORRECT. A regression test is added that compares grad vs no-grad outputs (with/without
+norm_weight
+) over
+torch.is_grad_enabled()
+. Main concerns: (1) the test uses an extremely tight
+atol/rtol = 1e-6
+between two op-fusion/rounding/reduction-order-DIFFERENT kernels plus very large shapes, risking flaky/over-strict failures and slow CI; (2) the fusion logic is DUPLICATED/inlined at a low level across the two paths, which is itself the kind of divergence that caused
+#22
+(the grad path wraps the same
+fn * norm_weight
+merge in an autograd Function). Cleaning this into one helper selecting the autograd/raw-forward merge on
+torch.is_grad_enabled()
+would both remove the duplication and prevent future divergence. Overall: correct in substance, but I would request minor changes to test tolerance/duplication.
+v3
+This PR fixes a correctness bug in the no-grad (inference) path of
+mhc_pre
+in
+tile_kernels/modeling/mhc/functional.py
+. Previously, when
+torch.is_grad_enabled()
+was False, the code called
+mhc_pre_big_fuse(...)
+without ever applying
+norm_weight
+, since the fused kernel does not accept a
+norm_weight
+argument. As a result the RMSNorm weight was silently dropped in inference mode, diverging from the grad path (which fuses it via
+_MHCFnNormwMerge
+inside
+mhc_pre_norm_fn
+). The fix merges
+norm_weight
+into
+fn
+before calling the fused kernel using the same
+_mhc_fn_normw_merge_fwd
+kernel used by the grad path, so both paths are now numerically consistent.
+The fix is correct and minimal: it mirrors the existing grad-path implementation exactly (
+torch.empty_like(fn)
++
+_mhc_fn_normw_merge_fwd(*fn.shape)(fn, norm_weight, merged_fn)
+), so inference and training now produce identical results. The new regression test
+tests/mhc/test_functional_mhc_pre.py
+parametrizes over
+generate_norm_weight
+in {False, True} and asserts the grad-enabled and no-grad results match for
+layer_input
+,
+post_mix
+, and
+comb_mix
+. This directly exercises the bug and is an appropriate regression guard (a self-consistency check between the two code paths, where the grad path was the known-correct reference). Overall the change is sound and I recommend merging; only minor, non-blocking test/readability improvements are suggested below.
+Files reviewed
+: 2
+Issues found
+: 🟡 2 warning | 🔵 4 suggestion
+Inline comments posted
+: 6
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+define the unified helper to remove duplicate implementations
+ec55711
+GenTang
+force-pushed
+the
+fix-rmsnorm-fusion-bug
+branch
+    from
+9521a65
+to
+be863ad
+Compare
+July 27, 2026 03:47
+relax the tolerances to atol=1e-4, rtol=1e-4
+f07410e
+GenTang
+force-pushed
+the
+fix-rmsnorm-fusion-bug
+branch
+    from
+be863ad
+to
+f07410e
+Compare
+July 27, 2026 03:55
+GenTang
+commented
+Jul 27, 2026
+Copy link
+Copy Markdown
+Author
+@ds-review-bot
+recheck.
+All feedback has been addressed, please re-review the latest changes.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+ds-review-bot
+commented
+Jul 27, 2026
+Copy link
+Copy Markdown
+Collaborator
+⚠️
+抱歉，只有对该仓库有 Write 权限的用户才能触发代码审查。
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+GenTang
+requested a review
+  from
+ds-review-bot
+July 28, 2026 13:42
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+Awaiting requested review from ds-review-bot
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+[Correctness][mHC] mhc_pre ignores norm_weight in the no-grad fused path
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,288 @@
+[
+  {
+    "id": "hypothesis:5b0f2528c768ba14827c01ea979881428432c610748094034f0b293d61565fcc",
+    "status": "deferred",
+    "fingerprint": "324569ae0292f6500aaf58feb451657827b362781429d3ac2276d81f7b5dec0d",
+    "statement": "Test a decode-sized MegaMoE workspace for DeepSeek-V4.1-Flash on the eight-B200 node, conditional on the deployed engine selecting FlashInfer CuTeDSL MegaMoE and supporting the required workspace API. PR #62073 describes a capacity of `max_num_seqs × (1 + num_speculative_tokens)` per sequence-parallel rank, selected o…",
+    "mechanism": "Select a smaller workspace for eligible decode batches while preserving identical peer buffer offsets across ranks; any saved active capacity may reduce MegaMoE overhead, while the additional allocation may reduce KV capacity.",
+    "change": "First inspect the deployed image and runtime to establish engine, precision, selected MoE backend, FlashInfer API availability, and whether decode workspace selection is already active. If eligible and absent, adapt #62073's workspace selection with global capacity agreement and a safe fixed-workspace fallback.",
+    "reasons": [
+      "Task rubric needs paper full-text evidence",
+      "legal_correct_integration: The newer adapter says, “Every EP rank must use the same capacity,” and the proposal plans a fallback and zero-rank tests. The active backend, required …",
+      "Priority below this task's threshold; reconsider with evidence or a revised policy"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 44,
+      "known_baseline_match": false,
+      "task_token_overlap": 20,
+      "target_token_overlap": 4,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:16db95d71dfc2e7c3961a4ed369df425792e4650c13ab584ccbdec4f86a1b96b",
+    "status": "rejected",
+    "fingerprint": "324569ae0292f6500aaf58feb451657827b362781429d3ac2276d81f7b5dec0d",
+    "statement": "Test a decode-sized MegaMoE workspace for DeepSeek-V4.1-Flash on the eight-B200 node, conditional on the deployed engine selecting FlashInfer CuTeDSL MegaMoE and supporting the required workspace API. PR #62073 describes a capacity of `max_num_seqs × (1 + num_speculative_tokens)` per sequence-parallel rank, selected o…",
+    "mechanism": "Select a smaller workspace for eligible decode batches while preserving identical peer buffer offsets across ranks; any saved active capacity may reduce MegaMoE overhead, while the additional allocation may reduce KV capacity.",
+    "change": "First inspect the deployed image and runtime to establish engine, precision, selected MoE backend, FlashInfer API availability, and whether decode workspace selection is already active. If eligible and absent, adapt #62073's workspace selection with global capacity agreement and a safe fixed-workspace fallback.",
+    "reasons": [
+      "Critic: factual claims unsupported or contradicted",
+      "Task rubric needs paper full-text evidence",
+      "legal_correct_integration: The proposed global capacity agreement, fixed-workspace fallback, idle-rank participation, unequal and zero-rank tests, and DSpark token-bound check add…"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 44,
+      "known_baseline_match": false,
+      "task_token_overlap": 20,
+      "target_token_overlap": 4,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:0d4c8f7fc9b024a448d42c1c0805ff361e109ac5aa0ca1b9502806e43d72d27c",
+    "status": "rejected",
+    "fingerprint": "4be2aca66fd885cf0cc29b4ed9ecc582454e957a375c3886d8613d9d1b404532",
+    "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target’s TPOT or that…",
+    "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+    "change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+    "reasons": [
+      "Critic gate: distinct_from_prior_art"
+    ],
+    "baseline": "baseline:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 37,
+      "known_baseline_match": false,
+      "task_token_overlap": 16,
+      "target_token_overlap": 5,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:dab53cfc5a6535f0a2a3830a974278de1f922a6ff9de491f33d62ed403f3d2c7",
+    "status": "accepted",
+    "fingerprint": "4be2aca66fd885cf0cc29b4ed9ecc582454e957a375c3886d8613d9d1b404532",
+    "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target’s TPOT or that…",
+    "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+    "change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+    "reasons": [],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 37,
+      "known_baseline_match": false,
+      "task_token_overlap": 16,
+      "target_token_overlap": 5,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:4da68374b2c0bcd8d68d93d6c38939bfbd9a3b155c4946126f75eb6475e9e18d",
+    "status": "rejected",
+    "fingerprint": "9aeb5dde2ab791fd22eaf7c414c6ff9c4cf0e936cc135aa122a27e6f0461a8e6",
+    "statement": "Test a shape-aware choice among eligible existing expert GEMM backends for low-concurrency DeepSeek decode on B200. EPS-MoE establishes grouped-versus-dense selection by token count as prior work; a vLLM PR reports a small-load backend comparison on GB300 and GLM-5.2, but neither establishes the best choice or a bottl…",
+    "mechanism": "Small per-expert M can change the relative cost of grouped GEMM, dense GEMM, routing, and staging. A batch-shape bucket can select an eligible captured backend without changing allocations during graph replay.",
+    "change": "After profiling and contract checks, add a small, predeclared batch-shape selection table using existing eligible backends and capture each selected path with stable buffers.",
+    "reasons": [
+      "Critic gate: evidence_entails_claims",
+      "Critic gate: distinct_from_prior_art"
+    ],
+    "baseline": "baseline:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 36,
+      "known_baseline_match": false,
+      "task_token_overlap": 15,
+      "target_token_overlap": 6,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:f59907b87312282bfbacd19b8bd12218d19508cf560ea83d079d8a5c89350fda",
+    "status": "rejected",
+    "fingerprint": "43a361dbe3b8e0e6954b9e51c1a16501497d67c3f168f727637505fe1aabe758",
+    "statement": "Inspect the deployed launch flags, checkout, patch, and container first: the supplied profile says DSpark k5 has adaptive verification disabled, while its CSV says DSpark is off. If verification is inactive and the DeepSeek-specific graph safety conditions are present or can be qualified, enable adaptive verification …",
+    "mechanism": "Adaptive verification may reduce target work while keeping the draft width at k5; mixed prefill must avoid unsafe FULL graph capture.",
+    "change": "After flag and code inspection, qualify graph-safe mixed prefill and decode, then toggle enable_adaptive_verification with draft k5 fixed. Keep any safety patch separate from the toggle.",
+    "reasons": [
+      "Unknown source: brief:baseline",
+      "task_value: The cheap flag inspection can resolve whether activation is a real baseline delta: the brief says “CSV dspark_config off contradicts profile on; runtime flags not insp…",
+      "correctness_and_safety: The proposal retains draft k5 and calls for sampling, KV rollback, and graph-safe decode checks. Safety is unqualified: issue #59970 reports “IMA within 1 …"
+    ],
+    "baseline": "baseline:20f33437d8e4b151363d0048f22a67f7b6658fba59fb18381c710895ea04e67f",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 35,
+      "known_baseline_match": false,
+      "task_token_overlap": 14,
+      "target_token_overlap": 7,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:6c9d3868e5f5a9140749b1c8a6c2ef94fff2fedfb3eabbe6ba6572ba2cec5bcb",
+    "status": "deferred",
+    "fingerprint": "43a361dbe3b8e0e6954b9e51c1a16501497d67c3f168f727637505fe1aabe758",
+    "statement": "Inspect the deployed launch flags, checkout, patch, and container first: the supplied profile says DSpark k5 has adaptive verification disabled, while its CSV says DSpark is off. If verification is inactive and the DeepSeek-specific graph safety conditions are present or can be qualified, enable adaptive verification …",
+    "mechanism": "Adaptive verification may reduce target work while keeping the draft width at k5; mixed prefill must avoid unsafe FULL graph capture.",
+    "change": "After flag and code inspection, qualify graph-safe mixed prefill and decode, then toggle enable_adaptive_verification with draft k5 fixed. Keep any safety patch separate from the toggle.",
+    "reasons": [
+      "correctness_and_safety: The design retains draft k5 and gates activation on sampling, KV rollback, and graph-safe mixed-prefill checks. Safety is unresolved: issue #59970 reports …"
+    ],
+    "baseline": "baseline:20f33437d8e4b151363d0048f22a67f7b6658fba59fb18381c710895ea04e67f",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 35,
+      "known_baseline_match": false,
+      "task_token_overlap": 14,
+      "target_token_overlap": 7,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:373557ff8099a2578e63ced132ca24853a4decbfc8c4c6d0b818e02fb0b609f5",
+    "status": "deferred",
+    "fingerprint": "9c69b3a6885b63b27d4e2c19f9914be533c0a2dd5a7eb96a403fb21b7b336fc3",
+    "statement": "Investigate launch-time selection of communication CTA count or compute/communication SM resources for shared-expert and combine overlap on the B200 deployment. The cited paper describes such selection for COMET on four A100 GPUs and reports prefill gains; it explicitly leaves newer architectures and decode for future…",
+    "mechanism": "Choose communication and compute resources before launch so both sides of a legal overlap path make progress without excessive contention.",
+    "change": "Inspect the active combine backend for a supported CTA/SM concurrency control and its valid range. If present, build a bounded launch-time policy from measured B200 occupancy and split dependencies; preserve capture behavior and a fixed-setting fallback.",
+    "reasons": [
+      "legal_correct_integration: The proposed collective-order, stream-dependency, and graph-replay checks are appropriate, but no supplied evidence identifies the active B200 combine b…",
+      "Priority below this task's threshold; reconsider with evidence or a revised policy"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 35,
+      "known_baseline_match": false,
+      "task_token_overlap": 16,
+      "target_token_overlap": 3,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:9ea2ed3a2aa40010bff0a8ebec9108067bba603b0fdcf542efd1be9ff9fcf8fc",
+    "status": "deferred",
+    "fingerprint": "789eb31eaf7bf44f4db3926d8724b35c624b68c3ff8fb23b6255a9854dcdb22b",
+    "statement": "For the two TP1/DP4/EP4 engines, first inspect the effective image, router policy, API2 request path, and internal DP rank selection to establish whether rank-aware prefix routing is already active. If absent, test a bounded policy that prefers a rank holding an exact reusable prefix only while its estimated queue loa…",
+    "mechanism": "Exact rank-local prefix reuse can avoid recomputation, while a load-skew cap and load-only fallback limit affinity-induced queueing.",
+    "change": "After the presence gate, add or configure API2-to-DP-rank prefix-aware selection with an explicit skew cap, deterministic compatible hashes, and load-only fallback. Change routing alone before combining it with scheduler changes.",
+    "reasons": [
+      "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router po…",
+      "Priority below this task's threshold; reconsider with evidence or a revised policy"
+    ],
+    "baseline": "baseline:0b72634bd203d436836eb7303221d2d7127a84910b6d4a4ccdbdc3ee803aab49",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 30,
+      "known_baseline_match": false,
+      "task_token_overlap": 11,
+      "target_token_overlap": 8,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:cb6e7f22cde120b51176c9fe66da87f67906fdc0da75e09e3c1ee36857b30bee",
+    "status": "deferred",
+    "fingerprint": "991cf5b88d9d57d4052bcf7bee74502d8069844cee4fb669646e7fb002ff5b24",
+    "statement": "First inspect the effective scheduler commit and runtime settings to establish whether adaptive prefill admission already exists. If absent, test a scheduler-local prefill budget that decreases when active decodes approach their measured iteration deadlines and increases when decode pressure eases. Keep the global tok…",
+    "mechanism": "Limit admitted prefill work during decode pressure to reduce long mixed iterations, while releasing the cap when pressure falls or a prefill wait bound is reached.",
+    "change": "After the presence gate, add an optional V1 scheduler admission budget using current decode deadline slack and prefill pressure, with a maximum wait bound and fixed-budget fallback. Test this factor independently of routing.",
+    "reasons": [
+      "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with de…",
+      "Priority below this task's threshold; reconsider with evidence or a revised policy"
+    ],
+    "baseline": "baseline:0b72634bd203d436836eb7303221d2d7127a84910b6d4a4ccdbdc3ee803aab49",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 29,
+      "known_baseline_match": false,
+      "task_token_overlap": 12,
+      "target_token_overlap": 5,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:fcf552699076d7ea978f6bafb2eccd539fc507dbbaaa8af6ce81368debc4abf3",
+    "status": "deferred",
+    "fingerprint": "408819b0538817c4f5ab2e6241519a5b54c3b99e5f1ba7466ac671db7b8e51c3",
+    "statement": "DeepSelect may avoid inefficient persistent-topk dispatch for actual verification batch shapes.",
+    "mechanism": "DeepSelect may avoid inefficient persistent-topk dispatch for actual verification batch shapes.",
+    "change": "A: actual baseline backend; B: #60802 routing at unchanged numerical mode. C: #59922 producer-assisted TopK separately with #59921 and vllm-project/DeepGEMM #24/#25 dependencies; require BF16 top512/H32/D128/page128/n1..6. Include short-context n6 as a negative-control shape; do not replace the default everywhere.",
+    "reasons": [
+      "Imported historical B200 design; applicability requires fresh H200 review."
+    ],
+    "baseline": "baseline:a4099f0781447583fdf56b6a144663f2959b30ca3b96beacc98040af1d84f29b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 25,
+      "known_baseline_match": false,
+      "task_token_overlap": 12,
+      "target_token_overlap": 1,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:bd4c69dd9d129396b37eaecc81298858a1fbd0a5c770a8ea1201a5c94d89757f",
+    "status": "rejected",
+    "fingerprint": "bbb9df2fde9f7193ecd77f38d9bdb4b3d4096db7cfa07a351135534c4047ac60",
+    "statement": "On the eight-B200 DeepSeek-V4.1-Flash node, trial a capped asynchronous draft cache that prepares likely verification continuations while the target verifies the current MTP batch. A scheduler would spend a per-request token and memory budget only when traces show material draft wait and verification outcomes that can…",
+    "mechanism": "Prepare a bounded set of possible next drafts during verification, reuse a matching continuation, and invalidate unmatched or stale state.",
+    "change": "Add a trace-gated branch budget, request/KV epochs, expiry and preemption handling, plus a fixed-MTP fallback.",
+    "reasons": [
+      "Critic gate: evidence_entails_claims",
+      "Critic gate: distinct_from_prior_art",
+      "Critic gate: test_discriminates_alternatives"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 25,
+      "known_baseline_match": false,
+      "task_token_overlap": 10,
+      "target_token_overlap": 5,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  }
+]

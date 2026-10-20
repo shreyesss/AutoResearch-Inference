@@ -1,0 +1,353 @@
+Conversation
+usernamehaha2022
+commented
+Jul 22, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Summary
+This PR pipelines direct NVLink dispatch using three shared-memory TMA buffers per dispatch warp.
+Previously, a dispatch warp prepared tokens sequentially around remote S2G stores. With this change, the next token's hidden data, scale factors, metadata, and routing information are prefetched while previous remote stores remain in flight.
+At steady state, the three buffers are used for:
+A previous token whose remote S2G store may still be in flight.
+The current token being sent to remote ranks.
+The next token being prefetched from global memory.
+Before recycling the oldest buffer,
+tma_store_wait<1>()
+reduces the number of outstanding store groups to one. This keeps buffer reuse safe without fully draining all remote stores between tokens.
+The shared-memory calculation now accounts for all three staging buffers, and direct NVLink dispatch is limited to at most 14 dispatch warps. The non-NVLink path remains single-buffered.
+Validation
+Tested on 8 x NVIDIA H100 GPUs with direct NVLink dispatch.
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+EP_DISABLE_GIN=1 \
+python -u tests/elastic/test_ep.py \
+  --num-processes 8 \
+  --allow-hybrid-mode 0 \
+  --test-first-only \
+  --ignore-local-traffic
+Average across 8 ranks:
+Metric
+main
+This PR
+Change
+Dispatch
+250GB/s
+280 GB/s
+30
+Combine
+300 GB/s
+300 GB/s
+-
+With rank unbalanced ratio set to 1.5:
+Metric
+main
+This PR
+Change
+Dispatch
+203GB/s
+220 GB/s
+17
+Combine
+209 GB/s
+209 GB/s
+-
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+玄武
+added
+2
+commits
+July 22, 2026 12:58
+perf: double-buffer direct NVLink dispatch
+b9ef9b3
+perf: prefetch direct dispatch tokens across NVLink stores
+d2be99a
+ds-review-bot
+reviewed
+Jul 22, 2026
+View reviewed changes
+Comment thread
+deep_ep/include/deep_ep/impls/dispatch.cuh
+Outdated
+Comment on lines
++264
+to
++277
+constexpr int kNumTmaBuffers = kIsScaleupNVLink ? 3 : 1;
+const auto warp_tma_buffers = layout::BufferLayout<true>(token_layout, kNumDispatchWarps, kNumTmaBuffers,
+math::advance_ptr<int>(smem, kNumSmemBytesForNotify)).get_rank_buffer(dispatch_warp_idx);
+auto recv_buffer = layout::BufferLayout<false>(token_layout, kNumRanks, kNumMaxTokensPerRank, buffer);
+auto send_buffer = layout::BufferLayout<false>(token_layout, 1, kNumMaxTokensPerRank, recv_buffer.get_buffer_end_ptr());
+recv_buffer = recv_buffer.get_rank_buffer(rank_idx);
+// Init TMA
+ptx::arrival_phase phase = 0;
+const auto mbarrier_ptr = tma_buffer.get_mbarrier_ptr();
+if (ptx::elect_one_sync())
+ptx::mbarrier_init_with_fence(mbarrier_ptr, 1);
+ptx::arrival_phase phases[kNumTmaBuffers] = {};
+#pragma unroll
+for (int i = 0; i < kNumTmaBuffers; ++ i) {
+const auto tma_buffer = warp_tma_buffers.get_token_buffer(i);
+if (ptx::elect_one_sync())
+ptx::mbarrier_init_with_fence(tma_buffer.get_mbarrier_ptr(), 1);
+ds-review-bot
+Jul 22, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: The per-warp buffer count is hardcoded in the kernel (kIsScaleupNVLink ? 3 : 1), while the host sizes smem and caps warps using a separate kNumDirectNVLinkTmaBuffers/num_tma_buffers. The reuse-safety of round-robin prefetch (overwriting a staging buffer whose consuming remote store may still be in flight) relies on a non-local invariant: the count must exceed the number of distinct store groups that remain after tma_store_wait<1()> (here 1 remaining younger group, on a different buffer). This breaks if the two sources of truth diverge or the count changes. Template the count into the kernel and static-assert the invariant (or at least kNumTmaBuffers > 2).
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_ep/include/deep_ep/impls/dispatch.cuh
+Outdated
+Comment on lines
++378
+to
++382
+// to the group that this wait just retired.
+ptx::tma_store_wait<1>();
+__syncwarp();
+prepare_token(next_token_idx, next_token_iter, next_dst_rank_idx, next_dst_slot_idx);
+}
+ds-review-bot
+Jul 22, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: The comment claims the next-token buffer is the group 'just retired' by the tma_store_wait<1>(). That is only true in steady state for exactly 3 buffers with the youngest group left behind; the exact token_iter -> buffer -> store-group mapping is non-obvious and easy to break (e.g. if the NVLink and RDMA paths use different counts). Document/assert it, or use a single source of truth for the count.
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_ep/include/deep_ep/impls/dispatch.cuh
+auto& phase = phases[tma_buffer_idx];
+// Wait TMA load arrival
+// NOTES: this arrive must be after the `ptx::cp_async_mbarrier_arrive`
+if (ptx::elect_one_sync()) {
+ds-review-bot
+Jul 22, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: The triple-buffer safety relies on the invariant that at most 2 store groups are outstanding when
+tma_store_wait<1>()
+runs, so the buffer being recycled ((N+1)%3 == (N-2)%3) is exactly the one whose store this wait retires. This coupling between kNumTmaBuffers==3 and the wait depth <1> is implicit. Consider adding a brief comment documenting the 3-buffers/1-outstanding invariant, since if the buffer count is ever changed the wait depth must change in lockstep.
+🤖 v3
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/kernels/elastic/dispatch.hpp
+constexpr int kNumNotifyWarps = 4;
+constexpr int kNumDirectNVLinkDispatchWarps = 14;
+constexpr int kNumDirectNVLinkTmaBuffers = 3;
+ds-review-bot
+Jul 22, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: kNumDirectNVLinkTmaBuffers=3 (host, used for shared-memory sizing) must stay in sync with the device-side
+constexpr int kNumTmaBuffers = kIsScaleupNVLink ? 3 : 1;
+in dispatch.cuh. These two constants are defined independently in different files; a mismatch would silently under/over-allocate shared memory relative to what the kernel indexes. Consider unifying them into a single shared constant to prevent future drift.
+🤖 v3
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Jul 22, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+The multi-buffer TMA scheduling and matching shared-memory sizing appear consistent across NVLink and non-NVLink paths, with outstanding stores flushed before buffer reuse.
+v4
+The dispatch kernel switches from single per-warp staging (drained fully per token) to three round-robin staging TMA buffers per dispatch warp. While the current token's remote S2G/NVLink/RDMA store stays in flight, the next token's hidden/SF/metadata/routing is prefetched into the buffer whose previous use is the oldest outstanding store group (deterministically token_iter - 2 of 3, or none on a warm-up iteration); tma_store_wait<1>() retires that group before the buffer is overwritten, and the final barrier drains the last in-flight store. The host sizes per-warp smem by 3x (RDMA: 1x) and caps NVLink dispatch warps at 14, with the RDMA path remaining single-buffered and full-drained (unchanged behavior). Edge cases (first iteration, last token skipped, warps with no tokens, per-token global slot/counter writes) are all safe and unchanged. Measured on 8xH100 dispatch goes 250->280 GB/s, combine unchanged. Overall the change correctly and faithfully implements the PR as a pure pipelining/perf optimization on the previously single-buffered path.
+v3
+This PR pipelines direct NVLink dispatch by switching from double- to triple-buffered TMA staging (kNumDirectNVLinkTmaBuffers 2->3, kNumTmaBuffers 2->3 for the NVLink path), and refactoring the per-token body into a
+prepare_token
+lambda so the next token's hidden/SF/metadata/routing can be prefetched while the current token's remote S2G stores are in flight. The phase tracking was generalized from two scalars (phase_0/phase_1) to a
+phases[kNumTmaBuffers]
+array, and buffer indexing changed from bitmask (
+&amp; (kNumTmaBuffers-1)
+) to modulo (
+% kNumTmaBuffers
+) to support 3 (non-power-of-two) buffers. The host-side shared-memory computation already multiplies by num_tma_buffers and caps direct NVLink dispatch at 14 warps.
+Correctness analysis (all verified sound):
+Buffer-reuse safety: In steady state, entering iteration N up to 2 store groups (iters N-2, N-1) are outstanding.
+tma_store_wait&lt;1&gt;()
+retires iter N-2's store (which read buffer (N-2)%3 == (N+1)%3) before prepare_token(N+1) writes into that same buffer. This correctly matches the recycled buffer to the just-retired store group, so triple buffering is safe.
+Per-buffer mbarrier phases persist across reuse (buffer b used at iters b, b+3, ...), and
+phases[]
+is zero-initialized; flip semantics are preserved.
+The buffer indexing change to
+% kNumTmaBuffers
+is applied consistently in both prepare_token and the main loop and is required because 3 is not a power of two.
+The NVLink prefetch (prepare_token for the next token) is issued before awaiting the current buffer's load arrival, correctly overlapping the next token's G2S load with the current token's remote S2G store; it targets a distinct buffer with an independent mbarrier so there is no cross-buffer hazard.
+Non-NVLink path stays single-buffered (kNumTmaBuffers=1) and keeps a full
+tma_store_wait()
+drain before recycling; behavior is unchanged. Startup/drain edges (num_tokens <= 1, first iteration with no outstanding stores) are handled by the
+next_token_idx &lt; num_tokens
+guards.
+Host/device consistency: the smem divisor in dispatch.hpp accounts for num_tma_buffers=3 and matches the device-side kNumTmaBuffers.
+Overall the change is internally consistent and the pipelining logic is sound. The two comments below are minor maintainability suggestions, not correctness issues.
+Files reviewed
+: 2
+Issues found
+: 🟡 1 warning | 🔵 3 suggestion
+Inline comments posted
+: 4
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+fix: keep dispatch TMA buffer count in sync
+45c96fa
+alpha-baby
+commented
+Aug 17, 2026
+Copy link
+Copy Markdown
+Contributor
+my test result:
+on H20 * 8 + 4 * 400 Gbps/s CX7
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

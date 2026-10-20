@@ -1,0 +1,113 @@
+Conversation
+simpleqt
+commented
+Sep 20, 2026
+Copy link
+Copy Markdown
+Motivation
+In
+v4/mod.rs
+'s
+render_message
+, the assistant branch guards reasoning rendering with
+thinking_mode && index > 0
+. But every message in the
+render_conversation
+loop is a
+history
+turn (the next assistant turn is appended after the loop), so the guard has no principled meaning for assistant messages: an assistant turn carrying
+reasoning_content
+at index 0 renders
+<｜Assistant｜></think>{content}
+and
+silently discards its reasoning
+, while the identical turn at any later index renders
+<｜Assistant｜><think>{reasoning}</think>{content}
+. Whether history reasoning survives depends solely on whether the conversation happens to start with another message.
+Reachable via an Anthropic Messages request without a
+system
+field whose first message is an assistant turn with a
+thinking
+block, or directly via
+Conversation(messages=[AssistantMessage("hi", "I should help")])
+with default thinking mode.
+(Note:
+render_reasoning_effort
+also uses
+index == 0
+, but legitimately — the effort directive belongs to the first system slot.)
+Changes
+Drop the
+index > 0
+condition from the assistant reasoning branch. No API change.
+Testing
+New unit test renders the same assistant-with-reasoning turn with and without a leading user message and asserts the reasoning appears in both prompts. Red/green verified:
+fails on the previous implementation
+(
+assistant reasoning at index 0 must render identically
+), passes with the fix.
+cargo test -p deepseek-recipe-encoding --locked
+: pass.
+Proof
+test v4::assistant_reasoning_tests::assistant_reasoning_at_first_position_is_rendered ... ok
+test result: ok. 1 passed; 0 failed
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+fix(encoding): render assistant reasoning_content regardless of messa…
+…
+e354245
+…ge position
+
+Every message in the render loop is a history turn, so the 'index > 0'
+guard had no principled meaning for the assistant branch: an assistant
+turn carrying reasoning_content at index 0 rendered as
+<Assistant></think>{content} and silently discarded its reasoning, while
+the identical turn at any later position rendered
+<Assistant><think>{reasoning}</think>{content}. Whether history reasoning
+survived depended solely on whether the conversation happened to start
+with another message (Anthropic Messages without a system field, or a
+Conversation whose first message is an AssistantMessage, hit this).
+
+Regression test renders the same assistant-with-reasoning turn with and
+without a leading user message and asserts identical treatment; it
+fails on the previous implementation.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

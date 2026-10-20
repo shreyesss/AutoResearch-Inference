@@ -1,0 +1,1084 @@
+Conversation
+zixi-qi
+commented
+Sep 30, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+Overview
+DFlash and DSpark reserve
+max_num_new_slots_for_drafting
+draft slots per request in the scheduler token budget (K for DFlash, K − 1 for DSpark), but neither drafts in the target batch. This PR sets those slots to 0 and instead caps running requests (
+max_num_active_seqs
+) at
+max_num_batched_tokens // num_lookahead_tokens
+, so the separate draft pass still fits its buffers.
+Fixes
+#52922
+.
+Claims
+DFlash/DSpark requests no longer pay for draft slots. A DSpark decode with K = 5 is charged 6 tokens instead of 10. With
+--max-num-batched-tokens 512
+that raises running requests from 52 to 64 and output throughput from 1373 to 3390 tok/s (DeepSeek-V4.1-Flash + DSpark on GB300, table below).
+The draft pass stays within its
+max_num_batched_tokens
+-row buffers. A request cap does this instead of the slots, and it only binds when
+max_num_seqs × num_lookahead_tokens > max_num_batched_tokens
+.
+This applies to DFlash on both model runners and to DSpark (MRV2-only), through the shared scheduler config. Slot accounting for P-EAGLE, PARD and draft models is unchanged.
+Validation
+Unit tests
+, this revision (rebased on
+f26d9f4
+), one GB300 node:
+pytest tests/test_config.py tests/v1/core/test_scheduler.py \
+  tests/v1/kv_connector/unit/offloading_connector/test_scheduler.py \
+  tests/v1/spec_decode/test_dflash2.py tests/v1/spec_decode/test_dflash_causality.py \
+  tests/v1/spec_decode/test_dflash_lookahead.py tests/v1/spec_decode/test_dflash_prepare_inputs.py \
+  tests/v1/spec_decode/test_dflash_profile.py tests/v1/spec_decode/test_dspark_topk.py \
+  tests/v1/spec_decode/test_mtp.py tests/v1/worker/test_gpu_warmup_blocks.py
+Result: 1137 passed, 5 skipped (ROCm-only), 1 failed. The failure,
+test_is_encoder_decoder[meta-llama/Llama-3.2-1B-Instruct-False]
+, needs a gated repo and fails on
+main
+too.
+New test
+test_block_drafters_cap_requests_instead_of_draft_slots
+, for DFlash and anchor-sampling DSpark, checks that admission stops at
+max_num_batched_tokens // num_lookahead_tokens
+and that admitted prompts are scheduled in full. It fails if the cap is removed or main's draft-slot charges return, and the DSpark case fails if the cap divides by K + 1.
+pre-commit passes, including mypy.
+End to end
+, this PR against
+main
+(
+f26d9f4
+), same build and node:
+Setup: DeepSeek-V4.1-Flash + DSpark (K = 5), TP4 on one GB300,
+VLLM_USE_V2_MODEL_RUNNER=1 vllm serve ... --max-num-seqs 64 --max-num-batched-tokens 512 --no-enable-prefix-caching
+.
+Load:
+vllm bench serve --dataset-name random --random-input-len 256 --random-output-len 1536 --random-range-ratio 0.33 --ignore-eos --temperature 0 --max-concurrency 128 --num-prompts 512 --seed 0
+, with
+vllm:num_requests_running
+scraped every 2 s. One run per side.
+--max-num-batched-tokens 512
+main
+this PR
+Max running requests
+52
+64
+Output throughput (tok/s)
+1373
+3390
+TPOT p50 / p99 (ms)
+29.2 / 63.5
+15.7 / 36.0
+TTFT p50, incl. queueing (s)
+93.6
+30.0
+Acceptance length
+4.72
+4.73
+Variability: the previous revision, measured the same way with 2048 prompts and two interleaved runs per side, gave 51 vs 64 running and 1354 vs 3448 tok/s, within 2% of these numbers.
+With
+--max-num-seqs 128
+, this PR runs up to 85 requests (2167 tok/s). The request cap is 102 (512 // 5) and does not bind: each decode schedules 1 + K = 6 tokens, so the 512-token budget fills at 85.
+With the default budget, greedy outputs for 20 fixed prompts are byte-identical between
+main
+and this PR (3197 completion tokens).
+Measured on 299173db51. This revision moves the cap into
+VllmConfig
+and merges the startup check without changing admission: for this setup, its engine config leaves
+max_num_active_seqs
+unset at
+--max-num-seqs 64
+and lowers it to 102 at
+--max-num-seqs 128
+.
+Not run: DFlash end to end on either runner.
+Details
+Root cause.
+Both drafters run a separate fixed-width query pass. Context KV is precomputed from the target's hidden states into its own buffers, and each request's query rows go into buffers of
+max_num_batched_tokens
+rows:
+DFlashSpeculator
+/
+DSparkSpeculator
+on MRV2,
+DFlashProposer.input_ids
+on MRV1. The slots only enforced
+num_reqs × query rows ≤ max_num_batched_tokens
+. A request cap gives the same bound without spending target budget.
+Why throughput gains more than 64/52.
+On main, the 2–32 tokens left over split each new prefill into small chunks. Most steps then mix prefill into the decode batch and miss the FULL decode CUDA graph: ITL p50 is 169 ms on main vs 30 ms here.
+Divisor.
+num_lookahead_tokens
+equals the draft pass's query rows per request: K for anchor-sampling DSpark, K + 1 for DFlash and fill-in DSpark. Each query row writes KV at a position that
+allocate_slots(num_lookahead_tokens=...)
+must cover. So it cannot fall below the query width without breaking draft KV allocation, and if it grows the cap only tightens. This also covers fill-in DSpark, whose old K − 1 charge did not bound its K + 1 query rows.
+Where the cap lives.
+Right after the startup check,
+VllmConfig
+lowers
+scheduler_config.max_num_active_seqs
+to the cap only when the cap is below the current limit, and logs why, e.g.
+The dspark draft pass needs 5 query tokens per request within max_num_batched_tokens=512. Overriding max_num_active_seqs from 128 to 102.
+The scheduler is unchanged. Only its admission check reads
+max_num_active_seqs
+; unlike
+max_num_seqs
+, it doesn't size runner buffers or CUDA graphs and isn't part of the config hash.
+Startup check.
+The existing
+max_num_batched_tokens
+check in
+VllmConfig
+now compares against
+num_lookahead_tokens
+instead of the draft slots.
+num_lookahead_tokens
+is at least every method's slots and covers the DFlash/DSpark draft pass, so the check still rejects a budget too small for one request's draft pass. It is slightly stricter than before: EAGLE, MTP and draft models now need a budget above K, and DFlash above K + 1, far below any practical budget.
+MRV1.
+DSpark is MRV2-only. MRV1 DFlash shares the scheduler and its drafter has the same structure, so it gets the same change. It is covered by unit tests only, not end to end.
+Review changes.
+Following
+@TheEpicDolphin
+'s review:
+the fix moved into
+max_num_new_slots_for_drafting
+, and the cap now applies on both runners instead of only MRV2;
+the cap divides by
+num_lookahead_tokens
+, so anchor-sampling DSpark uses K rather than K + 1.
+Not a duplicate.
+[Bugfix] Separate target and draft scheduling budgets
+#53080
+(open, conflicting) replaces
+max_num_new_slots_for_drafting
+with a per-step draft budget for every method (+237/−77).
+[Core] Separate DSpark scheduler input budgets
+#52996
+(open, conflicting) adds a DSpark-only budget charged K per request, which leaves DFlash over-charged.
+[BUGFIX] Fix dflash batched token budget
+#53970
+resizes the drafter buffers; it is complementary.
+AI assistance (Claude Code) was used for the change, the tests, the test runs and this description.
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used during the creation of this PR.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+🤖 Generated with
+Claude Code
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+dflash
+mrv2
+Model Runner V2 specific
+scheduler
+labels
+Sep 30, 2026
+github-project-automation
+Bot
+added this to
+Sprint - DFlash
+Sep 30, 2026
+zixi-qi
+force-pushed
+the
+spec-decode-dspark-draft-budget
+branch
+      2 times, most recently
+    from
+4327437
+to
+b8979c2
+Compare
+October 1, 2026 01:22
+zixi-qi
+marked this pull request as ready for review
+October 1, 2026 01:45
+zixi-qi
+requested review from
+ApostaC
+,
+WoosukKwon
+,
+alexm-redhat
+,
+heheda12345
+,
+ivanium
+,
+njhill
+,
+robertgshaw2-redhat
+and
+ywang96
+as
+code owners
+October 1, 2026 01:45
+claude
+Bot
+reviewed
+Oct 1, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zixi-qi
+requested review from
+GirasoleY
+,
+TheEpicDolphin
+and
+benchislett
+October 1, 2026 01:45
+TheEpicDolphin
+self-assigned this
+Oct 5, 2026
+TheEpicDolphin
+reviewed
+Oct 6, 2026
+View reviewed changes
+TheEpicDolphin
+left a comment
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+nice fix! Left a few suggestions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+❤️
+1
+zixi-qi reacted with heart emoji
+All reactions
+❤️
+1 reaction
+Comment thread
+vllm/v1/core/sched/scheduler.py
+Outdated
+Comment on lines
++279
+to
++283
+self.draft_slots = (
+speculative_config.max_num_new_slots_for_drafting
+if speculative_config is not None
+else 0
+)
+TheEpicDolphin
+Oct 6, 2026
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I feel like part of this fix belongs in
+max_num_new_slots_for_drafting
+. DFlash/DSpark don't add rows to the target batch. They precompute context KV and then run a separate fixed width query pass, so the property should return 0 for both. Then the request cap you added below handles the other half of making sure that the num queries stays under
+max_num_batched_tokens
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zixi-qi
+Oct 12, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Moved the logic to max_num_new_slots_for_drafting
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+vllm/v1/core/sched/scheduler.py
+Outdated
+Comment on lines
++293
+to
++295
+max_num_query_reqs = self.scheduler_config.max_num_batched_tokens // (
+1 + self.num_spec_tokens
+)
+TheEpicDolphin
+Oct 6, 2026
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I think this is too strict in the case of DSpark when sampling from the anchor position. In that case we should divide by just
+self.num_spec_tokens
+. It's still safe as is though, but just admits fewer requests than we could
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zixi-qi
+Oct 12, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Good point! Changed to use num_lookahead_tokens which takes the sample from anchor option into consideration:
+vllm/vllm/config/vllm.py
+Lines 614 to 641
+      in
+e0317b2
+@
+property
+def
+num_lookahead_tokens
+(
+self
+)
+->
+int
+:
+"""KV slots to reserve past the tokens the target model is scheduled for.
+The drafter writes KV for positions beyond the target model's query
+range, so every component that reserves blocks must add this margin:
+the scheduler through `allocate_slots`, and the worker warmup, which
+builds its own `SchedulerOutput`s. Consumers must read this property
+rather than re-deriving their own per-method lookahead, so the
+scheduler and warmup cannot drift apart.
+"""
+speculative_config
+=
+self
+.
+speculative_config
+if
+speculative_config
+is
+None
+:
+return
+0
+dspark_fill_in
+=
+speculative_config
+.
+use_dspark
+()
+and
+not
+getattr
+(
+speculative_config
+.
+draft_model_config
+.
+hf_config
+,
+"sample_from_anchor"
+,
+True
+)
+if
+speculative_config
+.
+use_dflash
+()
+or
+dspark_fill_in
+:
+# Fill-in drafting uses a bonus query plus one query per draft token.
+# DSpark's anchor-sampling layout does not need the extra slot.
+return
+self
+.
+num_speculative_tokens
++
+1
+if
+speculative_config
+.
+use_eagle
+()
+or
+speculative_config
+.
+uses_draft_model
+():
+# Anchor-sampling DSpark drafts a block of num_speculative_tokens
+# query tokens in which the anchor itself is the first prediction
+# position (no separate bonus query), so it needs exactly
+# num_speculative_tokens lookahead slots.
+return
+self
+.
+num_speculative_tokens
+return
+0
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zixi-qi
+force-pushed
+the
+spec-decode-dspark-draft-budget
+branch
+    from
+b8979c2
+to
+299173d
+Compare
+October 11, 2026 20:47
+zixi-qi
+requested review from
+ProExpertProg
+,
+houseroad
+,
+mgoin
+,
+orozery
+,
+tlrmchlsmth
+,
+yewentao256
+and
+youkaichao
+as
+code owners
+October 11, 2026 20:47
+zixi-qi
+changed the title
+[Spec Decode][MRV2] Don't reserve DFlash/DSpark draft slots in the scheduler token budget
+[Spec Decode] Don't reserve DFlash/DSpark draft slots in the scheduler token budget
+Oct 11, 2026
+9 hidden items
+Load more…
+zixi-qi
+force-pushed
+the
+spec-decode-dspark-draft-budget
+branch
+      3 times, most recently
+    from
+dc8b2bd
+to
+ad92689
+Compare
+October 12, 2026 06:07
+[Spec Decode] Don't reserve DFlash/DSpark draft slots in the token bu…
+…
+76ca4a8
+…dget
+
+The scheduler charges every request num_new_tokens plus
+max_num_new_slots_for_drafting against max_num_batched_tokens: K for
+DFlash and K - 1 for DSpark. Neither drafts in the target batch. Both
+run a separate query pass whose rows go into max_num_batched_tokens-row
+buffers, and the charge only kept that pass in bounds. A DSpark decode
+with K = 5 costs 10 tokens instead of 6, so a budget of 512 runs at
+most 51 requests.
+
+Return 0 slots for DFlash and DSpark, and instead cap
+max_num_active_seqs at max_num_batched_tokens // num_lookahead_tokens,
+with a warning when that lowers it. num_lookahead_tokens is the draft
+pass's query rows per request (K for anchor-sampling DSpark, K + 1 for
+DFlash and fill-in DSpark), which its KV writes require it to cover. The startup check on
+max_num_batched_tokens now compares against num_lookahead_tokens, which
+is at least every method's draft slots, so it still rejects a budget
+too small for one request's draft pass.
+
+Signed-off-by: zixi-qi <zixi@inferact.ai>
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+zixi-qi
+force-pushed
+the
+spec-decode-dspark-draft-budget
+branch
+    from
+ad92689
+to
+76ca4a8
+Compare
+October 12, 2026 06:45
+zixi-qi
+commented
+Oct 12, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+nice fix! Left a few suggestions
+Thanks for the review! Updated the PR following the suggestions and it does seems cleaner. Let me know if you have any further feedbacks!
+👍
+1
+TheEpicDolphin reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+TheEpicDolphin
+approved these changes
+Oct 13, 2026
+View reviewed changes
+TheEpicDolphin
+left a comment
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+LGTM!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+TheEpicDolphin
+added
+  the
+ready
+ONLY add when PR is ready to merge/full CI is needed
+label
+Oct 13, 2026
+Merge branch 'main' into spec-decode-dspark-draft-budget
+44c356e
+mergify
+Bot
+requested a review
+  from
+ZJY0516
+as a
+code owner
+October 13, 2026 19:19
+Merge branch 'main' into spec-decode-dspark-draft-budget
+e2dca26
+zixi-qi
+commented
+Oct 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 13, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #94592
+for commit
+e2dca2637f9e
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+zixi-qi
+commented
+Oct 14, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/ci retry
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 14, 2026
+Copy link
+Copy Markdown
+✅ Queued 3 failed job(s) for retry in
+Buildkite CI #94592
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+zixi-qi
+commented
+Oct 14, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/ci retry
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 14, 2026
+Copy link
+Copy Markdown
+✅ No failed, timed-out, or expired jobs need retrying:
+https://buildkite.com/vllm/ci/builds/94592
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into spec-decode-dspark-draft-budget
+c6b0746
+zixi-qi
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #94999
+for commit
+c6b0746d0d28
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+zixi-qi
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/ci retry
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+✅ Queued 1 failed job(s) for retry in
+Buildkite CI #94999
+.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+ZJY0516
+approved these changes
+Oct 15, 2026
+View reviewed changes
+Hide details
+View details
+ZJY0516
+merged commit
+7cd7982
+into
+vllm-project
+:
+main
+Oct 15, 2026
+176 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-project-automation
+Bot
+moved this from
+Backlog
+to
+Done
+in
+Sprint - DFlash
+Oct 15, 2026
+zixi-qi
+deleted the
+spec-decode-dspark-draft-budget
+branch
+October 15, 2026 17:24
+mjbrn
+added a commit
+        to brntech/vllm
+      that referenced
+      this pull request
+Oct 16, 2026
+Merge upstream main
+49cb2bb
+into uno-core-upstream; resolve the draft…
+…
+e8f0314
+…ing-slot table and a scheduler test
+
+Two conflicts, both from upstream
+vllm-project#59468
+(DFlash/DSpark no longer reserve
+draft slots in the scheduler token budget):
+- vllm/config/speculative.py: the max_num_new_slots_for_drafting docstring
+  table. Take upstream's DFlash 0 / DSpark 0 rows and keep the Uno K - 1 row;
+  Uno's code path (parallel drafting, K - 1) is unchanged.
+- tests/v1/core/test_scheduler.py: upstream's new
+  test_block_drafters_cap_requests_instead_of_draft_slots and the Uno scheduler
+  tests were added at the same place. Keep both.
+
+Signed-off-by: MJ <121681560+mjbrn@users.noreply.github.com>
+drslark
+mentioned this pull request
+Oct 19, 2026
+[RFC]: Track vLLM speculative decoding issues and fixes
+vllm-project/vllm-ascend#19120
+Open
+6 of 11 tasks
+michael-gpu
+pushed a commit
+        to practical-inference/vllm-ampere-extended
+      that referenced
+      this pull request
+Oct 20, 2026
+[Spec Decode] Don't reserve DFlash/DSpark draft slots in the schedule…
+…
+ed0aeea
+…r token budget (
+vllm-project#59468
+)
+
+Signed-off-by: zixi-qi <zixi@inferact.ai>
+Co-authored-by: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Co-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+TheEpicDolphin
+TheEpicDolphin approved these changes
+ZJY0516
+ZJY0516 approved these changes
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+robertgshaw2-redhat is a code owner
+njhill
+Awaiting requested review from njhill
+njhill is a code owner
+ywang96
+Awaiting requested review from ywang96
+ywang96 is a code owner
+alexm-redhat
+Awaiting requested review from alexm-redhat
+alexm-redhat is a code owner
+heheda12345
+Awaiting requested review from heheda12345
+heheda12345 is a code owner
+ApostaC
+Awaiting requested review from ApostaC
+ApostaC is a code owner
+ivanium
+Awaiting requested review from ivanium
+ivanium is a code owner
+GirasoleY
+Awaiting requested review from GirasoleY
+benchislett
+Awaiting requested review from benchislett
+orozery
+Awaiting requested review from orozery
+orozery is a code owner
+youkaichao
+Awaiting requested review from youkaichao
+youkaichao is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth is a code owner
+houseroad
+Awaiting requested review from houseroad
+houseroad is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+ProExpertProg
+Awaiting requested review from ProExpertProg
+ProExpertProg is a code owner
+Assignees
+TheEpicDolphin
+Labels
+dflash
+mrv2
+Model Runner V2 specific
+ready
+ONLY add when PR is ready to merge/full CI is needed
+scheduler
+Projects
+Sprint - DFlash
+Status: Done
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+[Bug]: DSpark scheduling using an overly conservative input budget
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

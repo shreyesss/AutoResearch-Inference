@@ -1,0 +1,165 @@
+From a2b0ab1f4f22964df4d87d22ce4d4e9e98ef3052 Mon Sep 17 00:00:00 2001
+From: ahmed xijiaat <52128022+xijiaat@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 12:41:04 +0900
+Subject: [PATCH] [DSv4.1] Add experimental SM90 mHC overlap opt-in
+
+Reuse the existing coefficient stream path with an explicit Hopper opt-in. Keep SM90 out of the SM100 collective fusion and add dispatch coverage. GPU correctness and performance validation remain pending.
+
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Signed-off-by: ahmed xijiaat <52128022+xijiaat@users.noreply.github.com>
+---
+ tests/kernels/mhc/test_mhc_dispatch.py     | 58 ++++++++++++++++++++++
+ tests/kernels/mhc/test_mhc_kernels.py      | 13 ++++-
+ vllm/config/kernel.py                      |  9 ++++
+ vllm/models/deepseek_v41/nvidia/ops/mhc.py | 11 +++-
+ 4 files changed, 88 insertions(+), 3 deletions(-)
+ create mode 100644 tests/kernels/mhc/test_mhc_dispatch.py
+
+diff --git a/tests/kernels/mhc/test_mhc_dispatch.py b/tests/kernels/mhc/test_mhc_dispatch.py
+new file mode 100644
+index 000000000000..796c89822d8c
+--- /dev/null
++++ b/tests/kernels/mhc/test_mhc_dispatch.py
+@@ -0,0 +1,58 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""CPU checks for experimental Hopper mHC dispatch; no CUDA kernels run here."""
++
++from types import SimpleNamespace
++
++import pytest
++
++from vllm.models.deepseek_v41.nvidia.ops import mhc
++
++
++@pytest.mark.parametrize(
++    "capability,enabled,deep_gemm,hidden,hc,ubatching,expected",
++    [
++        (90, None, True, 5120, 4, False, False),
++        (90, False, True, 5120, 4, False, False),
++        (90, True, True, 5120, 4, False, True),
++        (100, None, True, 5120, 4, False, True),
++        (103, None, True, 5120, 4, False, True),
++        (100, False, True, 5120, 4, False, False),
++        (80, True, True, 5120, 4, False, False),
++        (120, True, True, 5120, 4, False, False),
++        (90, True, False, 5120, 4, False, False),
++        (90, True, True, 5120, 4, True, False),
++        (90, True, True, 5121, 4, False, False),
++        (90, True, True, 5120, 3, False, False),
++        (90, True, True, 5120, 6, False, False),
++    ],
++)
++def test_overlap_opt_in_preserves_kernel_restrictions(
++    monkeypatch, capability, enabled, deep_gemm, hidden, hc, ubatching, expected
++):
++    monkeypatch.setattr(
++        mhc.current_platform,
++        "is_device_capability_family",
++        lambda family: capability // 10 == family // 10,
++    )
++    monkeypatch.setattr(
++        mhc.current_platform, "is_device_capability", lambda cc: capability == cc
++    )
++    monkeypatch.setattr(mhc, "is_deep_gemm_supported", lambda: deep_gemm)
++    config = SimpleNamespace(
++        kernel_config=SimpleNamespace(enable_mhc_overlap=enabled),
++        model_config=SimpleNamespace(
++            hf_config=SimpleNamespace(hidden_size=hidden, hc_mult=hc)
++        ),
++        parallel_config=SimpleNamespace(use_ubatching=ubatching),
++    )
++    assert mhc.supports_mhc_overlap(config) is expected
++
++
++def test_hopper_overlap_does_not_select_sm100_collective(monkeypatch):
++    """Opting into SM90 coefficient overlap must not construct AllReduceMHC."""
++    monkeypatch.setattr(
++        mhc.current_platform, "is_device_capability_family", lambda _: False
++    )
++    # No TP group or model config is needed when the architecture declines.
++    assert not mhc.supports_mhc_all_reduce(SimpleNamespace())
+diff --git a/tests/kernels/mhc/test_mhc_kernels.py b/tests/kernels/mhc/test_mhc_kernels.py
+index 00e9834d6215..96850372590a 100644
+--- a/tests/kernels/mhc/test_mhc_kernels.py
++++ b/tests/kernels/mhc/test_mhc_kernels.py
+@@ -68,6 +68,11 @@ def test_deepseek_v41_all_reduce_fusion_requires_kernel_support(
+     """Eligibility depends on kernel inputs, not serving or attention settings."""
+     from vllm.models.deepseek_v41.nvidia.ops import mhc
+ 
++    monkeypatch.setattr(
++        mhc.current_platform,
++        "is_device_capability_family",
++        lambda family: family == 100,
++    )
+     config = SimpleNamespace(
+         parallel_config=SimpleNamespace(
+             tensor_parallel_size=tp, enable_expert_parallel=ep
+@@ -302,8 +307,12 @@ def test_deepseek_v41_mhc_pre_delayed(
+ 
+ 
+ @pytest.mark.skipif(
+-    not HAS_TILELANG_MHC or not current_platform.is_device_capability_family(100),
+-    reason="SM100 TileLang mHC required",
++    not HAS_TILELANG_MHC
++    or not (
++        current_platform.is_device_capability(90)
++        or current_platform.is_device_capability_family(100)
++    ),
++    reason="SM90 or SM100 TileLang mHC required",
+ )
+ @pytest.mark.parametrize("num_tokens", [0, 1, 8, 9, 32, 128, 256])
+ @pytest.mark.parametrize("entry", ["broadcast", "identity", "carried"])
+diff --git a/vllm/config/kernel.py b/vllm/config/kernel.py
+index fa3ecf5df95d..258d608c9ba3 100644
+--- a/vllm/config/kernel.py
++++ b/vllm/config/kernel.py
+@@ -291,6 +291,15 @@ class KernelConfig:
+     enable_jit_warmup: bool = True
+     """If True, run JIT compile warmup during kernel warmup."""
+ 
++    enable_mhc_overlap: bool | None = None
++    """Overlap DeepSeek-V4.1 mHC coefficients with attention and MoE.
++
++    None keeps automatic selection on SM100-family GPUs. True also opts
++    Hopper (SM90) into the experimental path; kernel and CUDA graph
++    restrictions still apply. False disables overlap on both architectures.
++    Hopper correctness and performance validation is pending.
++    """
++
+     moe_backend: MoEBackend = "auto"
+     """Backend for MoE expert computation kernels. Available options:
+ 
+diff --git a/vllm/models/deepseek_v41/nvidia/ops/mhc.py b/vllm/models/deepseek_v41/nvidia/ops/mhc.py
+index edfdbd1ee40d..9b7afd5d38c3 100644
+--- a/vllm/models/deepseek_v41/nvidia/ops/mhc.py
++++ b/vllm/models/deepseek_v41/nvidia/ops/mhc.py
+@@ -43,11 +43,17 @@
+ 
+ def supports_mhc_overlap(vllm_config: VllmConfig) -> bool:
+     """Check kernel requirements and safety of sharing the coefficient stream."""
++    enabled = vllm_config.kernel_config.enable_mhc_overlap
++    if enabled is False:
++        return False
++    supported_arch = current_platform.is_device_capability_family(100) or (
++        enabled is True and current_platform.is_device_capability(90)
++    )
+     config = vllm_config.model_config.hf_config
+     # DeepGEMM's prenorm kernel requires K % 64 == 0, N % 8 == 0, and N <= 32.
+     mix_size = config.hc_mult * (config.hc_mult + 2)
+     return (
+-        current_platform.is_device_capability_family(100)
++        supported_arch
+         and is_deep_gemm_supported()
+         and config.hidden_size % 64 == 0
+         and 0 < mix_size <= 32
+@@ -57,6 +63,9 @@ def supports_mhc_overlap(vllm_config: VllmConfig) -> bool:
+ 
+ 
+ def supports_mhc_all_reduce(vllm_config: VllmConfig) -> bool:
++    # SM90 overlap uses the ordinary TP collective, not the SM100 fusion.
++    if not current_platform.is_device_capability_family(100):
++        return False
+     parallel = vllm_config.parallel_config
+     config = vllm_config.model_config.hf_config
+     if (

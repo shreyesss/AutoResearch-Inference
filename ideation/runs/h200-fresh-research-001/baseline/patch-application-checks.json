@@ -1,0 +1,134 @@
+[
+  {
+    "pr": 58818,
+    "all_vllm_hunks_apply_in_order": true,
+    "commits_in_patch": 1,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "0457e961490be6234aac531a76e40859874f9813",
+        "exit_code": 0,
+        "details": "Checking patch vllm/v1/attention/backend.py...\nChecking patch vllm/v1/attention/backends/mla/sparse_swa.py...\nHunk #1 succeeded at 229 (offset 1 line).\nHunk #2 succeeded at 735 (offset 1 line).\nChecking patch vllm/v1/worker/gpu/attn_utils.py...\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 58984,
+    "all_vllm_hunks_apply_in_order": false,
+    "commits_in_patch": 4,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "8bdc8348a98068546e6b08082a0b8b3b7149e834",
+        "exit_code": 1,
+        "details": "Checking patch vllm/v1/worker/gpu/dp_utils.py...\nerror: while searching for:\n                uniform_token_count=synced_uniform_token_count,\n                eager=ubatch_desc.cg_mode == CUDAGraphMode.NONE,\n                num_reqs=num_reqs,\n            )\n\n    synced_cg_mode = CUDAGraphMode(int(cg_mode_across_dp.min()))\n\nerror: patch failed: vllm/v1/worker/gpu/dp_utils.py:150\nerror: vllm/v1/worker/gpu/dp_utils.py: patch does not apply\nChecking patch vllm/v1/worker/gpu/spec_decode/speculator.py...\nerror: while searching for:\n        num_reqs: int,\n        num_query_per_req: int = 1,\n    ) -> tuple[DPSyncState, int]:\n        num_batch_tokens = target_dp_sync_state.num_reqs * num_query_per_req\n        assert num_reqs * num_query_per_req <= num_batch_tokens, (\n            \"reusing a DP sync that does not cover this batch's requests\"\n        )\n        return replace(\n            target_dp_sync_state,\n            num_tokens_across_dp=torch.full_like(\n\nerror: patch failed: vllm/v1/worker/gpu/spec_decode/speculator.py:550\nerror: vllm/v1/worker/gpu/spec_decode/speculator.py: patch does not apply\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 61767,
+    "all_vllm_hunks_apply_in_order": false,
+    "commits_in_patch": 2,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "7b544ecb5bdd4f0bd61689e184158611c692fcaf",
+        "exit_code": 1,
+        "details": "Skipped patch '.buildkite/test_areas/distributed.yaml'.\nSkipped patch 'tests/distributed/test_cpu_all_reduce.py'.\nChecking patch vllm/config/parallel.py...\nHunk #1 succeeded at 16 (offset 1 line).\nHunk #2 succeeded at 830 (offset -58 lines).\nChecking patch vllm/distributed/parallel_state.py...\nerror: while searching for:\n)\nfrom vllm.distributed.utils import (\n    StatelessProcessGroup,\n    create_tcp_store,\n    get_cached_tcp_store_client,\n)\n\nerror: patch failed: vllm/distributed/parallel_state.py:50\nerror: vllm/distributed/parallel_state.py: patch does not apply\nChecking patch vllm/distributed/utils.py...\nHunk #1 succeeded at 57 (offset 2 lines).\nChecking patch vllm/v1/worker/gpu/dp_utils.py...\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 61461,
+    "all_vllm_hunks_apply_in_order": true,
+    "commits_in_patch": 1,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "dcbb047275eb816e91e374aad5b187dda4caad16",
+        "exit_code": 0,
+        "details": "Skipped patch 'tests/kernels/mhc/test_mhc_jit_warmup.py'.\nChecking patch vllm/model_executor/kernels/mhc/tilelang_kernels.py...\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 59488,
+    "all_vllm_hunks_apply_in_order": false,
+    "commits_in_patch": 1,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "47e6dff29f09351e7222af3ff53eb73e520db315",
+        "exit_code": 1,
+        "details": "Skipped patch 'docs/features/quantization/online.md'.\nSkipped patch 'tests/kernels/moe/test_b12x.py'.\nSkipped patch 'tests/kernels/moe/test_moe.py'.\nSkipped patch 'tests/kernels/moe/test_ocp_mx_moe.py'.\nSkipped patch 'tests/quantization/test_gfx950_moe.py'.\nChecking patch vllm/config/quantization.py...\nHunk #1 succeeded at 43 (offset -5 lines).\nHunk #2 succeeded at 90 (offset -5 lines).\nChecking patch vllm/model_executor/layers/fused_moe/experts/fused_humming_moe.py...\nChecking patch vllm/model_executor/layers/fused_moe/oracle/mxfp4.py...\nerror: while searching for:\n\nimport vllm.model_executor.layers.fused_moe.modular_kernel as mk\nfrom vllm import envs\nfrom vllm.config import get_current_vllm_config\nfrom vllm.config.kernel import (\n    FLASHINFER_MOE_EP_CUTEDSL,\n    FLASHINFER_MOE_EP_DEEP_GEMM,\n    MoEBackend,\n)\nfrom vllm.config.quantization import QuantizationConfigArgs\nfrom vllm.logger import init_logger\nfrom vllm.model_executor.layers.fused_moe import (\n    FusedMoEConfig,\n\nerror: patch failed: vllm/model_executor/layers/fused_moe/oracle/mxfp4.py:7\nerror: vllm/model_executor/layers/fused_moe/oracle/mxfp4.py: patch does not apply\nChecking patch vllm/model_executor/layers/quantization/mxfp4.py...\nHunk #1 succeeded at 28 (offset -3 lines).\nerror: while searching for:\n        self.is_k3_situ_int4_gfx942 = _use_k3_situ_int4_gfx942(moe)\n        self.experts_cls: type[mk.FusedMoEExperts] | None\n        if self.is_k3_situ_aiter or self.is_k3_situ_int4_gfx942:\n            self.mxfp4_backend = Mxfp4MoeBackend.AITER_MXFP4_BF16\n            self.experts_cls = backend_to_kernel_cls(self.mxfp4_backend)[0]\n            if self.is_k3_situ_int4_gfx942:\n\nerror: patch failed: vllm/model_executor/layers/quantization/mxfp4.py:548\nerror: vllm/model_executor/layers/quantization/mxfp4.py: patch does not apply\nChecking patch vllm/model_executor/layers/quantization/utils/humming/moe.py...\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 62000,
+    "all_vllm_hunks_apply_in_order": false,
+    "commits_in_patch": 1,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "9cc862f2b8f6f134eedb6387c69aefca881cbf94",
+        "exit_code": 1,
+        "details": "Skipped patch 'tests/kernels/attention/test_candidate_gather_cudagraph.py'.\nSkipped patch 'tests/model_executor/layers/test_mla_short_prefill_indexer.py'.\nChecking patch vllm/envs.py...\nwarning: vllm/envs.py has type 100644, expected 100755\nerror: while searching for:\n    VLLM_XLA_CACHE_PATH: str = os.path.join(VLLM_CACHE_ROOT, \"xla_cache\")\n    VLLM_XLA_CHECK_RECOMPILATION: bool = False\n    VLLM_SPARSE_INDEXER_MAX_LOGITS_MB: int = 512\n    VLLM_ADAPTIVE_VERIFICATION_PROFILE_CONTEXT_LEN: int = 8192\n    VLLM_XPU_PP_MICROBATCH: bool = True\n    VLLM_DISTRIBUTED_USE_SPLIT_GROUP: bool = False\n\nerror: patch failed: vllm/envs.py:59\nerror: vllm/envs.py: patch does not apply\nChecking patch vllm/model_executor/kernels/attention/dsa/candidate_gather.py...\nChecking patch vllm/model_executor/kernels/attention/dsa/sparse_mqa_logits.py...\nChecking patch vllm/model_executor/layers/indexer_topk.py...\nerror: while searching for:\n        \"\"\"Run the resolved decode top-k implementation, writing into\n        topk_indices (int32, -1 fill for rows shorter than topk_tokens).\n        \"\"\"\n        backend = self.resolve_backend(logits, topk_tokens, logits.shape[0])\n        if backend == \"deep_select\":\n            row_ends = self._row_ends(seq_lens, next_n, logits.shape[0])\n\nerror: patch failed: vllm/model_executor/layers/indexer_topk.py:311\nerror: vllm/model_executor/layers/indexer_topk.py: patch does not apply\nChecking patch vllm/model_executor/layers/sparse_attn_indexer.py...\nHunk #1 succeeded at 20 (offset -9 lines).\nHunk #2 succeeded at 384 (offset -118 lines).\nHunk #3 succeeded at 746 (offset -151 lines).\nerror: while searching for:\n            # DCP need fp32. SM100 decode is varlen: one context length per row.\n            if topk_backend != \"deep_select\" or dcp_world_size != 1:\n                logits = as_fp32_logits(logits, seq_lens.view(-1))\n        num_rows = logits.shape[0]\n        if candidate_blocks is not None:\n            # Two-level selection (v4.1) on the decode logits; columns are\n            # request-local compressed positions. seq_lens is (B, next_n)\n            # for native spec decode (per-row effective lens) and (B, 1)\n\nerror: patch failed: vllm/model_executor/layers/sparse_attn_indexer.py:891\nerror: vllm/model_executor/layers/sparse_attn_indexer.py: patch does not apply\nChecking patch vllm/v1/attention/backends/mla/indexer.py...\nHunk #1 succeeded at 645 (offset -80 lines).\nHunk #2 succeeded at 1626 (offset -128 lines).\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 62463,
+    "all_vllm_hunks_apply_in_order": false,
+    "commits_in_patch": 3,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "57b53a590e1171c9d5dd7b4f5091320c17bf2edb",
+        "exit_code": 1,
+        "details": "Skipped patch 'tests/kernels/attention/test_candidate_paged_logits.py'.\nChecking patch vllm/envs.py...\nwarning: vllm/envs.py has type 100644, expected 100755\nerror: while searching for:\n    VLLM_XLA_CACHE_PATH: str = os.path.join(VLLM_CACHE_ROOT, \"xla_cache\")\n    VLLM_XLA_CHECK_RECOMPILATION: bool = False\n    VLLM_SPARSE_INDEXER_MAX_LOGITS_MB: int = 512\n    VLLM_ADAPTIVE_VERIFICATION_PROFILE_CONTEXT_LEN: int = 8192\n    VLLM_XPU_PP_MICROBATCH: bool = True\n    VLLM_DISTRIBUTED_USE_SPLIT_GROUP: bool = False\n\nerror: patch failed: vllm/envs.py:59\nerror: vllm/envs.py: patch does not apply\nChecking patch vllm/model_executor/kernels/attention/dsa/candidate_paged_logits.py...\nChecking patch vllm/model_executor/layers/sparse_attn_indexer.py...\nHunk #1 succeeded at 20 (offset -9 lines).\nHunk #2 succeeded at 383 (offset -118 lines).\nerror: while searching for:\n                max_model_len,\n            )\n        else:\n            padded_q_scale, decode_weights = mqa_logits_mx_inputs(\n                padded_q_quant_cast, padded_q_scale, weights[:num_padded_tokens]\n            )\n            logits = fp8_fp4_paged_mqa_logits(\n                (padded_q_quant_cast, padded_q_scale),\n                kv_cache,\n                decode_weights,\n                seq_lens,\n                decode_metadata.block_table,\n                decode_metadata.schedule_metadata,\n                max_model_len=max_model_len,\n                indices=decode_metadata.indices,\n            )\n            # Keeping bf16 halves top-k/candidate reads; other top-k backends and\n            # DCP need fp32. SM100 decode is varlen: one context length per row.\n            if topk_backend != \"deep_select\" or dcp_world_size != 1:\n                logits = as_fp32_logits(logits, seq_lens.view(-1))\n        num_rows = logits.shape[0]\n        if candidate_blocks is not None:\n            # Two-level selection (v4.1) on the decode logits; columns are\n            # request-local compressed positions. seq_lens is (B, next_n)\n            # for native spec decode (per-row effective lens) and (B, 1)\n            # otherwise.\n            vis = seq_lens.reshape(-1)\n            row_repeat = next_n if vis.numel() != num_rows else 1\n            vis = vis[:num_rows]\n            decode_candidates = candidate_blocks[:num_rows]\n            if candidate_write:\n                _select_candidate_blocks(\n                    logits,\n                    None,\n                    vis,\n                    decode_candidates.shape[1],\n                    candidate_block_size,\n                    decode_candidates,\n                    row_repeat,\n                )\n            else:\n                _apply_candidate_mask(\n                    logits,\n                    None,\n                    vis,\n                    decode_candidates,\n                    candidate_block_size,\n                    row_repeat,\n                )\n        topk_indices = topk_indices_buffer[:num_padded_tokens, :topk_tokens]\n\n        # The backend comes from the layer (config is only readable at model\n        # construction); dispatchers are cached per backend.\n        get_indexer_topk(topk_backend)(\n            logits,\n            seq_lens,\n            next_n,\n            topk_indices,\n            topk_tokens,\n            attn_metadata_narrowed.max_seq_len,\n        )\n\n        if decode_metadata.global_seq_lens is not None:\n            _merge_dcp_topk_global(\n                logits,\n                topk_indices,\n                topk_tokens,\n                dcp_rank,\n                dcp_world_size,\n                cp_kv_cache_interleave_size,\n            )\n\n        if needs_padded_path:\n            # if padded, we need to unpack\n            # the topk indices removing padded tokens\n\nerror: patch failed: vllm/model_executor/layers/sparse_attn_indexer.py:874\nerror: vllm/model_executor/layers/sparse_attn_indexer.py: patch does not apply\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 59204,
+    "all_vllm_hunks_apply_in_order": true,
+    "commits_in_patch": 2,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "1d4e9034a59d896eacce4f10a7341086b578c76b",
+        "exit_code": 0,
+        "details": "Skipped patch 'cmake/external_projects/deepselect.cmake'.\nSkipped patch 'tests/kernels/test_top_k_per_row.py'.\nSkipped patch 'tests/models/glm5next/test_sparse_indexer_topk_dispatch.py'.\nChecking patch vllm/config/kernel.py...\nHunk #1 succeeded at 281 (offset 3 lines).\nChecking patch vllm/model_executor/layers/indexer_topk.py...\nChecking patch vllm/models/deepseek_v41/common/ops/cache_utils.py...\n"
+      },
+      {
+        "commit_index": 1,
+        "sha": "b4800c5f591988413c9d5a201c727d407f58bf18",
+        "exit_code": 0,
+        "details": "Skipped patch 'tests/kernels/test_top_k_per_row.py'.\nSkipped patch 'tests/models/glm5next/test_sparse_indexer_topk_dispatch.py'.\nChecking patch vllm/model_executor/layers/indexer_topk.py...\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  },
+  {
+    "pr": 61875,
+    "all_vllm_hunks_apply_in_order": false,
+    "commits_in_patch": 1,
+    "stages": [
+      {
+        "commit_index": 0,
+        "sha": "a3bcf3ae00b75a2954a7a2331f05e8b13bbe3b6c",
+        "exit_code": 1,
+        "details": "Skipped patch 'tests/quantization/test_humming_mxfp4_block_fp8.py'.\nChecking patch vllm/model_executor/layers/quantization/mxfp4.py...\nHunk #1 succeeded at 15 (offset -2 lines).\nerror: while searching for:\nfrom vllm.model_executor.layers.quantization.utils.quant_utils import (\n    QuantKey,\n    is_layer_skipped,\n)\nfrom vllm.model_executor.utils import (\n    is_weights_pre_processed,\n\nerror: patch failed: vllm/model_executor/layers/quantization/mxfp4.py:41\nerror: vllm/model_executor/layers/quantization/mxfp4.py: patch does not apply\n"
+      }
+    ],
+    "scope": "vllm source hunks only, applied sequentially to disposable copy; cmake/tests/native dependencies excluded; no serving mutation"
+  }
+]

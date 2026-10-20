@@ -1,0 +1,867 @@
+Conversation
+wangyicong52
+commented
+Sep 28, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Purpose
+When a target FULL CUDA graph pads its request count,
+DPSyncState.num_reqs
+describes graph capacity rather than the number of scheduled requests. Reusing that capacity for uniform drafter steps makes active DP ranks select larger draft graphs than needed.
+This PR keeps the DP-wide maximum real request count alongside graph capacity and uses it for uniform drafter dispatch. It also shrinks online dummy-rank DFlash batches coherently across input preparation, graph dispatch, attention metadata, EPLB preparation, and draft generation. Startup graph capture retains its required capacity.
+Test Plan & Result
+The performance validation below uses the official nightly build at the PR base. This PR uses the same nightly plus only the four Python files changed by this PR; the runtime SHA-256 values were verified after the overlay was applied.
+GPU environment
+Model: DeepSeek-V4.1-Flash.
+Hardware: two non-production nodes, one arm per node, with 8x NVIDIA H20 96GB per arm.
+Image:
+vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989
+Baseline: the official nightly without a source change.
+vLLM Startup Command
+vllm serve /data00/models/DeepSeek-V4.1-Flash \
+  --host 0.0.0.0 \
+  --port 8010 \
+  --served-model-name deepseek-v4.1-flash \
+  --trust-remote-code \
+  --tokenizer-mode deepseek_v41 \
+  --attention-backend FLASHMLA_SPARSE_DSV41 \
+  --kv-cache-dtype fp8_ds_mla \
+  --data-parallel-size 8 \
+  --enable-expert-parallel \
+  --max-model-len 131072 \
+  --max-num-batched-tokens 2048 \
+  --max-num-seqs 96 \
+  --compilation-config
+'
+{"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[16,32,64,128,256,512]}
+'
+\
+  --speculative-config
+'
+{"method":"dspark","num_speculative_tokens":5,"draft_sample_method":"probabilistic","rejection_sample_method":"block","enable_adaptive_verification":true}
+'
+\
+  --gpu-memory-utilization 0.95 \
+  --disable-uvicorn-access-log
+Performance Test
+#
+Concurrency 64 example.
+vllm bench serve \
+  --backend openai \
+  --endpoint /v1/completions \
+  --base-url http://127.0.0.1:8010 \
+  --model deepseek-v4.1-flash \
+  --tokenizer /data00/models/DeepSeek-V4.1-Flash \
+  --dataset-name random \
+  --random-input-len 3500 \
+  --random-output-len 1500 \
+  --random-range-ratio 0 \
+  --num-prompts 640 \
+  --request-rate inf \
+  --max-concurrency 64 \
+  --seed 42 \
+  --temperature 0 \
+  --extra-body
+'
+{"seed":42}
+'
+\
+  --ignore-eos \
+  --num-warmups 64 \
+  --save-result \
+  --save-detailed
+All 890 requests completed in each arm without failures or Pod restarts.
+Each point uses
+num-prompts = 10 * concurrency
+, random input 3500, output 1500, and seed 42. Both arms receive byte-identical input and output token arrays at each point.
+Concurrency
+Output TPS Baseline -> This PR
+Mean TPOT Baseline -> This PR
+Acceptance Baseline -> This PR
+Mean TTFT Baseline -> This PR
+1
+84.42 -> 86.09 (+1.98%)
+11.32 -> 11.15 ms (-1.57%)
+94.22% -> 85.63% (-8.58pp)
+795.0 -> 716.5 ms (-9.88%)
+8
+471.97 -> 539.51 (+14.31%)
+15.23 -> 13.72 ms (-9.94%)
+84.54% -> 88.38% (+3.84pp)
+1339.1 -> 1271.8 ms (-5.02%)
+16
+775.13 -> 842.71 (+8.72%)
+18.71 -> 17.01 ms (-9.06%)
+80.29% -> 82.97% (+2.68pp)
+1179.1 -> 1089.1 ms (-7.63%)
+64
+1341.96 -> 1356.23 (+1.06%)
+44.55 -> 43.89 ms (-1.47%)
+81.09% -> 76.13% (-4.97pp)
+2306.4 -> 2371.9 ms (+2.84%)
+Acceptance varies between the two arms, but This PR improves output throughput and mean TPOT at every measured concurrency. This consistent end-to-end benefit across C1/C8/C16/C64 supports the optimization in this PR.
+GSM8K Test
+Both arms were evaluated simultaneously with EvalScope 1.9.1 using the full 1319-sample zero-shot GSM8K test split and identical generation parameters.
+evalscope
+eval
+\
+  --eval-type openai_api \
+  --api-url http://127.0.0.1:8000/v1 \
+  --api-key EMPTY \
+  --model deepseek-v4.1-flash \
+  --model-id deepseek-v4.1-flash \
+  --datasets gsm8k \
+  --dataset-args
+'
+{"gsm8k":{"few_shot_num":0}}
+'
+\
+  --eval-batch-size 8 \
+  --generation-config
+'
+{"temperature":0.2,"top_p":0.95,"max_tokens":8192,"timeout":3600,"seed":0,"reasoning_effort":"high"}
+'
+\
+  --work-dir ./gsm8k-results \
+  --no-timestamp
+Baseline: 1270/1319 (96.29%).
+This PR: 1264/1319 (95.83%).
+Paired outcomes: 1257 both correct, 13 baseline-only correct, 7 This PR-only correct, and 42 both wrong.
+Exact two-sided McNemar test:
+p=0.26318
+; no statistically significant difference.
+API errors: zero in both arms. Baseline had three and This PR had five outputs reach the 8192-token limit.
+EvalScope performance: mean latency 7.58 -> 7.13 s (-5.90%); average output throughput 52.17 -> 56.16 tok/s (+7.65%).
+AI assistance
+AI assistance was used to instrument the DP drafter path, identify the online dummy-rank graph mismatch, implement the follow-up optimization, run GPU validation, and summarize the results.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+speculative-decoding
+mrv2
+Model Runner V2 specific
+labels
+Sep 28, 2026
+wangyicong52
+force-pushed
+the
+codex/perf-drafter-dp-padding
+branch
+    from
+db1e8a6
+to
+30db09c
+Compare
+September 28, 2026 07:15
+mergify
+Bot
+added
+  the
+dflash
+label
+Sep 28, 2026
+github-project-automation
+Bot
+added this to
+Sprint - DFlash
+Sep 28, 2026
+github-project-automation
+Bot
+moved this to
+Backlog
+in
+Sprint - DFlash
+Sep 28, 2026
+tangzzycc
+mentioned this pull request
+Oct 5, 2026
+[Bugfix][MRV2] Preserve dummy tokens across PIECEWISE padding
+#60049
+Open
+6 tasks done
+wangyicong52
+mentioned this pull request
+Oct 12, 2026
+[DSv4.1] Fix replay boundaries and reduce DP drafter padding
+bytedance-iaas/vllm#174
+Merged
+slippersss
+mentioned this pull request
+Oct 15, 2026
+[Bug]: DSpark draft token count inflated by reusing target DP sync state with adaptive verification
+#61806
+Closed
+1 task done
+wangyicong52
+force-pushed
+the
+codex/perf-drafter-dp-padding
+branch
+    from
+66e93c6
+to
+6dbac4e
+Compare
+October 15, 2026 11:32
+mergify
+Bot
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@wangyicong52
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Oct 15, 2026
+wangyicong52
+and others
+added
+3
+commits
+October 15, 2026 19:48
+perf(spec-decode): avoid padded request reuse in drafter
+…
+8bdc834
+Keep the DP-wide real request count separate from FULL CUDA graph capacity when dispatching uniform drafter steps. Retain the padded capacity for dummy graph runs.
+
+Assisted-by: Codex
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+perf(spec-decode): shrink DP dummy drafter batches
+…
+762f2a8
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+fix(spec-decode): preserve AR DP request capacity
+…
+13a247c
+Select the uniform drafter request bound at each caller so DFlash uses the real DP request maximum while autoregressive drafters retain the target request capacity. Keep the derived DP sync request count aligned.
+
+Adapted from
+vllm-project#61807
+, commit
+4afa1bf
+.
+
+Signed-off-by: Zetong Li <slippersss@126.com>
+Assisted-by: Codex
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+wangyicong52
+force-pushed
+the
+codex/perf-drafter-dp-padding
+branch
+    from
+6dbac4e
+to
+13a247c
+Compare
+October 15, 2026 11:53
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Oct 15, 2026
+slippersss
+commented
+Oct 16, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+By using this PR, we have some preliminary results as follows:
+WITHOUT this PR
+============ Serving Benchmark Result ============
+Successful requests:                     512       
+Failed requests:                         0         
+Maximum request concurrency:             32        
+Benchmark duration (s):                  231.69    
+Total input tokens:                      524288    
+Total generated tokens:                  262144    
+Request throughput (req/s):              2.21      
+Output token throughput (tok/s):         1131.45   
+Peak output token throughput (tok/s):    512.00    
+Peak concurrent requests:                44.00     
+Total token throughput (tok/s):          3394.36   
+---------------Time to First Token----------------
+Mean TTFT (ms):                          842.08    
+Median TTFT (ms):                        617.00    
+P99 TTFT (ms):                           4017.21   
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          25.89     
+Median TPOT (ms):                        20.28     
+P99 TPOT (ms):                           66.45     
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           128.95    
+Median ITL (ms):                         82.11     
+P99 ITL (ms):                            468.76    
+---------------Speculative Decoding---------------
+Acceptance rate (%):                     57.29     
+Acceptance length:                       5.01      
+Drafts:                                  52529     
+Draft tokens:                            367703    
+Accepted tokens:                         210639    
+Per-position acceptance (%):
+  Position 0:                            80.92     
+  Position 1:                            70.24     
+  Position 2:                            62.29     
+  Position 3:                            57.08     
+  Position 4:                            52.06     
+  Position 5:                            41.49     
+  Position 6:                            36.91     
+==================================================
+WITH this PR
+============ Serving Benchmark Result ============
+Successful requests:                     512       
+Failed requests:                         0         
+Maximum request concurrency:             32        
+Benchmark duration (s):                  217.06    
+Total input tokens:                      524288    
+Total generated tokens:                  262144    
+Request throughput (req/s):              2.36      
+Output token throughput (tok/s):         1207.71   
+Peak output token throughput (tok/s):    576.00    
+Peak concurrent requests:                39.00     
+Total token throughput (tok/s):          3623.12   
+---------------Time to First Token----------------
+Mean TTFT (ms):                          776.05    
+Median TTFT (ms):                        591.22    
+P99 TTFT (ms):                           4043.23   
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          24.28     
+Median TPOT (ms):                        18.82     
+P99 TPOT (ms):                           63.29     
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           118.85    
+Median ITL (ms):                         69.75     
+P99 ITL (ms):                            456.35    
+---------------Speculative Decoding---------------
+Acceptance rate (%):                     56.04     
+Acceptance length:                       4.92      
+Drafts:                                  53441     
+Draft tokens:                            374087    
+Accepted tokens:                         209645    
+Per-position acceptance (%):
+  Position 0:                            80.18     
+  Position 1:                            68.72     
+  Position 2:                            60.90     
+  Position 3:                            56.02     
+  Position 4:                            51.29     
+  Position 5:                            39.87     
+  Position 6:                            35.32     
+==================================================
+Locally tested on 4× H20 with DeepSeek-V4-Flash, DP4, and DSpark adaptive verification (512 requests, concurrency 32, 1024-token input / 512-token output): output throughput increased from 1131.45 to 1207.71 tok/s (+6.74%), and mean TPOT decreased from 25.89 to 24.28 ms (−6.23%).
+Scripts are listed below:
+vllm serve deepseek-ai/DeepSeek-V4-Flash-0731 \
+  --tokenizer-mode deepseek_v4 --trust-remote-code \
+  --data-parallel-size 4 --enable-expert-parallel \
+  --kv-cache-dtype fp8 --max-model-len 16384 --max-num-seqs 256 \
+  --max-num-batched-tokens 16384 --gpu-memory-utilization 0.8 \
+  --compilation-config '{"cudagraph_capture_sizes":[16,32,64,128,256,512],"max_cudagraph_capture_size":512}' \
+  --speculative-config '{"method":"dspark","attention_backend":"FLASH_ATTN","num_speculative_tokens":7,"draft_sample_method":"probabilistic","enable_adaptive_verification":true}'
+
+vllm bench serve \
+  --model deepseek-ai/DeepSeek-V4-Flash-0731 \
+  --tokenizer-mode deepseek_v4 \
+  --dataset-name random \
+  --random-input-len 1024 \
+  --random-output-len 512 \
+  --num-prompts 512 \
+  --num-warmups 16 \
+  --max-concurrency 32 \
+  --ignore-eos \
+  --temperature 0 \
+  --seed 42 \
+  --save-result
+@TheEpicDolphin
+Could you please take a look and help move this PR forward? Thanks! CC
+@wangyicong52
+.
+👍
+1
+wangyicong52 reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+slippersss
+mentioned this pull request
+Oct 16, 2026
+[Bugfix] Fix DSpark draft token count inflation with DP and adaptive verification
+#61807
+Closed
+6 tasks
+wangyicong52
+marked this pull request as ready for review
+October 16, 2026 13:22
+wangyicong52
+requested review from
+WoosukKwon
+,
+njhill
+and
+yewentao256
+as
+code owners
+October 16, 2026 13:22
+claude
+Bot
+reviewed
+Oct 16, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+TheEpicDolphin
+self-assigned this
+Oct 16, 2026
+TheEpicDolphin
+reviewed
+Oct 17, 2026
+View reviewed changes
+TheEpicDolphin
+left a comment
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I like the direction of this fix. I have some feedback to simplify it further
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+vllm/v1/worker/gpu/dp_utils.py
+Outdated
+Comment on lines
++42
+to
++43
+# Largest real request count scheduled on any rank before graph padding.
+num_reqs_unpadded: int
+TheEpicDolphin
+Oct 17, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I think it would be simpler to drop this new property and just store
+int(num_reqs_across_dp.max())
+in
+num_reqs
+. Just have to make sure to also add the dummy run override to the target-dependent AR speculator as well:
+if dummy_run and dp_sync_state is not None:
+    num_reqs = min(num_reqs, dp_sync_state.num_reqs_unpadded)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+wangyicong52
+Oct 17, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Thanks for the feedback. Done in the latest
+commit
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+fix(spec-decode): simplify DP request count tracking
+…
+77e45ab
+Keep DPSyncState.num_reqs as the DP-wide logical request maximum and leave graph capacity in the execution descriptor. Remove the redundant request-count field and uniform-batch helper parameter, and clamp target-dependent AR dummy requests after the target-shaped prefill pass so subsequent decode steps can reuse the logical bound.
+
+Assisted-by: Codex
+Signed-off-by: wangyicong <wangyicong@bytedance.com>
+wangyicong52
+force-pushed
+the
+codex/perf-drafter-dp-padding
+branch
+    from
+87b1bd7
+to
+77e45ab
+Compare
+October 17, 2026 06:06
+wangyicong52
+commented
+Oct 17, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Author
+Hi
+@TheEpicDolphin
+, I have added a new commit which addresses your review comment. I have also revalidated the current head
+77e45ab1
+using the same DeepSeek-V4.1-Flash test environment as the previous validation:
+Full zero-shot GSM8K (1,319 samples):
+1,262/1,319 (95.68%)
+on the latest head vs. the existing Baseline
+1,270/1,319 (96.29%)
+, a
+-0.61 pp
+delta.
+Paired outcomes: 1,254 both correct, 16 Baseline-only, 8 PR-only, and 41 both wrong; exact two-sided McNemar
+p=0.1516
+, so there is no statistically significant accuracy regression.
+Zero API errors and zero serving-Pod restarts; 6 outputs reached the
+max_tokens=8192
+limit.
+Could you please take another look when you have time? Thanks.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+wangyicong52
+requested a review
+  from
+TheEpicDolphin
+October 17, 2026 08:51
+Siquan-Li
+mentioned this pull request
+Oct 18, 2026
+[Bug]: Draft model construction resets data_parallel_index to 0 (load_draft_model / create_draft_parallel_config) — residual site not covered by #62062
+#62285
+Closed
+drslark
+mentioned this pull request
+Oct 19, 2026
+[RFC]: Track vLLM speculative decoding issues and fixes
+vllm-project/vllm-ascend#19120
+Open
+6 of 11 tasks
+TheEpicDolphin
+approved these changes
+Oct 19, 2026
+View reviewed changes
+TheEpicDolphin
+left a comment
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Thanks for addressing the feedback!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+TheEpicDolphin
+added
+  the
+ready
+ONLY add when PR is ready to merge/full CI is needed
+label
+Oct 19, 2026
+github-actions
+Bot
+commented
+Oct 19, 2026
+Copy link
+Copy Markdown
+✅
+@wangyicong52
+, CI is now available for this PR.
+/ci run
+starts upstream CI;
+/amd-ci run
+starts AMD CI only.
+Run commands test your branch with every commit currently on its upstream target branch. If it is behind, the bot merges the target branch into it first (pull before pushing again). Append
+--allow-stale
+to a run command to test an outdated branch as is, at your own risk.
+/ci retry
+retries failed jobs in the CI build for the current PR head. If the current head has no CI build, it starts a new CI build for the current head containing only jobs that failed in the latest earlier CI build for this PR.
+/amd-ci retry
+retries failed jobs in AMD CI for the current PR head. Use
+/amd-ci run
+when the current head has no AMD CI build.
+/ci cancel
+cancels scheduled or running CI builds for this PR branch;
+/amd-ci cancel
+does the same for AMD CI only.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into codex/perf-drafter-dp-padding
+311f0eb
+TheEpicDolphin
+commented
+Oct 19, 2026
+Copy link
+Copy Markdown
+Member
+/ci run
+🚀
+1
+github-actions[bot] reacted with rocket emoji
+👀
+1
+github-actions[bot] reacted with eyes emoji
+All reactions
+🚀
+1 reaction
+👀
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into codex/perf-drafter-dp-padding
+8b1fc99
+github-actions
+Bot
+commented
+Oct 19, 2026
+Copy link
+Copy Markdown
+✅ Triggered
+Buildkite CI #96016
+for commit
+8b1fc99ee51c
+.
+ℹ️ This PR is 2 commits behind upstream
+main
+. Merged upstream
+main
+into this branch as
+8b1fc99ee51c
+before starting CI. Pull the branch before pushing more changes.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Hide details
+View details
+WoosukKwon
+merged commit
+59a5125
+into
+vllm-project
+:
+main
+Oct 20, 2026
+130 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-project-automation
+Bot
+moved this from
+Backlog
+to
+Done
+in
+Sprint - DFlash
+Oct 20, 2026
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+TheEpicDolphin
+TheEpicDolphin approved these changes
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+njhill
+Awaiting requested review from njhill
+njhill is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+Assignees
+TheEpicDolphin
+Labels
+dflash
+mrv2
+Model Runner V2 specific
+ready
+ONLY add when PR is ready to merge/full CI is needed
+speculative-decoding
+Projects
+Sprint - DFlash
+Status: Done
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+5 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

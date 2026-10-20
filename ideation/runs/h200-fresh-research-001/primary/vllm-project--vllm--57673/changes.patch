@@ -1,0 +1,3124 @@
+From 3ef067c5c5311602d7b41d79ac57159a0abfdd0f Mon Sep 17 00:00:00 2001
+From: Cheng Rui <286040359@qq.com>
+Date: Tue, 6 Oct 2026 10:58:11 +0800
+Subject: [PATCH 1/2] [Perf][DSv4.1] Reuse SM90 sparse decoder from #59418
+
+Adapt the decoder from luoyuctl's PR #59418 at
+eddfa5ed50c16a632b8fae2e523ad54e504f3e0b as the shared dependency
+for the independent native-head backend. Specialize the three page-size
+parameters as tl.constexpr; otherwise keep the decoder unchanged.
+Keep this shared contribution separate from backend integration and
+query-pairing changes.
+
+Co-authored-by: zack <51604064+luoyuctl@users.noreply.github.com>
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+---
+ .../nvidia/ops/small_head_sparse_decode.py    | 332 ++++++++++++++++++
+ 1 file changed, 332 insertions(+)
+ create mode 100644 vllm/models/deepseek_v41/nvidia/ops/small_head_sparse_decode.py
+
+diff --git a/vllm/models/deepseek_v41/nvidia/ops/small_head_sparse_decode.py b/vllm/models/deepseek_v41/nvidia/ops/small_head_sparse_decode.py
+new file mode 100644
+index 000000000000..60e4b5b85600
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/ops/small_head_sparse_decode.py
+@@ -0,0 +1,332 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Sparse MLA decode for DeepSeek V4.1 on SM90 with few query heads per rank.
++
++FlashMLA's SM90 sparse decode kernel tiles heads by 64 (the WGMMA M
++dimension), so a TP8 shard with 8 heads wastes 7/8 of its tensor-core work.
++This kernel tiles heads by 16 through ``tl.dot`` (mma.sync on SM90) and splits
++the key set across programs instead.
++
++KV cache layout (``fp8_ds_mla``, 584 B/token): each page holds
++``page_size`` rows of 448 fp8 NoPE bytes + 64 bf16 RoPE values, followed by
++``page_size`` rows of 8 UE8M0 scale bytes (7 used, one per 64 NoPE dims).
++V is the full 512-dim key, so one dequantized tile feeds both GEMMs.
++"""
++
++import torch
++
++from vllm.platforms import current_platform
++from vllm.triton_utils import tl, triton
++
++
++def small_head_decode_enabled(num_local_heads: int) -> bool:
++    if num_local_heads not in (8, 16):
++        return False
++    return current_platform.is_device_capability_family(90)
++
++
++@triton.jit
++def _load_kv_block(
++    cache_ptr,
++    page_stride,
++    page_size: tl.constexpr,
++    indices_ptr,
++    idx_base,
++    limit,
++    key_offs,
++    BLOCK_N: tl.constexpr,
++):
++    """Gather and dequantize BLOCK_N keys into a [BLOCK_N, 512] bf16 tile."""
++    offs = key_offs + tl.arange(0, BLOCK_N)
++    in_range = offs < limit
++    token = tl.load(indices_ptr + idx_base + offs, mask=in_range, other=-1)
++    valid = in_range & (token >= 0)
++    safe = tl.where(valid, token, 0)
++    page = (safe // page_size).to(tl.int64)
++    row = (safe % page_size).to(tl.int64)
++    page_base = cache_ptr + page * page_stride
++    data_base = page_base + row * 576
++
++    d = tl.arange(0, 512)
++    is_nope = d < 448
++    raw = tl.load(
++        data_base[:, None] + d[None, :],
++        mask=valid[:, None] & is_nope[None, :],
++        other=0,
++    )
++    nope = raw.to(tl.float8e4nv, bitcast=True).to(tl.float32)
++
++    t = tl.arange(0, 8)
++    enc = tl.load(
++        (page_base + page_size * 576 + row * 8)[:, None] + t[None, :],
++        mask=valid[:, None] & (t[None, :] < 7),
++        other=127,
++    )
++    scale = tl.exp2(enc.to(tl.float32) - 127.0)
++    nope = tl.reshape(
++        tl.reshape(nope, (BLOCK_N, 8, 64)) * scale[:, :, None], (BLOCK_N, 512)
++    )
++
++    rope_ptr = (data_base + 448).to(tl.pointer_type(tl.bfloat16))
++    rope = tl.load(
++        rope_ptr[:, None] + (d - 448)[None, :],
++        mask=valid[:, None] & ~is_nope[None, :],
++        other=0.0,
++    )
++    k = tl.where(is_nope[None, :], nope, rope.to(tl.float32))
++    return k.to(tl.bfloat16), valid
++
++
++@triton.jit
++def _small_head_sparse_decode_kernel(
++    q_ptr,
++    q_stride_t,
++    q_stride_h,
++    swa_cache_ptr,
++    swa_page_stride,
++    swa_page_size: tl.constexpr,
++    swa_indices_ptr,
++    swa_indices_stride,
++    swa_lens_ptr,
++    extra_cache_ptr,
++    extra_page_stride,
++    extra_page_size: tl.constexpr,
++    extra_indices_ptr,
++    extra_indices_stride,
++    extra_lens_ptr,
++    part_o_ptr,
++    part_lse_ptr,
++    num_heads,
++    sm_scale,
++    HAS_EXTRA: tl.constexpr,
++    BLOCK_H: tl.constexpr,
++    BLOCK_N: tl.constexpr,
++    NUM_SPLITS: tl.constexpr,
++):
++    tok = tl.program_id(0)
++    split = tl.program_id(1)
++
++    h = tl.arange(0, BLOCK_H)
++    d = tl.arange(0, 512)
++    q = tl.load(
++        q_ptr + tok.to(tl.int64) * q_stride_t + h[:, None] * q_stride_h + d[None, :],
++        mask=(h < num_heads)[:, None],
++        other=0.0,
++    )
++
++    qk_scale = sm_scale * 1.4426950408889634
++    m_i = tl.full([BLOCK_H], float("-inf"), dtype=tl.float32)
++    l_i = tl.zeros([BLOCK_H], dtype=tl.float32)
++    acc = tl.zeros([BLOCK_H, 512], dtype=tl.float32)
++
++    swa_len = tl.load(swa_lens_ptr + tok)
++    swa_blocks = tl.cdiv(swa_len, BLOCK_N)
++    num_blocks = swa_blocks
++    extra_len = 0
++    if HAS_EXTRA:
++        extra_len = tl.load(extra_lens_ptr + tok)
++        num_blocks += tl.cdiv(extra_len, BLOCK_N)
++    blocks_per_split = tl.cdiv(num_blocks, NUM_SPLITS)
++    start_block = split * blocks_per_split
++    end_block = tl.minimum(start_block + blocks_per_split, num_blocks)
++
++    for blk in range(start_block, end_block):
++        if blk < swa_blocks:
++            k, valid = _load_kv_block(
++                swa_cache_ptr,
++                swa_page_stride,
++                swa_page_size,
++                swa_indices_ptr,
++                tok.to(tl.int64) * swa_indices_stride,
++                swa_len,
++                blk * BLOCK_N,
++                BLOCK_N,
++            )
++        else:
++            k, valid = _load_kv_block(
++                extra_cache_ptr,
++                extra_page_stride,
++                extra_page_size,
++                extra_indices_ptr,
++                tok.to(tl.int64) * extra_indices_stride,
++                extra_len,
++                (blk - swa_blocks) * BLOCK_N,
++                BLOCK_N,
++            )
++        s = tl.dot(q, tl.trans(k)) * qk_scale
++        s = tl.where(valid[None, :], s, float("-inf"))
++
++        m_new = tl.maximum(m_i, tl.max(s, 1))
++        m_safe = tl.where(m_new == float("-inf"), 0.0, m_new)
++        alpha = tl.exp2(m_i - m_safe)
++        p = tl.exp2(s - m_safe[:, None])
++        l_i = l_i * alpha + tl.sum(p, 1)
++        acc = acc * alpha[:, None] + tl.dot(p.to(tl.bfloat16), k)
++        m_i = m_new
++
++    empty = l_i == 0.0
++    # log2-domain LSE; -inf marks a split that saw no valid key.
++    lse = tl.where(empty, float("-inf"), m_i + tl.log2(tl.where(empty, 1.0, l_i)))
++    acc = acc * tl.where(empty, 0.0, 1.0 / l_i)[:, None]
++
++    part = (tok.to(tl.int64) * NUM_SPLITS + split) * BLOCK_H
++    tl.store(part_o_ptr + (part + h[:, None]) * 512 + d[None, :], acc)
++    tl.store(part_lse_ptr + part + h, lse)
++
++
++@triton.jit
++def _merge_splits_kernel(
++    part_o_ptr,
++    part_lse_ptr,
++    sink_ptr,
++    out_ptr,
++    out_stride_t,
++    out_stride_h,
++    BLOCK_H: tl.constexpr,
++    NUM_SPLITS: tl.constexpr,
++):
++    tok = tl.program_id(0)
++    head = tl.program_id(1)
++    d = tl.arange(0, 512)
++    s = tl.arange(0, NUM_SPLITS)
++    part = (tok.to(tl.int64) * NUM_SPLITS + s) * BLOCK_H + head
++    lse = tl.load(part_lse_ptr + part)
++    m = tl.max(lse, 0)
++    m_safe = tl.where(m == float("-inf"), 0.0, m)
++    w = tl.exp2(lse - m_safe)
++    denom = tl.sum(w, 0)
++    has_keys = denom > 0.0
++    safe_denom = tl.where(has_keys, denom, 1.0)
++    o = tl.sum(tl.load(part_o_ptr + part[:, None] * 512 + d[None, :]) * w[:, None], 0)
++
++    total_lse2 = m_safe + tl.log2(safe_denom)
++    sink2 = tl.load(sink_ptr + head) * 1.4426950408889634
++    # exp(lse) / (exp(lse) + exp(sink)), evaluated in log2 space.
++    o = o / safe_denom / (1.0 + tl.exp2(sink2 - total_lse2))
++    o = tl.where(has_keys, o, 0.0)
++    tl.store(
++        out_ptr + tok.to(tl.int64) * out_stride_t + head * out_stride_h + d,
++        o.to(out_ptr.dtype.element_ty),
++    )
++
++
++# Tuned on H20. Beyond these token counts FlashMLA is as fast or faster.
++_SHORT_KEYS = 256
++_SHORT_KEYS_MAX_TOKENS = 16
++_LONG_KEYS_MAX_TOKENS = 12
++
++
++def small_head_decode_supported(num_tokens: int, max_keys: int) -> bool:
++    if max_keys <= _SHORT_KEYS:
++        return num_tokens <= _SHORT_KEYS_MAX_TOKENS
++    return num_tokens <= _LONG_KEYS_MAX_TOKENS
++
++
++def _pick_config(num_tokens: int, max_keys: int) -> tuple[int, int, int, int]:
++    if max_keys > _SHORT_KEYS:
++        if num_tokens <= 3:
++            return 32, 32, 4, 2
++        if num_tokens <= 7:
++            return 16, 32, 8, 2
++    return 8, 32, 8, 2
++
++
++def small_head_sparse_decode(
++    q: torch.Tensor,
++    swa_cache: torch.Tensor,
++    swa_indices: torch.Tensor,
++    swa_lens: torch.Tensor,
++    extra_cache: torch.Tensor | None,
++    extra_indices: torch.Tensor | None,
++    extra_lens: torch.Tensor | None,
++    attn_sink: torch.Tensor,
++    sm_scale: float,
++    out: torch.Tensor,
++    num_heads: int,
++) -> None:
++    """Sparse MLA decode over SWA keys plus optional compressed (extra) keys.
++
++    Args:
++        q: ``[T, H_pad, 512]`` bf16; only the first ``num_heads`` heads are read.
++        swa_cache: ``fp8_ds_mla`` paged SWA cache, ``[pages, page, 584]``.
++        swa_indices: ``[>=T, (1,) width]`` int32 global slot IDs; -1 is ignored.
++        swa_lens: ``[>=T]`` int32 valid SWA lengths.
++        extra_cache: Optional compressed cache with the same packed layout.
++        extra_indices: Optional compressed-cache global slot IDs.
++        extra_lens: Optional valid compressed-cache lengths.
++        attn_sink: ``[H_pad]`` fp32 per-head sink logits.
++        sm_scale: Softmax scale.
++        out: ``[T, H_pad, 512]``; the first ``num_heads`` heads are written.
++        num_heads: real (unpadded) heads on this rank, at most 16.
++
++    """
++    assert num_heads in (8, 16)
++    assert q.dtype == out.dtype == torch.bfloat16
++    assert q.shape[-1] == out.shape[-1] == 512
++    assert q.stride(-1) == out.stride(-1) == 1
++    assert swa_cache.shape[-1] == 584
++    assert extra_cache is None or extra_cache.shape[-1] == 584
++    num_tokens = q.shape[0]
++    if num_tokens == 0:
++        return
++    block_h = 16
++    max_keys = swa_indices.shape[-1]
++    if extra_indices is not None:
++        max_keys += extra_indices.shape[-1]
++    num_splits, block_n, num_warps, num_stages = _pick_config(num_tokens, max_keys)
++    part_o = torch.empty(
++        (num_tokens, num_splits, block_h, 512), dtype=torch.float32, device=q.device
++    )
++    part_lse = torch.empty(
++        (num_tokens, num_splits, block_h), dtype=torch.float32, device=q.device
++    )
++    has_extra = extra_cache is not None
++    if not has_extra:
++        extra_cache, extra_indices, extra_lens = swa_cache, swa_indices, swa_lens
++    assert extra_cache is not None
++    assert extra_indices is not None and extra_lens is not None
++
++    # Metadata buffers are sized for max_num_batched_tokens; keep our rows.
++    swa_indices = swa_indices[:num_tokens].reshape(num_tokens, -1)
++    extra_indices = extra_indices[:num_tokens].reshape(num_tokens, -1)
++    # Byte-addressed: scales must be read as raw bytes, not fp8 values.
++    swa_cache = swa_cache.view(torch.uint8)
++    extra_cache = extra_cache.view(torch.uint8)
++    _small_head_sparse_decode_kernel[(num_tokens, num_splits)](
++        q,
++        q.stride(0),
++        q.stride(1),
++        swa_cache,
++        swa_cache.stride(0),
++        swa_cache.shape[1],
++        swa_indices,
++        swa_indices.stride(0),
++        swa_lens,
++        extra_cache,
++        extra_cache.stride(0),
++        extra_cache.shape[1],
++        extra_indices,
++        extra_indices.stride(0),
++        extra_lens,
++        part_o,
++        part_lse,
++        num_heads,
++        sm_scale,
++        HAS_EXTRA=has_extra,
++        BLOCK_H=block_h,
++        BLOCK_N=block_n,
++        NUM_SPLITS=num_splits,
++        num_warps=num_warps,
++        num_stages=num_stages,
++    )
++    _merge_splits_kernel[(num_tokens, num_heads)](
++        part_o,
++        part_lse,
++        attn_sink,
++        out,
++        out.stride(0),
++        out.stride(1),
++        BLOCK_H=block_h,
++        NUM_SPLITS=num_splits,
++        num_warps=4,
++    )
+
+From 01e96d22af825c14e871508f8fc4b276251a417c Mon Sep 17 00:00:00 2001
+From: Cheng Rui <286040359@qq.com>
+Date: Tue, 6 Oct 2026 11:00:23 +0800
+Subject: [PATCH 2/2] [Perf][DSv4.1] Add independent SM90 native-head sparse
+ backend
+
+Address #57673 review with centralized opt-in selection and independent
+Triton prefill/decode. Share exact sparse KV unions across eligible
+verification-query pairs; preserve per-forward and CUDA Graph lifetimes.
+Add startup warmup, correctness and compatibility coverage, H100 CI,
+and backend usage documentation. Default backend selection is unchanged.
+
+The paired decoder derives its KV loader and split softmax from #59418;
+query-union prior art is #55372.
+
+Co-authored-by: zack <51604064+luoyuctl@users.noreply.github.com>
+Co-authored-by: OpenAI Codex <noreply@openai.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+---
+ .buildkite/test_areas/kernels.yaml            |  14 +
+ docs/design/attention_backends.md             |  33 +
+ .../attention/test_fewhead_sparse_prefill.py  | 618 ++++++++++++++++++
+ tests/models/test_fewhead_prefill_gate.py     | 556 ++++++++++++++++
+ .../deepseek_v41/nvidia/fewhead_prefill.py    |  72 ++
+ vllm/models/deepseek_v41/nvidia/model.py      |   7 +
+ .../nvidia/ops/small_head_decode_warmup.py    | 151 +++++
+ .../nvidia/ops/small_head_paired_decode.py    | 187 ++++++
+ .../nvidia/ops/small_head_query_union.py      | 136 ++++
+ .../deepseek_v41/nvidia/paired_decode.py      | 170 +++++
+ .../nvidia/triton_fewhead_sparse_prefill.py   | 252 +++++++
+ .../deepseek_v41/nvidia/triton_sparse.py      | 419 ++++++++++++
+ vllm/v1/attention/backends/registry.py        |   3 +
+ 13 files changed, 2618 insertions(+)
+ create mode 100644 tests/kernels/attention/test_fewhead_sparse_prefill.py
+ create mode 100644 tests/models/test_fewhead_prefill_gate.py
+ create mode 100644 vllm/models/deepseek_v41/nvidia/fewhead_prefill.py
+ create mode 100644 vllm/models/deepseek_v41/nvidia/ops/small_head_decode_warmup.py
+ create mode 100644 vllm/models/deepseek_v41/nvidia/ops/small_head_paired_decode.py
+ create mode 100644 vllm/models/deepseek_v41/nvidia/ops/small_head_query_union.py
+ create mode 100644 vllm/models/deepseek_v41/nvidia/paired_decode.py
+ create mode 100644 vllm/models/deepseek_v41/nvidia/triton_fewhead_sparse_prefill.py
+ create mode 100644 vllm/models/deepseek_v41/nvidia/triton_sparse.py
+
+diff --git a/.buildkite/test_areas/kernels.yaml b/.buildkite/test_areas/kernels.yaml
+index 515c3966f590..6defd7cf97bd 100644
+--- a/.buildkite/test_areas/kernels.yaml
++++ b/.buildkite/test_areas/kernels.yaml
+@@ -386,11 +386,25 @@ steps:
+   - tests/kernels/attention/test_flashmla.py
+   - tests/kernels/attention/test_flashmla_sparse.py
+   - tests/kernels/attention/test_mla_cross_layer_kernel_equivalence.py
++  - vllm/models/deepseek_v41/nvidia/fewhead_prefill.py
++  - vllm/models/deepseek_v41/nvidia/model.py
++  - vllm/models/deepseek_v41/nvidia/paired_decode.py
++  - vllm/models/deepseek_v41/nvidia/triton_sparse.py
++  - vllm/models/deepseek_v41/nvidia/ops/small_head_decode_warmup.py
++  - vllm/models/deepseek_v41/nvidia/ops/small_head_paired_decode.py
++  - vllm/models/deepseek_v41/nvidia/ops/small_head_query_union.py
++  - vllm/models/deepseek_v41/nvidia/ops/small_head_sparse_decode.py
++  - vllm/models/deepseek_v41/nvidia/flashmla.py
++  - vllm/models/deepseek_v41/nvidia/triton_fewhead_sparse_prefill.py
++  - vllm/v1/attention/backends/registry.py
++  - tests/models/test_fewhead_prefill_gate.py
++  - tests/kernels/attention/test_fewhead_sparse_prefill.py
+   commands:
+     - pytest -v -s kernels/attention/test_flashmla.py
+     - pytest -v -s kernels/attention/test_flashmla_sparse.py
+     - pytest -v -s kernels/attention/test_flashinfer_mla_decode.py
+     - pytest -v -s kernels/attention/test_mla_cross_layer_kernel_equivalence.py
++    - pytest -v -s models/test_fewhead_prefill_gate.py kernels/attention/test_fewhead_sparse_prefill.py
+   mirror:
+     amd:
+       label: ":amd: (MI355 DPX) MLA Kernels"
+diff --git a/docs/design/attention_backends.md b/docs/design/attention_backends.md
+index d175add40b84..cd7772903f34 100644
+--- a/docs/design/attention_backends.md
++++ b/docs/design/attention_backends.md
+@@ -56,6 +56,39 @@ llm = LLM(
+ 
+ ## Backend Selection Behavior
+ 
++### DeepSeek V4.1 native-head sparse attention on SM90
++
++`TRITON_MLA_SPARSE_DSV41` is an opt-in backend with separate Triton prefill
++and decode kernels. It supports SM90, BF16 queries, 512-dimensional heads
++with 64 RoPE dimensions, and 8 or 16 attention heads per tensor-parallel rank.
++For a checkpoint with 64 attention heads, these correspond to TP8 and TP4.
++The KV format is `fp8_ds_mla`; `auto` and `fp8` resolve to this packed format.
++Incompatible explicit selections raise an error. Other backend selections
++and the default selection remain unchanged.
++
++```bash
++vllm serve <DeepSeek-V4.1-model-path> \
++    --tensor-parallel-size 8 \
++    --dtype bfloat16 \
++    --kv-cache-dtype fp8_ds_mla \
++    --attention-backend TRITON_MLA_SPARSE_DSV41
++```
++
++The backend accepts chunked prefill and mixed prefill/decode batches.
++Full CUDA Graph capture is limited to decode; prefill uses the non-full-graph
++path. DSpark variable-length verification and its non-causal draft window
++use the model's shared metadata builders. Decode can also run without DSpark.
++Eligible verification queries share gathered keys; other queries use the
++direct Triton decoder.
++
++Serving performance has been evaluated on H20×8 with TP8 and DSpark enabled,
++using 8K and 32K inputs. TP4 and DSpark-disabled execution have targeted
++coverage, but do not have the same end-to-end performance qualification.
++A configured 1M context limit does not establish performance at 1M input.
++This backend is not a memory-saving option: graph and allocator reservations
++can increase peak GPU memory. Profile it at the intended concurrency and KV
++budget before changing a deployment's backend.
++
+ ### Triton/FlashAttention Composite
+ 
+ On Hopper, `TRITON_FLASH_ATTN` is preferred for compatible multimodal-prefix
+diff --git a/tests/kernels/attention/test_fewhead_sparse_prefill.py b/tests/kernels/attention/test_fewhead_sparse_prefill.py
+new file mode 100644
+index 000000000000..496572332be9
+--- /dev/null
++++ b/tests/kernels/attention/test_fewhead_sparse_prefill.py
+@@ -0,0 +1,618 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++from collections import Counter
++from types import SimpleNamespace
++
++import pytest
++import torch
++
++from vllm.models.deepseek_v41.nvidia.fewhead_prefill import (
++    run_fewhead_sparse_prefill,
++)
++from vllm.models.deepseek_v41.nvidia.triton_fewhead_sparse_prefill import (
++    _bf16_fewhead_sparse_fwd,
++    fewhead_sparse_mla_fwd,
++)
++from vllm.triton_utils import triton
++
++D = 512
++TOPK = 640
++H_LOCAL = 8
++H_PAD = 64
++VALID_LEN = 512
++PAD_SENTINEL = 7.0
++MEAN_ABS = 2e-3
++MAX_ABS = 2e-2
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++@pytest.mark.parametrize("width", [192, 512])
++def test_query_union_preserves_multiplicity_when_graph_pairing_changes(width):
++    """Singleton and paired branches retain duplicate keys and ignore invalid ones."""
++    from vllm.models.deepseek_v41.nvidia.ops.small_head_query_union import _union
++
++    indices = (
++        torch.arange(3 * width, device="cuda", dtype=torch.int32).reshape(3, width) % 13
++    )
++    indices[:, ::17] = -1
++    lengths = torch.tensor([width, width - 7, 0], device="cuda", dtype=torch.int32)
++    rows = torch.tensor([[0, -1], [1, 2]], device="cuda", dtype=torch.int32)
++    count = torch.tensor(2, device="cuda", dtype=torch.int32)
++    half = triton.next_power_of_2(width)
++    keys = torch.empty((2, 2 * half), device="cuda", dtype=torch.int32)
++    weights = torch.empty_like(keys)
++    sizes = torch.empty(2, device="cuda", dtype=torch.int32)
++
++    def run():
++        _union[(2,)](
++            rows,
++            count,
++            indices,
++            lengths,
++            keys,
++            weights,
++            sizes,
++            width,
++            width,
++            half,
++            True,
++            num_warps=4,
++        )
++
++    run()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        run()
++    for mapping in ([[0, -1], [1, 2]], [[0, 1], [2, -1]]):
++        rows.copy_(torch.tensor(mapping, device="cuda", dtype=torch.int32))
++        graph.replay()
++        for group, pair in enumerate(mapping):
++            for side, row in enumerate(pair):
++                expected: Counter[int] = Counter()
++                if row >= 0:
++                    expected.update(
++                        key for key in indices[row, : lengths[row]].tolist() if key >= 0
++                    )
++                actual: Counter[int] = Counter()
++                for key, packed in zip(
++                    keys[group, : sizes[group]].tolist(),
++                    weights[group, : sizes[group]].tolist(),
++                ):
++                    weight = (packed >> (16 * side)) & 65535
++                    if weight:
++                        actual[key] += weight
++                assert actual == expected
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++def test_pair_warmup_covers_changing_token_counts(monkeypatch):
++    """Dynamic batch sizes must preserve grouping without compiling new variants."""
++    from vllm.models.deepseek_v41.nvidia.ops.small_head_decode_warmup import PAIR_WARMUP
++    from vllm.models.deepseek_v41.nvidia.ops.small_head_query_union import _pairs
++
++    config = SimpleNamespace(
++        model_config=SimpleNamespace(
++            hf_text_config=SimpleNamespace(num_attention_heads=64)
++        ),
++        parallel_config=SimpleNamespace(tensor_parallel_size=8),
++        scheduler_config=SimpleNamespace(max_num_batched_tokens=8192, max_num_seqs=64),
++        speculative_config=SimpleNamespace(num_speculative_tokens=5),
++    )
++    PAIR_WARMUP.warmup(vllm_config=config)
++    compilations = []
++    monkeypatch.setattr(
++        triton.knobs.runtime,
++        "jit_post_compile_hook",
++        lambda **kwargs: compilations.append(kwargs),
++    )
++    request_ids = [i // 3 if i % 13 else -1 for i in range(384)]
++    valid_rows = [i % 11 not in (0, 1) for i in range(384)]
++    req = torch.tensor(request_ids, device="cuda", dtype=torch.int32)
++    valid = torch.tensor(valid_rows, device="cuda", dtype=torch.bool)
++    rows = torch.empty((384, 2), device="cuda", dtype=torch.int32)
++    count = torch.empty((), device="cuda", dtype=torch.int32)
++    for tokens in range(17, 385):
++        _pairs[(1,)](
++            req, valid, rows, count, tokens, triton.next_power_of_2(tokens), num_warps=4
++        )
++        expected = []
++        i = 0
++        while i < tokens:
++            if not valid_rows[i] or request_ids[i] < 0:
++                i += 1
++                continue
++            second = (
++                i + 1
++                if i + 1 < tokens
++                and valid_rows[i + 1]
++                and request_ids[i + 1] == request_ids[i]
++                else -1
++            )
++            expected.append([i, second])
++            i += 2 if second >= 0 else 1
++        assert count.item() == len(expected)
++        assert rows[: len(expected)].tolist() == expected
++    assert not compilations
++
++
++def _packed_decode_cache(pages, page_size):
++    from vllm.models.deepseek_v41.common.ops import quantize_and_insert_k_cache
++    from vllm.utils.math_utils import round_up
++
++    stride = round_up(page_size * 584, 576)
++    storage = torch.empty((pages, stride), dtype=torch.uint8, device="cuda")
++    kv = torch.randn((pages * page_size, D), dtype=torch.bfloat16, device="cuda")
++    slots = torch.arange(kv.shape[0], dtype=torch.int64, device="cuda")
++    quantize_and_insert_k_cache(kv, storage, slots, block_size=page_size)
++    return storage.as_strided((pages, page_size, 584), (stride, 584, 1))
++
++
++def _unpack_decode_cache(cache):
++    pages, page_size, _ = cache.shape
++    raw = cache.as_strided((pages, page_size * 584), (cache.stride(0), 1))
++    data = raw[:, : page_size * 576].reshape(-1, 576)
++    scales = raw[:, page_size * 576 :].reshape(-1, 8)[:, :7].float()
++    nope = data[:, :448].contiguous().view(torch.float8_e4m3fn).float()
++    nope = (nope.reshape(-1, 7, 64) * torch.exp2(scales - 127)[..., None]).flatten(1)
++    rope = data[:, 448:].contiguous().view(torch.bfloat16).float()
++    return torch.cat((nope, rope), dim=-1).to(torch.bfloat16).float()
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++@pytest.mark.parametrize(
++    "tokens,heads,swa_width,extra_page",
++    [(1, 8, 128, 0), (5, 8, 192, 64), (17, 8, 128, 32), (17, 16, 192, 64)],
++)
++def test_direct_decode_matches_fp32_with_mutable_graph_inputs(
++    tokens, heads, swa_width, extra_page
++):
++    """Direct decode handles TP4, draft windows, empty rows and strided buffers."""
++    from vllm.models.deepseek_v41.nvidia.ops.small_head_sparse_decode import (
++        small_head_sparse_decode,
++    )
++
++    torch.manual_seed(42)
++    q = torch.randn((tokens + 2, heads + 1, D), device="cuda", dtype=torch.bfloat16)[
++        1:-1, :heads
++    ]
++    storage = torch.full(
++        (tokens + 2, heads + 1, D), PAD_SENTINEL, device="cuda", dtype=torch.bfloat16
++    )
++    out = storage[1:-1, :heads]
++    sink = torch.linspace(-4, 4, heads, device="cuda", dtype=torch.float32)
++    caches, indices, lengths, keys = [], [], [], []
++    for page_size, width in [(64, swa_width)] + (
++        [(extra_page, 512)] if extra_page else []
++    ):
++        cache = _packed_decode_cache(4, page_size)
++        index = torch.randint(
++            0, 4 * page_size, (tokens + 2, width + 8), device="cuda", dtype=torch.int32
++        )[:, 4:-4]
++        index[:, 11::13] = -1
++        caches.append(cache)
++        indices.append(index)
++        lengths.append(
++            torch.full((tokens + 2,), width, device="cuda", dtype=torch.int32)
++        )
++        keys.append(_unpack_decode_cache(cache))
++
++    def run():
++        small_head_sparse_decode(
++            q,
++            caches[0],
++            indices[0],
++            lengths[0],
++            caches[1] if extra_page else None,
++            indices[1] if extra_page else None,
++            lengths[1] if extra_page else None,
++            sink,
++            D**-0.5,
++            out,
++            heads,
++        )
++
++    run()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        run()
++    for replay in range(2):
++        if replay:
++            q.neg_()
++            for index, length in zip(indices, lengths):
++                index.copy_(index.flip(0))
++                length[:tokens:2] = 0
++        storage.fill_(PAD_SENTINEL)
++        graph.replay()
++        gathered, masks = [], []
++        for key, index, length in zip(keys, indices, lengths):
++            index = index[:tokens]
++            gathered.append(key[index.clamp_min(0).long()])
++            masks.append(
++                (index >= 0)
++                & (torch.arange(index.shape[1], device="cuda") < length[:tokens, None])
++            )
++        values = torch.cat(gathered, dim=1)
++        valid = torch.cat(masks, dim=1)
++        scores = torch.einsum("thd,tkd->thk", q.float(), values) * D**-0.5
++        scores.masked_fill_(~valid[:, None, :], -float("inf"))
++        logits = torch.cat((scores, sink[None, :, None].expand(tokens, -1, -1)), dim=-1)
++        expected = torch.einsum("thk,tkd->thd", logits.softmax(-1)[..., :-1], values)
++        _assert_close(out, expected)
++        assert torch.all(storage[[0, -1]] == PAD_SENTINEL)
++        assert torch.all(storage[:, heads:] == PAD_SENTINEL)
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++@pytest.mark.parametrize("tokens", [24, 64, 184])
++@pytest.mark.parametrize(
++    "ratio,piecewise,separate_index_source",
++    [(1, False, False), (2, False, False), (1, True, False), (2, False, True)],
++)
++def test_paired_decode_refreshes_shared_unions_and_scratch_on_graph_replay(
++    monkeypatch, tokens, ratio, piecewise, separate_index_source
++):
++    """Mutable requests/indices and shared scratch must preserve every layer output."""
++    from vllm.config import CUDAGraphMode
++    from vllm.models.deepseek_v41.nvidia.paired_decode import PairedDecode
++    from vllm.v1.attention.ops.flashmla import flash_mla_with_kvcache, get_mla_metadata
++    from vllm.v1.worker import workspace
++
++    _require_flashmla_sparse()
++    torch.manual_seed(42)
++    manager = workspace.WorkspaceManager(torch.device("cuda"))
++    monkeypatch.setattr(workspace, "_manager", manager)
++    config = SimpleNamespace(
++        speculative_config=SimpleNamespace(
++            num_speculative_tokens=5, use_dspark=lambda: True
++        ),
++        scheduler_config=SimpleNamespace(max_num_batched_tokens=8192, max_num_seqs=64),
++        model_config=SimpleNamespace(
++            hf_text_config=SimpleNamespace(num_hidden_layers=40, index_topk=512)
++        ),
++    )
++    context = SimpleNamespace(
++        additional_kwargs={},
++        cudagraph_runtime_mode=CUDAGraphMode.PIECEWISE
++        if piecewise
++        else CUDAGraphMode.FULL,
++    )
++    decoders = [
++        PairedDecode(
++            SimpleNamespace(
++                layer_id=i + 2,
++                n_local_heads=8,
++                compress_ratio=ratio,
++                kv_source_layer_id=2,
++                index_source_layer_id=3 if i and separate_index_source else 2,
++                window_size=128,
++            ),
++            config,
++        )
++        for i in range(2)
++    ]
++    for decoder in decoders:
++        decoder.reserve()
++    manager.lock()
++    sc = _packed_decode_cache(128, 64)
++    ec = _packed_decode_cache(128, 64 // ratio)
++    stride = sc.stride(0) + ec.stride(0)
++    backing = torch.empty(128 * stride, dtype=torch.uint8, device="cuda")
++    sc_view = backing.as_strided(sc.shape, (stride, 584, 1))
++    ec_view = backing.as_strided(ec.shape, (stride, 584, 1), sc.stride(0))
++    sc_view.copy_(sc)
++    ec_view.copy_(ec)
++    sc, ec = sc_view, ec_view
++    req = torch.arange(tokens, dtype=torch.int32, device="cuda") // 2
++    valid = torch.ones(tokens, dtype=torch.bool, device="cuda")
++    valid[-2:] = False
++    valid[tokens // 2] = False
++    sl = torch.where(valid, 192, 0).to(torch.int32)
++    el = torch.where(valid, 512, 0).to(torch.int32)
++    si = (
++        torch.arange(192, dtype=torch.int32, device="cuda")[None, :]
++        .expand(tokens, -1)
++        .clone()
++    )
++    sis = [si, si + 512]
++    ei = torch.randint(0, 3900, (tokens, 512), dtype=torch.int32, device="cuda")
++    extra_indices = [ei, ei + 64 if separate_index_source else ei]
++    qs = [
++        torch.randn(tokens, H_PAD, D, dtype=torch.bfloat16, device="cuda")
++        for _ in decoders
++    ]
++    refs = [torch.empty_like(q) for q in qs]
++    outputs = [torch.full_like(q, PAD_SENTINEL) for q in qs]
++    sink = torch.zeros(H_PAD, device="cuda")
++    sink[8:] = -float("inf")
++
++    def baseline():
++        for i in range(2):
++            flash_mla_with_kvcache(
++                q=qs[i].unsqueeze(1),
++                k_cache=sc.unsqueeze(-2),
++                block_table=None,
++                head_dim_v=512,
++                # Lengths change between replays; FlashMLA plans cannot be reused.
++                tile_scheduler_metadata=get_mla_metadata()[0],
++                cache_seqlens=None,
++                is_fp8_kvcache=True,
++                indices=sis[i].unsqueeze(1),
++                topk_length=sl,
++                softmax_scale=D**-0.5,
++                attn_sink=sink,
++                extra_k_cache=ec.unsqueeze(-2),
++                extra_indices_in_kvcache=extra_indices[i].unsqueeze(1),
++                extra_topk_length=el,
++                out=refs[i].unsqueeze(1),
++            )
++
++    def candidate():
++        for i, decoder in enumerate(decoders):
++            assert decoder.run(
++                context,
++                qs[i][:, :8],
++                sc,
++                sis[i],
++                sl,
++                ec,
++                extra_indices[i],
++                el,
++                sink[:8],
++                D**-0.5,
++                outputs[i][:, :8],
++                req,
++                valid,
++            )
++
++    def check():
++        for actual, expected in zip(outputs, refs):
++            _assert_close(actual[valid, :8], expected[valid, :8])
++            assert torch.count_nonzero(actual[~valid, :8]) == 0
++            assert torch.all(actual[:, 8:] == PAD_SENTINEL)
++
++    baseline()
++    candidate()
++    check()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        candidate()
++    for step in range(2):
++        req.copy_(torch.arange(tokens, dtype=torch.int32, device="cuda") // (step + 1))
++        valid.fill_(True)
++        sl.fill_(192)
++        el.fill_(512)
++        for q, ix in zip(qs, sis):
++            q.add_(0.125)
++            ix.add_(1)
++        ei.add_(1)
++        if separate_index_source:
++            extra_indices[1].add_(1)
++        baseline()
++        graph.replay()
++        check()
++
++
++def _require_flashmla_sparse() -> None:
++    from vllm.v1.attention.ops.flashmla import is_flashmla_sparse_supported
++
++    ok, reason = is_flashmla_sparse_supported()
++    if not ok:
++        pytest.skip(reason or "FlashMLA sparse unavailable")
++
++
++def _inputs(s_q: int, *, seed: int = 0):
++    torch.manual_seed(seed)
++    device = "cuda"
++    s_kv = max(s_q, TOPK)
++    sm_scale = D**-0.5
++    kv = torch.randn((s_kv, 1, D), dtype=torch.bfloat16, device=device)
++    q64 = torch.randn((s_q, H_PAD, D), dtype=torch.bfloat16, device=device)
++    indices = torch.randint(0, s_kv, (s_q, TOPK), dtype=torch.int32, device=device)
++    indices[:, VALID_LEN:] = -1
++    lens = torch.full((s_q,), VALID_LEN, dtype=torch.int32, device=device)
++    sink64 = torch.zeros((H_PAD,), dtype=torch.float32, device=device)
++    sink64[H_LOCAL:] = float("-inf")
++    return q64, kv, indices, lens, sink64, sm_scale
++
++
++def _flash_local_heads(q64, kv, indices, lens, sink64, sm_scale):
++    from vllm.v1.attention.ops.flashmla import flash_mla_sparse_fwd
++
++    flash_out = flash_mla_sparse_fwd(
++        q=q64,
++        kv=kv,
++        indices=indices.unsqueeze(1),
++        sm_scale=sm_scale,
++        attn_sink=sink64,
++        topk_length=lens,
++    )
++    flash_q = flash_out[0] if isinstance(flash_out, (tuple, list)) else flash_out
++    return flash_q[:, :H_LOCAL]
++
++
++def _assert_close(got: torch.Tensor, ref: torch.Tensor) -> None:
++    err = (got.float() - ref.float()).abs()
++    assert bool(torch.isfinite(got).all())
++    assert float(err.mean()) < MEAN_ABS
++    assert float(err.max()) < MAX_ABS
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++@pytest.mark.parametrize("s_q", [64, 2048, 8192])
++def test_fewhead_matches_padded_flashmla_noncontiguous_out(s_q: int):
++    _require_flashmla_sparse()
++    q64, kv, indices, lens, sink64, sm_scale = _inputs(s_q)
++    ref = _flash_local_heads(q64, kv, indices, lens, sink64, sm_scale)
++
++    q_view = q64[:, :H_LOCAL]
++    out = torch.full_like(q64, PAD_SENTINEL)
++    out_view = out[:, :H_LOCAL]
++    assert not q_view.is_contiguous()
++    assert not out_view.is_contiguous()
++
++    tri = fewhead_sparse_mla_fwd(
++        q_view,
++        kv,
++        indices,
++        sm_scale,
++        attn_sink=sink64[:H_LOCAL],
++        topk_length=lens,
++        out=out_view,
++    )
++    assert tri.data_ptr() == out_view.data_ptr()
++    _assert_close(out[:, :H_LOCAL], ref)
++    padded = out[:, H_LOCAL:]
++    assert torch.equal(padded, torch.full_like(padded, PAD_SENTINEL))
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++def test_run_fewhead_sparse_prefill_writes_local_heads_only():
++    _require_flashmla_sparse()
++    s_q = 2048
++    pad = 128
++    q_full = torch.randn((s_q + pad, H_PAD, D), dtype=torch.bfloat16, device="cuda")
++    q64, kv, indices, lens, sink64, sm_scale = _inputs(s_q, seed=1)
++    q_full[pad : pad + s_q].copy_(q64)
++    q_chunk = q_full[pad : pad + s_q]
++    ref = _flash_local_heads(q_chunk.contiguous(), kv, indices, lens, sink64, sm_scale)
++
++    out_full = torch.full_like(q_full, PAD_SENTINEL)
++    out_chunk = out_full[pad : pad + s_q]
++    returned = run_fewhead_sparse_prefill(
++        q_chunk,
++        kv,
++        indices,
++        sm_scale,
++        attn_sink=sink64,
++        topk_length=lens,
++        out=out_chunk,
++        n_local_heads=H_LOCAL,
++    )
++    assert returned.data_ptr() == out_chunk.data_ptr()
++    assert not q_chunk[:, :H_LOCAL].is_contiguous()
++    _assert_close(out_chunk[:, :H_LOCAL], ref)
++    assert torch.equal(
++        out_chunk[:, H_LOCAL:],
++        torch.full_like(out_chunk[:, H_LOCAL:], PAD_SENTINEL),
++    )
++    assert torch.equal(
++        out_full[:pad],
++        torch.full_like(out_full[:pad], PAD_SENTINEL),
++    )
++    assert torch.equal(
++        out_full[pad + s_q :],
++        torch.full_like(out_full[pad + s_q :], PAD_SENTINEL),
++    )
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++def test_fewhead_kv_offsets_cross_int32_boundary():
++    """Large KV offsets must not wrap into the guard before the view."""
++    boundary = 2**31 // D
++    required_bytes = (2 * boundary + 1) * D * 2
++    if torch.accelerator.get_memory_info()[0] < required_bytes + 1024**3:
++        pytest.skip("Large-offset regression requires 9 GiB of free GPU memory")
++
++    # The guard keeps the old wrapped address mapped, so failure is an assertion
++    # rather than an illegal access that poisons subsequent CUDA tests.
++    storage = torch.empty((2 * boundary + 1, D), device="cuda", dtype=torch.bfloat16)
++    storage[0].fill_(-3)
++    kv = storage[boundary:]
++    kv[boundary - 1].fill_(2)
++    kv[boundary].fill_(1)
++    q = torch.zeros((2, H_PAD, D), device="cuda", dtype=torch.bfloat16)
++    indices = torch.full((2, TOPK), -1, device="cuda", dtype=torch.int32)
++    indices[:, 0] = torch.tensor([boundary - 1, boundary], device="cuda")
++    lengths = torch.ones(2, device="cuda", dtype=torch.int32)
++    sink = torch.zeros(H_LOCAL, device="cuda", dtype=torch.float32)
++
++    got = fewhead_sparse_mla_fwd(
++        q[:, :H_LOCAL], kv, indices, D**-0.5, attn_sink=sink, topk_length=lengths
++    )
++    expected = torch.tensor([1, 0.5], device="cuda", dtype=torch.bfloat16)
++    assert torch.equal(got, expected[:, None, None].expand_as(got))
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++def test_startup_warmup_covers_strided_prefill_without_runtime_compilation(monkeypatch):
++    config = SimpleNamespace(
++        model_config=SimpleNamespace(
++            hf_text_config=SimpleNamespace(
++                num_attention_heads=64,
++                head_dim=D,
++                sliding_window=128,
++                index_topk=512,
++                compress_ratios=[0, 1, 2],
++            )
++        ),
++        parallel_config=SimpleNamespace(tensor_parallel_size=8),
++    )
++    allocated = torch.accelerator.memory_allocated()
++    _bf16_fewhead_sparse_fwd.warmup(vllm_config=config)
++    assert torch.accelerator.memory_allocated() == allocated
++    compilations = []
++    monkeypatch.setattr(
++        triton.knobs.runtime,
++        "jit_post_compile_hook",
++        lambda **kwargs: compilations.append(kwargs),
++    )
++    for s_q in (1, 17, 2048, 2063):
++        q, kv, indices, lengths, sink, scale = _inputs(s_q)
++        out = torch.empty_like(q)
++        for topk in (128, TOPK):
++            for native in (False, True):
++                query = q[:, :H_LOCAL]
++                result = out[:, :H_LOCAL]
++                if native:
++                    query = query.contiguous()
++                    result = torch.empty_like(query)
++                fewhead_sparse_mla_fwd(
++                    query,
++                    kv,
++                    indices[:, :topk],
++                    scale,
++                    attn_sink=sink[:H_LOCAL],
++                    topk_length=lengths,
++                    out=result,
++                )
++    torch.accelerator.synchronize()
++    assert not compilations
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
++@pytest.mark.parametrize("heads", [8, 16])
++@pytest.mark.parametrize("tokens", [1, 17, 129])
++def test_native_head_short_prefill_matches_fp32_reference(heads, tokens):
++    """The independent backend cannot fall back for short or partially empty rows."""
++    torch.manual_seed(42)
++    q = torch.randn((tokens + 1, heads, D), device="cuda", dtype=torch.bfloat16)[1:]
++    kv = torch.randn((257, D), device="cuda", dtype=torch.bfloat16)
++    indices = torch.randint(0, 257, (tokens, 128), device="cuda", dtype=torch.int32)
++    lengths = torch.arange(tokens, device="cuda", dtype=torch.int32) % 128
++    if tokens == 1:
++        lengths.fill_(113)
++    indices[:, 11::13] = -1
++    sink = torch.linspace(-4, 4, heads, device="cuda", dtype=torch.float32)
++    keys = kv[indices.clamp_min(0).long()].float()
++    scores = torch.einsum("thd,tkd->thk", q.float(), keys) * D**-0.5
++    valid = (indices >= 0) & (torch.arange(128, device="cuda") < lengths[:, None])
++    scores.masked_fill_(~valid[:, None, :], -float("inf"))
++    weights = torch.softmax(
++        torch.cat((scores, sink[None, :, None].expand(tokens, -1, -1)), dim=-1),
++        dim=-1,
++    )[..., :-1]
++    expected = torch.einsum("thk,tkd->thd", weights, keys)
++    out = torch.empty_like(q)
++    fewhead_sparse_mla_fwd(
++        q, kv, indices, D**-0.5, attn_sink=sink, topk_length=lengths, out=out
++    )
++    _assert_close(out, expected)
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        fewhead_sparse_mla_fwd(
++            q, kv, indices, D**-0.5, attn_sink=sink, topk_length=lengths, out=out
++        )
++    out.zero_()
++    graph.replay()
++    _assert_close(out, expected)
+diff --git a/tests/models/test_fewhead_prefill_gate.py b/tests/models/test_fewhead_prefill_gate.py
+new file mode 100644
+index 000000000000..fae0a08033f3
+--- /dev/null
++++ b/tests/models/test_fewhead_prefill_gate.py
+@@ -0,0 +1,556 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++from types import SimpleNamespace
++
++import pytest
++import torch
++
++from vllm.models.deepseek_v41.nvidia import triton_sparse as backend
++from vllm.models.deepseek_v41.nvidia.flashmla import DeepseekV4FlashMLAAttention
++from vllm.models.deepseek_v41.nvidia.model import _select_dsv4_attn_cls
++from vllm.platforms import current_platform
++from vllm.platforms.interface import DeviceCapability
++from vllm.v1.attention.backends.registry import AttentionBackendEnum
++
++TritonAttention = backend.DeepseekV41TritonSparseAttention
++
++
++@pytest.fixture(autouse=True)
++def _sm90(monkeypatch):
++    monkeypatch.setattr(
++        type(current_platform),
++        "get_device_capability",
++        classmethod(lambda cls, device_id=0: DeviceCapability(9, 0)),
++    )
++
++
++def _config():
++    return SimpleNamespace(
++        model_config=SimpleNamespace(
++            hf_text_config=SimpleNamespace(
++                num_attention_heads=64, head_dim=512, qk_rope_head_dim=64
++            ),
++            dtype=torch.bfloat16,
++        ),
++        parallel_config=SimpleNamespace(tensor_parallel_size=8),
++        cache_config=SimpleNamespace(cache_dtype="fp8_ds_mla"),
++        attention_config=SimpleNamespace(
++            backend=AttentionBackendEnum.TRITON_MLA_SPARSE_DSV41
++        ),
++    )
++
++
++@pytest.mark.parametrize("tp_size", [4, 8])
++@pytest.mark.parametrize("kv_dtype", ["auto", "fp8", "fp8_ds_mla"])
++def test_explicit_backend_keeps_native_head_buffers(tp_size, kv_dtype):
++    config = _config()
++    config.parallel_config.tensor_parallel_size = tp_size
++    config.cache_config.cache_dtype = kv_dtype
++    cls = _select_dsv4_attn_cls(config)
++    assert cls is TritonAttention
++    assert cls.get_padded_num_q_heads(64 // tp_size) == 64 // tp_size
++    assert not issubclass(cls, DeepseekV4FlashMLAAttention)
++
++
++@pytest.mark.parametrize(
++    "selected",
++    [
++        None,
++        AttentionBackendEnum.FLASHMLA_SPARSE_DSV41,
++        AttentionBackendEnum.FLASHMLA_SPARSE,
++    ],
++)
++def test_existing_backend_choices_remain_on_flashmla(selected, monkeypatch):
++    from vllm.models.deepseek_v41.nvidia.model import DeepseekV4MegaAttnAttention
++
++    config = _config()
++    config.attention_config.backend = selected
++    monkeypatch.setattr(
++        DeepseekV4MegaAttnAttention, "is_available_for", lambda _: False
++    )
++    assert _select_dsv4_attn_cls(config) is DeepseekV4FlashMLAAttention
++
++
++@pytest.mark.parametrize("major,mega_available", [(9, False), (10, True), (12, False)])
++def test_opt_in_backend_preserves_default_architecture_selection(
++    major, mega_available, monkeypatch
++):
++    from vllm.models.deepseek_v41.nvidia import model
++
++    config = _config()
++    config.attention_config.backend = None
++    monkeypatch.setattr(
++        type(current_platform),
++        "get_device_capability",
++        classmethod(lambda cls, device_id=0: DeviceCapability(major, 0)),
++    )
++    monkeypatch.setattr(
++        model.DeepseekV4MegaAttnAttention, "is_available_for", lambda _: mega_available
++    )
++    expected = {
++        9: DeepseekV4FlashMLAAttention,
++        10: model.DeepseekV4MegaAttnAttention,
++        12: model.DeepseekV4FlashInferSM120Attention,
++    }
++    assert _select_dsv4_attn_cls(config) is expected[major]
++
++
++@pytest.mark.parametrize("major", [8, 10, 12])
++def test_explicit_backend_rejects_unsupported_architecture(major, monkeypatch):
++    monkeypatch.setattr(
++        type(current_platform),
++        "get_device_capability",
++        classmethod(lambda cls, device_id=0: DeviceCapability(major, 0)),
++    )
++    with pytest.raises(ValueError, match="requires SM90"):
++        _select_dsv4_attn_cls(_config())
++
++
++@pytest.mark.parametrize("heads,tp", [(64, 2), (63, 8), (0, 8), (64, 0)])
++def test_explicit_backend_rejects_incompatible_head_topology(heads, tp):
++    config = _config()
++    config.model_config.hf_text_config.num_attention_heads = heads
++    config.parallel_config.tensor_parallel_size = tp
++    with pytest.raises(ValueError, match="8 or 16 local heads"):
++        _select_dsv4_attn_cls(config)
++
++
++@pytest.mark.parametrize(
++    "field,value,error",
++    [
++        ("head_dim", 256, "512D heads"),
++        ("qk_rope_head_dim", 128, "64D RoPE"),
++    ],
++)
++def test_explicit_backend_rejects_incompatible_dimensions(field, value, error):
++    config = _config()
++    setattr(config.model_config.hf_text_config, field, value)
++    with pytest.raises(ValueError, match=error):
++        _select_dsv4_attn_cls(config)
++
++
++@pytest.mark.parametrize("kv_dtype", ["nvfp4_ds_mla", "bfloat16", "fp8_e4m3"])
++def test_explicit_backend_rejects_incompatible_cache_layout(kv_dtype):
++    config = _config()
++    config.cache_config.cache_dtype = kv_dtype
++    with pytest.raises(ValueError, match="fp8_ds_mla KV cache"):
++        _select_dsv4_attn_cls(config)
++
++
++def test_explicit_backend_rejects_non_bf16_queries():
++    config = _config()
++    config.model_config.dtype = torch.float16
++    with pytest.raises(ValueError, match="BF16 queries"):
++        _select_dsv4_attn_cls(config)
++
++
++def test_triton_metadata_does_not_create_flashmla_decode_plans(monkeypatch):
++    from vllm.v1.attention.backends.mla import sparse_swa
++
++    def fail():
++        pytest.fail("Triton metadata must not create a FlashMLA plan")
++
++    monkeypatch.setattr(sparse_swa, "get_mla_metadata", fail)
++    cls = backend.DeepseekV41TritonSWAMetadataBuilder
++    builder = cls.__new__(cls)
++    plans = builder.build_tile_scheduler(64)
++    assert len(plans) == 5 and all(value is None for value in plans.values())
++
++
++@pytest.mark.parametrize(
++    "attention_backend",
++    [backend.DeepseekV41TritonSparseBackend, backend.DeepseekV41TritonSWABackend],
++)
++@pytest.mark.parametrize("drafts", [0, 5])
++def test_graph_dispatch_keeps_prefill_out_of_full_capture(attention_backend, drafts):
++    """CPU chunk plans are not replayable; retain variable-length decode graphs."""
++    from vllm.v1.attention.backend import AttentionCGSupport
++    from vllm.v1.kv_cache_interface import MLAAttentionSpec
++    from vllm.v1.worker.gpu.attn_utils import (
++        get_attn_cg_support,
++        get_varlen_cudagraph_unsupported_backend,
++    )
++    from vllm.v1.worker.utils import AttentionGroup
++
++    config = _config()
++    config.use_v2_model_runner = True
++    config.speculative_config = SimpleNamespace(
++        num_speculative_tokens=drafts, parallel_drafting=False
++    )
++    spec = MLAAttentionSpec(
++        block_size=64, num_kv_heads=1, head_size=576, dtype=torch.bfloat16
++    )
++    group = AttentionGroup(attention_backend, ["target"], spec, 0)
++    group.metadata_builders = [object.__new__(attention_backend.get_builder_cls())]
++    groups = [[group]]
++    assert get_attn_cg_support(groups, config).min_cg_support == (
++        AttentionCGSupport.UNIFORM_BATCH
++    )
++    assert get_varlen_cudagraph_unsupported_backend(groups, config, drafts + 1) is None
++    rejected = get_varlen_cudagraph_unsupported_backend(groups, config, drafts + 2)
++    assert rejected is not None and rejected[1] == drafts + 1
++
++
++def _layer(ratio):
++    layer = TritonAttention.__new__(TritonAttention)
++    torch.nn.Module.__init__(layer)
++    layer.compress_ratio = ratio
++    layer.compressed_cache_prefix = "compressed" if ratio else None
++    layer.n_local_heads = 8
++    layer.scale = 512**-0.5
++    layer.attn_sink = torch.zeros(8)
++    layer.swa_cache_layer = SimpleNamespace(
++        prefix="swa", kv_cache=torch.empty((1, 64, 584), dtype=torch.uint8)
++    )
++    return layer
++
++
++@pytest.mark.parametrize("ratio", [0, 1, 2])
++def test_mixed_batch_writes_decode_and_prefill_to_their_original_slices(
++    ratio, monkeypatch
++):
++    """Splitting native-width output must not swap or overwrite request rows."""
++    layer = _layer(ratio)
++    compressed_cache = torch.empty((1, 64, 584), dtype=torch.uint8)
++    layer._compressed_kv_cache = lambda: compressed_cache
++    swa = SimpleNamespace(num_decodes=2, num_prefills=1, num_decode_tokens=3)
++    metadata = {"swa": swa, "compressed": object()}
++    monkeypatch.setattr(
++        backend, "get_forward_context", lambda: SimpleNamespace(attn_metadata=metadata)
++    )
++    q = torch.arange(7 * 8 * 512).reshape(7, 8, 512).to(torch.bfloat16)
++    positions = torch.arange(7)
++    out = torch.full_like(q, -1)
++
++    def prefill(**kwargs):
++        torch.testing.assert_close(kwargs["positions"], positions[3:])
++        torch.testing.assert_close(kwargs["q"], q[3:])
++        assert kwargs["compressed_k_cache"] is (compressed_cache if ratio else None)
++        kwargs["output"].fill_(2)
++
++    def decode(**kwargs):
++        torch.testing.assert_close(kwargs["q"], q[:3])
++        assert kwargs["swa_only"] == (ratio == 0)
++        kwargs["output"].fill_(1)
++
++    monkeypatch.setattr(layer, "_forward_prefill", prefill)
++    monkeypatch.setattr(layer, "_forward_decode", decode)
++    layer.forward_mqa(q, torch.empty(0), positions, out)
++    assert torch.all(out[:3] == 1) and torch.all(out[3:] == 2)
++
++
++@pytest.mark.parametrize("ratio", [0, 1, 2])
++def test_decode_uses_only_decode_rows_and_correct_compressed_page_size(
++    ratio, monkeypatch
++):
++    layer = _layer(ratio)
++    layer.topk_indices_buffer = torch.arange(6 * 512).reshape(6, 512)
++    kv = (
++        torch.empty((1, 64 // max(1, ratio), 584), dtype=torch.uint8) if ratio else None
++    )
++    swa = SimpleNamespace(
++        num_decodes=2,
++        num_decode_tokens=3,
++        is_valid_token=torch.ones(6, dtype=torch.bool),
++        token_to_req_indices=torch.zeros(6, dtype=torch.int32),
++        decode_swa_indices=torch.zeros((6, 1, 128), dtype=torch.int32),
++        decode_swa_lens=torch.full((6,), 128, dtype=torch.int32),
++    )
++    compressed = SimpleNamespace(block_size=64, block_table=torch.zeros((4, 2)))
++    indices = torch.ones((3, 512), dtype=torch.int32)
++    lengths = torch.full((3,), 512, dtype=torch.int32)
++    calls = []
++
++    def global_indices(topk, token_reqs, block_table, page_size, valid):
++        assert ratio > 0
++        assert topk.shape == (3, 512) and valid.shape == (3,)
++        assert block_table.shape == (2, 2) and page_size == 64 // ratio
++        return indices, lengths
++
++    def decode(**kwargs):
++        assert kwargs["extra_cache"] is kv
++        if ratio:
++            torch.testing.assert_close(kwargs["extra_indices"].reshape(3, 512), indices)
++            assert kwargs["extra_lens"] is lengths
++        else:
++            assert kwargs["extra_indices"] is kwargs["extra_lens"] is None
++        assert kwargs["num_heads"] == 8
++        kwargs["out"].fill_(3)
++        calls.append(1)
++
++    monkeypatch.setattr(backend, "compute_global_topk_indices_and_lens", global_indices)
++    monkeypatch.setattr(backend, "_run_decode", decode)
++    q = torch.zeros((3, 8, 512), dtype=torch.bfloat16)
++    out = torch.empty_like(q)
++    layer._forward_decode(q, kv, swa, compressed if ratio else None, ratio == 0, out)
++    assert calls == [1] and torch.all(out == 3)
++
++
++@pytest.mark.parametrize("ratio", [0, 1, 2])
++def test_chunked_prefill_excludes_decode_rows_from_topk_and_output(ratio, monkeypatch):
++    layer = _layer(ratio)
++    layer.window_size = 128
++    layer.max_num_batched_tokens = 8
++    layer.topk_indices_buffer = torch.arange(8 * 512).reshape(8, 512)
++    starts = torch.tensor([0, 1, 3, 5, 8], dtype=torch.int32)
++    swa = SimpleNamespace(
++        num_prefill_tokens=5,
++        num_decodes=2,
++        num_decode_tokens=3,
++        prefill_seq_lens=torch.tensor([32, 33]),
++        prefill_gather_lens=torch.tensor([2, 3]),
++        query_start_loc_cpu=starts,
++        query_start_loc=starts,
++        block_table=torch.zeros((4, 2), dtype=torch.int32),
++        block_size=64,
++        get_prefill_chunk_plan=lambda **_: [(0, 1, 32, 162), (1, 2, 33, 164)],
++    )
++    compressed = SimpleNamespace(block_size=64, block_table=swa.block_table)
++    manager = SimpleNamespace(
++        get_simultaneous=lambda *specs: [
++            torch.zeros(shape, dtype=dtype) for shape, dtype in specs
++        ]
++    )
++    monkeypatch.setattr(backend, "current_workspace_manager", lambda: manager)
++    monkeypatch.setattr(backend, "dequantize_and_gather_k_cache", lambda *a, **kw: None)
++    rows = []
++
++    def combine(topk, query_starts, *args, out):
++        rows.append(topk.clone())
++        return out
++
++    def prefill(q, kv, indices, scale, *, out, **kwargs):
++        out.copy_(q)
++
++    monkeypatch.setattr(backend, "combine_topk_swa_indices", combine)
++    monkeypatch.setattr(backend, "run_fewhead_sparse_prefill", prefill)
++    q = torch.arange(5 * 8 * 512).reshape(5, 8, 512).to(torch.bfloat16)
++    storage = torch.full((7, 8, 512), -1, dtype=torch.bfloat16)
++    layer._forward_prefill(
++        q,
++        torch.arange(5),
++        torch.empty(0) if ratio else None,
++        torch.empty(0),
++        storage[1:6],
++        compressed if ratio else None,
++        swa,
++    )
++    torch.testing.assert_close(rows[0], layer.topk_indices_buffer[3:5])
++    torch.testing.assert_close(rows[1], layer.topk_indices_buffer[5:8])
++    torch.testing.assert_close(storage[1:6], q)
++    assert torch.all(storage[0] == -1) and torch.all(storage[-1] == -1)
++
++
++@pytest.mark.parametrize("heads", [8, 16])
++@pytest.mark.parametrize("dspark", [False, True])
++def test_decode_warmup_covers_native_launcher_specializations(
++    monkeypatch, heads, dspark
++):
++    """Runtime dispatch must be covered across split and compressed-page boundaries."""
++    import inspect
++
++    from vllm.model_executor.warmup.jit_warmup_triton_helper import (
++        TritonWarmupTensor,
++        triton_scalar_specialization_rep,
++    )
++    from vllm.models.deepseek_v41.nvidia.ops import small_head_sparse_decode as decode
++    from vllm.models.deepseek_v41.nvidia.ops.small_head_decode_warmup import (
++        _decode_warmup_inputs,
++        _merge_warmup_inputs,
++    )
++
++    config = _config()
++    config.parallel_config.tensor_parallel_size = 64 // heads
++    config.model_config.hf_text_config.sliding_window = 128
++    config.model_config.hf_text_config.index_topk = 512
++    config.model_config.hf_text_config.compress_ratios = [0, 1, 2]
++    config.speculative_config = (
++        SimpleNamespace(use_dspark=lambda: True, num_speculative_tokens=5)
++        if dspark
++        else None
++    )
++
++    def signature(inputs):
++        result = []
++        for name, value in sorted(inputs.items()):
++            if name == "grid":
++                continue
++            if isinstance(value, torch.Tensor | TritonWarmupTensor):
++                value = value.dtype
++            elif type(value) is int and name.islower() and not name.startswith("num_"):
++                value = triton_scalar_specialization_rep(value)
++            result.append((name, value))
++        return tuple(result)
++
++    for name, provider in (
++        ("_small_head_sparse_decode_kernel", _decode_warmup_inputs),
++        ("_merge_splits_kernel", _merge_warmup_inputs),
++    ):
++        kernel = getattr(decode, name)
++        names = tuple(inspect.signature(getattr(kernel, "fn", kernel)).parameters)
++        expected = {signature(case) for case in provider(config, 64)}
++
++        class CheckedLaunch:
++            def __init__(self, names, expected):
++                self.names, self.expected = names, expected
++
++            def __getitem__(self, grid):
++                def launch(*args, **kwargs):
++                    inputs = dict(zip(self.names, args)) | kwargs
++                    assert signature(inputs) in self.expected
++
++                return launch
++
++        monkeypatch.setattr(decode, name, CheckedLaunch(names, expected))
++
++    def empty(shape, dtype):
++        return torch.empty(shape, dtype=dtype, device="meta")
++
++    for tokens in (1, 3, 4, 7, 8, 384):
++        for width in (128, 192) if dspark else (128,):
++            for ratio in (0, 1, 2):
++                page = 64 // ratio if ratio else 64
++                q = empty((tokens + 1, heads, 512), torch.bfloat16)[1:]
++                decode.small_head_sparse_decode(
++                    q,
++                    empty((2, 64, 584), torch.uint8),
++                    empty((tokens + 8, 1, width), torch.int32),
++                    empty((tokens + 8,), torch.int32),
++                    empty((2, page, 584), torch.uint8) if ratio else None,
++                    empty((tokens + 8, 1, 512), torch.int32) if ratio else None,
++                    empty((tokens + 8,), torch.int32) if ratio else None,
++                    empty((heads,), torch.float32),
++                    512**-0.5,
++                    torch.empty_like(q),
++                    heads,
++                )
++
++
++@pytest.mark.parametrize("heads", [8, 16])
++def test_prefill_warmup_expands_native_and_padded_layouts(heads):
++    """Warmup domains must resolve through the registry's AST expansion on CPU."""
++    from vllm.models.deepseek_v41.nvidia.triton_fewhead_sparse_prefill import (
++        _bf16_fewhead_sparse_fwd,
++        _fewhead_warmup_inputs,
++    )
++
++    config = _config()
++    config.parallel_config.tensor_parallel_size = 64 // heads
++    config.model_config.hf_text_config.sliding_window = 128
++    config.model_config.hf_text_config.index_topk = 512
++    config.model_config.hf_text_config.compress_ratios = [0, 1, 2]
++    cases = list(
++        _bf16_fewhead_sparse_fwd._provider_cases(
++            _fewhead_warmup_inputs, vllm_config=config
++        )
++    )
++    for field in ("stride_q_s", "stride_o_s"):
++        assert {case[field] for case in cases} == {heads * 512, 64 * 512}
++    assert {case["h_q"] for case in cases} == {heads}
++    assert {case["index_topk"] for case in cases} == {128, 640}
++
++
++def test_registered_decode_warmup_expands_with_model_config(monkeypatch):
++    """Registrations with block_size must retain config through startup warmup."""
++    from vllm.model_executor.warmup import jit_warmup_triton_helper as helper
++    from vllm.model_executor.warmup.jit_warmup import JitWarmupRegistry
++    from vllm.models.deepseek_v41.nvidia.ops.small_head_decode_warmup import (
++        register_small_head_decode_warmup,
++    )
++
++    config = _config()
++    config.scheduler_config = SimpleNamespace(
++        max_num_batched_tokens=8192, max_num_seqs=64
++    )
++    config.model_config.hf_text_config.sliding_window = 128
++    config.model_config.hf_text_config.index_topk = 512
++    config.model_config.hf_text_config.compress_ratios = [0, 1, 2]
++    config.speculative_config = SimpleNamespace(
++        use_dspark=lambda: True, num_speculative_tokens=5
++    )
++    expanded = []
++
++    def collect_inputs(inputs):
++        expanded.append(inputs)
++        return ()
++
++    monkeypatch.setattr(helper, "_triton_key_deriver", lambda _: collect_inputs)
++    registry = JitWarmupRegistry(config)
++    with registry.activate():
++        register_small_head_decode_warmup(config, 64)
++    registry.warmup()
++
++    decode = [case for case in expanded if "num_heads" in case]
++    assert {case["num_heads"] for case in decode} == {8}
++    assert {case["swa_indices_stride"] for case in decode} == {128, 192}
++    assert {case["extra_page_size"] for case in decode} == {32, 64}
++    assert any("sink_ptr" in case for case in expanded)
++    assert {case["B"] for case in expanded if "B" in case} == {32, 64, 128, 256, 512}
++
++
++def test_query_union_state_is_recreated_for_each_forward():
++    """Repeated buffers must not make a new backbone step reuse stale indices."""
++    from vllm.config import CUDAGraphMode
++    from vllm.models.deepseek_v41.nvidia.paired_decode import decode_step
++
++    context = SimpleNamespace(
++        cudagraph_runtime_mode=CUDAGraphMode.FULL, additional_kwargs={}
++    )
++    key = "decode"
++    first = decode_step(context, key, 2, 64)
++    first.pairs_ready = True
++    first.groups[(2, 2, 1)] = (1000,)
++    assert decode_step(context, key, 3, 64) is first
++    second = decode_step(context, key, 2, 64)
++    assert not second.pairs_ready and not second.groups
++    assert decode_step(context, key, 4, 96) is not second
++    other_context = SimpleNamespace(
++        cudagraph_runtime_mode=CUDAGraphMode.FULL, additional_kwargs={}
++    )
++    assert decode_step(other_context, key, 2, 64) is not second
++
++
++def test_piecewise_query_unions_have_a_producer_in_each_layer():
++    """A captured segment cannot rely on Python state from an earlier segment."""
++    from vllm.config import CUDAGraphMode
++    from vllm.models.deepseek_v41.nvidia.paired_decode import decode_step
++
++    context = SimpleNamespace(
++        cudagraph_runtime_mode=CUDAGraphMode.PIECEWISE, additional_kwargs={}
++    )
++    first = decode_step(context, "decode", 2, 64)
++    first.pairs_ready = True
++    assert not decode_step(context, "decode", 3, 64).pairs_ready
++
++
++@pytest.mark.parametrize(
++    "heads,layer,ratio,enabled",
++    [(8, 2, 1, True), (16, 2, 1, False), (8, 40, 1, False), (8, 0, 0, False)],
++)
++def test_paired_decode_keeps_draft_and_unsupported_layouts_on_single_query(
++    heads, layer, ratio, enabled
++):
++    from vllm.models.deepseek_v41.nvidia.paired_decode import PairedDecode
++
++    config = _config()
++    config.model_config.hf_text_config.num_hidden_layers = 40
++    config.model_config.hf_text_config.index_topk = 512
++    config.scheduler_config = SimpleNamespace(
++        max_num_batched_tokens=8192, max_num_seqs=64
++    )
++    config.speculative_config = SimpleNamespace(
++        num_speculative_tokens=5, use_dspark=lambda: True
++    )
++    attention = SimpleNamespace(
++        layer_id=layer,
++        n_local_heads=heads,
++        compress_ratio=ratio,
++        kv_source_layer_id=2,
++        index_source_layer_id=2,
++        window_size=128,
++    )
++    decoder = PairedDecode(attention, config)
++    assert decoder.enabled == enabled
++    assert decoder.capacity == 384
++    assert decoder.swa_width == 192
+diff --git a/vllm/models/deepseek_v41/nvidia/fewhead_prefill.py b/vllm/models/deepseek_v41/nvidia/fewhead_prefill.py
+new file mode 100644
+index 000000000000..5d3cb4debe3b
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/fewhead_prefill.py
+@@ -0,0 +1,72 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Cached loader for DSV4.1 few-head sparse MLA prefill."""
++
++from __future__ import annotations
++
++from typing import Any
++
++import torch
++
++_FWD: Any = None
++
++
++def _import_kernel():
++    from vllm.models.deepseek_v41.nvidia.triton_fewhead_sparse_prefill import (
++        fewhead_sparse_mla_fwd,
++    )
++
++    return fewhead_sparse_mla_fwd
++
++
++def load_fewhead_kernel():
++    """Load the few-head kernel once per process.
++
++    Returns:
++        The ``fewhead_sparse_mla_fwd`` callable.
++
++    """
++    global _FWD
++    if _FWD is None:
++        _FWD = _import_kernel()
++    return _FWD
++
++
++def run_fewhead_sparse_prefill(
++    q_chunk: torch.Tensor,
++    kv: torch.Tensor,
++    indices: torch.Tensor,
++    sm_scale: float,
++    *,
++    attn_sink: torch.Tensor,
++    topk_length: torch.Tensor,
++    out: torch.Tensor,
++    n_local_heads: int,
++) -> torch.Tensor:
++    """Run native-head sparse prefill into the first ``n_local_heads`` slots.
++
++    Args:
++        q_chunk: Padded query ``[s_q, padded_heads, d]``.
++        kv: Gathered KV ``[s_kv, 1, d]`` or ``[s_kv, d]``.
++        indices: Combined top-k / SWA indices.
++        sm_scale: Softmax scale.
++        attn_sink: Padded sink logits.
++        topk_length: Valid index prefix per token.
++        out: Padded output buffer, same shape as ``q_chunk``.
++        n_local_heads: Unpadded local Q heads.
++
++    Returns:
++        The ``out`` buffer.
++
++    """
++    fwd = load_fewhead_kernel()
++    fwd(
++        q_chunk[:, :n_local_heads],
++        kv,
++        indices,
++        sm_scale,
++        attn_sink=attn_sink[:n_local_heads],
++        topk_length=topk_length,
++        out=out[:, :n_local_heads],
++    )
++    return out
+diff --git a/vllm/models/deepseek_v41/nvidia/model.py b/vllm/models/deepseek_v41/nvidia/model.py
+index bd91e8f12b4f..b8d3f7a15866 100644
+--- a/vllm/models/deepseek_v41/nvidia/model.py
++++ b/vllm/models/deepseek_v41/nvidia/model.py
+@@ -204,6 +204,13 @@ def _select_dsv4_attn_cls(vllm_config: VllmConfig) -> type[DeepseekV4Attention]:
+     """
+     backend = vllm_config.attention_config.backend
+     device_capability = current_platform.get_device_capability()
++    if backend is AttentionBackendEnum.TRITON_MLA_SPARSE_DSV41:
++        from vllm.models.deepseek_v41.nvidia.triton_sparse import (
++            DeepseekV41TritonSparseAttention,
++        )
++
++        DeepseekV41TritonSparseAttention.validate_config(vllm_config)
++        return DeepseekV41TritonSparseAttention
+     if backend in (
+         AttentionBackendEnum.FLASHINFER_MLA_SPARSE,
+         AttentionBackendEnum.FLASHINFER_MLA_SPARSE_SM120,
+diff --git a/vllm/models/deepseek_v41/nvidia/ops/small_head_decode_warmup.py b/vllm/models/deepseek_v41/nvidia/ops/small_head_decode_warmup.py
+new file mode 100644
+index 000000000000..29e3577b5c3c
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/ops/small_head_decode_warmup.py
+@@ -0,0 +1,151 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Compile the independent backend's decode variants without allocating KV."""
++
++from collections.abc import Iterator
++from typing import Any
++
++import torch
++
++from vllm.config import VllmConfig
++from vllm.model_executor.warmup.jit_warmup_triton_helper import (
++    TritonWarmupTensor,
++    triton_kernel_dispatcher_with_warmup,
++)
++from vllm.models.deepseek_v41.nvidia.ops.small_head_query_union import _pairs
++from vllm.models.deepseek_v41.nvidia.ops.small_head_sparse_decode import (
++    _merge_splits_kernel,
++    _pick_config,
++    _small_head_sparse_decode_kernel,
++)
++from vllm.triton_utils import triton
++from vllm.v1.attention.backends.mla.compressor_utils import get_dspark_swa_index_width
++
++
++def _decode_warmup_inputs(
++    vllm_config: VllmConfig, block_size: int
++) -> Iterator[dict[str, Any]]:
++    config = vllm_config.model_config.hf_text_config
++    heads = config.num_attention_heads // (
++        vllm_config.parallel_config.tensor_parallel_size
++    )
++    widths = {config.sliding_window}
++    spec = vllm_config.speculative_config
++    if spec is not None and spec.use_dspark():
++        widths.add(
++            get_dspark_swa_index_width(
++                config.sliding_window, spec.num_speculative_tokens
++            )
++        )
++    ratios = sorted(set(getattr(config, "compress_ratios", None) or (0,)))
++    int_ptr = TritonWarmupTensor(torch.int32)
++    cache_ptr = TritonWarmupTensor(torch.uint8)
++    partial_ptr = TritonWarmupTensor(torch.float32)
++    for width in sorted(widths):
++        for ratio in ratios:
++            extra_width = config.index_topk if ratio else width
++            extra_page = block_size // ratio if ratio else block_size
++            # Token count only changes the launch configuration, not the JIT key.
++            for tokens in (1, 4, 8):
++                splits, block_n, warps, stages = _pick_config(
++                    tokens, width + (extra_width if ratio else 0)
++                )
++                yield dict(
++                    grid=(1,),
++                    q_ptr=TritonWarmupTensor(torch.bfloat16),
++                    q_stride_t=heads * 512,
++                    q_stride_h=512,
++                    swa_cache_ptr=cache_ptr,
++                    swa_page_stride=block_size * 584,
++                    swa_page_size=block_size,
++                    swa_indices_ptr=int_ptr,
++                    swa_indices_stride=width,
++                    swa_lens_ptr=int_ptr,
++                    extra_cache_ptr=cache_ptr,
++                    extra_page_stride=extra_page * 584,
++                    extra_page_size=extra_page,
++                    extra_indices_ptr=int_ptr,
++                    extra_indices_stride=extra_width,
++                    extra_lens_ptr=int_ptr,
++                    part_o_ptr=partial_ptr,
++                    part_lse_ptr=partial_ptr,
++                    num_heads=heads,
++                    sm_scale=512**-0.5,
++                    HAS_EXTRA=bool(ratio),
++                    BLOCK_H=16,
++                    BLOCK_N=block_n,
++                    NUM_SPLITS=splits,
++                    num_warps=warps,
++                    num_stages=stages,
++                )
++
++
++def _merge_warmup_inputs(
++    vllm_config: VllmConfig, block_size: int
++) -> Iterator[dict[str, Any]]:
++    config = vllm_config.model_config.hf_text_config
++    heads = config.num_attention_heads // (
++        vllm_config.parallel_config.tensor_parallel_size
++    )
++    splits = {
++        case["NUM_SPLITS"] for case in _decode_warmup_inputs(vllm_config, block_size)
++    }
++    float_ptr = TritonWarmupTensor(torch.float32)
++    for num_splits in sorted(splits):
++        yield dict(
++            grid=(1,),
++            part_o_ptr=float_ptr,
++            part_lse_ptr=float_ptr,
++            sink_ptr=float_ptr,
++            out_ptr=TritonWarmupTensor(torch.bfloat16),
++            out_stride_t=heads * 512,
++            out_stride_h=512,
++            BLOCK_H=16,
++            NUM_SPLITS=num_splits,
++            num_warps=4,
++        )
++
++
++def _pair_warmup_inputs(vllm_config: VllmConfig) -> Iterator[dict[str, Any]]:
++    config = vllm_config.model_config.hf_text_config
++    if (
++        config.num_attention_heads // vllm_config.parallel_config.tensor_parallel_size
++        != 8
++    ):
++        return
++    spec = vllm_config.speculative_config
++    drafts = spec.num_speculative_tokens if spec is not None else 0
++    capacity = min(
++        vllm_config.scheduler_config.max_num_batched_tokens,
++        vllm_config.scheduler_config.max_num_seqs * (drafts + 1),
++    )
++    int_ptr = TritonWarmupTensor(torch.int32)
++    for power in range(5, triton.next_power_of_2(capacity).bit_length()):
++        yield dict(
++            grid=(1,),
++            req=int_ptr,
++            valid=TritonWarmupTensor(torch.bool),
++            rows=int_ptr,
++            count=int_ptr,
++            T=min(capacity, 1 << power),
++            B=1 << power,
++            num_warps=4,
++        )
++
++
++# Warm the same JIT objects used at runtime.
++DECODE_WARMUP = triton_kernel_dispatcher_with_warmup(
++    warmup_inputs=_decode_warmup_inputs
++)(_small_head_sparse_decode_kernel)
++MERGE_WARMUP = triton_kernel_dispatcher_with_warmup(warmup_inputs=_merge_warmup_inputs)(
++    _merge_splits_kernel
++)
++PAIR_WARMUP = triton_kernel_dispatcher_with_warmup(warmup_inputs=_pair_warmup_inputs)(
++    _pairs
++)
++
++
++def register_small_head_decode_warmup(vllm_config: VllmConfig, block_size: int) -> None:
++    DECODE_WARMUP.register_warmup(vllm_config=vllm_config, block_size=block_size)
++    MERGE_WARMUP.register_warmup(vllm_config=vllm_config, block_size=block_size)
++    PAIR_WARMUP.register_warmup(vllm_config=vllm_config)
+diff --git a/vllm/models/deepseek_v41/nvidia/ops/small_head_paired_decode.py b/vllm/models/deepseek_v41/nvidia/ops/small_head_paired_decode.py
+new file mode 100644
+index 000000000000..0b55c118e788
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/ops/small_head_paired_decode.py
+@@ -0,0 +1,187 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Native eight-head query pairing over exact sparse KV unions.
++
++KV loader and split softmax derive from luoyuctl's #59418.
++"""
++
++import torch
++
++from vllm.models.deepseek_v41.nvidia.ops.small_head_sparse_decode import _load_kv_block
++from vllm.triton_utils import tl, triton
++
++
++@triton.jit
++def _attend(
++    q,
++    qt,
++    qh,
++    rows,
++    groups,
++    sc,
++    sp,
++    PS: tl.constexpr,
++    si,
++    sm,
++    sl,
++    SW: tl.constexpr,
++    ec,
++    ep,
++    PE: tl.constexpr,
++    ei,
++    em,
++    el,
++    EW: tl.constexpr,
++    po,
++    pl,
++    scale,
++    EXTRA: tl.constexpr,
++    N: tl.constexpr,
++    S: tl.constexpr,
++):
++    g, split = tl.program_id(0), tl.program_id(1)
++    if g >= tl.load(groups):
++        return
++    h = tl.arange(0, 16)
++    d = tl.arange(0, 512)
++    row = tl.load(rows + 2 * g + h // 8)
++    query = tl.load(
++        q + row[:, None].to(tl.int64) * qt + (h % 8)[:, None] * qh + d[None, :],
++        row[:, None] >= 0,
++        other=0.0,
++    )
++    sn = tl.load(sl + g)
++    sb = tl.cdiv(sn, N)
++    blocks = sb
++    en = 0
++    if EXTRA:
++        en = tl.load(el + g)
++        blocks += tl.cdiv(en, N)
++    per = tl.cdiv(blocks, S)
++    begin, end = split * per, tl.minimum((split + 1) * per, blocks)
++    maximum = tl.full((16,), -float("inf"), tl.float32)
++    denominator = tl.zeros((16,), tl.float32)
++    accumulator = tl.zeros((16, 512), tl.float32)
++    lane = tl.arange(0, N)
++    for b in range(begin, end):
++        if b < sb:
++            offset = b * N
++            kv, valid = _load_kv_block(
++                sc, sp, PS, si, g.to(tl.int64) * SW, sn, offset, N
++            )
++            counts = tl.load(
++                sm + g.to(tl.int64) * SW + offset + lane, offset + lane < sn, other=0
++            ).to(tl.uint32)
++        else:
++            offset = (b - sb) * N
++            kv, valid = _load_kv_block(
++                ec, ep, PE, ei, g.to(tl.int64) * EW, en, offset, N
++            )
++            counts = tl.load(
++                em + g.to(tl.int64) * EW + offset + lane, offset + lane < en, other=0
++            ).to(tl.uint32)
++        multiplicity = tl.where(
++            (h < 8)[:, None], counts[None, :] & 65535, counts[None, :] >> 16
++        ).to(tl.float32)
++        score = tl.dot(query, tl.trans(kv)) * (scale * 1.4426950408889634)
++        score = tl.where(
++            valid[None, :] & (row >= 0)[:, None] & (multiplicity > 0),
++            score,
++            -float("inf"),
++        )
++        nxt = tl.maximum(maximum, tl.max(score, 1))
++        safe = tl.where(nxt == -float("inf"), 0.0, nxt)
++        alpha = tl.exp2(maximum - safe)
++        probability = tl.exp2(score - safe[:, None]) * multiplicity
++        denominator = denominator * alpha + tl.sum(probability, 1)
++        accumulator = accumulator * alpha[:, None] + tl.dot(
++            probability.to(tl.bfloat16), kv
++        )
++        maximum = nxt
++    empty = denominator == 0.0
++    safe_denom = tl.where(empty, 1.0, denominator)
++    lse = tl.where(empty, -float("inf"), maximum + tl.log2(safe_denom))
++    result = accumulator / safe_denom[:, None]
++    part = (g.to(tl.int64) * S + split) * 16 + h
++    tl.store(po + part[:, None] * 512 + d[None, :], result)
++    tl.store(pl + part, lse)
++
++
++@triton.jit
++def _merge(po, pl, rows, groups, sink, out, out_stride, oh, S: tl.constexpr):
++    g, h = tl.program_id(0), tl.program_id(1)
++    if g >= tl.load(groups):
++        return
++    row = tl.load(rows + 2 * g + h // 8)
++    if row < 0:
++        return
++    s = tl.arange(0, S)
++    d = tl.arange(0, 512)
++    part = (g.to(tl.int64) * S + s) * 16 + h
++    lse = tl.load(pl + part)
++    maximum = tl.max(lse, 0)
++    safe = tl.where(maximum == -float("inf"), 0.0, maximum)
++    weights = tl.exp2(lse - safe)
++    denom = tl.sum(weights, 0)
++    safe_denom = tl.where(denom > 0.0, denom, 1.0)
++    output = tl.sum(
++        tl.load(po + part[:, None] * 512 + d[None, :]) * weights[:, None], 0
++    )
++    total_lse = safe + tl.log2(safe_denom)
++    sink2 = tl.load(sink + h % 8) * 1.4426950408889634
++    output = output / safe_denom / (1.0 + tl.exp2(sink2 - total_lse))
++    output = tl.where(denom > 0.0, output, 0.0)
++    tl.store(out + row.to(tl.int64) * out_stride + (h % 8) * oh + d, output)
++
++
++def run(q, sc, ec, sink, scale, out, metadata, partials, config):
++    assert q.shape[1] == out.shape[1] == 8 and q.shape[-1] == 512
++    assert q.dtype == out.dtype == torch.bfloat16
++    assert q.stride(-1) == out.stride(-1) == 1
++    if not q.shape[0]:
++        return
++    splits, block, warps = config
++    rows, count, unions = metadata
++    si, sm, sl = unions[0]
++    has_extra = ec is not None
++    ei, em, el = unions[1] if has_extra else unions[0]
++    ec = ec if has_extra else sc
++    _attend[(q.shape[0], splits)](
++        q,
++        q.stride(0),
++        q.stride(1),
++        rows,
++        count,
++        sc.view(torch.uint8),
++        sc.stride(0),
++        sc.shape[1],
++        si,
++        sm,
++        sl,
++        si.stride(0),
++        ec.view(torch.uint8),
++        ec.stride(0),
++        ec.shape[1],
++        ei,
++        em,
++        el,
++        ei.stride(0),
++        *partials,
++        scale,
++        has_extra,
++        block,
++        splits,
++        num_warps=warps,
++        num_stages=2,
++    )
++    _merge[(q.shape[0], 16)](
++        *partials,
++        rows,
++        count,
++        sink,
++        out,
++        out.stride(0),
++        out.stride(1),
++        splits,
++        num_warps=4,
++    )
+diff --git a/vllm/models/deepseek_v41/nvidia/ops/small_head_query_union.py b/vllm/models/deepseek_v41/nvidia/ops/small_head_query_union.py
+new file mode 100644
+index 000000000000..63c3e4e84b35
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/ops/small_head_query_union.py
+@@ -0,0 +1,136 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Exact two-query KV unions, preserving duplicate-index multiplicities.
++
++Query-union prior art: vllm-project/vllm#55372.
++"""
++
++from vllm.triton_utils import tl, triton
++
++
++@triton.jit
++def _max(a, b):
++    return tl.maximum(a, b)
++
++
++@triton.jit
++def _segment(ka, ca, da, kb, cb, db):
++    same = ka == kb
++    return kb, tl.where(same, ca + cb, cb), tl.where(same, da + db, db)
++
++
++@triton.jit(do_not_specialize=["T"])
++def _pairs(req, valid, rows, count, T, B: tl.constexpr):
++    i = tl.arange(0, B)
++    r = tl.load(req + i, i < T, other=-1)
++    v = tl.load(valid + i, i < T, other=False) & (r >= 0)
++    prev_r = tl.load(req + i - 1, (i > 0) & (i < T), other=-1)
++    prev_v = tl.load(valid + i - 1, (i > 0) & (i < T), other=False)
++    run = v & (~prev_v | (prev_r != r))
++    first = tl.associative_scan(tl.where(run, i, 0), 0, _max)
++    start = v & ((i - first) % 2 == 0)
++    group = tl.cumsum(start.to(tl.int32)) - 1
++    next_r = tl.load(req + i + 1, i + 1 < T, other=-1)
++    next_v = tl.load(valid + i + 1, i + 1 < T, other=False)
++    second = tl.where(next_v & (next_r == r), i + 1, -1)
++    tl.store(rows + group * 2, i, start)
++    tl.store(rows + group * 2 + 1, second, start)
++    tl.store(count, tl.sum(start.to(tl.int32)))
++
++
++@triton.jit
++def _union(
++    rows,
++    count,
++    ix,
++    lengths,
++    out_ix,
++    out_counts,
++    out_lens,
++    STRIDE: tl.constexpr,
++    WIDTH: tl.constexpr,
++    HALF: tl.constexpr,
++    BOUNDED: tl.constexpr = False,
++):
++    g = tl.program_id(0)
++    groups = tl.load(count)
++    if g >= groups:
++        tl.store(out_lens + g, 0)
++        return
++    second = tl.load(rows + 2 * g + 1)
++    if second < 0:
++        first = tl.load(rows + 2 * g)
++        size = tl.minimum(tl.load(lengths + first), WIDTH)
++        col_single = tl.arange(0, HALF)
++        keys_single = tl.load(
++            ix + first.to(tl.int64) * STRIDE + col_single,
++            col_single < size,
++            other=-1,
++        )
++        offset_single = g.to(tl.int64) * (2 * HALF) + col_single
++        tl.store(out_ix + offset_single, keys_single, col_single < size)
++        tl.store(
++            out_counts + offset_single,
++            (keys_single >= 0).to(tl.int32),
++            col_single < size,
++        )
++        tl.store(out_lens + g, size)
++        return
++    lane = tl.arange(0, 2 * HALF)
++    which = lane // HALF
++    col = lane % HALF
++    row = tl.load(rows + g * 2 + which)
++    length = tl.load(lengths + row, row >= 0, other=0)
++    key = tl.load(
++        ix + row.to(tl.int64) * STRIDE + col,
++        (row >= 0) & (col < length) & (col < WIDTH),
++        other=-1,
++    )
++    sentinel: tl.constexpr = 0xFFFFFFFF if BOUNDED else 0x7FFFFFFFFFFFFFFF
++    if BOUNDED:
++        # Caller proves allocation has fewer than 2**30 slots, without GPU sync.
++        code = tl.where(key >= 0, key.to(tl.uint32) * 2 + which.to(tl.uint32), sentinel)
++    else:
++        code = tl.where(key >= 0, key.to(tl.int64) * 2 + which, sentinel)
++    code = tl.sort(code, descending=False)
++    k = code >> 1
++    live = code != sentinel
++    c0 = (live & ((code & 1) == 0)).to(tl.int32)
++    c1 = (live & ((code & 1) == 1)).to(tl.int32)
++    _, c0, c1 = tl.associative_scan((k, c0, c1), 0, _segment)
++    prev = tl.gather(k, tl.maximum(lane - 1, 0), 0)
++    nxt = tl.gather(k, tl.minimum(lane + 1, 2 * HALF - 1), 0)
++    begin = live & ((lane == 0) | (prev != k))
++    end = live & ((lane == 2 * HALF - 1) | (nxt != k))
++    dest = tl.cumsum(begin.to(tl.int32)) - 1
++    offset = g.to(tl.int64) * (2 * HALF) + dest
++    tl.store(out_ix + offset, k.to(tl.int32), end)
++    tl.store(out_counts + offset, c0 | (c1 << 16), end)
++    tl.store(out_lens + g, tl.sum(begin.to(tl.int32)))
++
++
++@triton.jit
++def _both(
++    rows,
++    count,
++    ix0,
++    len0,
++    out0,
++    counts0,
++    lens0,
++    ix1,
++    len1,
++    out1,
++    counts1,
++    lens1,
++    S0: tl.constexpr,
++    W0: tl.constexpr,
++    H0: tl.constexpr,
++    S1: tl.constexpr,
++    W1: tl.constexpr,
++    H1: tl.constexpr,
++):
++    if tl.program_id(1) == 0:
++        _union(rows, count, ix0, len0, out0, counts0, lens0, S0, W0, H0, True)
++    else:
++        _union(rows, count, ix1, len1, out1, counts1, lens1, S1, W1, H1, True)
+diff --git a/vllm/models/deepseek_v41/nvidia/paired_decode.py b/vllm/models/deepseek_v41/nvidia/paired_decode.py
+new file mode 100644
+index 000000000000..1e5a3b6a36e2
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/paired_decode.py
+@@ -0,0 +1,170 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Forward-scoped query unions for the opt-in SM90 sparse backend."""
++
++from dataclasses import dataclass, field
++
++import torch
++
++from vllm.config import CUDAGraphMode, VllmConfig
++from vllm.forward_context import ForwardContext
++from vllm.models.deepseek_v41.nvidia.ops import small_head_paired_decode as paired
++from vllm.models.deepseek_v41.nvidia.ops import small_head_query_union as union
++from vllm.triton_utils import triton
++from vllm.v1.attention.backends.mla.compressor_utils import get_dspark_swa_index_width
++from vllm.v1.worker.workspace import current_workspace_manager
++
++
++@dataclass
++class DecodeStep:
++    tokens: int
++    last_layer: int = -1
++    pairs_ready: bool = False
++    groups: dict[tuple, tuple] = field(default_factory=dict)
++
++
++def decode_step(context: ForwardContext, key: str, layer: int, tokens: int):
++    if context.cudagraph_runtime_mode == CUDAGraphMode.PIECEWISE:
++        return DecodeStep(tokens, layer)
++    state = context.additional_kwargs.get(key)
++    if state is None or state.tokens != tokens or layer <= state.last_layer:
++        state = DecodeStep(tokens)
++        context.additional_kwargs[key] = state
++    state.last_layer = layer
++    return state
++
++
++def paired_config(tokens: int) -> tuple[int, int, int]:
++    return (16 if tokens <= 32 else 8 if tokens <= 160 else 4), 32, 4
++
++
++class PairedDecode:
++    def __init__(self, layer, config: VllmConfig):
++        spec = config.speculative_config
++        drafts = spec.num_speculative_tokens if spec is not None else 0
++        self.capacity = min(
++            config.scheduler_config.max_num_batched_tokens,
++            config.scheduler_config.max_num_seqs * (drafts + 1),
++        )
++        self.layer = layer.layer_id
++        self.enabled = (
++            layer.n_local_heads == 8
++            and layer.compress_ratio > 0
++            and self.layer < config.model_config.hf_text_config.num_hidden_layers
++        )
++        self.key = f"dsv41_paired_decode_{id(config)}"
++        self.group = (
++            layer.kv_source_layer_id,
++            layer.index_source_layer_id,
++            layer.compress_ratio,
++        )
++        self.extra_width = config.model_config.hf_text_config.index_topk
++        self.swa_width = layer.window_size
++        if spec is not None and spec.use_dspark():
++            self.swa_width = get_dspark_swa_index_width(layer.window_size, drafts)
++
++    def _persistent(self, tokens: int):
++        manager = current_workspace_manager()
++        key = self.key
++        rows = manager.get_persistent((key, "pairs"), (self.capacity, 2), torch.int32)
++        count = manager.get_persistent((key, "count"), (), torch.int32)
++        width = 2 * triton.next_power_of_2(self.extra_width)
++        outputs = tuple(
++            manager.get_persistent((key, self.group, name), shape, torch.int32)[:tokens]
++            for name, shape in (
++                ("indices", (self.capacity, width)),
++                ("multiplicity", (self.capacity, width)),
++                ("lengths", (self.capacity,)),
++            )
++        )
++        return rows[:tokens], count, outputs
++
++    @staticmethod
++    def _scratch(tokens: int, splits: int, swa_width: int):
++        width = 2 * triton.next_power_of_2(swa_width)
++        return current_workspace_manager().get_simultaneous(
++            ((tokens, splits, 16, 512), torch.float32),
++            ((tokens, splits, 16), torch.float32),
++            ((tokens, width), torch.int32),
++            ((tokens, width), torch.int32),
++            ((tokens,), torch.int32),
++        )
++
++    def reserve(self):
++        if self.enabled:
++            self._persistent(self.capacity)
++            self._scratch(self.capacity, 16, self.swa_width)
++
++    def run(
++        self, context, q, sc, si, sl, ec, ei, el, sink, scale, out, req, valid
++    ) -> bool:
++        tokens = q.shape[0]
++        if (
++            not self.enabled
++            or not 16 < tokens <= self.capacity
++            or ec is None
++            or ei is None
++            or el is None
++            or valid is None
++            or sc.shape[0] * sc.shape[1] >= 2**30
++            or ec.shape[0] * ec.shape[1] >= 2**30
++        ):
++            return False
++        si, ei = si[:tokens].reshape(tokens, -1), ei[:tokens].reshape(tokens, -1)
++        if si.shape[1] > self.swa_width or ei.shape[1] != self.extra_width:
++            return False
++        rows, count, extra = self._persistent(tokens)
++        config = paired_config(tokens)
++        scratch = self._scratch(tokens, config[0], si.shape[1])
++        partials, swa = scratch[:2], scratch[2:]
++        state = decode_step(context, self.key, self.layer, tokens)
++        if not state.pairs_ready:
++            union._pairs[(1,)](
++                req,
++                valid,
++                rows,
++                count,
++                tokens,
++                triton.next_power_of_2(tokens),
++                num_warps=4,
++            )
++            state.pairs_ready = True
++        # Pointer/layout checks only distinguish groups within this forward.
++        layout = (ec.data_ptr(), tuple(ec.shape), tuple(ec.stride()))
++        if state.groups.get(self.group) != layout:
++            union._both[(tokens, 2)](
++                rows,
++                count,
++                si,
++                sl,
++                *swa,
++                ei,
++                el,
++                *extra,
++                si.stride(0),
++                si.shape[1],
++                triton.next_power_of_2(si.shape[1]),
++                ei.stride(0),
++                ei.shape[1],
++                triton.next_power_of_2(ei.shape[1]),
++                num_warps=8,
++            )
++            state.groups[self.group] = layout
++        else:
++            union._union[(tokens,)](
++                rows,
++                count,
++                si,
++                sl,
++                *swa,
++                si.stride(0),
++                si.shape[1],
++                triton.next_power_of_2(si.shape[1]),
++                True,
++                num_warps=4,
++            )
++        out.zero_()
++        paired.run(
++            q, sc, ec, sink, scale, out, (rows, count, [swa, extra]), partials, config
++        )
++        return True
+diff --git a/vllm/models/deepseek_v41/nvidia/triton_fewhead_sparse_prefill.py b/vllm/models/deepseek_v41/nvidia/triton_fewhead_sparse_prefill.py
+new file mode 100644
+index 000000000000..301c9c963b09
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/triton_fewhead_sparse_prefill.py
+@@ -0,0 +1,252 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""SM90 DSV4.1 few-head BF16 sparse MLA prefill.
++
++FlashMLA `flash_mla_sparse_fwd` on Hopper tiles WGMMA with B_H=64, so TP8's
++8 local heads are zero-padded to 64. Decode FP8 still needs that width. Prefill
++does not: this kernel runs native h_q (8 or 16) and is faster on H20 than the
++padded FlashMLA path.
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++import torch
++
++from vllm.model_executor.warmup.jit_warmup import WarmupChoices
++from vllm.model_executor.warmup.jit_warmup_triton_helper import (
++    TritonWarmupTensor,
++    triton_kernel_dispatcher_with_warmup,
++)
++from vllm.triton_utils import LOG2E, tl, triton
++from vllm.utils.math_utils import round_up
++
++
++def _fewhead_topk_widths(vllm_config: Any) -> tuple[int, ...]:
++    config = vllm_config.model_config.hf_text_config
++    topks = {
++        round_up(config.sliding_window + (config.index_topk if ratio else 0), 128)
++        for ratio in (0, *(getattr(config, "compress_ratios", None) or ()))
++    }
++    return tuple(sorted(topks))
++
++
++def _fewhead_q_strides(vllm_config: Any) -> tuple[int, int]:
++    config = vllm_config.model_config.hf_text_config
++    heads = config.num_attention_heads // (
++        vllm_config.parallel_config.tensor_parallel_size
++    )
++    return heads * config.head_dim, 64 * config.head_dim
++
++
++def _fewhead_warmup_inputs(vllm_config: Any) -> dict[str, Any]:
++    config = vllm_config.model_config.hf_text_config
++    h_q = config.num_attention_heads // vllm_config.parallel_config.tensor_parallel_size
++    topk = WarmupChoices(*_fewhead_topk_widths(vllm_config))
++    bf16_ptr = TritonWarmupTensor(torch.bfloat16)
++    int32_ptr = TritonWarmupTensor(torch.int32)
++    return dict(
++        grid=(1,),
++        q_ptr=bf16_ptr,
++        kv_ptr=bf16_ptr,
++        indices_ptr=int32_ptr,
++        out_ptr=bf16_ptr,
++        sink_ptr=TritonWarmupTensor(torch.float32),
++        topk_len_ptr=int32_ptr,
++        seq_kv=WarmupChoices(1, 2, 16),
++        h_q=h_q,
++        stride_q_s=WarmupChoices(*_fewhead_q_strides(vllm_config)),
++        stride_q_h=config.head_dim,
++        stride_kv_s=config.head_dim,
++        stride_idx_s=topk,
++        stride_o_s=WarmupChoices(*_fewhead_q_strides(vllm_config)),
++        stride_o_h=config.head_dim,
++        sm_scale=config.head_dim**-0.5 * LOG2E,
++        index_topk=topk,
++        BLOCK_H=16,
++        BLOCK_N=32,
++        BLOCK_D=config.head_dim,
++        HAS_SINK=True,
++        HAS_TOPK_LEN=True,
++        USE_INT64_OFFSETS=WarmupChoices(False, True),
++        num_warps=4,
++        num_stages=2,
++    )
++
++
++@triton_kernel_dispatcher_with_warmup(warmup_inputs=_fewhead_warmup_inputs)
++@triton.jit
++def _bf16_fewhead_sparse_fwd(
++    q_ptr,
++    kv_ptr,
++    indices_ptr,
++    out_ptr,
++    sink_ptr,
++    topk_len_ptr,
++    seq_kv,
++    h_q,
++    stride_q_s,
++    stride_q_h,
++    stride_kv_s,
++    stride_idx_s,
++    stride_o_s,
++    stride_o_h,
++    sm_scale,
++    index_topk: tl.constexpr,
++    BLOCK_H: tl.constexpr,
++    BLOCK_N: tl.constexpr,
++    BLOCK_D: tl.constexpr,
++    HAS_SINK: tl.constexpr,
++    HAS_TOPK_LEN: tl.constexpr,
++    USE_INT64_OFFSETS: tl.constexpr,
++):
++    token = tl.program_id(0)
++    offs_h = tl.arange(0, BLOCK_H)
++    if USE_INT64_OFFSETS:
++        token = token.to(tl.int64)
++        offs_h = offs_h.to(tl.int64)
++    mask_h = offs_h < h_q
++    offs_d = tl.arange(0, BLOCK_D)
++
++    q = tl.load(
++        q_ptr + token * stride_q_s + offs_h[:, None] * stride_q_h + offs_d[None, :],
++        mask=mask_h[:, None],
++        other=0.0,
++    )
++
++    e_max = tl.zeros([BLOCK_H], dtype=tl.float32) - 1.0e30
++    e_sum = tl.zeros([BLOCK_H], dtype=tl.float32)
++    acc = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
++    valid_len = tl.load(topk_len_ptr + token) if HAS_TOPK_LEN else index_topk
++
++    for start in range(0, index_topk, BLOCK_N):
++        offs_n = start + tl.arange(0, BLOCK_N)
++        mask_n = (offs_n < index_topk) & (offs_n < valid_len)
++        idx = tl.load(
++            indices_ptr + token * stride_idx_s + offs_n,
++            mask=mask_n,
++            other=-1,
++        )
++        mask_kv = (idx >= 0) & (idx < seq_kv) & mask_n
++        if USE_INT64_OFFSETS:
++            idx = idx.to(tl.int64)
++        k = tl.load(
++            kv_ptr + idx[None, :] * stride_kv_s + offs_d[:, None],
++            mask=mask_kv[None, :],
++            other=0.0,
++        )
++        qk = tl.dot(q, k.to(q.dtype), out_dtype=tl.float32)
++        qk *= sm_scale
++        qk = tl.where(mask_h[:, None] & mask_kv[None, :], qk, -1.0e30)
++
++        v = tl.load(
++            kv_ptr + idx[:, None] * stride_kv_s + offs_d[None, :],
++            mask=mask_kv[:, None],
++            other=0.0,
++        )
++        n_e_max = tl.maximum(tl.max(qk, 1), e_max)
++        re_scale = tl.exp2(e_max - n_e_max)
++        p = tl.exp2(qk - n_e_max[:, None])
++        acc *= re_scale[:, None]
++        acc += tl.dot(p.to(v.dtype), v, out_dtype=tl.float32)
++        e_sum = e_sum * re_scale + tl.sum(p, 1)
++        e_max = n_e_max
++
++    if HAS_SINK:
++        sink = tl.load(sink_ptr + offs_h, mask=mask_h, other=-1.0e30)
++        n_e_max = tl.maximum(e_max, sink)
++        re_scale = tl.exp2(e_max - n_e_max)
++        acc *= re_scale[:, None]
++        e_sum = e_sum * re_scale + tl.exp2(sink - n_e_max)
++
++    e_sum = tl.maximum(e_sum, 1.0e-30)
++    acc /= e_sum[:, None]
++    tl.store(
++        out_ptr + token * stride_o_s + offs_h[:, None] * stride_o_h + offs_d[None, :],
++        acc.to(tl.bfloat16),
++        mask=mask_h[:, None],
++    )
++
++
++def fewhead_sparse_mla_fwd(
++    q: torch.Tensor,
++    kv: torch.Tensor,
++    indices: torch.Tensor,
++    sm_scale: float,
++    attn_sink: torch.Tensor | None = None,
++    topk_length: torch.Tensor | None = None,
++    out: torch.Tensor | None = None,
++) -> torch.Tensor:
++    """Run native-head BF16 sparse MLA prefill.
++
++    Args:
++        q: ``[s_q, h_q, d]``, ``h_q`` in ``{1..16}``, ``d == 512``, bf16.
++        kv: ``[s_kv, 1, d]`` or ``[s_kv, d]``.
++        indices: ``[s_q, 1, topk]`` or ``[s_q, topk]``, invalid slots = -1.
++        sm_scale: Softmax scale (typically ``1/sqrt(d)``).
++        attn_sink: Optional ``[h_q]`` fp32 extra logits, same units as scaled QK.
++        topk_length: Optional ``[s_q]`` int32 valid prefix of ``indices``.
++        out: Optional ``[s_q, h_q, d]`` buffer.
++
++    Returns:
++        Attention output ``[s_q, h_q, d]``.
++
++    """
++    if kv.ndim == 3:
++        kv = kv.squeeze(1)
++    if indices.ndim == 3:
++        indices = indices.squeeze(1)
++    s_q, h_q, d = q.shape
++    topk = indices.shape[-1]
++    if out is None:
++        out = torch.empty_like(q)
++    use_int64_offsets = (
++        max(
++            (s_q - 1) * q.stride(0) + (h_q - 1) * q.stride(1) + d - 1,
++            (s_q - 1) * out.stride(0) + (h_q - 1) * out.stride(1) + d - 1,
++            (s_q - 1) * indices.stride(0) + topk - 1,
++            (kv.shape[0] - 1) * kv.stride(0) + d - 1,
++        )
++        >= 2**31
++    )
++    has_sink = attn_sink is not None
++    has_topk_len = topk_length is not None
++    if attn_sink is None:
++        attn_sink = q.new_empty((1,), dtype=torch.float32)
++    else:
++        attn_sink = (
++            attn_sink.to(dtype=torch.float32, device=q.device).contiguous() * LOG2E
++        )
++    if topk_length is None:
++        topk_length = q.new_empty((1,), dtype=torch.int32)
++    else:
++        topk_length = topk_length.to(dtype=torch.int32, device=q.device).contiguous()
++    dummy = q.new_empty((1,), dtype=torch.float32)
++    _bf16_fewhead_sparse_fwd[(s_q,)](
++        q,
++        kv,
++        indices,
++        out,
++        attn_sink if has_sink else dummy,
++        topk_length,
++        kv.shape[0],
++        h_q,
++        q.stride(0),
++        q.stride(1),
++        kv.stride(0),
++        indices.stride(0),
++        out.stride(0),
++        out.stride(1),
++        sm_scale * LOG2E,
++        index_topk=topk,
++        BLOCK_H=16,
++        BLOCK_N=32,
++        BLOCK_D=d,
++        HAS_SINK=has_sink,
++        HAS_TOPK_LEN=has_topk_len,
++        USE_INT64_OFFSETS=use_int64_offsets,
++        num_warps=4,
++        num_stages=2,
++    )
++    return out
+diff --git a/vllm/models/deepseek_v41/nvidia/triton_sparse.py b/vllm/models/deepseek_v41/nvidia/triton_sparse.py
+new file mode 100644
+index 000000000000..6e288ac3249c
+--- /dev/null
++++ b/vllm/models/deepseek_v41/nvidia/triton_sparse.py
+@@ -0,0 +1,419 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Opt-in SM90 native-head sparse attention for DeepSeek V4.1."""
++
++from typing import TYPE_CHECKING, ClassVar, cast
++
++import torch
++
++from vllm.config import VllmConfig
++from vllm.forward_context import get_forward_context
++from vllm.models.deepseek_v4.nvidia.ops.o_proj import compute_fp8_einsum_recipe
++from vllm.models.deepseek_v41.attention import DeepseekV4Attention
++from vllm.models.deepseek_v41.common.ops import (
++    combine_topk_swa_indices,
++    compute_global_topk_indices_and_lens,
++    dequantize_and_gather_k_cache,
++)
++from vllm.models.deepseek_v41.nvidia.fewhead_prefill import run_fewhead_sparse_prefill
++from vllm.models.deepseek_v41.nvidia.ops.o_proj import (
++    dsv41_o_proj,
++    register_dsv41_o_proj_warmup,
++)
++from vllm.models.deepseek_v41.sparse_mla import (
++    DeepseekV4FlashMLAMetadata,
++    DeepseekV4SparseMLABackend,
++    DeepseekV4SparseMLAMetadataBuilder,
++    DeepseekV41SparseSWAMetadataBuilder,
++)
++from vllm.platforms import current_platform
++from vllm.platforms.interface import DeviceCapability
++from vllm.utils.math_utils import round_up
++from vllm.v1.attention.backend import AttentionCGSupport, max_decode_query_len
++from vllm.v1.attention.backends.mla.sparse_swa import DeepseekSparseSWABackend
++from vllm.v1.kv_cache_interface import KVCacheSpec
++from vllm.v1.worker.workspace import current_workspace_manager
++
++if TYPE_CHECKING:
++    from vllm.v1.attention.backends.mla.sparse_swa import DeepseekSparseSWAMetadata
++
++
++def _run_decode(*args, **kwargs) -> None:
++    # Kernel dependency: upstream PR #59418, eddfa5ed50c1, by luoyuctl.
++    from vllm.models.deepseek_v41.nvidia.ops.small_head_sparse_decode import (
++        small_head_sparse_decode,
++    )
++
++    small_head_sparse_decode(*args, **kwargs)
++
++
++class DeepseekV41TritonMetadataBuilder(DeepseekV4SparseMLAMetadataBuilder):
++    _cudagraph_support: ClassVar[AttentionCGSupport] = AttentionCGSupport.UNIFORM_BATCH
++
++    @classmethod
++    def get_varlen_cudagraph_max_query_len(
++        cls, vllm_config: VllmConfig, kv_cache_spec: KVCacheSpec
++    ) -> int | None:
++        return max_decode_query_len(vllm_config)
++
++
++class DeepseekV41TritonSWAMetadataBuilder(DeepseekV41SparseSWAMetadataBuilder):
++    _cudagraph_support: ClassVar[AttentionCGSupport] = AttentionCGSupport.UNIFORM_BATCH
++
++    @classmethod
++    def get_varlen_cudagraph_max_query_len(
++        cls, vllm_config: VllmConfig, kv_cache_spec: KVCacheSpec
++    ) -> int | None:
++        return max_decode_query_len(vllm_config)
++
++    def build_tile_scheduler(self, num_decode_tokens: int):
++        # The shared metadata schema needs the keys, but Triton needs no plan.
++        return super().build_tile_scheduler(0)
++
++
++class DeepseekV41TritonSparseBackend(DeepseekV4SparseMLABackend):
++    @staticmethod
++    def get_name() -> str:
++        return "TRITON_MLA_SPARSE_DSV41"
++
++    @staticmethod
++    def get_builder_cls() -> type[DeepseekV41TritonMetadataBuilder]:
++        return DeepseekV41TritonMetadataBuilder
++
++    @classmethod
++    def supports_compute_capability(cls, capability: DeviceCapability) -> bool:
++        return capability == DeviceCapability(9, 0)
++
++
++class DeepseekV41TritonSWABackend(DeepseekSparseSWABackend):
++    @staticmethod
++    def get_builder_cls() -> type[DeepseekV41TritonSWAMetadataBuilder]:
++        return DeepseekV41TritonSWAMetadataBuilder
++
++
++class DeepseekV41TritonSparseAttention(DeepseekV4Attention):
++    """Independent prefill and decode paths with native query-head buffers."""
++
++    backend_cls = DeepseekV41TritonSparseBackend
++    swa_backend_cls = DeepseekV41TritonSWABackend
++
++    @classmethod
++    def validate_config(cls, vllm_config: VllmConfig) -> None:
++        if not current_platform.is_device_capability(90):
++            raise ValueError("TRITON_MLA_SPARSE_DSV41 requires SM90")
++        config = vllm_config.model_config.hf_text_config
++        tp_size = vllm_config.parallel_config.tensor_parallel_size
++        heads = config.num_attention_heads
++        if tp_size <= 0 or heads % tp_size or heads // tp_size not in (8, 16):
++            raise ValueError("TRITON_MLA_SPARSE_DSV41 requires 8 or 16 local heads")
++        if config.head_dim != 512 or config.qk_rope_head_dim != 64:
++            raise ValueError("TRITON_MLA_SPARSE_DSV41 requires 512D heads and 64D RoPE")
++        if vllm_config.model_config.dtype != torch.bfloat16:
++            raise ValueError("TRITON_MLA_SPARSE_DSV41 requires BF16 queries")
++        if vllm_config.cache_config.cache_dtype not in ("auto", "fp8", "fp8_ds_mla"):
++            raise ValueError("TRITON_MLA_SPARSE_DSV41 requires fp8_ds_mla KV cache")
++
++    def __init__(self, vllm_config: VllmConfig, *args, **kwargs) -> None:
++        super().__init__(vllm_config, *args, **kwargs)
++        self._einsum_recipe, self._tma_aligned_scales = compute_fp8_einsum_recipe(
++            self._o_proj_block_size
++        )
++        register_dsv41_o_proj_warmup(self)
++        from vllm.models.deepseek_v41.common.ops.cache_utils import (
++            _COMBINE_TOPK_SWA_INDICES_KERNEL,
++        )
++        from vllm.models.deepseek_v41.nvidia.ops.small_head_decode_warmup import (
++            register_small_head_decode_warmup,
++        )
++        from vllm.models.deepseek_v41.nvidia.triton_fewhead_sparse_prefill import (
++            _bf16_fewhead_sparse_fwd,
++        )
++
++        _COMBINE_TOPK_SWA_INDICES_KERNEL.register_warmup()
++        _bf16_fewhead_sparse_fwd.register_warmup()
++        register_small_head_decode_warmup(vllm_config, self.swa_cache_layer.block_size)
++        from vllm.models.deepseek_v41.nvidia.paired_decode import PairedDecode
++
++        self._paired_decode = PairedDecode(self, vllm_config)
++
++    @classmethod
++    def get_padded_num_q_heads(cls, num_heads: int) -> int:
++        if num_heads not in (8, 16):
++            raise ValueError("TRITON_MLA_SPARSE_DSV41 requires 8 or 16 local heads")
++        return num_heads
++
++    def _o_proj(self, attn_out: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
++        return dsv41_o_proj(self, attn_out, positions)
++
++    def forward_mqa(
++        self,
++        q: torch.Tensor,
++        kv: torch.Tensor,
++        positions: torch.Tensor,
++        output: torch.Tensor,
++    ) -> None:
++        assert output.shape == q.shape, (
++            f"output buffer shape {output.shape} must match q shape {q.shape}"
++        )
++        assert output.dtype == q.dtype, (
++            f"output buffer dtype {output.dtype} must match q dtype {q.dtype}"
++        )
++
++        # Get SWA and indexer metadata from forward context
++        forward_context = get_forward_context()
++        attn_metadata = forward_context.attn_metadata
++
++        if attn_metadata is None:
++            paired_decode = getattr(self, "_paired_decode", None)
++            if paired_decode is not None:
++                paired_decode.reserve()
++            # Warmup dummy run: no real metadata. Reserve the same bf16
++            # gather workspace _forward_prefill would; the dequantize / topk
++            # / sparse_fwd kernels are skipped this step.
++            swa_only = self.compress_ratio == 0
++            N = (
++                0
++                if swa_only
++                else (self.max_model_len + self.compress_ratio - 1)
++                // self.compress_ratio
++            )
++            M = N + self.window_size + self.max_num_batched_tokens
++            if swa_only:
++                top_k = 0
++            else:
++                assert self.topk_indices_buffer is not None
++                top_k = self.topk_indices_buffer.shape[-1]
++            combined_topk = round_up(top_k + self.window_size, 128)
++            current_workspace_manager().get_simultaneous(
++                ((self.PREFILL_CHUNK_SIZE, M, q.shape[-1]), torch.bfloat16),
++                ((self.max_num_batched_tokens, combined_topk), torch.int32),
++                ((self.max_num_batched_tokens,), torch.int32),
++            )
++            output.zero_()
++            return
++
++        assert isinstance(attn_metadata, dict)
++        # Compressed-cache metadata lives on the kv-source layer's prefix;
++        # consumers share that cache and its block table.
++        flashmla_metadata = cast(
++            DeepseekV4FlashMLAMetadata | None,
++            attn_metadata.get(self.compressed_cache_prefix)
++            if self.compressed_cache_prefix is not None
++            else None,
++        )
++        swa_metadata = cast(
++            "DeepseekSparseSWAMetadata | None",
++            attn_metadata.get(self.swa_cache_layer.prefix),
++        )
++        assert swa_metadata is not None
++
++        swa_only = self.compress_ratio == 0
++        # SWA-only layers (compress_ratio == 0) don't have their own KV cache
++        # allocation; consumers read the kv source's cache, which is bound on
++        # the source layer.
++        self_kv_cache = None if swa_only else self._compressed_kv_cache()
++        swa_kv_cache = self.swa_cache_layer.kv_cache
++
++        # Split prefill and decode
++        num_decodes = swa_metadata.num_decodes
++        num_prefills = swa_metadata.num_prefills
++        num_decode_tokens = swa_metadata.num_decode_tokens
++
++        if num_prefills > 0:
++            self._forward_prefill(
++                q=q[num_decode_tokens:],
++                positions=positions[num_decode_tokens:],
++                compressed_k_cache=self_kv_cache,
++                swa_k_cache=swa_kv_cache,
++                output=output[num_decode_tokens:],
++                attn_metadata=flashmla_metadata,
++                swa_metadata=swa_metadata,
++            )
++        if num_decodes > 0:
++            self._forward_decode(
++                q=q[:num_decode_tokens],
++                kv_cache=self_kv_cache,
++                swa_metadata=swa_metadata,
++                attn_metadata=flashmla_metadata,
++                swa_only=swa_only,
++                output=output[:num_decode_tokens],
++            )
++
++    def _forward_decode(
++        self,
++        q: torch.Tensor,
++        kv_cache: torch.Tensor | None,  # None for SWA-only layers
++        swa_metadata: "DeepseekSparseSWAMetadata",
++        attn_metadata: DeepseekV4FlashMLAMetadata | None,
++        swa_only: bool,
++        output: torch.Tensor,
++    ) -> None:
++        num_decodes = swa_metadata.num_decodes
++        num_decode_tokens = swa_metadata.num_decode_tokens
++
++        topk_indices = None
++        topk_lens = None
++        if not swa_only:
++            # Local indices filled by the index-source layer's indexer.
++            assert attn_metadata is not None
++            assert swa_metadata.is_valid_token is not None
++            assert self.topk_indices_buffer is not None
++            block_size = attn_metadata.block_size // self.compress_ratio
++            is_valid = swa_metadata.is_valid_token[:num_decode_tokens]
++            global_indices, topk_lens = compute_global_topk_indices_and_lens(
++                self.topk_indices_buffer[:num_decode_tokens],
++                swa_metadata.token_to_req_indices,
++                attn_metadata.block_table[:num_decodes],
++                block_size,
++                is_valid,
++            )
++            topk_indices = global_indices.view(num_decode_tokens, 1, -1)
++
++        swa_indices = swa_metadata.decode_swa_indices
++        swa_lens = swa_metadata.decode_swa_lens
++
++        paired_decode = getattr(self, "_paired_decode", None)
++        if paired_decode is not None and paired_decode.run(
++            get_forward_context(),
++            q,
++            self.swa_cache_layer.kv_cache,
++            swa_indices,
++            swa_lens,
++            kv_cache if not swa_only else None,
++            topk_indices,
++            topk_lens,
++            self.attn_sink,
++            self.scale,
++            output,
++            swa_metadata.token_to_req_indices,
++            swa_metadata.is_valid_token,
++        ):
++            return
++
++        _run_decode(
++            q=q,
++            swa_cache=self.swa_cache_layer.kv_cache,
++            swa_indices=swa_indices,
++            swa_lens=swa_lens,
++            extra_cache=kv_cache if not swa_only else None,
++            extra_indices=topk_indices,
++            extra_lens=topk_lens,
++            attn_sink=self.attn_sink,
++            sm_scale=self.scale,
++            out=output,
++            num_heads=self.n_local_heads,
++        )
++
++    def _forward_prefill(
++        self,
++        q: torch.Tensor,
++        positions: torch.Tensor,
++        compressed_k_cache: torch.Tensor | None,  # None for SWA-only layers
++        swa_k_cache: torch.Tensor,
++        output: torch.Tensor,
++        attn_metadata: DeepseekV4FlashMLAMetadata | None,
++        swa_metadata: "DeepseekSparseSWAMetadata",
++    ) -> None:
++        swa_only = self.compress_ratio == 0
++
++        num_prefill_tokens = swa_metadata.num_prefill_tokens
++        num_decodes = swa_metadata.num_decodes
++        num_decode_tokens = swa_metadata.num_decode_tokens
++
++        # Use pre-computed prefill metadata.
++        seq_lens = swa_metadata.prefill_seq_lens
++        gather_lens = swa_metadata.prefill_gather_lens
++        assert seq_lens is not None
++        assert gather_lens is not None
++
++        # Derive prefill-local token offsets from the full query_start_loc_cpu.
++        query_start_loc_cpu = swa_metadata.query_start_loc_cpu
++        query_start_loc = swa_metadata.query_start_loc
++        assert query_start_loc_cpu is not None
++        assert query_start_loc is not None
++        prefill_token_base = query_start_loc_cpu[num_decodes]
++
++        # Local indices filled by the index source; SWA-only layers pass
++        # top_k=0 and never read them.
++        assert self.topk_indices_buffer is not None
++        topk_indices = self.topk_indices_buffer[num_decode_tokens:]
++        topk_indices = topk_indices[:num_prefill_tokens]
++        top_k = 0 if swa_only else topk_indices.shape[-1]
++        chunk_plan = swa_metadata.get_prefill_chunk_plan(
++            compress_ratio=self.compress_ratio,
++            prefill_chunk_size=self.PREFILL_CHUNK_SIZE,
++            # v4.1: every cr>0 layer (including cr==1) gathers a full-length
++            # compressed region; only cr==0 layers are SWA-only.
++            has_compressed=not swa_only,
++        )
++        assert chunk_plan, "prefill chunk plan must be non-empty when num_prefills > 0"
++        workspace_manager = current_workspace_manager()
++        combined_topk = round_up(top_k + self.window_size, 128)
++        for chunk_start, chunk_end, chunk_N, chunk_M in chunk_plan:
++            chunk_size = chunk_end - chunk_start
++            workspace = workspace_manager.get_simultaneous(
++                ((chunk_size, chunk_M, q.shape[-1]), torch.bfloat16),
++                ((self.max_num_batched_tokens, combined_topk), torch.int32),
++                ((self.max_num_batched_tokens,), torch.int32),
++            )
++            kv, combined_indices_out, combined_lens_out = workspace
++            if not swa_only:
++                # Gather compressed KV
++                assert attn_metadata is not None
++                block_table = attn_metadata.block_table[num_decodes:]
++                dequantize_and_gather_k_cache(
++                    kv[:chunk_size],
++                    compressed_k_cache,
++                    seq_lens=seq_lens[chunk_start:chunk_end] // self.compress_ratio,
++                    gather_lens=None,
++                    block_table=block_table[chunk_start:chunk_end],
++                    block_size=attn_metadata.block_size // self.compress_ratio,
++                    offset=0,
++                )
++
++            # Gather SWA KV
++            swa_block_table = swa_metadata.block_table[num_decodes:]
++            dequantize_and_gather_k_cache(
++                kv[:chunk_size],
++                swa_k_cache,
++                seq_lens=seq_lens[chunk_start:chunk_end],
++                gather_lens=gather_lens[chunk_start:chunk_end],
++                block_table=swa_block_table[chunk_start:chunk_end],
++                block_size=swa_metadata.block_size,
++                offset=chunk_N,
++            )
++
++            # Combine the topk indices and SWA indices for gathered KV cache
++            query_start = (
++                query_start_loc_cpu[num_decodes + chunk_start] - prefill_token_base
++            )
++            query_end = (
++                query_start_loc_cpu[num_decodes + chunk_end] - prefill_token_base
++            )
++            combined_indices_out = combined_indices_out[: query_end - query_start]
++            combined_lens_out = combined_lens_out[: query_end - query_start]
++
++            combined_indices, combined_lens = combine_topk_swa_indices(
++                topk_indices[query_start:query_end],
++                query_start_loc[
++                    num_decodes + chunk_start : num_decodes + chunk_end + 1
++                ],
++                seq_lens[chunk_start:chunk_end],
++                gather_lens[chunk_start:chunk_end],
++                self.window_size,
++                self.compress_ratio,
++                top_k,
++                chunk_M,
++                chunk_N,
++                out=(combined_indices_out, combined_lens_out),
++            )
++            run_fewhead_sparse_prefill(
++                q[query_start:query_end],
++                kv.view(-1, 1, q.shape[-1]),
++                combined_indices,
++                self.scale,
++                attn_sink=self.attn_sink,
++                topk_length=combined_lens,
++                out=output[query_start:query_end],
++                n_local_heads=self.n_local_heads,
++            )
+diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py
+index 32e2fabeb567..75e10a6925aa 100644
+--- a/vllm/v1/attention/backends/registry.py
++++ b/vllm/v1/attention/backends/registry.py
+@@ -110,6 +110,9 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
+     FLASHMLA_SPARSE_DSV41 = (
+         "vllm.models.deepseek_v41.sparse_mla.DeepseekV4FlashMLABackend"
+     )
++    TRITON_MLA_SPARSE_DSV41 = (
++        "vllm.models.deepseek_v41.nvidia.triton_sparse.DeepseekV41TritonSparseBackend"
++    )
+     FLASHINFER_MLA_SPARSE_DSV41 = (
+         "vllm.models.deepseek_v41.nvidia.flashinfer_sparse."
+         "DeepseekV4FlashInferMLASparseBackend"

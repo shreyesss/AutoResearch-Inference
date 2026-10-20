@@ -1,0 +1,121 @@
+FILE vllm/model_executor/kernels/attention/dsa/sparse_mqa_logits.py:25-54; SHA256 3a017985b8ef1bb46d250ce43edb5ed4f647aa80c95e08d2fad2d5092ba705fb
+
+from vllm.model_executor.layers.indexer_topk import (
+    deep_select_topk,
+    get_deep_select_stride_requirement,
+)
+from vllm.platforms import current_platform
+from vllm.triton_utils import tl, triton
+from vllm.utils.deep_gemm import (
+    fp8_fp4_paged_sparse_mqa_logits,
+    fp8_fp4_sparse_mqa_logits,
+    get_paged_sparse_mqa_logits_metadata,
+    get_sparse_mqa_logits_metadata,
+)
+
+# Sparse-block sizes (in tokens) supported by the DeepGEMM kernels.
+SPARSE_BLOCK_KV_CHOICES = (16, 8)
+
+
+def has_deep_select() -> bool:
+    """Whether the DeepSelect top-k extension is built and this GPU runs it."""
+    return (
+        importlib.util.find_spec("vllm._deepselect_C") is not None
+        and current_platform.is_cuda()
+        and current_platform.is_device_capability_family(100)
+    )
+
+
+def check_deep_select_layout(num_sparse_cols: int, topk_tokens: int) -> None:
+    """Raise unless DeepSelect accepts the sparse logits layout.
+
+
+FILE vllm/v1/attention/backends/mla/sparse_swa.py:870-910; SHA256 3585df3b635ac26ce6820e202bfd4e619eaa7142c84929bd445dd12e2090aafb
+        """Allocate one empty ``FlashMLASchedMeta`` per present DeepseekV4 layer type.
+
+        Returned instances have ``tile_scheduler_metadata`` / ``num_splits``
+        set to ``None``; the FlashMLA C++ decode path will allocate them and
+        run the tile-scheduler planner on the first ``flash_mla_with_kvcache``
+        call of each type. Subsequent same-type calls reuse the plan because
+        the tensors (and ``have_initialized``) are populated on the struct.
+
+        Returns all-``None`` when there are no decode tokens this step, so
+        ``_forward_decode`` sees a clean sentinel.
+        """
+        out: dict[str, FlashMLASchedMeta | None] = {
+            _LAYER_TYPE_SWAONLY: None,
+            _LAYER_TYPE_C4A: None,
+            _LAYER_TYPE_C128A: None,
+            _LAYER_TYPE_C1A: None,
+            _LAYER_TYPE_C2A: None,
+        }
+        if (
+            num_decode_tokens == 0
+            or current_platform.is_rocm()
+            or current_platform.is_xpu()
+            or current_platform.is_device_capability_family(120)
+        ):
+            return out
+        for layer_type in self._layer_types:
+            # get_mla_metadata() is the official FlashMLA entry point that
+            # returns a fresh empty FlashMLASchedMeta; using it keeps this
+            # call site aligned with the rest of the vLLM FlashMLA backends
+            # that already go through the same stub.
+            out[layer_type] = get_mla_metadata()[0]
+        return out
+
+    def _build_deepseek_v4_metadata(
+        self,
+        num_decodes: int,
+        num_prefills: int,
+        seq_lens: torch.Tensor,
+        seq_lens_cpu: torch.Tensor | None,
+        query_start_loc: torch.Tensor,
+        query_start_loc_cpu: torch.Tensor,
+
+FILE vllm/model_executor/layers/sparse_attn_indexer.py:1-45; SHA256 f6073f2120548a36985d8b096512a19534fad6ee1b13683ce4fb5200d12e3d16
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+"""Custom Sparse Attention Indexer layers."""
+
+import torch
+import torch.distributed as dist
+
+import vllm.envs as envs
+from vllm import _custom_ops as ops
+from vllm._aiter_ops import rocm_aiter_ops
+from vllm.compilation.breakable_cudagraph import eager_break_during_capture
+from vllm.config import CUDAGraphMode, get_current_vllm_config
+from vllm.distributed import get_dcp_group, get_pcp_group
+from vllm.forward_context import get_forward_context
+from vllm.logger import init_logger
+from vllm.model_executor.custom_op import CustomOp
+from vllm.model_executor.kernels.attention.dsa.candidate_blocks import (
+    apply_candidate_mask as _apply_candidate_mask,
+)
+from vllm.model_executor.kernels.attention.dsa.candidate_blocks import (
+    select_candidate_blocks as _select_candidate_blocks,
+)
+from vllm.model_executor.layers.indexer_topk import (
+    RADIX_TOPK_WORKSPACE_SIZE,
+    get_indexer_topk,
+)
+from vllm.model_executor.layers.quantization.utils.quant_utils import (
+    get_fp8_min_max,
+)
+from vllm.platforms import current_platform
+from vllm.triton_utils import tl, triton
+from vllm.utils.deep_gemm import (
+    fp8_fp4_mqa_logits,
+    fp8_fp4_paged_mqa_logits,
+    has_deep_gemm,
+)
+from vllm.utils.import_utils import has_cutedsl
+from vllm.utils.torch_utils import (
+    LayerNameType,
+    _encode_layer_name,
+    _resolve_layer_name,
+    direct_register_custom_op,
+)
+from vllm.v1.attention.backends.mla.indexer import (
+    DeepseekV32IndexerMetadata,

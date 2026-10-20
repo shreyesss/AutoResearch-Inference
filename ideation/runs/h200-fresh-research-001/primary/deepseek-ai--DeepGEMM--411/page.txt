@@ -1,0 +1,881 @@
+Conversation
+huangzhilin-hzl
+commented
+Aug 20, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+co-author：
+@guzekai01
+Inspired by the SM90 FP8×FP8 MegaMoE implementation introduced in
+deepseek-ai/DeepGEMM#383
+and the SM90 FP8×NVFP4 work in
+AichenF/DeepGEMM@megamoe_nvfp4_dev_m
+, this PR adds an optimized FP8×MXFP4 MegaMoE backend for SM90 GPUs. Keeping routed-expert weights in MXFP4 enables native reuse of Hugging Face MXFP4 MoE checkpoints, while substantially reducing GPU memory pressure by avoiding a persistent FP8 weight expansion.
+Summary
+Unified SM90 persistent execution.
+Unlike
+[SM90] Add FP8 MegaMoE support
+#383
+, this implementation fuses dispatch, routed/shared L1 and L2, and combine into one persistent kernel. It adapts the SM100 ring-buffer and wave-interleaved scheduler to a cluster-free Hopper design using register-resident WGMMA, one CTA per task, and two resident CTAs per SM.
+Humming-inspired MXFP4×FP8 compute path.
+Routed weights remain packed MXFP4 in global memory. Model-load preprocessing rebases the K32 UE8M0 exponents into bounded relative scales plus one FP32 secondary scale per expert, following the fused MXFP4×FP8 approach used by Humming. During execution, packed E2M1 tiles are loaded into compact shared-memory staging, decoded and expanded on the fly into E4M3 FP8 tiles, and then consumed by Hopper WGMMA. This avoids materializing a persistent FP8 copy of the routed weights.
+Benchmark Results
+The benchmark follows the H20 workload shapes and timing methodology from
+#383
+. Results were collected on
+8× NVIDIA H20
+with
+fast_math=1
+and cold-L2 measurements.
+vs PR #383
+is calculated as
+PR #383 / FP8×MXFP4 - 1
+;
+vs DeepEP
+is calculated as
+DeepEP / FP8×MXFP4 - 1
+. Positive values indicate that this implementation is faster.
+H20 High Throughput
+Model
+M
+FP8×MXFP4 (us)
+PR
+#383
+FP8xFP8 (us)
+vs PR
+#383
+DeepEP HT (us)
+vs DeepEP
+Flash
+8
+272.2
+273.1
++0.3%
+566.7
++108.2%
+Flash
+16
+311.1
+304.4
+-2.1%
+619.2
++99.0%
+Flash
+32
+323.1
+302.0
+-6.5%
+618.6
++91.4%
+Flash
+64
+333.9
+340.7
++2.0%
+622.6
++86.5%
+Flash
+128
+408.5
+414.4
++1.4%
+638.5
++56.3%
+Flash
+256
+471.7
+569.5
++20.7%
+688.7
++46.0%
+Flash
+512
+881.3
+922.0
++4.6%
+1057.3
++20.0%
+Flash
+1024
+1449.0
+1516.6
++4.7%
+1983.4
++36.9%
+Flash
+2048
+2665.0
+2735.1
++2.6%
+3419.5
++28.3%
+Flash
+4096
+5005.0
+5116.0
++2.2%
+6087.7
++21.6%
+Flash
+8192
+9741.0
+9749.0
++0.1%
+11779.2
++20.9%
+Pro
+8
+700.2
+768.0
++9.7%
+1349.2
++92.7%
+Pro
+16
+913.4
+950.3
++4.0%
+1585.8
++73.6%
+Pro
+32
+985.2
+1026.3
++4.2%
+1770.2
++79.7%
+Pro
+64
+1013.0
+1059.9
++4.6%
+1787.6
++76.5%
+Pro
+128
+1178.5
+1201.0
++1.9%
+1803.9
++53.1%
+Pro
+256
+1593.0
+1639.9
++2.9%
+1857.7
++16.6%
+Pro
+512
+2474.0
+2599.0
++5.1%
+2898.8
++17.2%
+Pro
+1024
+3852.0
+4036.0
++4.8%
+5412.7
++40.5%
+Pro
+2048
+6865.0
+6986.0
++1.8%
+8067.9
++17.5%
+Pro
+4096
+12832.0
+12932.0
++0.8%
+14614.0
++13.9%
+Pro
+8192
+24912.0
+24777.0
+-0.5%
+28184.2
++13.1%
+H20 Low Latency
+Model
+M
+FP8×MXFP4 (us)
+PR
+#383
+FP8xFP8 (us)
+vs PR
+#383
+DeepEP LL (us)
+vs DeepEP
+Flash
+8
+272.2
+273.1
++0.3%
+479.7
++76.2%
+Flash
+16
+311.1
+304.4
+-2.1%
+528.4
++69.9%
+Flash
+32
+323.1
+302.0
+-6.5%
+531.8
++64.6%
+Flash
+64
+333.9
+340.7
++2.0%
+552.2
++65.4%
+Flash
+128
+408.5
+414.4
++1.4%
+552.8
++35.3%
+Pro
+8
+700.2
+768.0
++9.7%
+1265.6
++80.8%
+Pro
+16
+913.4
+950.3
++4.0%
+1493.3
++63.5%
+Pro
+32
+985.2
+1026.3
++4.2%
+1667.2
++69.2%
+Pro
+64
+1013.0
+1059.9
++4.6%
+1683.8
++66.2%
+Pro
+128
+1178.5
+1201.0
++1.9%
+1714.1
++45.4%
+TODO
+Support additional MoE architectures, including K3-style latent MoE.
+Continue fine-grained kernel performance tuning and comprehensive numerical-accuracy validation.
+Integrate with inference frameworks such as SGLang to evaluate end-to-end performance and model accuracy.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+🚀
+1
+guzekai01 reacted with rocket emoji
+All reactions
+🚀
+1 reaction
+feat(sm90): add FP8 x MXFP4 MegaMoE support
+ec72c60
+ds-review-bot
+reviewed
+Aug 20, 2026
+View reviewed changes
+Comment thread
+csrc/jit_kernels/impls/sm90_fp8_mega_moe.hpp
+Outdated
+Comment on lines
++107
+to
++110
+const uint32_t max_swap_ab_tokens =
+args.num_tokens <= 8 ? 8 :
+args.num_tokens <= 16 ? 16 :
+args.num_tokens <= 32 ? 32 : 64;
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴
+critical
+: 按跨 rank 接收量设置 swap-AB 上界:
+args.num_tokens
+只是当前 rank 的 token 数，但一个本地专家可接收所有 rank 的路由。例如两个 rank 各有 8 个 token 且都路由到同一专家时，
+valid_m
+为 16，而这里生成的上界仍为 8；
+kSwapABTokenChunks
+随后只处理前 8 行，导致其余输出缺失或使用陈旧数据。该上界至少应覆盖完整的 M64 专家块，而不能由本地 token 数决定。
+🤖 v6
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/jit_kernels/impls/sm90_fp8_mega_moe.hpp
+Comment on lines
++129
+to
++131
+const bool sparse_dispatch_completion =
+args.hidden == 4096 and
+(args.num_tokens == 32 or args.num_tokens == 1024);
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴
+critical
+: 确保所有 rank 使用相同的 dispatch 完成协议: 当各 rank 的本地 token 数不同时，例如一个 rank 为 32、另一个为 64，这个条件会让前者使用 sparse 协议而后者使用普通协议。Sparse 源 rank 不执行远程
+expert_recv_count_sum
+的
+atomic_add_sys
+，但普通接收 rank 仍会等待来自全部 rank 的高位完成计数，因此会永久轮询并最终超时。该优化必须基于所有 rank 一致的条件，或统一使用同一种协议。
+🤖 v6
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/jit_kernels/impls/sm90_fp8_mega_moe.hpp
+Outdated
+args.num_shared_experts == 0 and
+((args.hidden == 4096 and args.num_tokens <= 128) or
+(args.hidden == 7168 and args.num_tokens <= 128));
+const uint32_t max_swap_ab_tokens =
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴
+critical
+: 疑似多 rank 正确性 bug：
+max_swap_ab_tokens
+仅按本 rank 的
+args.num_tokens
+选 8/16/32/64 桶，且
+small_m_swap_ab
+无 rank 数条件。但一个 routed expert 单个 M-block 的 valid_m 上界是 min(全局路由到该 expert 的 token 数, BLOCK_M=64)，多 rank 下可达 num_ranks×num_tokens。kernel 中 mainloop 按运行时 valid_m 选 N8/16/32/64（run_swap_ab<64> 无条件可达，sm90_fp8_mega_moe.cuh:2631-2640），而 epilogue 物化循环以编译期 kSwapABTokenChunks=kMaxSwapABTokens/8 为上界（sm90_fp8_mega_moe.cuh:2958/3099/3133/3423），仅用
+chunk < num_swap_token_chunks
+做运行时下界裁剪。因此 num_ranks>1 且 num_tokens≤32 时，若某 expert 收到超过 kMaxSwapABTokens 个 token（如 8 rank × M=8 × topk6 随机路由并不罕见），超出部分不写 L2 acts/SF，combine 结果静默错误。现有测试覆盖不到：production.flash_m8/16/32 用 forced ring-wrap 轮转路由（每 expert ≤2 token），随机路由场景均为 hidden=512（swap-AB 关闭）。建议：桶按 min(num_tokens*num_ranks, 64) 选取，或 valid_m>kMaxSwapABTokens 时回退常规路径，至少加 DG_TRAP_ONLY_DEVICE_ASSERT(valid_m<=kMaxSwapABTokens) 并补多 rank 热点路由测试。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_gemm/mega/__init__.py
+Outdated
+}
+def fp8_mega_moe(y: torch.Tensor,
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 跨仓契约冲突（vs
+#383
+）：本 MR 的
+fp8_mega_moe(y, l1(3元组MXFP4), l2, sym_buffer, shared_l1, shared_l2, stats, recipe=(1,1,32), ...)
+与
+#383
+的
+fp8_mega_moe(y, l1(2元组FP8), l2, sym_buffer, stats, recipe=(128,128,128), ...)
+同名不兼容（位置参数与默认 recipe 均不同）；
+SM90SymmBuffer
+在
+#383
+中是 8 视图 SymmBuffer 别名，本 MR 是新的 12 视图类（含 shared expert 视图与 mma_type 字段）；
+get_symm_buffer_for_sm90_mega_moe
+参数为 mma_type/num_shared_experts vs
+#383
+的 use_fp8_dispatch。两个 PR 落在相同公共名字上，合入顺序会改变公共 API 语义。本 MR 的 _SM90_MEGA_MOE_OP_NAMES/validator 分发表已为 fp8xfp8 后端预留扩展点（方向正确），且 _C 层绑定名 fp8_mxfp4_mega_moe 与
+#383
+的 _C.fp8_mega_moe 不冲突；建议在 PR 描述中明确与
+#383
+的合并策略（谁先合入、另一方如何以 mma_type 分支并入），避免 fp8_mega_moe/SM90SymmBuffer 语义随合入顺序漂移。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/apis/sm90_mega.hpp
+}
+static std::tuple<int64_t, SM90MegaMoEBufferSlicer>
+get_symm_buffer_size_for_sm90_mega_moe(
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 跨仓契约冲突（vs
+#383
+）：pybind 符号
+_C.get_symm_buffer_size_for_sm90_mega_moe
+在
+#383
+中为 8 参（..., use_fp8_dispatch: bool, activation），返回 8 视图 slicer；本 MR 为 9 参（..., mma_type: str, activation, num_shared_experts），返回 12 视图 slicer。同时整个文件路径 csrc/apis/sm90_mega.hpp 以及 csrc/jit_kernels/{heuristics,impls}/sm90_mega_moe.hpp / sm90_fp8_mega_moe.hpp、deep_gemm/include/deep_gemm/impls/sm90_fp8_mega_moe.cuh、layout/sm90_mega_moe.cuh、tests/{test,bench}_mega_moe_sm90.py 与
+#383
+完全同路径不同内容，二者合并时是全文件级冲突。另注意本 MR 的 sym_buffer 字节数断言是精确相等（==，因 live-ring 偏移依赖 num_sms/H/I/shared 计数），而
+#383
+用 >=——这是有意的更严格契约，但意味着 set_num_sms 变更后旧 buffer 会直接断言失败，建议在文档/报错信息中说明。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+2 hidden conversations
+Load more…
+Comment thread
+csrc/jit_kernels/impls/sm90_fp8_mega_moe.hpp
+constexpr int kL2CDSwizzleMinTokens = 1024;
+const bool swizzle_l2_cd =
+args.num_tokens >= kL2CDSwizzleMinTokens;
+const bool sparse_dispatch_completion =
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: 多个编译期特化按精确 num_tokens 魔数分桶：use_prmt_mxfp4_exponent（hidden 7168 时 num_tokens ∈ {8,16,32,64}）、sparse_dispatch_completion（hidden 4096 时 num_tokens ∈ {32,1024}）、packed_bf16_swap_epilogue（num_tokens ∈ {16,32}）、bank_permute（含 num_tokens==8/32/64/128 或 >=512）。功能上各分支都有实现、无正确性问题，但：(a) 解码类真实负载中 num_tokens 逐值变化，会为每个新 M 触发一次 JIT 编译（首 token 延迟抖动）；(b) 这些桶是 H20 调优结果，与其他 SM90 器件不一定匹配。建议注释注明调优平台并考虑将 ==8/==16 等改为区间条件。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/jit/kernel_runtime.hpp
+// A caller may disable PDL for grid-barrier or residency constraints.
+// The global runtime switch can only disable PDL further, never force it on.
+launch_args.enable_pdl =
+launch_args.enable_pdl and device_runtime->get_pdl();
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: 共享基础设施语义变化：enable_pdl 从"运行时全局值无条件覆盖"改为
+launch_args.enable_pdl and device_runtime->get_pdl()
+（全局开关只能进一步关闭、不能强制打开）。现有调用方 LaunchArgs 默认 enable_pdl=true，行为无回归；对本 MR 的 cooperative launch（PDL 与 cooperative 不兼容，LaunchArgs 传 false）是必需的。建议在提交信息/PR 描述中显式说明这一基础设施行为变更，而不是只留在注释里。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+tests/test_mega_moe_sm90.py
+Outdated
+torch.cuda.synchronize()
+def _make_forced_ring_wrap_topk_idx(
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 测试覆盖缺口：_make_forced_ring_wrap_topk_idx 的轮转路由使每个 expert 全局最多收到约 1-2 个 token，production.flash_m8/16/32 场景（hidden 4096，swap-AB 开启）因此永远不会出现单 expert token 数超过 kMaxSwapABTokens 桶的情况；而使用随机 torch.topk 路由的场景全部为 hidden=512（swap-AB 关闭）。建议增加一个多 rank、hidden∈{4096,7168}、num_tokens≤32、路由刻意集中到少数 expert（每 expert > num_tokens 个全局 token）的场景，以覆盖 swap-AB 桶溢出路径（见 sm90_fp8_mega_moe.hpp:107 的 critical 评论）。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_gemm/mega/mxfp4.py
+weight.size(0), half_rows // 8, 2, 8, weight.size(2))
+num_k_groups = raw_sf.size(2)
+num_rows_per_chunk = 1024
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: _process_mxfp4_e8m0 的 E2M1 requant 走 Python 逐 expert / 1024 行分块 + 1536 项 LUT 索引，对大模型（E=32 local、N=4096、K/2=2048）单卡加载耗时可能达数十秒量级。作为 model-load 一次性开销可接受，但若后续接入 SGLang 等框架建议评估向量化整 expert 维度或缓存 processed 权重（MXFP4ProcessedWeights 已实现
+getnewargs
+支持 pickle，方向正确）。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_gemm/mega/__init__.py
+Outdated
+}
+def fp8_mega_moe(y: torch.Tensor,
+ds-review-bot
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+: 本 MR 的
+fp8_mega_moe
+与关联
+#383
+中同名入口的签名和语义不兼容：
+#383
+为
+fp8_mega_moe(y, l1_weights=(fp8, fp32_scale), l2_weights=(fp8, fp32_scale), sym_buffer, cumulative_local_expert_recv_stats=None, recipe=(128,128,128), ...)
+并调用
+_C.fp8_mega_moe
+；本 MR 改为
+fp8_mega_moe(y, l1_weights 三元组, l2_weights 三元组, sym_buffer, shared_l1_weights=None, shared_l2_weights=None, cumulative_local_expert_recv_stats=None, recipe=(1,1,32), ...)
+并调用
+_C.fp8_mxfp4_mega_moe
+。同名公共 API 的参数位置、权重格式和 C++ binding 名均不同，且
+get_symm_buffer_for_sm90_mega_moe
+的
+use_fp8_dispatch
+参数在本 MR 中也被替换为
+mma_type
+/
+num_shared_experts
+。若与
+#383
+合并或让调用方在两套 API 间迁移，会互相覆盖或直接报 TypeError/KeyError。建议与
+#383
+统一命名（例如本后端改为
+fp8_mxfp4_mega_moe
+），或在新入口中提供兼容旧签名/旧 buffer 类型的迁移告警。
+🤖 v4p
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Aug 20, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+分布式路由集中时会产生错误输出，且各 rank token 数不一致时可能因完成协议不匹配而死锁。这两种输入均未被公开接口禁止。
+v5
+本 MR 为 SM90 (Hopper) 新增 FP8×MXFP4 MegaMoE 持久化内核（dispatch + routed/shared L1/L2 + combine 融合、单 CTA/任务、每 SM 两常驻 CTA、cooperative launch）。整体工程质量很高，以下契约点经逐位核对无误：(a) Python 预处理与 device 解码的数值契约自洽——sign 重排 [s0,s4,s1,s5,s2,s6,s3,s7] 与 PRMT 解码逐位一致；解码查表产生 m·2^(off−6) 的 E4M3（off∈[1,12] 避免 subnormal、最大字节 0x7C 无 NaN）；secondary=2^(base−128) 配合 kernel 侧 ×64 补偿（含防上/下溢的补偿顺序切换）恰好还原 UE8M0 的 2^(code−127)，与测试参考实现 secondary*exp2(relative_sf) 一致；(b) host SMEM 记账（heuristics/sm90_mega_moe.hpp）与 kernel SMEM 布局及 wrapper 追加的调度 barrier/TaskInfo 字节数逐项吻合；(c) Python/C++ 的 hidden 合法性规则（512/1024）与 coalesced-scale 阈值 8192 两侧一致；kPackedFP4==torch::kInt8 与预处理输出 int8 一致；(d) JIT 生成模板 21 个占位与 kernel 20 个模板参 + sparse 宏、launch 实参顺序与 kernel 参数表、pybind 16 参签名均逐位对应；(e) cooperative launch + 精确 occupancy 预检（两常驻 CTA 硬门）+ PDL 传 false 的组合正确；handle.hpp 中 attrs 改为 static thread_local 顺带修复了原有跨 host 线程竞态。主要待作者行动的问题：(1) 疑似多 rank 正确性 bug——swap-AB 的 kMaxSwapABTokens 桶只按本 rank num_tokens 选取（8/16/32/64），多 rank 下单个 expert M-block 的 valid_m 可达 64，epilogue 物化循环以编译期 kSwapABTokenChunks 为上界，超出桶的 token 会被静默丢弃（num_ranks>1 且 num_tokens≤32 时可触发；现有测试的 forced ring-wrap 路由每 expert ≤2 token、随机路由场景 hidden=512 关闭 swap-AB，均覆盖不到）；(2) 跨仓契约：与
+#383
+在相同文件路径与相同公共符号上（deep_gemm.fp8_mega_moe 签名与默认 recipe、SM90SymmBuffer 8 视图别名 vs 12 视图新类、get_symm_buffer_for_sm90_mega_moe 参数、_C.get_symm_buffer_size_for_sm90_mega_moe pybind 签名）互不兼容，合入顺序会改变公共 API 语义，需在 PR 层面明确合并策略（本 MR 的 mma_type 分发表已为 fp8xfp8 后端预留扩展点，方向正确；_C 绑定名 fp8_mxfp4_mega_moe 与
+#383
+的 _C.fp8_mega_moe 无冲突；get_token_alignment 双方均为 128，一致）；(3) 为
+#383
+风格代码加的 layout::Workspace 兼容 shim 本 MR 自身未使用且不完整（缺 get_l2_arrival_mask_ptr、字节布局不同），无法真正让
+#383
+源码工作。次要问题：_process_mxfp4_e8m0 对 delta≥128 直接拒绝（LUT 对 delta≥6 本就 flush 为 0）；JIT 按精确 num_tokens 魔数分桶与 H20 强绑定且解码负载会产生较多 JIT 变体；kernel_runtime 的 PDL 语义从"全局覆盖"改为"只能进一步关闭"属共享基础设施行为变化（现有调用方无回归、对 cooperative kernel 必需，建议显式说明）。建议解决问题 (1) 并明确与
+#383
+的合并策略后合入。
+v4p
+该 MR 为 SM90/Hopper 增加 FP8 激活 × MXFP4 权重的 MegaMoE 后端：采用统一 persistent kernel 融合 dispatch、routed/shared L1/L2 与 combine，并在共享内存中即时把打包 MXFP4 解码为 FP8 供 WGMMA 使用，避免常驻 FP8 权重扩展。整体实现完整，主机/设备 smem 布局、TMA 描述符、调度器改造与 Python 预处理契约基本自洽，并配套了 CPU/GPU 测试；但与关联
+#383
+的同名 Python 公共 API 存在签名与语义冲突，若两个 MR 需要共存或演进需统一。
+Files reviewed
+: 17
+配对 MR checkout
+: 1
+参照仓库 checkout
+: 1
+Issues found
+: 🔴 3 critical | 🟡 5 warning | 🔵 4 suggestion
+Inline comments posted
+: 12
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+fix(sm90): harden cross-rank MegaMoE paths
+…
+f026a32
+Squash the latest non-documentation changes from the auto branch: cross-rank-safe swap bounds, Flash M8/M16 specializations, distributed tail diagnostics, and focused coverage.
+huangzhilin-hzl
+force-pushed
+the
+molou/sm90_humming_mxfp4afp8_megamoe_dev
+branch
+    from
+093f1ab
+to
+f48bda5
+Compare
+August 24, 2026 04:15
+perf(sm90): integrate latest MXFP4 MegaMoE optimizations
+…
+5d32216
+Squash the current non-documentation delta from the auto-optimization branch on top of the latest development branch.
+
+This integrates the processed-MXFP4 runtime updates, accepted decode/scale/epilogue changes, workload-gated packed-FP16 WGMMA accumulation, and refreshed benchmark and correctness coverage. The packed path is selected from routed M64xN128xK128 macro-tile work rather than model names.
+
+Preliminary same-source H20 screening improves Flash M1024+ by 1.3-2.2% and Pro M512+ by 0.6-1.6%; the work gate excludes the regressing Flash M256/M512 and Pro M256 cases. Documentation and README changes are intentionally excluded.
+huangzhilin-hzl
+force-pushed
+the
+molou/sm90_humming_mxfp4afp8_megamoe_dev
+branch
+    from
+f48bda5
+to
+5d32216
+Compare
+August 24, 2026 06:28
+zkyue
+mentioned this pull request
+Sep 13, 2026
+Add a fused SM90 FP8 MegaMoE: one kernel, a lag-ordered schedule and a ring activation pool
+#440
+Open
+AIExplorer7
+mentioned this pull request
+Oct 14, 2026
+Add optimized fused FP8 x MXFP4 MegaMoE for SM90
+#473
+Open
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

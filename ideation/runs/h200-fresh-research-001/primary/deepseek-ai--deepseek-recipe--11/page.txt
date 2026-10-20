@@ -1,0 +1,122 @@
+Conversation
+PerryLink
+commented
+Sep 14, 2026
+Copy link
+Copy Markdown
+fix(v41): encode user content as plain BPE instead of matching control-token literals
+When user content contains a literal such as
+<｜User｜>
+, the renderer
+concatenates it with the template control tokens and encodes the whole string
+in one pass, so the literal matches the corresponding AddedToken and is
+smuggled into the prompt as a single control token. Token counts then diverge
+from the official API:
+<｜User｜>
+counts as 5 in the recipe while the API
+reports a 5-token increase, because the API BPE-encodes the literal as 5
+ordinary tokens (
+[30, 28217, 6756, 28217, 32]
+).
+This PR renders the prompt as template/content segments:
+template segments (control tokens such as
+<｜User｜>
+,
+<think>
+,
+<tool_result>
+wrappers, tool-call markup) keep added-token recognition;
+message content (system / user / assistant / tool / reasoning) is encoded
+with an empty added vocabulary, i.e. as plain BPE.
+render_conversation()
+output is unchanged; only the
+encode()
+id path
+changes. This also closes the control-token injection angle: user content can
+no longer produce template control tokens.
+Verified against the reproduction in
+#5
+(thinking disabled, single user
+message):
+content
+before
+after
+official API
+(empty)
+4
+4
+4
+x
+5
+5
+5
+<｜User｜>
+5
+9
+9
+<think>
+5
+7
+7
+The
+｜DSML｜
+x 8 adjacency edge case from the issue remains divergent from
+the API (21 vs 36) because the server-side algorithm is not observable from
+usage counts alone; that part still needs upstream clarification.
+Unit tests cover the template baseline, the plain-BPE content encoding, and
+the no-special-literal regression case.
+Refs
+#5
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+fix(v41): encode user content as plain BPE instead of matching contro…
+…
+309e944
+…l-token literals
+PerryLink
+mentioned this pull request
+Sep 19, 2026
+pip install deepseek-recipe cannot succeed off Apple Silicon macOS: no sdist and no non-arm64 wheels
+#1
+Closed
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

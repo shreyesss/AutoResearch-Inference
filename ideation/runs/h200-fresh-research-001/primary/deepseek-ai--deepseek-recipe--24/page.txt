@@ -1,0 +1,290 @@
+V4.1-Flash native reasoning loops: prompt/history contract and model-team triage request
+#24
+New issue
+Copy link
+New issue
+Copy link
+Open
+Open
+V4.1-Flash native reasoning loops: prompt/history contract and model-team triage request
+#24
+Copy link
+Description
+Hui-cd
+opened
+on Oct 8, 2026
+Issue body actions
+Summary and request for model-team triage
+We observe DeepSeek-V4.1-Flash entering native-token reasoning loops during long, tool-enabled conversations. It repeatedly announces that it will emit an answer or tool call, but produces neither. Some outputs run to the token limit; others are stopped by our resource-protection observer.
+We are asking for the canonical V4.1 prompt/history contract and help routing this report to the model/inference team. The official model card recommends deepseek-recipe and invites issues or contact at
+service@deepseek.com
+. Our failed runs used vLLM's V4.1 encoder, not deepseek-recipe itself; this is
+not a claim that recipe caused the loops
+. Please redirect us if another official tracker is preferred.
+Environment and workload
+Model: DeepSeek-V4.1-Flash open weights. This is a local-inference report, not a demonstrated failure of the official hosted API.
+Engine in the reported Spark experiments: vLLM 0.28.1rc1.dev388+g8a728663c.
+Hardware: four NVIDIA DGX Spark / GB10 nodes forming one TP4/DCP4 model service.
+Recorded precision: BF16 engine dtype, MXFP4 routed-expert weights, fp8_ds_mla main attention KV. These refer to different objects.
+Main fixed replay input: 107 messages, 26 tool definitions, 74,657 actual input tokens.
+Sampling in the completed five-arm experiment: thinking enabled, numeric reasoning_effort=100, temperature=1.0, top_p=0.95, min_p=0, top_k=-1, max_tokens=8192, global concurrency 4.
+DSpark enabled in that experiment: num_speculative_tokens=5, probabilistic draft sampling, block rejection sampling, adaptive verification disabled.
+A thinking-budget sampler fix was present in the budget experiment; those results are implementation-specific mitigation evidence, not an unmodified-vLLM or official parameter recommendation.
+Expected vs. actual behavior
+Expected: complete the reasoning phase and emit valid tool calls or a final answer.
+Actual native output contains repeated procedural phrases, for example:
+Writing.
+Let me output.
+Go.
+OK.
+Writing.
+Let me write.
+Go.
+Now.
+For baseline seed 21020, the saved output contains 2,158 native generated tokens before observer cancellation, 8,262 reasoning characters, empty content, and no tool calls. An exact 20-token period starts at generated position 1,987 (one-based) and repeats for at least eight cycles. We rechecked equality directly against the saved token IDs:
+[
+339
+,
+46837
+,
+339
+,
+5718
+,
+678
+,
+5238
+,
+339
+,
+5188
+,
+339
+,
+11932
+,
+339
+,
+46837
+,
+339
+,
+5718
+,
+678
+,
+5085
+,
+339
+,
+5188
+,
+339
+,
+8197
+]
+The five confirmed baseline loops were independently rechecked:
+Seed
+Exact-cycle onset, generated token position (1-based)
+Period, tokens
+Consecutive cycles verified
+21020
+1987
+20
+8
+21044
+2418
+15
+10
+21054
+2308
+12
+10
+21068
+2916
+15
+8
+21098
+3438
+13
+9
+These are engine-token loops within one generation. Client request repetition is not needed to produce these captured cycles.
+Controlled observations
+1. Fixed-input, five-arm experiment
+Each arm dispatched exactly 100 requests; sent failures were not replaced.
+Arm, single parameter change
+Complete non-repeat responses
+Confirmed repeats
+Service/transport unknowns
+A: no thinking budget or penalty
+88
+5
+7
+B: thinking budget 1536
+92
+0
+8
+C: frequency_penalty=0.2
+88
+0
+12
+D: presence_penalty=0.2
+88
+5
+7
+E: repetition_penalty=1.05
+92
+2
+6
+Unknowns are not clean negatives. A complete response does not prove business-task success. A separate 100-task quality evaluation per arm scored A/B/C/D/E as 91/93/84/91/92 passes; service failures remain in the denominators, so these numbers do not establish quality-neutral mitigation.
+2. Identical input IDs, different generation trajectories
+We compared one normal baseline seed (21000), the five looping baseline seeds above, and their six budget-arm counterparts. All 12 captured prompt-token arrays were identical, length 74,657.
+For the five looping baseline seeds, the corresponding budget-arm responses completed with tool calls. Their reasoning lengths were 1536, 175, 341, 299, and 286 tokens respectively. Only one reached the budget. The four early completions cannot all be explained by forcibly cutting off an existing loop at 1536. We have not established why these trajectories diverge before budget exhaustion.
+3. DSpark / CUDA-graph pilot
+A separate 16-request, effort50 pilot yielded phrase-threshold repeat cancellations:
+DSpark
+Graph mode
+Repeat cancellations / attempts
+enabled
+FULL_AND_PIECEWISE
+2/4
+disabled
+NONE
+2/4
+disabled
+FULL_AND_PIECEWISE
+1/4
+enabled
+NONE
+0/4
+Graph NONE here is not a claim that enforce-eager was used. This small pilot cannot estimate production incidence, but neither DSpark nor graph execution is a necessary condition for the observed loops.
+4. Failed-history feedback
+In an earlier reconstructed CC conversation, keeping a failed assistant body produced 8192 output tokens, all reasoning, with 471 newly generated "Let me write" occurrences and no content/tools (seed42). Removing that body completed with tools; restoring the exact request looped again. One cleaned-history control padded back to the original 106652 input-token length also completed with tools.
+This is a small-sample history-amplification signal, not an explanation of the first failure. A later partial comparison also shortened the input by 32002 tokens, so it does not isolate history semantics from length.
+Questions for DeepSeek
+Is native reasoning/procedural looping of this form a known V4.1-Flash failure? Are there model, encoder, or inference fixes, or recommended diagnostic builds?
+What is the canonical history contract for tool-enabled thinking: which historical reasoning_content must be retained, and how should incomplete/looping assistant output be represented? How should this differ from ordinary multi-turn requests without tools?
+Can the model team recommend a reference inference path and precision/cache settings for comparing the same prompt token IDs and generated prefix against our vLLM path?
+Could CSA2/chunked-KV phase sensitivity contribute to entering such loops? We are referring to
+Periodic Weak Spots, arXiv:2609.36322
+and its
+interactive explanation
+. We have
+not
+performed a meaning-preserving phase sweep, and our 12/13/15/20-token output periods are not evidence of the paper's two-token input-phase periodicity.
+What artifact format and private channel would your team prefer for prompt/token-prefix replay? Please help connect us to the V4.1 model/inference maintainers.
+Related prompt-contract reports:
+#5
+and
+#6
+. There is also a similar symptom report in the official harness Discussions:
+deepseek-ai/deepseek-harness#8425
+(a separate user's report, not our evidence).
+Evidence availability and reproduction limits
+We retain final request JSON, raw SSE, prompt/generated token IDs, parameter/dispatch records, and per-run results. Publicly shared material here is limited to diagnostic output and aggregate results; original engineering conversations and tool payloads are not attached. This public report is therefore not yet a standalone minimal reproduction. We can prepare a redacted replay package once the maintainers identify the needed fields and an appropriate channel. Redaction may change tokens and reproduction behavior; we will report that limitation explicitly.
+Reactions are currently unavailable
+Activity
+Fredones5
+commented
+on
+Oct 19, 2026
+Fredones5
+on Oct 19, 2026
+More actions
+Production data point (DeepSeek-V4.1-Flash and -1017, vLLM on B200).
+We serve V4.1-Flash for a tool-calling assistant. 220 production steps stalled because thinking never ended (~55/day vs ~9/day on V4-Flash-0731). We replayed the exact requests of those steps, so the rates below are conditional on hard cases, not overall traffic.
+Replaying the exact requests:
+V4.1-Flash:
+69% of replays hit the 32k output cap with no content and no tool call (procedural loops: "OK. Let me write. Go.").
+Reasoning effort:
+on V4.1, raising effort from 50 to 75/100 increased stalls.
+thinking_token_budget=4000
+:
+33/34 steps completed within our 65 s budget, vs 5/34 without it. This matches your budget result. Caveat: after the forced cut, ~3% of responses continued the deliberation in visible content, and we have not validated full-turn quality yet.
+V4.1-Flash-1017, same 237 cases, 2 runs each:
+23% stall on our vLLM 0.31 + DSpark k=5 deployment and 22% on another fp8 provider, but 0.2% on a slower provider whose throughput suggests no speculative decoding. Long back-and-forth reasoning remains common on all three.
+History:
+dropping prior
+reasoning_content
+from tool-enabled history reduced stalls on some cases but did not remove them.
+Questions for the DeepSeek team, adding to the ones above:
+Were the
+mtp.*
+draft heads retrained for 1017, and is there a recommended speculative-decoding config for it?
+What reasoning effort and thinking budget do you recommend for agentic tool use?
++1 on Q2 above: what is the canonical contract for keeping
+reasoning_content
+in tool-enabled history?
+We can't share prompts (customer data), but we're happy to run a redacted replay package on our stack and report results.
+ylwl1997
+commented
+on
+Oct 20, 2026
+ylwl1997
+on Oct 20, 2026
+More actions
+Thanks for the careful write-up — especially the fixed-input arms and the explicit note that this is not blaming deepseek-recipe.
+A quick layer split that may help routing:
+deepseek-recipe
+(this repo) is the protocol / prompt / tokenizer conversion layer. It does
+not
+run model inference.
+DeepInfer
+(
+deepseek-ai/DeepInfer
+) is DeepSeek’s open-source
+inference engine
+for offline DeepSeek-V4.1-Flash. Prefill and Decode there are two stages of the
+same
+engine, not separate products.
+vLLM / SGLang / etc.
+remain separate serving stacks (DeepInfer’s README notes it was originally built primarily on vLLM).
+On your Q3 (reference path for same prompt IDs / prefix comparison): if you have the hardware DeepInfer currently lists —
+NVIDIA SM100 (CUDA 13)
+or
+Huawei Ascend 950 (CANN 9.2)
+— the practical offline reference is DeepInfer’s own smoke path (
+DEEPINFER_ACCELERATOR=nvidia|ascend
+,
+./build.sh
+, then
+python examples/offline_inference.py
+), optionally with a local checkpoint via
+DEEPINFER_HF_MODEL_DIR
+. That release is still
+offline-focused
+; a full KV / PD-disaggregation / DP-LB serving shell is explicitly called out as not included.
+I would
+not
+treat “switch to DeepInfer” as a proven fix for these native reasoning loops — your evidence is on vLLM, and DeepInfer’s open tracker is currently PRs-only (Issues disabled). For history/
+reasoning_content
+contract questions, staying on this recipe issue (and/or
+service@deepseek.com
+as the model card suggests) still looks right.
+Independent install / vs-vLLM notes (not affiliated with DeepSeek):
+https://deepinfer.run/vs-vllm/
+and
+https://deepinfer.run/install/
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+No labels
+No labels
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

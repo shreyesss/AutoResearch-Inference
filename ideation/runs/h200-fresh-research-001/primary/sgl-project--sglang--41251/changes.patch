@@ -1,0 +1,4223 @@
+From 7c9cf23e9d65fd2455538399eb254168fde0ffdb Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 18:08:32 +0800
+Subject: [PATCH 01/24] [Perf] Tune H200 group32 FP8 dense GEMMs for TP8 decode
+
+---
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 64 ++++++++++++++-
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 65 ++++++++++++++-
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 64 ++++++++++++++-
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 80 +++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 78 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 80 +++++++++++++++++++
+ 6 files changed, 425 insertions(+), 6 deletions(-)
+ create mode 100644 python/sglang/kernels/ops/gemm/configs/N=5120,K=1024,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/gemm/configs/N=576,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+
+diff --git a/python/sglang/kernels/ops/gemm/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/gemm/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index fb5b60cdfb87..eb1316aada05 100644
+--- a/python/sglang/kernels/ops/gemm/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/gemm/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -5,11 +5,71 @@
+         "BLOCK_SIZE_K": 32,
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+-        "num_stages": 4,
++        "num_stages": 3,
+         "SWAP_AB": true,
+-        "SPLIT_K": 8
++        "SPLIT_K": 16
+     },
+     "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "65": {
+         "BLOCK_SIZE_M": 64,
+         "BLOCK_SIZE_N": 32,
+         "BLOCK_SIZE_K": 32,
+diff --git a/python/sglang/kernels/ops/gemm/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/gemm/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index 91b3ff0dff75..29888bee970e 100644
+--- a/python/sglang/kernels/ops/gemm/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/gemm/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -5,10 +5,71 @@
+         "BLOCK_SIZE_K": 32,
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+-        "num_stages": 4,
+-        "SWAP_AB": true
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
+     },
+     "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 2
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 1
++    },
++    "65": {
+         "BLOCK_SIZE_M": 64,
+         "BLOCK_SIZE_N": 32,
+         "BLOCK_SIZE_K": 32,
+diff --git a/python/sglang/kernels/ops/gemm/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/gemm/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index 5d34539e4f05..ba78f9210221 100644
+--- a/python/sglang/kernels/ops/gemm/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/gemm/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -1,15 +1,75 @@
+ {
+     "1": {
+         "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
+         "BLOCK_SIZE_N": 64,
+         "BLOCK_SIZE_K": 32,
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+-        "num_stages": 4,
++        "num_stages": 3,
+         "SWAP_AB": true,
+         "SPLIT_K": 4
+     },
+-    "2": {
++    "65": {
+         "BLOCK_SIZE_M": 64,
+         "BLOCK_SIZE_N": 32,
+         "BLOCK_SIZE_K": 32,
+diff --git a/python/sglang/kernels/ops/gemm/configs/N=5120,K=1024,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/gemm/configs/N=5120,K=1024,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..a8ad4922e2ba
+--- /dev/null
++++ b/python/sglang/kernels/ops/gemm/configs/N=5120,K=1024,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,80 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "65": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+diff --git a/python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..7ca83239a35b
+--- /dev/null
++++ b/python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,78 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "65": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+diff --git a/python/sglang/kernels/ops/gemm/configs/N=576,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/gemm/configs/N=576,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..eb1316aada05
+--- /dev/null
++++ b/python/sglang/kernels/ops/gemm/configs/N=576,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,80 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "65": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+
+From e75f4070541d3fddce3761188706502a1be93169 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 18:09:10 +0800
+Subject: [PATCH 02/24] Keep the original short-K GEMM configuration above
+ batch 32
+
+---
+ ...e=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index 7ca83239a35b..154dd530867d 100644
+--- a/python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/gemm/configs/N=5120,K=288,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -59,6 +59,14 @@
+         "SWAP_AB": true,
+         "SPLIT_K": 4
+     },
++    "33": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
+     "64": {
+         "BLOCK_SIZE_M": 64,
+         "BLOCK_SIZE_N": 32,
+
+From a49faa102cba9f03640cd494081df5d449fbbdef Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 18:23:12 +0800
+Subject: [PATCH 03/24] [Perf] Bound Hopper FP4 indexer work by live context
+ lengths
+
+---
+ .../kernels/ops/attention/dsv4/fp4_indexer.py | 260 ++++++++++++++----
+ .../attention/bench_fp4_index_logits.py       |  67 +++++
+ .../kernels/ops/attention/test_fp4_indexer.py | 100 +++++++
+ 3 files changed, 372 insertions(+), 55 deletions(-)
+ create mode 100644 test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
+
+diff --git a/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py b/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
+index d22c4b5fb35e..f6e67b0dca2d 100644
+--- a/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
++++ b/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
+@@ -406,6 +406,73 @@ def _e2m1_decode(code):
+     return tl.where((code >> 3) == 1, -v, v)
+ 
+ 
++@triton.jit
++def _fp4_index_logits_tile(
++    q_ptr,
++    w_ptr,
++    table_ptr,
++    b,
++    slot,
++    valid,
++    page_size,
++    row_stride,
++    stride_qb,
++    stride_qh,
++    stride_wb,
++    H: tl.constexpr,
++    HALF_D: tl.constexpr,
++):
++    offs_h = tl.arange(0, H)
++    offs_i = tl.arange(0, HALF_D)
++    page = slot // page_size
++    off = slot % page_size
++    row_base = page * row_stride
++    # K payload: [BLOCK_L, HALF_D] uint8
++    pay = tl.load(
++        table_ptr
++        + row_base[:, None]
++        + off[:, None] * INDEX_K_PAYLOAD_BYTES
++        + offs_i[None, :],
++        mask=valid[:, None],
++        other=0,
++    )
++    low = _e2m1_decode(pay & 0x0F)
++    high = _e2m1_decode((pay >> 4) & 0x0F)
++    # e8m0 block scales: element j uses block j // 32 -> byte i uses block i // 16.
++    sc_idx = offs_i // 16
++    exps = tl.load(
++        table_ptr
++        + row_base[:, None]
++        + page_size * INDEX_K_PAYLOAD_BYTES
++        + off[:, None] * INDEX_K_SCALE_BYTES
++        + sc_idx[None, :],
++        mask=valid[:, None],
++        other=127,
++    )
++    scale = tl.exp2(exps.to(tl.float32) - 127.0)
++    k_low = (low * scale).to(tl.bfloat16)  # [BLOCK_L, HALF_D] elements 2i
++    k_high = (high * scale).to(tl.bfloat16)  # elements 2i+1
++
++    # queries: even / odd elements, [H, HALF_D] bf16
++    q_even = tl.load(
++        q_ptr + b * stride_qb + offs_h[:, None] * stride_qh + 2 * offs_i[None, :]
++    )
++    q_odd = tl.load(
++        q_ptr + b * stride_qb + offs_h[:, None] * stride_qh + 2 * offs_i[None, :] + 1
++    )
++
++    acc = tl.dot(q_even, tl.trans(k_low))  # [H, BLOCK_L] fp32
++    acc += tl.dot(q_odd, tl.trans(k_high))
++    # reference rounding points: bf16 dot -> relu -> * bf16 weight -> bf16 -> sum -> bf16
++    s = acc.to(tl.bfloat16).to(tl.float32)
++    s = tl.maximum(s, 0.0)
++    w = tl.load(w_ptr + b * stride_wb + offs_h).to(tl.float32)
++    s = (s * w[:, None]).to(tl.bfloat16).to(tl.float32)
++    logit = tl.sum(s, axis=0).to(tl.bfloat16).to(tl.float32)
++    logit = tl.where(valid, logit, float("-inf"))
++    return logit
++
++
+ @triton.jit
+ def _fp4_index_logits_kernel(
+     q_ptr,  # [B, H, D] bf16, fq4 queries (already rope'd)
+@@ -432,11 +499,6 @@ def _fp4_index_logits_kernel(
+     b = tl.program_id(0)
+     lb = tl.program_id(1)
+     offs_l = lb * BLOCK_L + tl.arange(0, BLOCK_L)
+-    offs_h = tl.arange(0, H)
+-    offs_i = tl.arange(
+-        0, HALF_D
+-    )  # byte index i holds elements 2i (low nibble), 2i+1 (high nibble)
+-
+     n_vis = tl.load(lens_ptr + b)
+     # Graph replay keeps the capacity-sized grid even for short live contexts.
+     # Skip whole invisible tiles using the current device-side length; masking
+@@ -448,57 +510,21 @@ def _fp4_index_logits_kernel(
+         slot = tl.load(slots_ptr + b * L + offs_l, mask=offs_l < L, other=0).to(
+             tl.int64
+         )
+-        page = slot // page_size
+-        off = slot % page_size
+-        row_base = page * row_stride
+-
+-        # K payload: [BLOCK_L, HALF_D] uint8
+-        pay = tl.load(
+-            table_ptr
+-            + row_base[:, None]
+-            + off[:, None] * INDEX_K_PAYLOAD_BYTES
+-            + offs_i[None, :],
+-            mask=valid[:, None],
+-            other=0,
+-        )
+-        low = _e2m1_decode(pay & 0x0F)
+-        high = _e2m1_decode((pay >> 4) & 0x0F)
+-        # e8m0 block scales: element j uses block j // 32 -> byte i uses block i // 16.
+-        sc_idx = offs_i // 16
+-        exps = tl.load(
+-            table_ptr
+-            + row_base[:, None]
+-            + page_size * INDEX_K_PAYLOAD_BYTES
+-            + off[:, None] * INDEX_K_SCALE_BYTES
+-            + sc_idx[None, :],
+-            mask=valid[:, None],
+-            other=127,
+-        )
+-        scale = tl.exp2(exps.to(tl.float32) - 127.0)
+-        k_low = (low * scale).to(tl.bfloat16)  # [BLOCK_L, HALF_D] elements 2i
+-        k_high = (high * scale).to(tl.bfloat16)  # elements 2i+1
+-
+-        # queries: even / odd elements, [H, HALF_D] bf16
+-        q_even = tl.load(
+-            q_ptr + b * stride_qb + offs_h[:, None] * stride_qh + 2 * offs_i[None, :]
+-        )
+-        q_odd = tl.load(
+-            q_ptr
+-            + b * stride_qb
+-            + offs_h[:, None] * stride_qh
+-            + 2 * offs_i[None, :]
+-            + 1
++        logit = _fp4_index_logits_tile(
++            q_ptr,
++            w_ptr,
++            table_ptr,
++            b,
++            slot,
++            valid,
++            page_size,
++            row_stride,
++            stride_qb,
++            stride_qh,
++            stride_wb,
++            H,
++            HALF_D,
+         )
+-
+-        acc = tl.dot(q_even, tl.trans(k_low))  # [H, BLOCK_L] fp32
+-        acc += tl.dot(q_odd, tl.trans(k_high))
+-        # reference rounding points: bf16 dot -> relu -> * bf16 weight -> bf16 -> sum -> bf16
+-        s = acc.to(tl.bfloat16).to(tl.float32)
+-        s = tl.maximum(s, 0.0)
+-        w = tl.load(w_ptr + b * stride_wb + offs_h).to(tl.float32)
+-        s = (s * w[:, None]).to(tl.bfloat16).to(tl.float32)
+-        logit = tl.sum(s, axis=0).to(tl.bfloat16).to(tl.float32)
+-        logit = tl.where(valid, logit, float("-inf"))
+         tl.store(out_ptr + b * L + offs_l, logit, mask=offs_l < L)
+ 
+ 
+@@ -545,3 +571,127 @@ def fp4_index_logits_decode(
+         num_warps=4,
+     )
+     return out
++
++
++@triton.jit
++def _fp4_index_logits_paged_kernel(
++    q_ptr,
++    w_ptr,
++    req_ptr,
++    req_table_ptr,
++    lens_ptr,
++    table_ptr,
++    mask_ptr,
++    out_ptr,
++    L,
++    page_size,
++    row_stride,
++    req_stride,
++    mask_stride,
++    out_stride,
++    stride_qb,
++    stride_qh,
++    stride_wb,
++    H: tl.constexpr,
++    HALF_D: tl.constexpr,
++    RATIO: tl.constexpr,
++    HAS_MASK: tl.constexpr,
++    BLOCK_L: tl.constexpr,
++):
++    b = tl.program_id(0)
++    n_vis = tl.minimum(tl.load(lens_ptr + b), L)
++    req = tl.load(req_ptr + b).to(tl.int64)
++    for tile in range(tl.program_id(1), tl.cdiv(n_vis, BLOCK_L), tl.num_programs(1)):
++        offs_l = tile * BLOCK_L + tl.arange(0, BLOCK_L)
++        valid = offs_l < n_vis
++        if HAS_MASK:
++            valid = valid & tl.load(
++                mask_ptr + b * mask_stride + offs_l, mask=offs_l < n_vis, other=False
++            )
++        slot = (
++            tl.load(
++                req_table_ptr + req * req_stride + offs_l * RATIO, mask=valid, other=0
++            ).to(tl.int64)
++            // RATIO
++        )
++        logit = _fp4_index_logits_tile(
++            q_ptr,
++            w_ptr,
++            table_ptr,
++            b,
++            slot,
++            valid,
++            page_size,
++            row_stride,
++            stride_qb,
++            stride_qh,
++            stride_wb,
++            H,
++            HALF_D,
++        )
++        tl.store(out_ptr + b * out_stride + offs_l, logit, mask=offs_l < L)
++
++
++def fp4_index_logits_paged(
++    q: torch.Tensor,
++    weights: torch.Tensor,
++    req: torch.Tensor,
++    req_table: torch.Tensor,
++    lens: torch.Tensor,
++    table: torch.Tensor,
++    page_size: int,
++    max_len: int,
++    ratio: int,
++    candidate_mask: torch.Tensor | None = None,
++) -> torch.Tensor:
++    """Score visible compressed positions directly from the request table.
++
++    The output has graph-stable capacity, but only the first ``lens[b]`` values
++    are initialized. Consumers must use the current device-side lengths.
++    The FP4 decoding and BF16 rounding are shared with the dense-slot path.
++    """
++    assert q.dtype == torch.bfloat16 and q.shape[-1] == INDEX_HEAD_DIM
++    assert table.dtype == torch.uint8 and table.ndim == 2
++    assert ratio in (1, 2) and max_len <= req_table.shape[1] // ratio
++    assert req_table.stride(1) == 1
++    if candidate_mask is not None:
++        assert candidate_mask.shape[1] >= max_len and candidate_mask.stride(1) == 1
++    batch, heads, _ = q.shape
++    q = q.contiguous()
++    weights = weights.to(torch.bfloat16).contiguous()
++    req = req.contiguous()
++    lens = lens.contiguous()
++    # Existing candidate-amax needs rows aligned to eight floats.
++    out = torch.empty(
++        (batch, triton.cdiv(max_len, 8) * 8), device=q.device, dtype=torch.float32
++    )
++    if not batch or not max_len:
++        return out[:, :max_len]
++    num_sms = torch.cuda.get_device_properties(q.device).multi_processor_count
++    workers = min(triton.cdiv(max_len, 64), triton.cdiv(num_sms * 4, batch))
++    _fp4_index_logits_paged_kernel[(batch, workers)](
++        q,
++        weights,
++        req,
++        req_table,
++        lens,
++        table,
++        candidate_mask,
++        out,
++        max_len,
++        page_size,
++        table.stride(0),
++        req_table.stride(0),
++        candidate_mask.stride(0) if candidate_mask is not None else 0,
++        out.stride(0),
++        q.stride(0),
++        q.stride(1),
++        weights.stride(0),
++        H=heads,
++        HALF_D=INDEX_HEAD_DIM // 2,
++        RATIO=ratio,
++        HAS_MASK=candidate_mask is not None,
++        BLOCK_L=64,
++        num_warps=4,
++    )
++    return out[:, :max_len]
+diff --git a/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py b/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
+new file mode 100644
+index 000000000000..80a7cfaed010
+--- /dev/null
++++ b/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
+@@ -0,0 +1,67 @@
++import torch
++
++from sglang.kernels.jit.benchmark import marker
++from sglang.kernels.ops.attention.dsv4.fp4_indexer import (
++    fp4_index_logits_decode,
++    fp4_index_logits_paged,
++    store_fp4_index_k_cache,
++)
++from sglang.kernels.ops.attention.dsv4.topk import (
++    plan_topk_v2,
++    topk_transform_paged_v2,
++)
++from sglang.test.ci.ci_register import register_cuda_ci
++
++register_cuda_ci(
++    est_time=15, stage="base-b-kernel-benchmark", runner_config="1-gpu-large"
++)
++
++
++def index_topk(q, weights, req, req_table, lens, table, capacity, paged):
++    if paged:
++        scores = fp4_index_logits_paged(
++            q, weights, req, req_table, lens, table, 64, capacity, 1
++        )
++        indices = torch.empty((q.shape[0], 512), dtype=torch.int32, device=q.device)
++        topk_transform_paged_v2(scores, lens, None, indices, 1, plan_topk_v2(lens))
++        return indices
++    positions = torch.arange(capacity, device=q.device)
++    slots = req_table[req[:, None], positions[None, :]].long()
++    slots.masked_fill_(positions[None, :] >= lens[:, None], 0)
++    scores = fp4_index_logits_decode(q, weights, slots, lens, table, 64)
++    return scores.topk(512, dim=-1, sorted=False).indices
++
++
++@marker.parametrize("batch", [1, 4, 64], [4])
++@marker.parametrize(
++    "length,capacity",
++    [(8192, 8192), (8192, 1048580), (32768, 1048580)],
++    [(8192, 1048580)],
++)
++@marker.benchmark("impl", ["slots", "paged"])
++def benchmark(batch, length, capacity, impl):
++    if torch.cuda.get_device_capability()[0] != 9:
++        marker.skip("Hopper decode indexer")
++    q = torch.randn(batch, 32, 128, device="cuda", dtype=torch.bfloat16)
++    weights = torch.randn(batch, 32, device="cuda", dtype=torch.bfloat16)
++    keys = torch.randn(batch * length, 128, device="cuda", dtype=torch.bfloat16)
++    locations = torch.arange(batch * length, device="cuda", dtype=torch.int64)
++    table = torch.empty(batch * length // 64, 64 * 68, device="cuda", dtype=torch.uint8)
++    store_fp4_index_k_cache(keys, table, locations, page_size=64, rne=True)
++    req = torch.arange(batch, device="cuda", dtype=torch.int32)
++    req_table = torch.full((batch, capacity), -1, device="cuda", dtype=torch.int32)
++    req_table[:, :length] = locations.view(batch, length).to(torch.int32)
++    lens = torch.full((batch,), length, device="cuda", dtype=torch.int32)
++    return marker.do_bench(
++        index_topk,
++        input_args=(q, weights, req, req_table, lens, table, capacity, impl == "paged"),
++        # Rotate layer-specific KV and query operands. The request mapping is
++        # shared between layers, as in serving; cloning its unused 1M capacity
++        # would incorrectly reduce the rotation count for the visible KV.
++        graph_clone_args=(0, 1, 2, 4, 5),
++        disable_log_bandwidth=True,
++    )
++
++
++if __name__ == "__main__":
++    benchmark.run()
+diff --git a/test/registered/kernels/ops/attention/test_fp4_indexer.py b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+index 10509632c624..090febe16c1e 100644
+--- a/test/registered/kernels/ops/attention/test_fp4_indexer.py
++++ b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+@@ -16,6 +16,7 @@
+ )
+ from sglang.kernels.ops.attention.dsv4.fp4_indexer import (
+     fp4_index_logits_decode,
++    fp4_index_logits_paged,
+     quantize_fp4_indexer_tensor,
+     store_fp4_index_k_cache,
+ )
+@@ -464,5 +465,104 @@ def test_fp4_logits_invisible_tiles_ignore_nonfinite_queries(value):
+     assert torch.isneginf(actual).all().item()
+ 
+ 
++@pytest.mark.skipif(_is_xpu, reason="Paged decode uses CUDA persistent kernels")
++@pytest.mark.parametrize(
++    "ratio,width,masked",
++    [
++        (1, 193, False),
++        (2, 193, True),
++        (1, 16385, True),
++        (2, 8193, False),
++        (1, 32769, False),
++    ],
++)
++def test_fp4_paged_logits_replay(ratio, width, masked):
++    from sglang.kernels.ops.attention.dsv4.candidate_table import amax_topk_blocks
++    from sglang.kernels.ops.attention.dsv4.topk import (
++        plan_topk_v2,
++        topk_transform_paged_v2,
++    )
++
++    q, weights, slots, lens, table = _make_logits_case(6, 32, width)
++    capacity = 1048580 // ratio
++    req = torch.arange(6, device=q.device, dtype=torch.int32)
++    req_table = torch.full(
++        (6, capacity * ratio), -1, device=q.device, dtype=torch.int32
++    )
++    req_table[:, : width * ratio : ratio] = (slots * ratio).to(torch.int32)
++    lengths = lens.to(torch.int32)
++    candidate_mask = torch.rand(6, capacity, device=q.device) > 0.3 if masked else None
++    k = min(512, width)
++
++    def run():
++        scores = fp4_index_logits_paged(
++            q,
++            weights,
++            req,
++            req_table,
++            lengths,
++            table,
++            PAGE_SIZE,
++            capacity,
++            ratio,
++            candidate_mask,
++        )
++        indices = torch.empty((6, k), dtype=torch.int32, device=q.device)
++        topk_transform_paged_v2(
++            scores, lengths, None, indices, 1, plan_topk_v2(lengths)
++        )
++        return scores, indices
++
++    for _ in range(3):
++        run()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        scores, indices = run()
++    for step, visible in enumerate([width, 0, 1, 63, 64, 65, width]):
++        lens.copy_((visible - torch.arange(6, device=q.device)).clamp_min(0))
++        lengths.copy_(lens)
++        req.copy_(req.roll(1))
++        slots.copy_(slots.roll(step, dims=1))
++        req_table[req.long(), : width * ratio : ratio] = (slots * ratio).to(torch.int32)
++        q.neg_()
++        # Poison the unused capacity: length-aware top-k must never select it.
++        scores.fill_(torch.inf)
++        graph.replay()
++        expected = _reference_logits(q, weights, slots, lens, table)
++        if masked:
++            expected.masked_fill_(~candidate_mask[:, :width], -torch.inf)
++        visible_mask = torch.arange(width, device=q.device)[None, :] < lens[:, None]
++        torch.testing.assert_close(
++            scores[:, :width][visible_mask], expected[visible_mask], atol=0, rtol=0
++        )
++        blocks = amax_topk_blocks(scores, lengths, (lengths + 7) // 8, 2048)
++        for row, length in enumerate(lens.tolist()):
++            selected = indices[row][indices[row] >= 0].long()
++            assert selected.numel() == selected.unique().numel() == min(k, length)
++            assert not selected.numel() or selected.max().item() < length
++            torch.testing.assert_close(
++                expected[row, selected].sort().values,
++                expected[row, :length].topk(min(k, length)).values.sort().values,
++                atol=0,
++                rtol=0,
++            )
++            nblocks = (length + 7) // 8
++            chosen = blocks[row][blocks[row] >= 0].long()
++            assert chosen.numel() == chosen.unique().numel() == min(2048, nblocks)
++            if nblocks:
++                assert chosen.max().item() < nblocks
++                assert nblocks - 1 in chosen.tolist()
++                padded = torch.full((nblocks * 8,), -torch.inf, device=q.device)
++                padded[:length] = expected[row, :length]
++                maxima = padded.view(-1, 8).amax(1)
++                maxima[-1] = torch.inf
++                torch.testing.assert_close(
++                    maxima[chosen].sort().values,
++                    maxima.topk(min(2048, nblocks)).values.sort().values,
++                    atol=0,
++                    rtol=0,
++                )
++
++
+ if __name__ == "__main__":
+     sys.exit(pytest.main([__file__, "-v"]))
+
+From 5496c9e3efacfbb07e787b3e7368c2d2fe1c0581 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 18:26:51 +0800
+Subject: [PATCH 04/24] Prepare the indexer top-k plan before scoring and test
+ large graph batches
+
+---
+ .../attention/bench_fp4_index_logits.py       |  3 +-
+ .../kernels/ops/attention/test_fp4_indexer.py | 34 ++++++++++---------
+ 2 files changed, 20 insertions(+), 17 deletions(-)
+
+diff --git a/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py b/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
+index 80a7cfaed010..8f72b1348ae0 100644
+--- a/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
++++ b/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
+@@ -19,11 +19,12 @@
+ 
+ def index_topk(q, weights, req, req_table, lens, table, capacity, paged):
+     if paged:
++        plan = plan_topk_v2(lens)
+         scores = fp4_index_logits_paged(
+             q, weights, req, req_table, lens, table, 64, capacity, 1
+         )
+         indices = torch.empty((q.shape[0], 512), dtype=torch.int32, device=q.device)
+-        topk_transform_paged_v2(scores, lens, None, indices, 1, plan_topk_v2(lens))
++        topk_transform_paged_v2(scores, lens, None, indices, 1, plan)
+         return indices
+     positions = torch.arange(capacity, device=q.device)
+     slots = req_table[req[:, None], positions[None, :]].long()
+diff --git a/test/registered/kernels/ops/attention/test_fp4_indexer.py b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+index 090febe16c1e..bd853be12a51 100644
+--- a/test/registered/kernels/ops/attention/test_fp4_indexer.py
++++ b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+@@ -467,34 +467,38 @@ def test_fp4_logits_invisible_tiles_ignore_nonfinite_queries(value):
+ 
+ @pytest.mark.skipif(_is_xpu, reason="Paged decode uses CUDA persistent kernels")
+ @pytest.mark.parametrize(
+-    "ratio,width,masked",
++    "batch,ratio,width,masked",
+     [
+-        (1, 193, False),
+-        (2, 193, True),
+-        (1, 16385, True),
+-        (2, 8193, False),
+-        (1, 32769, False),
++        (6, 1, 193, False),
++        (6, 2, 193, True),
++        (6, 1, 16385, True),
++        (6, 2, 8193, False),
++        (6, 1, 32769, False),
++        (64, 1, 32769, True),
+     ],
+ )
+-def test_fp4_paged_logits_replay(ratio, width, masked):
++def test_fp4_paged_logits_replay(batch, ratio, width, masked):
+     from sglang.kernels.ops.attention.dsv4.candidate_table import amax_topk_blocks
+     from sglang.kernels.ops.attention.dsv4.topk import (
+         plan_topk_v2,
+         topk_transform_paged_v2,
+     )
+ 
+-    q, weights, slots, lens, table = _make_logits_case(6, 32, width)
++    q, weights, slots, lens, table = _make_logits_case(batch, 32, width)
+     capacity = 1048580 // ratio
+-    req = torch.arange(6, device=q.device, dtype=torch.int32)
++    req = torch.arange(batch, device=q.device, dtype=torch.int32)
+     req_table = torch.full(
+-        (6, capacity * ratio), -1, device=q.device, dtype=torch.int32
++        (batch, capacity * ratio), -1, device=q.device, dtype=torch.int32
+     )
+     req_table[:, : width * ratio : ratio] = (slots * ratio).to(torch.int32)
+     lengths = lens.to(torch.int32)
+-    candidate_mask = torch.rand(6, capacity, device=q.device) > 0.3 if masked else None
++    candidate_mask = (
++        torch.rand(batch, capacity, device=q.device) > 0.3 if masked else None
++    )
+     k = min(512, width)
+ 
+     def run():
++        plan = plan_topk_v2(lengths)
+         scores = fp4_index_logits_paged(
+             q,
+             weights,
+@@ -507,10 +511,8 @@ def run():
+             ratio,
+             candidate_mask,
+         )
+-        indices = torch.empty((6, k), dtype=torch.int32, device=q.device)
+-        topk_transform_paged_v2(
+-            scores, lengths, None, indices, 1, plan_topk_v2(lengths)
+-        )
++        indices = torch.empty((batch, k), dtype=torch.int32, device=q.device)
++        topk_transform_paged_v2(scores, lengths, None, indices, 1, plan)
+         return scores, indices
+ 
+     for _ in range(3):
+@@ -519,7 +521,7 @@ def run():
+     with torch.cuda.graph(graph):
+         scores, indices = run()
+     for step, visible in enumerate([width, 0, 1, 63, 64, 65, width]):
+-        lens.copy_((visible - torch.arange(6, device=q.device)).clamp_min(0))
++        lens.copy_((visible - torch.arange(batch, device=q.device)).clamp_min(0))
+         lengths.copy_(lens)
+         req.copy_(req.roll(1))
+         slots.copy_(slots.roll(step, dims=1))
+
+From 63d795efaab2ebedd97dfff76fd8fe9b641f12b8 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 18:59:03 +0800
+Subject: [PATCH 05/24] [Perf] Cache exact group32 weight expansions for Hopper
+ prefill GEMMs
+
+---
+ .../kernels/ops/quantization/fp8_kernel.py    |  24 ++++
+ python/sglang/srt/layers/quantization/fp8.py  |  31 +++++
+ .../srt/layers/quantization/fp8_utils.py      |  29 ++++-
+ .../test_hopper_group32_linear.py             | 115 ++++++++++++++++++
+ 4 files changed, 196 insertions(+), 3 deletions(-)
+ create mode 100644 test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+
+diff --git a/python/sglang/kernels/ops/quantization/fp8_kernel.py b/python/sglang/kernels/ops/quantization/fp8_kernel.py
+index 8ec785e18bb5..f6ce55986c5c 100644
+--- a/python/sglang/kernels/ops/quantization/fp8_kernel.py
++++ b/python/sglang/kernels/ops/quantization/fp8_kernel.py
+@@ -1392,3 +1392,27 @@ def per_group_transpose(
+ # input  - [M, K]
+ # weight - [K, N]
+ # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/compressed_tensors/triton_scaled_mm.py
++
++
++@triton.jit
++def _dequant_group_fp8_kernel(
++    X, S, Y, M, K: tl.constexpr, SS: tl.constexpr, BLOCK: tl.constexpr
++):
++    offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    rows, cols = offsets // K, offsets % K
++    value = tl.load(X + offsets, offsets < M * K, 0.0).to(tl.float32)
++    scale = tl.load(S + rows * SS + cols // 32, rows < M, 0.0)
++    tl.store(Y + offsets, value * scale, offsets < M * K)
++
++
++def dequant_group_fp8_to_bf16(x: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
++    """Expand row-wise group32 FP8 values; UE8M0 scaling is exact in BF16."""
++    m, k = x.shape
++    assert x.is_contiguous() and k % 32 == 0
++    assert scale.shape == (m, k // 32) and scale.stride(1) == 1
++    out = torch.empty_like(x, dtype=torch.bfloat16)
++    if m:
++        _dequant_group_fp8_kernel[(triton.cdiv(m * k, 1024),)](
++            x, scale, out, m, k, scale.stride(0), 1024
++        )
++    return out
+diff --git a/python/sglang/srt/layers/quantization/fp8.py b/python/sglang/srt/layers/quantization/fp8.py
+index 25b39ae95e6a..5e67c515c033 100644
+--- a/python/sglang/srt/layers/quantization/fp8.py
++++ b/python/sglang/srt/layers/quantization/fp8.py
+@@ -819,6 +819,31 @@ def process_weights_after_loading_block_quant(self, layer: Module) -> None:
+ 
+         layer.weight.data = weight.data
+         layer.weight_scale_inv.data = weight_scale.data
++        if hasattr(layer, "_block_fp8_bf16_weight"):
++            layer._block_fp8_bf16_weight = None
++        if (
++            _is_cuda
++            and get_platform().is_sm90
++            and weight.is_cuda
++            and weight.dtype == torch.float8_e4m3fn
++            and self.weight_block_size == [32, 32]
++            and getattr(self.quant_config, "scale_fmt", None) == "ue8m0"
++            and getattr(layer, "orig_dtype", None) == torch.bfloat16
++            and not self.use_marlin
++            and not getattr(layer, "keep_plain_weight_layout", False)
++        ):
++            from sglang.srt.batch_invariant_ops import is_batch_invariant_mode_enabled
++            from sglang.srt.layers.quantization.fp8_utils import block_quant_dequant
++
++            if not is_batch_invariant_mode_enabled():
++                # Hopper group32 FP8 accumulates each 32-wide block separately.
++                # Reuse a BF16 weight expansion for larger GEMMs, keeping the
++                # original FP8 weights for decode and weight reloads.
++                layer.register_buffer(
++                    "_block_fp8_bf16_weight",
++                    block_quant_dequant(weight, weight_scale, [32, 32], torch.bfloat16),
++                    persistent=False,
++                )
+         if self.block_fp8_as_mxfp8:
+             self._prepare_block_fp8_as_mxfp8(layer)
+ 
+@@ -1233,6 +1258,10 @@ def apply(
+                     True,  # is_vnni
+                 )
+ 
++            cached_weight = getattr(layer, "_block_fp8_bf16_weight", None)
++            extra_kwargs = (
++                {"weight_bf16": cached_weight} if cached_weight is not None else {}
++            )
+             if isinstance(x, tuple):
+                 return self.w8a8_block_fp8_linear(
+                     input=x[0],
+@@ -1241,6 +1270,7 @@ def apply(
+                     weight_scale=layer.weight_scale_inv,
+                     input_scale=x[1],
+                     bias=bias,
++                    **extra_kwargs,
+                 )
+ 
+             return self.w8a8_block_fp8_linear(
+@@ -1250,6 +1280,7 @@ def apply(
+                 weight_scale=layer.weight_scale_inv,
+                 input_scale=None,
+                 bias=bias,
++                **extra_kwargs,
+             )
+ 
+         if use_intel_amx_backend(layer):
+diff --git a/python/sglang/srt/layers/quantization/fp8_utils.py b/python/sglang/srt/layers/quantization/fp8_utils.py
+index fd86e97283fd..eec82ce5c323 100755
+--- a/python/sglang/srt/layers/quantization/fp8_utils.py
++++ b/python/sglang/srt/layers/quantization/fp8_utils.py
+@@ -14,6 +14,7 @@
+     w8a8_block_fp8_matmul_triton,
+ )
+ from sglang.kernels.ops.quantization.fp8_kernel import (
++    dequant_group_fp8_to_bf16,
+     fp8_dtype,
+     fp8_max,
+     fp8_min,
+@@ -1430,6 +1431,7 @@ def triton_w8a8_block_fp8_linear(
+     input_scale: Optional[torch.Tensor] = None,
+     bias: Optional[torch.Tensor] = None,
+     act_scale_ue8m0: bool = False,
++    weight_bf16: Optional[torch.Tensor] = None,
+ ) -> torch.Tensor:
+     if input_scale is not None:
+         # Pre-quantized input: ``input`` is already fp8 and ``input_scale`` is
+@@ -1454,9 +1456,30 @@ def triton_w8a8_block_fp8_linear(
+                 input_2d, block_size[1], column_major_scales=False
+             )
+ 
+-    output = w8a8_block_fp8_matmul_triton(
+-        q_input, weight, x_scale, weight_scale, block_size, output_dtype=output_dtype
+-    )
++    from sglang.srt.batch_invariant_ops import is_batch_invariant_mode_enabled
++
++    if (
++        weight_bf16 is not None
++        and input_scale is None
++        and act_scale_ue8m0
++        and block_size == [32, 32]
++        and q_input.shape[0] >= 64
++        and output_dtype == torch.bfloat16
++        and not is_batch_invariant_mode_enabled()
++    ):
++        # Keep activation quantization: only the GEMM implementation changes.
++        output = torch.nn.functional.linear(
++            dequant_group_fp8_to_bf16(q_input, x_scale), weight_bf16
++        )
++    else:
++        output = w8a8_block_fp8_matmul_triton(
++            q_input,
++            weight,
++            x_scale,
++            weight_scale,
++            block_size,
++            output_dtype=output_dtype,
++        )
+     if bias is not None:
+         output += bias
+     return output.to(dtype=output_dtype).view(*output_shape)
+diff --git a/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py b/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+new file mode 100644
+index 000000000000..735f8b838c2b
+--- /dev/null
++++ b/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+@@ -0,0 +1,115 @@
++import sys
++
++import pytest
++import torch
++
++from sglang.kernels.ops.quantization.fp8_kernel import (
++    dequant_group_fp8_to_bf16,
++    sglang_per_token_group_quant_fp8,
++)
++from sglang.srt.layers.quantization.fp8_utils import (
++    block_quant_dequant,
++    triton_w8a8_block_fp8_linear,
++)
++from sglang.srt.utils import is_sm90_supported
++from sglang.test.ci.ci_register import register_cuda_ci
++
++register_cuda_ci(est_time=15, stage="base-b-kernel-unit", runner_config="1-gpu-large")
++
++
++@pytest.mark.skipif(not is_sm90_supported(), reason="Hopper group32 path")
++@pytest.mark.parametrize(
++    "m,k", [(0, 288), (1, 1024), (63, 288), (64, 288), (65, 1024), (257, 5120)]
++)
++def test_cached_weight_linear(m, k):
++    torch.manual_seed(103 + m)
++    x = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
++    w = (torch.randn(576, k, device="cuda") * 32).to(torch.float8_e4m3fn)
++    scale = torch.exp2(torch.randint(-12, -5, (18, k // 32), device="cuda").float())
++    cached = block_quant_dequant(w, scale, [32, 32], torch.bfloat16)
++    bias = torch.randn(576, device="cuda", dtype=torch.bfloat16)
++    kwargs = dict(
++        weight=w,
++        block_size=[32, 32],
++        weight_scale=scale,
++        act_scale_ue8m0=True,
++        bias=bias,
++    )
++    if not m:
++        q = torch.empty_like(x, dtype=torch.float8_e4m3fn)
++        sf = torch.empty(0, k // 32, device="cuda")
++        assert dequant_group_fp8_to_bf16(q, sf).shape == x.shape
++        return
++    q, sf = sglang_per_token_group_quant_fp8(x, 32, scale_ue8m0=True)
++    ref_x = q.double() * sf.double().repeat_interleave(32, 1)
++    torch.testing.assert_close(
++        dequant_group_fp8_to_bf16(q, sf).double(), ref_x, rtol=0, atol=0
++    )
++    actual = triton_w8a8_block_fp8_linear(x, weight_bf16=cached, **kwargs)
++    if m < 64:
++        torch.testing.assert_close(
++            actual, triton_w8a8_block_fp8_linear(x, **kwargs), rtol=0, atol=0
++        )
++    else:
++        ref = ref_x @ cached.double().T
++        raw = triton_w8a8_block_fp8_linear(
++            x, weight_bf16=cached, **{**kwargs, "bias": None}
++        )
++        # Check GEMM rounding before a potentially cancelling bias addition.
++        torch.testing.assert_close(
++            raw.double(),
++            ref,
++            rtol=1 / 256,
++            atol=ref.square().mean().sqrt().item() * 1e-5,
++        )
++        torch.testing.assert_close(actual, raw + bias, rtol=0, atol=0)
++        # Capture the complete quantize/dequantize/GEMM path, then change inputs.
++        graph = torch.cuda.CUDAGraph()
++        with torch.cuda.graph(graph):
++            replay = triton_w8a8_block_fp8_linear(x, weight_bf16=cached, **kwargs)
++        x.neg_()
++        graph.replay()
++        torch.testing.assert_close(
++            replay,
++            triton_w8a8_block_fp8_linear(x, weight_bf16=cached, **kwargs),
++            rtol=0,
++            atol=0,
++        )
++
++
++@pytest.mark.skipif(not is_sm90_supported(), reason="Hopper group32 path")
++def test_cached_weight_refresh():
++    from sglang.srt.layers.quantization.fp8 import Fp8Config, Fp8LinearMethod
++
++    method = Fp8LinearMethod(
++        Fp8Config(
++            is_checkpoint_fp8_serialized=True,
++            weight_block_size=[32, 32],
++            scale_fmt="ue8m0",
++        )
++    )
++    layer = torch.nn.Module()
++    layer.orig_dtype = torch.bfloat16
++    layer.weight = torch.nn.Parameter(
++        torch.ones(64, 288, device="cuda").to(torch.float8_e4m3fn), requires_grad=False
++    )
++    layer.weight_scale_inv = torch.nn.Parameter(
++        torch.ones(2, 9, device="cuda"), requires_grad=False
++    )
++    for scale in (1, 2):
++        layer.weight_scale_inv.data.fill_(scale)
++        method.process_weights_after_loading_block_quant(layer)
++        torch.testing.assert_close(
++            layer._block_fp8_bf16_weight,
++            torch.full((64, 288), scale, device="cuda", dtype=torch.bfloat16),
++            rtol=0,
++            atol=0,
++        )
++        assert "_block_fp8_bf16_weight" not in layer.state_dict()
++    layer.keep_plain_weight_layout = True
++    method.process_weights_after_loading_block_quant(layer)
++    assert layer._block_fp8_bf16_weight is None
++
++
++if __name__ == "__main__":
++    sys.exit(pytest.main([__file__]))
+
+From c15ba96abbe804dca3338702f0941953a5dd2bca Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 19:14:53 +0800
+Subject: [PATCH 06/24] [Fix] Guard live updates of cached Hopper FP8 weight
+ expansions
+
+---
+ python/sglang/srt/environ.py                             | 3 +++
+ python/sglang/srt/layers/quantization/fp8.py             | 8 ++++++++
+ .../ops/quantization/test_hopper_group32_linear.py       | 9 +++++++++
+ 3 files changed, 20 insertions(+)
+
+diff --git a/python/sglang/srt/environ.py b/python/sglang/srt/environ.py
+index 11ef39e53cc2..4c3d377c898e 100644
+--- a/python/sglang/srt/environ.py
++++ b/python/sglang/srt/environ.py
+@@ -1006,6 +1006,9 @@ class Envs:
+     SGLANG_CPU_QUANTIZATION = EnvBool(False)
+     SGLANG_USE_DYNAMIC_MXFP4_LINEAR = EnvBool(False)
+     SGLANG_FORCE_FP8_MARLIN = EnvBool(False)
++    # Cache BF16 expansions of Hopper group32 FP8 weights for larger GEMMs.
++    # Disable to save the additional weight memory or allow online updates.
++    SGLANG_OPT_HOPPER_BLOCK_FP8_BF16 = EnvBool(True)
+     SGLANG_MOE_NVFP4_DISPATCH = EnvBool(False)
+     SGLANG_NVFP4_CKPT_FP8_GEMM_IN_ATTN = EnvBool(False)
+     SGLANG_NVFP4_CKPT_FP8_NEXTN_MOE = EnvBool(False)
+diff --git a/python/sglang/srt/layers/quantization/fp8.py b/python/sglang/srt/layers/quantization/fp8.py
+index 5e67c515c033..44368b40435e 100644
+--- a/python/sglang/srt/layers/quantization/fp8.py
++++ b/python/sglang/srt/layers/quantization/fp8.py
+@@ -821,9 +821,11 @@ def process_weights_after_loading_block_quant(self, layer: Module) -> None:
+         layer.weight_scale_inv.data = weight_scale.data
+         if hasattr(layer, "_block_fp8_bf16_weight"):
+             layer._block_fp8_bf16_weight = None
++            layer._derived_weight_cache_error = None
+         if (
+             _is_cuda
+             and get_platform().is_sm90
++            and envs.SGLANG_OPT_HOPPER_BLOCK_FP8_BF16.get()
+             and weight.is_cuda
+             and weight.dtype == torch.float8_e4m3fn
+             and self.weight_block_size == [32, 32]
+@@ -844,6 +846,12 @@ def process_weights_after_loading_block_quant(self, layer: Module) -> None:
+                     block_quant_dequant(weight, weight_scale, [32, 32], torch.bfloat16),
+                     persistent=False,
+                 )
++                layer._derived_weight_cache_error = (
++                    "Online weight updates are not supported while Hopper FP8 "
++                    "BF16 weight caches are active: captured CUDA graphs retain "
++                    "these derived weights. Restart with "
++                    "SGLANG_OPT_HOPPER_BLOCK_FP8_BF16=0 to allow online updates."
++                )
+         if self.block_fp8_as_mxfp8:
+             self._prepare_block_fp8_as_mxfp8(layer)
+ 
+diff --git a/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py b/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+index 735f8b838c2b..66767b509d2b 100644
+--- a/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
++++ b/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+@@ -79,7 +79,11 @@ def test_cached_weight_linear(m, k):
+ 
+ @pytest.mark.skipif(not is_sm90_supported(), reason="Hopper group32 path")
+ def test_cached_weight_refresh():
++    from sglang.srt.environ import envs
+     from sglang.srt.layers.quantization.fp8 import Fp8Config, Fp8LinearMethod
++    from sglang.srt.model_executor.model_runner_components.weight_updater import (
++        _unsupported_derived_weight_cache_error,
++    )
+ 
+     method = Fp8LinearMethod(
+         Fp8Config(
+@@ -106,6 +110,11 @@ def test_cached_weight_refresh():
+             atol=0,
+         )
+         assert "_block_fp8_bf16_weight" not in layer.state_dict()
++        assert "Hopper FP8" in _unsupported_derived_weight_cache_error(layer)
++    with envs.SGLANG_OPT_HOPPER_BLOCK_FP8_BF16.override(False):
++        method.process_weights_after_loading_block_quant(layer)
++        assert layer._block_fp8_bf16_weight is None
++        assert layer._derived_weight_cache_error is None
+     layer.keep_plain_weight_layout = True
+     method.process_weights_after_loading_block_quant(layer)
+     assert layer._block_fp8_bf16_weight is None
+
+From a0d87fb1bcf1fec3894ada4c9fa851cabe6c0aac Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 19:14:53 +0800
+Subject: [PATCH 07/24] [Perf] Use compensated BF16 mHC projections for Hopper
+ prefill
+
+---
+ .../model_runner_components/weight_updater.py |  2 +
+ python/sglang/srt/models/deepseek_v4.py       | 57 ++++++++++++-------
+ .../kernels/ops/layernorm/test_mhc_kernels.py | 52 +++++++++++++++++
+ .../test_compensated_mhc_update_guard.py      |  7 ++-
+ 4 files changed, 97 insertions(+), 21 deletions(-)
+
+diff --git a/python/sglang/srt/model_executor/model_runner_components/weight_updater.py b/python/sglang/srt/model_executor/model_runner_components/weight_updater.py
+index 5d852a613675..f6f707f36b2c 100644
+--- a/python/sglang/srt/model_executor/model_runner_components/weight_updater.py
++++ b/python/sglang/srt/model_executor/model_runner_components/weight_updater.py
+@@ -50,6 +50,8 @@ def _unsupported_derived_weight_cache_error(
+     if model is not None and any(
+         getattr(module, "_hc_attn_tf32_parts", None) is not None
+         or getattr(module, "_hc_ffn_tf32_parts", None) is not None
++        or getattr(module, "_hc_attn_bf16_parts", None) is not None
++        or getattr(module, "_hc_ffn_bf16_parts", None) is not None
+         for module in model.modules()
+     ):
+         return (
+diff --git a/python/sglang/srt/models/deepseek_v4.py b/python/sglang/srt/models/deepseek_v4.py
+index cd7e92864880..255ee65758d9 100644
+--- a/python/sglang/srt/models/deepseek_v4.py
++++ b/python/sglang/srt/models/deepseek_v4.py
+@@ -2726,12 +2726,21 @@ def refresh_mhc_norm_weight_cache(self):
+         self._hc_attn_bf16_parts = self._hc_ffn_bf16_parts = None
+         if (
+             self.hc_pre_from_prev_sublayer
+-            and get_platform().is_sm100
++            and (get_platform().is_sm100 or get_platform().is_sm90)
+             and self.hc_attn_fn.shape == (24, 20480)
+             and envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.get()
+             and getattr(self.config, "model_type", None) == "deepseek_v41"
+             and not is_batch_invariant_mode_enabled()
+         ):
++            if get_platform().is_sm90:
++                from sglang.kernels.ops.layernorm.mhc import split_bf16_hc_weight
++
++                # The compensated BF16 projection uses ordinary tensor cores;
++                # it does not require Blackwell or DeepGEMM's prenorm kernel.
++                self._hc_attn_bf16_parts = split_bf16_hc_weight(self.hc_attn_fn.data)
++                self._hc_ffn_bf16_parts = split_bf16_hc_weight(self.hc_ffn_fn.data)
++                return
++
+             from sglang.kernels.ops.layernorm.mhc import (
+                 split_tf32_hc_weight,
+             )
+@@ -3288,12 +3297,38 @@ def _hc_mix_stats(
+ 
+         x_flat = x.flatten(1)
+ 
++        from sglang.srt.batch_invariant_ops import (
++            is_batch_invariant_mode_enabled,
++        )
++
++        parts = bf16_parts = None
++        if (
++            x.is_cuda
++            and x_flat.shape[0] >= 128
++            and x_flat.is_contiguous()
++            and (get_platform().is_sm100 or get_platform().is_sm90)
++            and envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.get()
++            and not is_batch_invariant_mode_enabled()
++        ):
++            if hc_fn is self.hc_attn_fn:
++                parts = getattr(self, "_hc_attn_tf32_parts", None)
++                bf16_parts = getattr(self, "_hc_attn_bf16_parts", None)
++            elif hc_fn is self.hc_ffn_fn:
++                parts = getattr(self, "_hc_ffn_tf32_parts", None)
++                bf16_parts = getattr(self, "_hc_ffn_bf16_parts", None)
++
+         if (
+             x.is_cuda
+             and torch.version.cuda is not None
+             and (
+                 get_platform().is_blackwell
+-                or (get_platform().is_sm90 and x.shape[0] == 1)
++                or (
++                    get_platform().is_sm90
++                    and (
++                        x.shape[0] == 1
++                        or (bf16_parts is not None and 4096 <= x.shape[0] <= 65536)
++                    )
++                )
+             )
+             and x.dtype == torch.bfloat16
+         ):
+@@ -3306,24 +3341,6 @@ def _hc_mix_stats(
+                 if stats_stream is not None
+                 else nullcontext()
+             ):
+-                from sglang.srt.batch_invariant_ops import (
+-                    is_batch_invariant_mode_enabled,
+-                )
+-
+-                parts = bf16_parts = None
+-                if (
+-                    x_flat.shape[0] >= 128
+-                    and x_flat.is_contiguous()
+-                    and get_platform().is_sm100
+-                    and envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.get()
+-                    and not is_batch_invariant_mode_enabled()
+-                ):
+-                    if hc_fn is self.hc_attn_fn:
+-                        parts = getattr(self, "_hc_attn_tf32_parts", None)
+-                        bf16_parts = getattr(self, "_hc_attn_bf16_parts", None)
+-                    elif hc_fn is self.hc_ffn_fn:
+-                        parts = getattr(self, "_hc_ffn_tf32_parts", None)
+-                        bf16_parts = getattr(self, "_hc_ffn_bf16_parts", None)
+                 if bf16_parts is not None and 4096 <= x_flat.shape[0] <= 65536:
+                     from sglang.kernels.ops.layernorm.mhc import (
+                         hc_mix_stats_sinkhorn_bf16x3,
+diff --git a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+index b2010cd6ce56..eb4586a083b7 100644
+--- a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
++++ b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+@@ -207,6 +207,58 @@ def _check_glm_boundary(x, residual, post, comb, fn, scale, base, *, use_norm):
+     )
+ 
+ 
++@pytest.mark.parametrize("num_tokens", [4096, 4097, 8192])
++def test_hopper_compensated_mhc_prefill(num_tokens):
++    from sglang.srt.environ import envs
++    from sglang.srt.models.deepseek_v4 import DeepseekV4DecoderLayer
++    from sglang.srt.utils import is_sm90_supported
++
++    if not is_sm90_supported():
++        pytest.skip("Hopper compensated mHC dispatch")
++    torch.manual_seed(192 + num_tokens)
++    x = torch.randn(num_tokens, 4, 5120, device="cuda", dtype=torch.bfloat16)
++    w = torch.randn(24, 20480, device="cuda") * 0.01
++    scale = torch.tensor([0.5, 0.25, 0.25], device="cuda")
++    base = torch.randn(24, device="cuda")
++    norm = SimpleNamespace(weight=torch.ones(5120, device="cuda", dtype=torch.bfloat16))
++    layer = SimpleNamespace(
++        input_layernorm=norm,
++        post_attention_layernorm=norm,
++        config=SimpleNamespace(model_type="deepseek_v41"),
++        hc_pre_from_prev_sublayer=True,
++        hc_attn_fn=w,
++        hc_ffn_fn=-w,
++        hc_mult=4,
++        hc_sinkhorn_iters=20,
++        rms_norm_eps=1e-6,
++        hc_eps=1e-6,
++    )
++    with envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.override(True):
++        DeepseekV4DecoderLayer.refresh_mhc_norm_weight_cache(layer)
++        assert layer._hc_attn_bf16_parts is not None
++        assert layer._hc_attn_tf32_parts is None
++        actual = DeepseekV4DecoderLayer._hc_mix_stats(layer, x, w, scale, base)
++    xd = x.flatten(1).double()
++    z = (xd @ w.double().T) * torch.rsqrt(xd.square().mean(-1, keepdim=True) + 1e-6)
++    expected_pre = torch.sigmoid(z[:, :4] * scale[0] + base[:4]) + 1e-6
++    expected_post = 2 * torch.sigmoid(z[:, 4:8] * scale[1] + base[4:8])
++    comb = (z[:, 8:] * scale[2] + base[8:]).reshape(-1, 4, 4)
++    comb = (comb - comb.amax(-1, keepdim=True)).exp()
++    comb = comb / comb.sum(-1, keepdim=True) + 1e-6
++    comb = comb / (comb.sum(-2, keepdim=True) + 1e-6)
++    for _ in range(19):
++        comb = comb / (comb.sum(-1, keepdim=True) + 1e-6)
++        comb = comb / (comb.sum(-2, keepdim=True) + 1e-6)
++    for result, expected in zip(actual, (expected_pre, expected_post, comb)):
++        torch.testing.assert_close(result.double(), expected, rtol=1e-5, atol=2e-6)
++    with envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.override(False):
++        fallback = DeepseekV4DecoderLayer._hc_mix_stats(layer, x, w, scale, base)
++        for result, expected in zip(fallback, (expected_pre, expected_post, comb)):
++            torch.testing.assert_close(result.double(), expected, rtol=1e-5, atol=2e-6)
++        DeepseekV4DecoderLayer.refresh_mhc_norm_weight_cache(layer)
++        assert layer._hc_attn_bf16_parts is None
++
++
+ if __name__ == "__main__":
+     import sys
+ 
+diff --git a/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py b/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py
+index 047b10664c52..d4837d5c3b66 100644
+--- a/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py
++++ b/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py
+@@ -19,7 +19,12 @@
+ 
+ class TestCompensatedMhcUpdateGuard(CustomTestCase):
+     def test_all_update_entries_reject_before_writes(self):
+-        for field in ("_hc_attn_tf32_parts", "_hc_ffn_tf32_parts"):
++        for field in (
++            "_hc_attn_tf32_parts",
++            "_hc_ffn_tf32_parts",
++            "_hc_attn_bf16_parts",
++            "_hc_ffn_bf16_parts",
++        ):
+             for method, args in (
+                 ("update_weights_from_tensor", ([], "direct")),
+                 ("load_weights_from_distributed", ([],)),
+
+From a99be3e15244305ae5e21a022a6a7962986053ae Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 19:50:42 +0800
+Subject: [PATCH 08/24] [Fix] Reject inexact Hopper BF16 weight expansions
+
+---
+ python/sglang/srt/layers/quantization/fp8.py           |  9 ++++++++-
+ .../ops/quantization/test_hopper_group32_linear.py     | 10 ++++++++++
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/python/sglang/srt/layers/quantization/fp8.py b/python/sglang/srt/layers/quantization/fp8.py
+index 44368b40435e..e51f65c18f29 100644
+--- a/python/sglang/srt/layers/quantization/fp8.py
++++ b/python/sglang/srt/layers/quantization/fp8.py
+@@ -837,7 +837,14 @@ def process_weights_after_loading_block_quant(self, layer: Module) -> None:
+             from sglang.srt.batch_invariant_ops import is_batch_invariant_mode_enabled
+             from sglang.srt.layers.quantization.fp8_utils import block_quant_dequant
+ 
+-            if not is_batch_invariant_mode_enabled():
++            # Keep even the smallest/largest finite E4M3 value representable
++            # as normal BF16, and reject mislabeled non-power-of-two scales.
++            exact_bf16_scales = (
++                (weight_scale >= 2.0**-117)
++                & (weight_scale <= 2.0**119)
++                & (torch.frexp(weight_scale)[0] == 0.5)
++            ).all()
++            if not is_batch_invariant_mode_enabled() and exact_bf16_scales.item():
+                 # Hopper group32 FP8 accumulates each 32-wide block separately.
+                 # Reuse a BF16 weight expansion for larger GEMMs, keeping the
+                 # original FP8 weights for decode and weight reloads.
+diff --git a/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py b/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+index 66767b509d2b..eb26c04528ea 100644
+--- a/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
++++ b/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+@@ -115,6 +115,16 @@ def test_cached_weight_refresh():
+         method.process_weights_after_loading_block_quant(layer)
+         assert layer._block_fp8_bf16_weight is None
+         assert layer._derived_weight_cache_error is None
++    for scale in (2.0**-118, 2.0**120, 1.5, float("nan")):
++        layer.weight_scale_inv.data.fill_(scale)
++        method.process_weights_after_loading_block_quant(layer)
++        assert layer._block_fp8_bf16_weight is None
++        assert layer._derived_weight_cache_error is None
++    for scale in (2.0**-117, 2.0**119):
++        layer.weight_scale_inv.data.fill_(scale)
++        method.process_weights_after_loading_block_quant(layer)
++        assert layer._block_fp8_bf16_weight is not None
++    layer.weight_scale_inv.data.fill_(1)
+     layer.keep_plain_weight_layout = True
+     method.process_weights_after_loading_block_quant(layer)
+     assert layer._block_fp8_bf16_weight is None
+
+From f8e12f66b54ce59564ea300429b7b8dddc1e3844 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 19:50:42 +0800
+Subject: [PATCH 09/24] [Perf] Fuse Hopper Marlin SwiGLU without changing
+ activation rounding
+
+---
+ .../jit/csrc/elementwise/activation.cuh       | 37 ++++++++++++++-----
+ .../kernels/ops/activation/activation.py      |  8 ++--
+ .../moe/fused_moe_triton/fused_marlin_moe.py  | 17 ++++++++-
+ .../kernels/ops/activation/test_activation.py | 32 ++++++++++++++++
+ 4 files changed, 81 insertions(+), 13 deletions(-)
+
+diff --git a/python/sglang/kernels/jit/csrc/elementwise/activation.cuh b/python/sglang/kernels/jit/csrc/elementwise/activation.cuh
+index 482d53204299..1f52a355c3d6 100644
+--- a/python/sglang/kernels/jit/csrc/elementwise/activation.cuh
++++ b/python/sglang/kernels/jit/csrc/elementwise/activation.cuh
+@@ -53,6 +53,7 @@ struct ActivationParams {
+   // for per-token routing and BLOCK_SIZE_M for sorted/TMA routing.
+   const int32_t* __restrict__ expert_ids;
+   uint32_t expert_step;
++  float clamp_limit;
+ };
+ 
+ template <
+@@ -61,7 +62,8 @@ template <
+     bool kUsePDL,
+     bool kFilterExpert,
+     bool kRoundActivation = false,
+-    bool kReuseInput = false>
++    bool kReuseInput = false,
++    bool kClamp = false>
+ __global__ void act_and_mul_kernel(const __grid_constant__ ActivationParams params) {
+   using namespace device;
+   constexpr auto kVecSize = kMaxVecBytes / sizeof(T);
+@@ -80,11 +82,17 @@ __global__ void act_and_mul_kernel(const __grid_constant__ ActivationParams para
+   PDLWaitPrimary<kUsePDL>();
+   const auto gate = device::load_as<vec_t>(params.input, input_offset);
+   const auto up = device::load_as<vec_t>(params.input, input_offset + num_vecs);
++  const float limit = device::cast<fp32_t>(device::cast<T>(params.clamp_limit));
+   vec_t out;
+ #pragma unroll
+   for (int i = 0; i < kVecSize; ++i) {
+-    const float gate_f32 = device::cast<fp32_t>(gate[i]);
+-    const float up_f32 = device::cast<fp32_t>(up[i]);
++    float gate_f32 = device::cast<fp32_t>(gate[i]);
++    float up_f32 = device::cast<fp32_t>(up[i]);
++    if constexpr (kClamp) {
++      static_assert(kAct == ActivationKind::kSiLU);
++      gate_f32 = gate_f32 > limit ? limit : gate_f32;
++      up_f32 = up_f32 > limit ? limit : (up_f32 < -limit ? -limit : up_f32);
++    }
+     if constexpr (kRoundActivation) {
+       const T activated = device::cast<T>(apply_activation_f32<kAct>(gate_f32));
+       out[i] = device::cast<T>(device::cast<fp32_t>(activated) * up_f32);
+@@ -153,13 +161,14 @@ struct ActivationKernel {
+     return nullptr;
+   }
+ 
+-  template <bool kRoundActivation = false, bool kReuseInput = false>
++  template <bool kRoundActivation = false, bool kReuseInput = false, bool kClamp = false>
+   static void launch(
+       const tvm::ffi::TensorView& input,
+       const tvm::ffi::TensorView& out,
+       const std::string& type,
+       const int32_t* expert_ids,
+-      uint32_t expert_step) {
++      uint32_t expert_step,
++      float clamp_limit = 0.0f) {
+     using namespace host;
+ 
+     auto N = SymbolicSize{"num_tokens"};
+@@ -198,8 +207,14 @@ struct ActivationKernel {
+         .num_tokens = num_tokens,
+         .expert_ids = expert_ids,
+         .expert_step = expert_step,
++        .clamp_limit = clamp_limit,
+     };
+-    if (expert_ids != nullptr) {
++    if constexpr (kClamp) {
++      RuntimeCheck(type == "silu" && expert_ids == nullptr, "clamping requires unfiltered SiLU");
++      const auto kernel =
++          act_and_mul_kernel<T, ActivationKind::kSiLU, kUsePDL, false, kRoundActivation, kReuseInput, true>;
++      LaunchKernel(num_blocks, kBlockSize, device).enable_pdl(kUsePDL)(kernel, params);
++    } else if (expert_ids != nullptr) {
+       RuntimeCheck(expert_step > 0, "expert_step must be positive");
+       const auto kernel = select_kernel<true, kRoundActivation, kReuseInput>(type);
+       LaunchKernel(num_blocks, kBlockSize, device).enable_pdl(kUsePDL)(kernel, params);
+@@ -213,9 +228,13 @@ struct ActivationKernel {
+     launch(input, out, type, /*expert_ids=*/nullptr, /*expert_step=*/1);
+   }
+ 
+-  static void
+-  run_activation_with_rounding(const tvm::ffi::TensorView input, const tvm::ffi::TensorView out, std::string type) {
+-    launch<true>(input, out, type, /*expert_ids=*/nullptr, /*expert_step=*/1);
++  static void run_activation_with_rounding(
++      const tvm::ffi::TensorView input, const tvm::ffi::TensorView out, std::string type, double clamp_limit) {
++    if (clamp_limit > 0) {
++      launch<true, false, true>(input, out, type, /*expert_ids=*/nullptr, /*expert_step=*/1, clamp_limit);
++    } else {
++      launch<true>(input, out, type, /*expert_ids=*/nullptr, /*expert_step=*/1);
++    }
+   }
+ 
+   static void run_activation_with_rounding_input_inplace(
+diff --git a/python/sglang/kernels/ops/activation/activation.py b/python/sglang/kernels/ops/activation/activation.py
+index 310693f496c4..1b4fdf956cb6 100644
+--- a/python/sglang/kernels/ops/activation/activation.py
++++ b/python/sglang/kernels/ops/activation/activation.py
+@@ -67,14 +67,14 @@ def _run_activation_inplace(
+ 
+ @register_custom_op(mutates_args=["out"])
+ def _run_activation_with_rounding_inplace(
+-    op_name: str, input: torch.Tensor, out: torch.Tensor
++    op_name: str, input: torch.Tensor, out: torch.Tensor, clamp_limit: float = 0.0
+ ) -> None:
+     hidden_size = input.shape[-1] // 2
+     # Fast-math changes FP16 SiLU at eager rounding boundaries on SM90.
+     module = activation_module(input.dtype, fast_math=False)
+     input_2d = input.view(-1, hidden_size * 2)
+     out_2d = out.view(-1, hidden_size)
+-    module.run_activation_with_rounding(input_2d, out_2d, op_name)
++    module.run_activation_with_rounding(input_2d, out_2d, op_name, clamp_limit)
+ 
+ 
+ @register_custom_op(mutates_args=["input"])
+@@ -184,11 +184,13 @@ def silu_and_mul(
+ def silu_and_mul_with_activation_rounding(
+     input: torch.Tensor,
+     out: Optional[torch.Tensor] = None,
++    *,
++    clamp_limit: float = 0.0,
+ ) -> torch.Tensor:
+     hidden_size = input.shape[-1] // 2
+     if out is None:
+         out = input.new_empty(*input.shape[:-1], hidden_size)
+-    _run_activation_with_rounding_inplace("silu", input, out)
++    _run_activation_with_rounding_inplace("silu", input, out, clamp_limit)
+     return out
+ 
+ 
+diff --git a/python/sglang/srt/layers/moe/fused_moe_triton/fused_marlin_moe.py b/python/sglang/srt/layers/moe/fused_moe_triton/fused_marlin_moe.py
+index 7f76b2616efc..98fc1b1a1b64 100644
+--- a/python/sglang/srt/layers/moe/fused_moe_triton/fused_marlin_moe.py
++++ b/python/sglang/srt/layers/moe/fused_moe_triton/fused_marlin_moe.py
+@@ -6,6 +6,7 @@
+ import triton.language as tl
+ 
+ from sglang.srt.layers import zero_copy_context
++from sglang.srt.runtime_context import get_platform
+ from sglang.srt.utils import is_cuda
+ from sglang.srt.utils.custom_op import register_custom_op
+ 
+@@ -14,7 +15,10 @@
+ if _is_cuda:
+     from sgl_kernel import moe_sum_reduce
+ 
+-    from sglang.kernels.ops.activation.activation import silu_and_mul
++    from sglang.kernels.ops.activation.activation import (
++        silu_and_mul,
++        silu_and_mul_with_activation_rounding,
++    )
+     from sglang.kernels.ops.moe.moe_wna16_marlin import moe_wna16_marlin_gemm
+ 
+ 
+@@ -109,6 +113,17 @@ def swiglu_limit_func(
+     swiglu_limit: float = 0.0,
+ ) -> None:
+     d = input.shape[1] // 2
++    if (
++        _is_cuda
++        and get_platform().is_sm90
++        and input.is_cuda
++        and input.dtype in (torch.bfloat16, torch.float16)
++        and d % 16 == 0
++        and input.is_contiguous()
++        and output.is_contiguous()
++    ):
++        silu_and_mul_with_activation_rounding(input, output, clamp_limit=swiglu_limit)
++        return
+     gate = input[:, :d]
+     up = input[:, d:]
+ 
+diff --git a/test/registered/kernels/ops/activation/test_activation.py b/test/registered/kernels/ops/activation/test_activation.py
+index fb2562e0fca5..1a5facdd34bf 100644
+--- a/test/registered/kernels/ops/activation/test_activation.py
++++ b/test/registered/kernels/ops/activation/test_activation.py
+@@ -9,7 +9,9 @@
+     SUPPORTED_ACTIVATIONS,
+     relu2,
+     run_activation,
++    silu_and_mul_with_activation_rounding,
+ )
++from sglang.srt.utils import is_sm90_supported
+ from sglang.test.ci.ci_register import register_amd_ci, register_cuda_ci
+ 
+ register_cuda_ci(est_time=20, stage="base-b-kernel-unit", runner_config="1-gpu-large")
+@@ -239,5 +241,35 @@ def test_relu2_negative_inputs_zeroed() -> None:
+     assert torch.count_nonzero(out) == 0
+ 
+ 
++@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
++@pytest.mark.parametrize("limit", [0.0, 6.3, 10.0])
++@pytest.mark.skipif(not is_sm90_supported(), reason="Hopper rounding contract")
++def test_rounded_silu_clamp_graph(dtype, limit):
++    # Include all input bit patterns, especially eager rounding boundaries,
++    # infinities and NaNs; the activation must round before multiplying up.
++    values = (
++        torch.arange(65536, device="cuda", dtype=torch.int32)
++        .to(torch.int16)
++        .view(dtype)
++    )
++    x = torch.cat((values.view(-1, 32), values.roll(17953).view(-1, 32)), dim=1)
++
++    def reference():
++        gate, up = x.chunk(2, dim=-1)
++        if limit > 0:
++            gate = gate.clamp(max=limit)
++            up = up.clamp(-limit, limit)
++        return F.silu(gate) * up
++
++    actual = silu_and_mul_with_activation_rounding(x, clamp_limit=limit)
++    torch.testing.assert_close(actual, reference(), rtol=0, atol=0, equal_nan=True)
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        silu_and_mul_with_activation_rounding(x, actual, clamp_limit=limit)
++    x.neg_()
++    graph.replay()
++    torch.testing.assert_close(actual, reference(), rtol=0, atol=0, equal_nan=True)
++
++
+ if __name__ == "__main__":
+     sys.exit(pytest.main([__file__, "-v", "-s"]))
+
+From 2b4827d86ec9391f396645b02afa20818d7f8f79 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 19:50:42 +0800
+Subject: [PATCH 10/24] [Perf] Fuse Hopper indexer top-k masking and slot
+ mapping
+
+---
+ .../kernels/ops/attention/dsv4/fp4_indexer.py | 93 +++++++++++++++++++
+ .../kernels/ops/attention/test_fp4_indexer.py | 26 +++++-
+ 2 files changed, 117 insertions(+), 2 deletions(-)
+
+diff --git a/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py b/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
+index f6e67b0dca2d..526ef431b630 100644
+--- a/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
++++ b/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
+@@ -15,6 +15,99 @@
+ INDEX_K_SLOT_BYTES = INDEX_K_PAYLOAD_BYTES.value + INDEX_K_SCALE_BYTES.value
+ 
+ 
++@triton.jit
++def _finish_paged_indexer_topk_kernel(
++    Indices,
++    Scores,
++    Lengths,
++    Requests,
++    ReqTable,
++    Pages,
++    Raw,
++    BATCH: tl.constexpr,
++    K: tl.constexpr,
++    WIDTH: tl.constexpr,
++    OUT_WIDTH: tl.constexpr,
++    IDX_STRIDE: tl.constexpr,
++    SCORE_STRIDE: tl.constexpr,
++    TABLE_STRIDE: tl.constexpr,
++    PAGE_STRIDE: tl.constexpr,
++    RAW_STRIDE: tl.constexpr,
++    RATIO: tl.constexpr,
++    MASK_SCORES: tl.constexpr,
++    WRITE_RAW: tl.constexpr,
++    BLOCK: tl.constexpr,
++):
++    row = tl.program_id(0)
++    col = tl.arange(0, BLOCK)
++    idx = tl.load(Indices + row * IDX_STRIDE + col, (row < BATCH) & (col < K), WIDTH)
++    if MASK_SCORES:
++        valid = (row < BATCH) & (col < K) & (idx >= 0) & (idx < WIDTH)
++        score = tl.load(Scores + row * SCORE_STRIDE + idx, valid, -float("inf"))
++        idx = tl.where(valid & (score > -float("inf")), idx, WIDTH)
++    idx = tl.sort(tl.where(idx >= 0, idx, WIDTH), descending=False)
++    length = tl.load(Lengths + row, row < BATCH, 0)
++    req = tl.load(Requests + row, row < BATCH, 0)
++    valid = (row < BATCH) & (col < K) & (idx < length)
++    slot = tl.load(
++        ReqTable + req.to(tl.int64) * TABLE_STRIDE + idx.to(tl.int64) * RATIO,
++        valid,
++        0,
++    )
++    tl.store(
++        Pages + row * PAGE_STRIDE + col,
++        tl.where(valid, slot.to(tl.int64) // RATIO, -1),
++        col < OUT_WIDTH,
++    )
++    if WRITE_RAW:
++        tl.store(
++            Raw + row * RAW_STRIDE + col, tl.where(valid, idx, -1), col < OUT_WIDTH
++        )
++
++
++def finish_paged_indexer_topk(
++    indices: torch.Tensor,
++    scores: torch.Tensor,
++    lengths: torch.Tensor,
++    req: torch.Tensor,
++    req_table: torch.Tensor,
++    page_indices: torch.Tensor,
++    raw_indices: torch.Tensor | None,
++    ratio: int,
++    mask_scores: bool,
++) -> None:
++    """Sort selected positions and map them to compressed KV slots.
++
++    Candidate consumers discard selected masked scores, including top-k underfill.
++    The entire output (including padded rows/columns) is written, with -1 padding.
++    """
++    if not page_indices.shape[0]:
++        return
++    _finish_paged_indexer_topk_kernel[(page_indices.shape[0],)](
++        indices,
++        scores,
++        lengths,
++        req,
++        req_table,
++        page_indices,
++        raw_indices,
++        lengths.numel(),
++        indices.shape[1],
++        scores.shape[1],
++        page_indices.shape[1],
++        indices.stride(0),
++        scores.stride(0),
++        req_table.stride(0),
++        page_indices.stride(0),
++        raw_indices.stride(0) if raw_indices is not None else 0,
++        ratio,
++        mask_scores,
++        raw_indices is not None,
++        triton.next_power_of_2(max(page_indices.shape[1], indices.shape[1])),
++        num_warps=4,
++    )
++
++
+ @triton.jit
+ def _select_group_value(group, v0, v1, v2, v3):
+     return tl.where(
+diff --git a/test/registered/kernels/ops/attention/test_fp4_indexer.py b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+index bd853be12a51..03a137fcec7a 100644
+--- a/test/registered/kernels/ops/attention/test_fp4_indexer.py
++++ b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+@@ -15,6 +15,7 @@
+     fused_q_indexer_rope_hadamard_fp4_quant,
+ )
+ from sglang.kernels.ops.attention.dsv4.fp4_indexer import (
++    finish_paged_indexer_topk,
+     fp4_index_logits_decode,
+     fp4_index_logits_paged,
+     quantize_fp4_indexer_tensor,
+@@ -513,13 +514,20 @@ def run():
+         )
+         indices = torch.empty((batch, k), dtype=torch.int32, device=q.device)
+         topk_transform_paged_v2(scores, lengths, None, indices, 1, plan)
+-        return scores, indices
++        pages = torch.empty((batch + 1, 528), dtype=torch.int32, device=q.device)[
++            :, :512
++        ]
++        raw = torch.empty_like(pages) if ratio == 1 else None
++        finish_paged_indexer_topk(
++            indices, scores, lengths, req, req_table, pages, raw, ratio, masked
++        )
++        return scores, indices, pages, raw
+ 
+     for _ in range(3):
+         run()
+     graph = torch.cuda.CUDAGraph()
+     with torch.cuda.graph(graph):
+-        scores, indices = run()
++        scores, indices, pages, raw = run()
+     for step, visible in enumerate([width, 0, 1, 63, 64, 65, width]):
+         lens.copy_((visible - torch.arange(batch, device=q.device)).clamp_min(0))
+         lengths.copy_(lens)
+@@ -538,6 +546,9 @@ def run():
+             scores[:, :width][visible_mask], expected[visible_mask], atol=0, rtol=0
+         )
+         blocks = amax_topk_blocks(scores, lengths, (lengths + 7) // 8, 2048)
++        assert (pages[batch] == -1).all().item()
++        if raw is not None:
++            assert (raw[batch] == -1).all().item()
+         for row, length in enumerate(lens.tolist()):
+             selected = indices[row][indices[row] >= 0].long()
+             assert selected.numel() == selected.unique().numel() == min(k, length)
+@@ -548,6 +559,17 @@ def run():
+                 atol=0,
+                 rtol=0,
+             )
++            kept = (
++                selected[expected[row, selected] > -torch.inf] if masked else selected
++            )
++            kept = kept.sort().values
++            expected_pages = torch.full_like(pages[row], -1)
++            expected_pages[: kept.numel()] = slots[row, kept].to(torch.int32)
++            torch.testing.assert_close(pages[row], expected_pages, rtol=0, atol=0)
++            if raw is not None:
++                expected_raw = torch.full_like(raw[row], -1)
++                expected_raw[: kept.numel()] = kept.to(torch.int32)
++                torch.testing.assert_close(raw[row], expected_raw, rtol=0, atol=0)
+             nblocks = (length + 7) // 8
+             chosen = blocks[row][blocks[row] >= 0].long()
+             assert chosen.numel() == chosen.unique().numel() == min(2048, nblocks)
+
+From 0d3c45d748ea4fb5b55399633da3e4a17e1c2e0e Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 20:04:17 +0800
+Subject: [PATCH 11/24] [Perf] Extend measured Hopper mHC fusion and
+ compensated projection paths
+
+---
+ python/sglang/kernels/ops/layernorm/mhc.py    |  9 ++++---
+ python/sglang/srt/models/deepseek_v4.py       | 14 +++++++----
+ .../kernels/ops/layernorm/test_mhc_kernels.py | 24 +++++++++++++++++--
+ 3 files changed, 38 insertions(+), 9 deletions(-)
+
+diff --git a/python/sglang/kernels/ops/layernorm/mhc.py b/python/sglang/kernels/ops/layernorm/mhc.py
+index a48fe316e081..615307885403 100644
+--- a/python/sglang/kernels/ops/layernorm/mhc.py
++++ b/python/sglang/kernels/ops/layernorm/mhc.py
+@@ -2583,7 +2583,10 @@ def hc_mix_stats_sinkhorn_bf16x3(
+     m, k = x.shape
+     mix = (2 + hc_mult) * hc_mult
+     slices = _HC_MIX_COMPENSATED_SLICES
+-    assert x.is_contiguous() and x.dtype == torch.bfloat16 and 4096 <= m <= 65536
++    hopper_medium = get_platform().is_sm90 and 32 <= m < 4096
++    block_m = 64 if hopper_medium else _HC_MIX_BF16X3_BLOCK_M
++    assert x.is_contiguous() and x.dtype == torch.bfloat16
++    assert hopper_medium or 4096 <= m <= 65536
+     assert k % (slices * _HC_MIX_BLOCK_K) == 0
+     assert len(weight_parts) == 3
+     assert all(
+@@ -2595,7 +2598,7 @@ def hc_mix_stats_sinkhorn_bf16x3(
+     pre = torch.empty((m, hc_mult), device=x.device, dtype=torch.float32)
+     post = torch.empty_like(pre)
+     comb = torch.empty((m, hc_mult, hc_mult), device=x.device, dtype=torch.float32)
+-    _hc_mix_stats_bf16x3_kernel[(triton.cdiv(m, _HC_MIX_BF16X3_BLOCK_M), slices)](
++    _hc_mix_stats_bf16x3_kernel[(triton.cdiv(m, block_m), slices)](
+         x,
+         *weight_parts,
+         part_mix,
+@@ -2606,7 +2609,7 @@ def hc_mix_stats_sinkhorn_bf16x3(
+         MIX_COLS=mix,
+         MIX_PAD=triton.next_power_of_2(mix),
+         BLOCK_K=_HC_MIX_BLOCK_K,
+-        BLOCK_M=_HC_MIX_BF16X3_BLOCK_M,
++        BLOCK_M=block_m,
+         num_warps=4,
+         num_stages=3,
+     )
+diff --git a/python/sglang/srt/models/deepseek_v4.py b/python/sglang/srt/models/deepseek_v4.py
+index 255ee65758d9..b00d3faef762 100644
+--- a/python/sglang/srt/models/deepseek_v4.py
++++ b/python/sglang/srt/models/deepseek_v4.py
+@@ -3246,7 +3246,10 @@ def combine_and_norm():
+ 
+             if (
+                 x.is_cuda
+-                and get_platform().is_blackwell
++                and (
++                    get_platform().is_blackwell
++                    or (get_platform().is_sm90 and not quantize)
++                )
+                 and (
+                     0 < x.shape[0] <= 96
+                     or (
+@@ -3302,9 +3305,10 @@ def _hc_mix_stats(
+         )
+ 
+         parts = bf16_parts = None
++        hopper_medium = get_platform().is_sm90 and 32 <= x_flat.shape[0] < 4096
+         if (
+             x.is_cuda
+-            and x_flat.shape[0] >= 128
++            and (x_flat.shape[0] >= 128 or hopper_medium)
+             and x_flat.is_contiguous()
+             and (get_platform().is_sm100 or get_platform().is_sm90)
+             and envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.get()
+@@ -3326,7 +3330,7 @@ def _hc_mix_stats(
+                     get_platform().is_sm90
+                     and (
+                         x.shape[0] == 1
+-                        or (bf16_parts is not None and 4096 <= x.shape[0] <= 65536)
++                        or (bf16_parts is not None and 32 <= x.shape[0] <= 65536)
+                     )
+                 )
+             )
+@@ -3341,7 +3345,9 @@ def _hc_mix_stats(
+                 if stats_stream is not None
+                 else nullcontext()
+             ):
+-                if bf16_parts is not None and 4096 <= x_flat.shape[0] <= 65536:
++                if bf16_parts is not None and (
++                    hopper_medium or 4096 <= x_flat.shape[0] <= 65536
++                ):
+                     from sglang.kernels.ops.layernorm.mhc import (
+                         hc_mix_stats_sinkhorn_bf16x3,
+                     )
+diff --git a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+index eb4586a083b7..14b97f26b78c 100644
+--- a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
++++ b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+@@ -207,8 +207,8 @@ def _check_glm_boundary(x, residual, post, comb, fn, scale, base, *, use_norm):
+     )
+ 
+ 
+-@pytest.mark.parametrize("num_tokens", [4096, 4097, 8192])
+-def test_hopper_compensated_mhc_prefill(num_tokens):
++@pytest.mark.parametrize("num_tokens", [32, 33, 64, 128, 257, 4096, 4097, 8192])
++def test_hopper_compensated_mhc(num_tokens):
+     from sglang.srt.environ import envs
+     from sglang.srt.models.deepseek_v4 import DeepseekV4DecoderLayer
+     from sglang.srt.utils import is_sm90_supported
+@@ -259,6 +259,26 @@ def test_hopper_compensated_mhc_prefill(num_tokens):
+         assert layer._hc_attn_bf16_parts is None
+ 
+ 
++@pytest.mark.parametrize("num_tokens", [1, 4, 64, 4096])
++def test_hopper_combine_norm(num_tokens):
++    from sglang.srt.layers.layernorm import RMSNorm
++    from sglang.srt.models.deepseek_v4 import DeepseekV4DecoderLayer
++    from sglang.srt.utils import is_sm90_supported
++
++    if not is_sm90_supported():
++        pytest.skip("Hopper combine/norm dispatch")
++    torch.manual_seed(39 + num_tokens)
++    x = torch.randn(num_tokens, 4, 5120, device="cuda", dtype=torch.bfloat16)
++    pre = torch.rand(num_tokens, 4, device="cuda")
++    norm = RMSNorm(5120, eps=1e-6).cuda().bfloat16()
++    layer = SimpleNamespace(
++        hc_mult=4, config=SimpleNamespace(model_type="deepseek_v41")
++    )
++    actual = DeepseekV4DecoderLayer._hc_combine(layer, x, pre, norm)
++    expected = norm(mhc.hc_combine(x.flatten(1), pre, 4, x.dtype))
++    torch.testing.assert_close(actual, expected, rtol=1 / 128, atol=1e-5)
++
++
+ if __name__ == "__main__":
+     import sys
+ 
+
+From 2a7aff971a7e2ed03d12dd48c5c6f71f230092f1 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 20:04:18 +0800
+Subject: [PATCH 12/24] [Perf] Specialize Hopper Marlin TP8 single-token MXFP4
+ gate tile
+
+---
+ .../csrc/gemm/marlin_moe/moe_wna16_marlin.cuh | 11 +++
+ .../kernels/ops/moe/test_moe_wna16_marlin.py  | 97 +++++++++++++++++++
+ 2 files changed, 108 insertions(+)
+
+diff --git a/python/sglang/kernels/jit/csrc/gemm/marlin_moe/moe_wna16_marlin.cuh b/python/sglang/kernels/jit/csrc/gemm/marlin_moe/moe_wna16_marlin.cuh
+index 7fc191031b55..87647915df27 100644
+--- a/python/sglang/kernels/jit/csrc/gemm/marlin_moe/moe_wna16_marlin.cuh
++++ b/python/sglang/kernels/jit/csrc/gemm/marlin_moe/moe_wna16_marlin.cuh
+@@ -404,6 +404,7 @@ bool is_valid_config(
+ #define MXFP4_GET_IF(W_TYPE)            \
+   MXFP4_GET_IF_M1(W_TYPE, 8, 8, 256)    \
+   MXFP4_GET_IF_M1(W_TYPE, 8, 4, 128)    \
++  MXFP4_GET_IF_M1(W_TYPE, 4, 8, 128)    \
+   MXFP4_GET_IF_M234(W_TYPE, 16, 4, 256) \
+   MXFP4_GET_IF_M234(W_TYPE, 8, 4, 128)
+ 
+@@ -492,6 +493,16 @@ exec_config_t determine_exec_config(
+     bool is_zp_float,
+     int max_shared_mem,
+     int sms) {
++#if SGL_CUDA_ARCH == 900
++  if constexpr (std::is_same_v<scalar_t, __nv_bfloat16> && !kIsEP && !kHasBias) {
++    // H200 TP8 DeepSeek-V4.1 gate/up: six sparse expert rows need a narrower
++    // N tile and fewer persistent blocks than the occupancy-only heuristic.
++    if (q_type == host::kFE2M1f && group_size == 32 && prob_m == 1 && prob_n == 640 && prob_k == 5120 && top_k == 6 &&
++        thread_m_blocks == 1 && m_block_size_8 && !has_act_order && !has_zp) {
++      return exec_config_t{2, thread_config_t{128, 64, 128}};
++    }
++  }
++#endif
+   exec_config_t exec_cfg = exec_config_t{1, thread_config_t{-1, -1, -1}};
+   thread_config_t* thread_configs = thread_m_blocks > 1 ? large_batch_thread_configs : small_batch_thread_configs;
+   int thread_configs_size = thread_m_blocks > 1 ? sizeof(large_batch_thread_configs) / sizeof(thread_config_t)
+diff --git a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+index 09700073d407..baccdb08f848 100644
+--- a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
++++ b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+@@ -684,5 +684,102 @@ def test_fused_marlin_moe_nvfp4_non_gated_matches_dequant_reference():
+     torch.testing.assert_close(output, output_ref, rtol=0.05, atol=0.25)
+ 
+ 
++@pytest.mark.skipif(not is_sm90_supported(), reason="Hopper MXFP4 decode tile")
++@pytest.mark.parametrize("m", [1, 4])
++def test_mxfp4_tp8_gate_decode(m):
++    from sglang.srt.layers.quantization.marlin_utils_fp4 import (
++        _permute_moe_fp4_scales_for_marlin,
++        _repack_moe_fp4_weight_for_marlin,
++        mxfp4_marlin_process_scales,
++    )
++
++    torch.manual_seed(741 + m)
++    e, n, k, topk = 8, 640, 5120, 6
++    raw = torch.randint(0, 256, (e, n, k // 2), device="cuda", dtype=torch.uint8)
++    scale = torch.randint(
++        120, 126, (e, n, k // 32), device="cuda", dtype=torch.uint8
++    ).view(torch.float8_e8m0fnu)
++    packed = _repack_moe_fp4_weight_for_marlin(
++        raw,
++        num_experts=e,
++        size_n=n,
++        size_k=k,
++        perm=torch.empty(0, device="cuda", dtype=torch.int32),
++    )
++    sf = _permute_moe_fp4_scales_for_marlin(
++        scale.bfloat16(),
++        num_experts=e,
++        size_n=n,
++        size_k=k,
++        group_size=32,
++        process_scales=lambda s: mxfp4_marlin_process_scales(
++            s, input_dtype=torch.bfloat16
++        ),
++    )
++    fp4 = torch.tensor(
++        [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6],
++        device="cuda",
++        dtype=torch.float64,
++    )
++    codes = torch.stack((raw & 15, raw >> 4), dim=-1).reshape(e, n, k)
++    weights = fp4[codes.long()] * scale.double().repeat_interleave(32, -1)
++    x = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
++    ids = torch.rand(m, e, device="cuda").topk(topk, dim=1).indices.int()
++    topk_weights = torch.full((m, topk), 1 / topk, device="cuda")
++    sorted_ids, expert_ids, count = moe_align_block_size(ids, 8, e)
++    workspace = torch.zeros(
++        torch.cuda.get_device_properties(0).multi_processor_count * 4,
++        device="cuda",
++        dtype=torch.int32,
++    )
++
++    def run():
++        return _run_single_gemm(
++            moe_wna16_marlin_gemm,
++            x,
++            None,
++            packed,
++            sf,
++            None,
++            None,
++            None,
++            workspace,
++            sorted_ids,
++            expert_ids,
++            count,
++            topk_weights,
++            scalar_types.float4_e2m1f,
++            8,
++            topk,
++            m,
++            n,
++            k,
++            False,
++            True,
++            False,
++        )
++
++    run()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        actual = run()
++    for _ in range(2):
++        x.neg_()
++        graph.replay()
++        expected = torch.stack(
++            [
++                x[row].double() @ weights[expert].T
++                for row in range(m)
++                for expert in ids[row].tolist()
++            ]
++        )
++        torch.testing.assert_close(
++            actual.double(),
++            expected,
++            rtol=1 / 128,
++            atol=expected.square().mean().sqrt().item() * 1e-4,
++        )
++
++
+ if __name__ == "__main__":
+     sys.exit(pytest.main([__file__, "-v", "-s"]))
+
+From c810bea7bf15195143fec686a5ba7d417037a174 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 20:34:38 +0800
+Subject: [PATCH 13/24] [Perf] Overlap Hopper decode mHC statistics without
+ changing arithmetic
+
+---
+ python/sglang/srt/models/deepseek_v4.py       | 120 ++++++++++--------
+ .../kernels/ops/layernorm/test_mhc_kernels.py |  60 +++++++++
+ 2 files changed, 129 insertions(+), 51 deletions(-)
+
+diff --git a/python/sglang/srt/models/deepseek_v4.py b/python/sglang/srt/models/deepseek_v4.py
+index b00d3faef762..1040cf796fc7 100644
+--- a/python/sglang/srt/models/deepseek_v4.py
++++ b/python/sglang/srt/models/deepseek_v4.py
+@@ -3295,6 +3295,28 @@ def _hc_mix_stats(
+         hc_scale: torch.Tensor,
+         hc_base: torch.Tensor,
+         stats_stream: Optional[torch.cuda.Stream] = None,
++    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
++        if stats_stream is None:
++            return DeepseekV4DecoderLayer._hc_mix_stats_impl(
++                self, x, hc_fn, hc_scale, hc_base
++            )
++        main_stream = torch.cuda.current_stream()
++        x.record_stream(stats_stream)
++        with torch.cuda.stream(stats_stream):
++            coefficients = DeepseekV4DecoderLayer._hc_mix_stats_impl(
++                self, x, hc_fn, hc_scale, hc_base
++            )
++        # The producer fork is in _hc_combine; consumers join before hc_post.
++        for coefficient in coefficients:
++            coefficient.record_stream(main_stream)
++        return coefficients
++
++    def _hc_mix_stats_impl(
++        self,
++        x: torch.Tensor,
++        hc_fn: torch.Tensor,
++        hc_scale: torch.Tensor,
++        hc_base: torch.Tensor,
+     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+         from sglang.kernels.ops.layernorm.mhc import hc_mix_stats, hc_mix_stats_sinkhorn
+ 
+@@ -3337,59 +3359,47 @@ def _hc_mix_stats(
+             and x.dtype == torch.bfloat16
+         ):
+             # Fusing the split-K reduction with sinkhorn keeps it batch-invariant.
+-            main_stream = torch.cuda.current_stream()
+-            if stats_stream is not None:
+-                x.record_stream(stats_stream)
+-            with (
+-                torch.cuda.stream(stats_stream)
+-                if stats_stream is not None
+-                else nullcontext()
++            if bf16_parts is not None and (
++                hopper_medium or 4096 <= x_flat.shape[0] <= 65536
+             ):
+-                if bf16_parts is not None and (
+-                    hopper_medium or 4096 <= x_flat.shape[0] <= 65536
+-                ):
+-                    from sglang.kernels.ops.layernorm.mhc import (
+-                        hc_mix_stats_sinkhorn_bf16x3,
+-                    )
++                from sglang.kernels.ops.layernorm.mhc import (
++                    hc_mix_stats_sinkhorn_bf16x3,
++                )
+ 
+-                    pre, post, comb = hc_mix_stats_sinkhorn_bf16x3(
+-                        x_flat,
+-                        bf16_parts,
+-                        hc_scale,
+-                        hc_base,
+-                        self.hc_sinkhorn_iters,
+-                        self.rms_norm_eps,
+-                        self.hc_eps,
+-                    )
+-                elif parts is not None:
+-                    from sglang.kernels.ops.layernorm.mhc import (
+-                        hc_mix_stats_sinkhorn_deepgemm,
+-                    )
++                pre, post, comb = hc_mix_stats_sinkhorn_bf16x3(
++                    x_flat,
++                    bf16_parts,
++                    hc_scale,
++                    hc_base,
++                    self.hc_sinkhorn_iters,
++                    self.rms_norm_eps,
++                    self.hc_eps,
++                )
++            elif parts is not None:
++                from sglang.kernels.ops.layernorm.mhc import (
++                    hc_mix_stats_sinkhorn_deepgemm,
++                )
+ 
+-                    pre, post, comb = hc_mix_stats_sinkhorn_deepgemm(
+-                        x_flat,
+-                        parts,
+-                        hc_scale,
+-                        hc_base,
+-                        self.hc_sinkhorn_iters,
+-                        self.rms_norm_eps,
+-                        self.hc_eps,
+-                    )
+-                else:
+-                    pre, post, comb = hc_mix_stats_sinkhorn(
+-                        x_flat,
+-                        hc_fn,
+-                        hc_scale,
+-                        hc_base,
+-                        self.hc_mult,
+-                        self.hc_sinkhorn_iters,
+-                        self.rms_norm_eps,
+-                        self.hc_eps,
+-                    )
+-            if stats_stream is not None:
+-                # Allocated on the side stream, read on the main stream after the join.
+-                for coefficient in (pre, post, comb):
+-                    coefficient.record_stream(main_stream)
++                pre, post, comb = hc_mix_stats_sinkhorn_deepgemm(
++                    x_flat,
++                    parts,
++                    hc_scale,
++                    hc_base,
++                    self.hc_sinkhorn_iters,
++                    self.rms_norm_eps,
++                    self.hc_eps,
++                )
++            else:
++                pre, post, comb = hc_mix_stats_sinkhorn(
++                    x_flat,
++                    hc_fn,
++                    hc_scale,
++                    hc_base,
++                    self.hc_mult,
++                    self.hc_sinkhorn_iters,
++                    self.rms_norm_eps,
++                    self.hc_eps,
++                )
+             return pre, post, comb
+         if x.is_cuda and torch.version.cuda is not None:
+             # cuBLAS/torch reductions can change order with num_tokens; this kernel
+@@ -3462,7 +3472,15 @@ def _get_hc_stats_stream(self, hidden_states, forward_batch):
+                     and hidden_states.shape[0] > 0
+                 )
+             )
+-            and (not get_platform().is_sm90 or hidden_states.shape[0] == 1)
++            and (
++                not get_platform().is_sm90
++                or hidden_states.shape[0] == 1
++                or (
++                    self.config.model_type == "deepseek_v41"
++                    and forward_batch.forward_mode.is_decode()
++                    and 1 < hidden_states.shape[0] <= 64
++                )
++            )
+             else None
+         )
+ 
+diff --git a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+index 14b97f26b78c..12993ff7e7aa 100644
+--- a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
++++ b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+@@ -279,6 +279,66 @@ def test_hopper_combine_norm(num_tokens):
+     torch.testing.assert_close(actual, expected, rtol=1 / 128, atol=1e-5)
+ 
+ 
++@pytest.mark.parametrize("num_tokens", [1, 4, 16, 64])
++def test_hopper_mhc_stats_stream_graph(num_tokens):
++    from sglang.srt.layers.layernorm import RMSNorm
++    from sglang.srt.model_executor.forward_batch_info import ForwardMode
++    from sglang.srt.models.deepseek_v4 import DeepseekV4DecoderLayer
++    from sglang.srt.utils import is_sm90_supported
++
++    if not is_sm90_supported():
++        pytest.skip("Hopper mHC overlap")
++    torch.manual_seed(934 + num_tokens)
++    x = torch.randn(num_tokens, 4, 5120, device="cuda", dtype=torch.bfloat16)
++    w = torch.randn(24, 20480, device="cuda") * 0.01
++    scale = torch.tensor([0.5, 0.25, 0.25], device="cuda")
++    base = torch.randn(24, device="cuda")
++    pre = torch.rand(num_tokens, 4, device="cuda")
++    norm = RMSNorm(5120, eps=1e-6).cuda().bfloat16()
++    layer = SimpleNamespace(
++        input_layernorm=norm,
++        post_attention_layernorm=norm,
++        config=SimpleNamespace(model_type="deepseek_v41"),
++        hc_pre_from_prev_sublayer=True,
++        hc_attn_fn=w,
++        hc_ffn_fn=-w,
++        hc_mult=4,
++        hc_sinkhorn_iters=20,
++        rms_norm_eps=1e-6,
++        hc_eps=1e-6,
++        hc_stats_stream=torch.cuda.Stream(),
++    )
++    DeepseekV4DecoderLayer.refresh_mhc_norm_weight_cache(layer)
++    stream = DeepseekV4DecoderLayer._get_hc_stats_stream(
++        layer, x, SimpleNamespace(forward_mode=ForwardMode.DECODE)
++    )
++    assert stream is layer.hc_stats_stream
++
++    def run(stats_stream):
++        combined = DeepseekV4DecoderLayer._hc_combine(layer, x, pre, norm, stats_stream)
++        coefficients = DeepseekV4DecoderLayer._hc_mix_stats(
++            layer, x, w, scale, base, stats_stream
++        )
++        if stats_stream is not None:
++            torch.cuda.current_stream().wait_stream(stats_stream)
++        # Read on the consumer stream after the join, as hc_post does.
++        return combined.clone(), *(v.clone() for v in coefficients)
++
++    run(None)
++    run(stream)
++    torch.cuda.synchronize()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        actual = run(stream)
++    for _ in range(3):
++        x.normal_()
++        pre.uniform_()
++        expected = run(None)
++        graph.replay()
++        for result, reference in zip(actual, expected):
++            torch.testing.assert_close(result, reference, rtol=0, atol=0)
++
++
+ if __name__ == "__main__":
+     import sys
+ 
+
+From d7b4b6630747fe543cea35c93ea0f747d4aa6f38 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 20:34:59 +0800
+Subject: [PATCH 14/24] [Perf] Defer Hopper MXFP4 expert padding until Marlin
+ repacking
+
+---
+ .../layers/quantization/mxfp4_marlin_moe.py   |   8 +-
+ .../kernels/ops/moe/test_moe_wna16_marlin.py  | 114 ++++++++++++++++++
+ 2 files changed, 121 insertions(+), 1 deletion(-)
+
+diff --git a/python/sglang/srt/layers/quantization/mxfp4_marlin_moe.py b/python/sglang/srt/layers/quantization/mxfp4_marlin_moe.py
+index 52503455e076..b66a2f465db4 100644
+--- a/python/sglang/srt/layers/quantization/mxfp4_marlin_moe.py
++++ b/python/sglang/srt/layers/quantization/mxfp4_marlin_moe.py
+@@ -71,7 +71,13 @@ def create_weights(
+ 
+         layer._dsv4_mxfp4_backend = None  # set in process_weights_after_loading
+         fp4_block_k = 32
+-        intermediate_size_per_partition = round_up(intermediate_size_per_partition, 128)
++        # Hopper repacking pads the loaded gate/up halves and down columns to
++        # the required tile sizes. Keep their logical widths until then: early
++        # padding to 128 turns a TP8 width of 288 into 384 instead of 320.
++        if not get_platform().is_sm90:
++            intermediate_size_per_partition = round_up(
++                intermediate_size_per_partition, 128
++            )
+         hidden_size = round_up(hidden_size, 256)
+         self.hidden_pad = hidden_size - layer.hidden_size
+ 
+diff --git a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+index baccdb08f848..e6c5ca762310 100644
+--- a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
++++ b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+@@ -781,5 +781,119 @@ def run():
+         )
+ 
+ 
++@pytest.mark.skipif(not is_sm90_supported(), reason="Hopper MXFP4 weight loading")
++@pytest.mark.parametrize("tp_rank", [0, 7])
++def test_mxfp4_tp8_load_before_padding(tp_rank):
++    from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
++    from sglang.srt.layers.quantization.marlin_utils_fp4 import (
++        prepare_moe_mxfp4_layer_for_marlin,
++    )
++    from sglang.srt.layers.quantization.mxfp4_marlin_moe import Mxfp4MarlinMoEMethod
++
++    torch.manual_seed(325 + tp_rank)
++    e, h, intermediate, tp, m = 2, 256, 288, 8, 4
++    method = Mxfp4MarlinMoEMethod(None, "test")
++    layer = torch.nn.Module()
++    layer.hidden_size = h
++    with torch.device("cuda"):
++        method.create_weights(layer, e, h, intermediate, torch.bfloat16)
++    assert layer.w13_weight.shape == (e, 2 * intermediate, h // 2)
++    loader = SimpleNamespace(
++        moe_tp_size=tp,
++        use_padded_loading=False,
++        use_presharded_weights=False,
++        use_triton_kernels=False,
++        moe_runner_config=SimpleNamespace(is_gated=True),
++        quant_method=method,
++    )
++    fp4 = torch.tensor(
++        [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6],
++        device="cuda",
++        dtype=torch.float64,
++    )
++    references = {}
++    for shard in ("w1", "w3", "w2"):
++        down = shard == "w2"
++        n, k = (h, intermediate * tp) if down else (intermediate * tp, h)
++        raw = torch.randint(0, 256, (e, n, k // 2), device="cuda", dtype=torch.uint8)
++        scale = torch.randint(
++            119, 123, (e, n, k // 32), device="cuda", dtype=torch.uint8
++        ).view(torch.float8_e8m0fnu)
++        prefix = "w2" if down else "w13"
++        load = FusedMoE._load_w2 if down else FusedMoE._load_w13
++        axis = 1 if down else 0
++        expected = []
++        for data, suffix in [
++            (raw.view(torch.int8), "weight"),
++            (scale, "weight_scale_inv"),
++        ]:
++            parameter = getattr(layer, f"{prefix}_{suffix}")
++            for expert in range(e):
++                load(loader, parameter[expert], axis, shard, data[expert], tp_rank)
++            width = data.shape[axis + 1] // tp
++            selected = data.narrow(axis + 1, tp_rank * width, width)
++            actual = (
++                parameter
++                if down
++                else parameter[:, :intermediate]
++                if shard == "w1"
++                else parameter[:, intermediate:]
++            )
++            torch.testing.assert_close(actual.float(), selected.float(), rtol=0, atol=0)
++            expected.append(selected)
++        packed, sf = expected
++        packed = packed.view(torch.uint8)
++        codes = torch.stack((packed & 15, packed >> 4), dim=-1).flatten(-2)
++        references[shard] = fp4[codes.long()] * sf.double().repeat_interleave(32, -1)
++
++    prepare_moe_mxfp4_layer_for_marlin(layer)
++    assert layer.w13_weight_scale.shape[-1] == 640
++    assert layer.w2_weight_scale.shape[1] == 10
++    x = torch.randn(m, h, device="cuda", dtype=torch.bfloat16)
++    ids = (
++        torch.tensor([[0, 1]], device="cuda", dtype=torch.int32)
++        .expand(m, -1)
++        .contiguous()
++    )
++    weights = torch.tensor([[0.25, 0.75]], device="cuda").expand(m, -1).contiguous()
++
++    def run():
++        return fused_marlin_moe(
++            x,
++            layer.w13_weight,
++            layer.w2_weight,
++            layer.w13_weight_scale,
++            layer.w2_weight_scale,
++            torch.empty(m, e, device="cuda"),
++            weights,
++            ids,
++            workspace=layer.workspace,
++            num_bits=4,
++            clamp_limit=10.0,
++        )
++
++    run()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        actual = run()
++    for _ in range(2):
++        x.normal_()
++        graph.replay()
++        expected = []
++        for expert in range(e):
++            gate = (x.double() @ references["w1"][expert].T).bfloat16().clamp(max=10)
++            up = (x.double() @ references["w3"][expert].T).bfloat16().clamp(-10, 10)
++            activated = torch.nn.functional.silu(gate) * up
++            projected = activated.double() @ references["w2"][expert].T
++            expected.append((projected * weights[:, expert, None]).bfloat16())
++        reference = torch.stack(expected).float().sum(0).bfloat16()
++        torch.testing.assert_close(
++            actual,
++            reference,
++            rtol=0.03,
++            atol=reference.float().square().mean().sqrt().item() * 0.002,
++        )
++
++
+ if __name__ == "__main__":
+     sys.exit(pytest.main([__file__, "-v", "-s"]))
+
+From 361f10d3245de7cf8154b1aae08c682d30b60e9f Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 20:55:40 +0800
+Subject: [PATCH 15/24] [Test] Supply quantization metadata in MXFP4 shard
+ fixture
+
+---
+ test/registered/kernels/ops/moe/test_moe_wna16_marlin.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+index e6c5ca762310..235774ba848f 100644
+--- a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
++++ b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+@@ -805,6 +805,7 @@ def test_mxfp4_tp8_load_before_padding(tp_rank):
+         use_triton_kernels=False,
+         moe_runner_config=SimpleNamespace(is_gated=True),
+         quant_method=method,
++        quant_config=None,
+     )
+     fp4 = torch.tensor(
+         [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6],
+
+From 60a9fa16f69da4992bb5d6fb77ae0695aaca2bd5 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 25 Sep 2026 21:00:01 +0800
+Subject: [PATCH 16/24] [Test] Model Marlin GEMM2 rounding before route
+ weighting
+
+---
+ test/registered/kernels/ops/moe/test_moe_wna16_marlin.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+index 235774ba848f..b6c6ad43644d 100644
+--- a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
++++ b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+@@ -886,7 +886,8 @@ def run():
+             up = (x.double() @ references["w3"][expert].T).bfloat16().clamp(-10, 10)
+             activated = torch.nn.functional.silu(gate) * up
+             projected = activated.double() @ references["w2"][expert].T
+-            expected.append((projected * weights[:, expert, None]).bfloat16())
++            # Marlin rounds GEMM2 before multiplying its BF16 routing weight.
++            expected.append(projected.bfloat16() * weights[:, expert, None].bfloat16())
+         reference = torch.stack(expected).float().sum(0).bfloat16()
+         torch.testing.assert_close(
+             actual,
+
+From 114ab11609cfafc83d42021b9e3dddb324a2eb17 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Sat, 26 Sep 2026 12:45:31 +0800
+Subject: [PATCH 17/24] Adapt Hopper paths to the kernel split and simplify
+ test helpers
+
+---
+ .../sglang/kernels/ops/attention/__init__.py  | 11 +++++
+ .../kernels/ops/quantization/__init__.py      |  1 +
+ .../kernels/ops/quantization/fp8_kernel.py    |  5 ---
+ .../kernels/ops/attention/test_fp4_indexer.py |  2 +-
+ .../kernels/ops/layernorm/test_mhc_kernels.py | 43 ++++++++-----------
+ .../kernels/ops/moe/test_moe_wna16_marlin.py  | 26 ++++++-----
+ 6 files changed, 43 insertions(+), 45 deletions(-)
+
+diff --git a/python/sglang/kernels/ops/attention/__init__.py b/python/sglang/kernels/ops/attention/__init__.py
+index f64f3fe2de2b..bf94d334051c 100644
+--- a/python/sglang/kernels/ops/attention/__init__.py
++++ b/python/sglang/kernels/ops/attention/__init__.py
+@@ -347,3 +347,14 @@ def qwen38_qsa_sm121_varlen(
+         capabilities=frozenset({CapabilityRequirement.CUDA}),
+     )
+ )
++
++for _fn in ("fp4_index_logits_paged", "finish_paged_indexer_topk"):
++    register_kernel(
++        KernelSpec(
++            op=f"attention.{_fn}",
++            backend=KernelBackend.TRITON,
++            target=f"sglang.kernels.ops.attention.dsv4.fp4_indexer:{_fn}",
++            capabilities=frozenset({CapabilityRequirement.CUDA}),
++        )
++    )
++del _fn
+diff --git a/python/sglang/kernels/ops/quantization/__init__.py b/python/sglang/kernels/ops/quantization/__init__.py
+index 97baf5a4fced..06ad2a9358e5 100644
+--- a/python/sglang/kernels/ops/quantization/__init__.py
++++ b/python/sglang/kernels/ops/quantization/__init__.py
+@@ -172,6 +172,7 @@ def per_token_group_quant(
+     ("fp8_kernel", "sglang_per_token_group_quant_8bit"),
+     ("fp8_kernel", "sglang_per_token_quant_fp8"),
+     ("fp8_kernel", "static_quant_fp8"),
++    ("fp8_kernel", "dequant_group_fp8_to_bf16"),
+     ("fp8_kernel", "per_tensor_quant_mla_fp8"),
+     ("fp8_kernel", "per_token_group_quant_mla_deep_gemm_masked_fp8"),
+     ("fp8_kernel", "per_token_group_quant_fp8_hopper_moe_mn_major"),
+diff --git a/python/sglang/kernels/ops/quantization/fp8_kernel.py b/python/sglang/kernels/ops/quantization/fp8_kernel.py
+index f6ce55986c5c..67d67a33eb3c 100644
+--- a/python/sglang/kernels/ops/quantization/fp8_kernel.py
++++ b/python/sglang/kernels/ops/quantization/fp8_kernel.py
+@@ -1389,11 +1389,6 @@ def per_group_transpose(
+     return trans_a
+ 
+ 
+-# input  - [M, K]
+-# weight - [K, N]
+-# Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/compressed_tensors/triton_scaled_mm.py
+-
+-
+ @triton.jit
+ def _dequant_group_fp8_kernel(
+     X, S, Y, M, K: tl.constexpr, SS: tl.constexpr, BLOCK: tl.constexpr
+diff --git a/test/registered/kernels/ops/attention/test_fp4_indexer.py b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+index 03a137fcec7a..6edfd1dfc54c 100644
+--- a/test/registered/kernels/ops/attention/test_fp4_indexer.py
++++ b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+@@ -479,7 +479,7 @@ def test_fp4_logits_invisible_tiles_ignore_nonfinite_queries(value):
+     ],
+ )
+ def test_fp4_paged_logits_replay(batch, ratio, width, masked):
+-    from sglang.kernels.ops.attention.dsv4.candidate_table import amax_topk_blocks
++    from sglang.kernels.ops.attention.dsv4.candidate_blocks import amax_topk_blocks
+     from sglang.kernels.ops.attention.dsv4.topk import (
+         plan_topk_v2,
+         topk_transform_paged_v2,
+diff --git a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+index 12993ff7e7aa..743d075a4c87 100644
+--- a/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
++++ b/test/registered/kernels/ops/layernorm/test_mhc_kernels.py
+@@ -207,6 +207,21 @@ def _check_glm_boundary(x, residual, post, comb, fn, scale, base, *, use_norm):
+     )
+ 
+ 
++def _hopper_mhc_layer(norm, w):
++    return SimpleNamespace(
++        input_layernorm=norm,
++        post_attention_layernorm=norm,
++        config=SimpleNamespace(model_type="deepseek_v41"),
++        hc_pre_from_prev_sublayer=True,
++        hc_attn_fn=w,
++        hc_ffn_fn=-w,
++        hc_mult=4,
++        hc_sinkhorn_iters=20,
++        rms_norm_eps=1e-6,
++        hc_eps=1e-6,
++    )
++
++
+ @pytest.mark.parametrize("num_tokens", [32, 33, 64, 128, 257, 4096, 4097, 8192])
+ def test_hopper_compensated_mhc(num_tokens):
+     from sglang.srt.environ import envs
+@@ -221,18 +236,7 @@ def test_hopper_compensated_mhc(num_tokens):
+     scale = torch.tensor([0.5, 0.25, 0.25], device="cuda")
+     base = torch.randn(24, device="cuda")
+     norm = SimpleNamespace(weight=torch.ones(5120, device="cuda", dtype=torch.bfloat16))
+-    layer = SimpleNamespace(
+-        input_layernorm=norm,
+-        post_attention_layernorm=norm,
+-        config=SimpleNamespace(model_type="deepseek_v41"),
+-        hc_pre_from_prev_sublayer=True,
+-        hc_attn_fn=w,
+-        hc_ffn_fn=-w,
+-        hc_mult=4,
+-        hc_sinkhorn_iters=20,
+-        rms_norm_eps=1e-6,
+-        hc_eps=1e-6,
+-    )
++    layer = _hopper_mhc_layer(norm, w)
+     with envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.override(True):
+         DeepseekV4DecoderLayer.refresh_mhc_norm_weight_cache(layer)
+         assert layer._hc_attn_bf16_parts is not None
+@@ -295,19 +299,8 @@ def test_hopper_mhc_stats_stream_graph(num_tokens):
+     base = torch.randn(24, device="cuda")
+     pre = torch.rand(num_tokens, 4, device="cuda")
+     norm = RMSNorm(5120, eps=1e-6).cuda().bfloat16()
+-    layer = SimpleNamespace(
+-        input_layernorm=norm,
+-        post_attention_layernorm=norm,
+-        config=SimpleNamespace(model_type="deepseek_v41"),
+-        hc_pre_from_prev_sublayer=True,
+-        hc_attn_fn=w,
+-        hc_ffn_fn=-w,
+-        hc_mult=4,
+-        hc_sinkhorn_iters=20,
+-        rms_norm_eps=1e-6,
+-        hc_eps=1e-6,
+-        hc_stats_stream=torch.cuda.Stream(),
+-    )
++    layer = _hopper_mhc_layer(norm, w)
++    layer.hc_stats_stream = torch.cuda.Stream()
+     DeepseekV4DecoderLayer.refresh_mhc_norm_weight_cache(layer)
+     stream = DeepseekV4DecoderLayer._get_hc_stats_stream(
+         layer, x, SimpleNamespace(forward_mode=ForwardMode.DECODE)
+diff --git a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+index b6c6ad43644d..973691f5b14b 100644
+--- a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
++++ b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+@@ -684,6 +684,16 @@ def test_fused_marlin_moe_nvfp4_non_gated_matches_dequant_reference():
+     torch.testing.assert_close(output, output_ref, rtol=0.05, atol=0.25)
+ 
+ 
++def _dequant_mxfp4_reference(packed, scales):
++    fp4 = torch.tensor(
++        [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6],
++        device="cuda",
++        dtype=torch.float64,
++    )
++    codes = torch.stack((packed & 15, packed >> 4), dim=-1).flatten(-2)
++    return fp4[codes.long()] * scales.double().repeat_interleave(32, -1)
++
++
+ @pytest.mark.skipif(not is_sm90_supported(), reason="Hopper MXFP4 decode tile")
+ @pytest.mark.parametrize("m", [1, 4])
+ def test_mxfp4_tp8_gate_decode(m):
+@@ -716,13 +726,7 @@ def test_mxfp4_tp8_gate_decode(m):
+             s, input_dtype=torch.bfloat16
+         ),
+     )
+-    fp4 = torch.tensor(
+-        [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6],
+-        device="cuda",
+-        dtype=torch.float64,
+-    )
+-    codes = torch.stack((raw & 15, raw >> 4), dim=-1).reshape(e, n, k)
+-    weights = fp4[codes.long()] * scale.double().repeat_interleave(32, -1)
++    weights = _dequant_mxfp4_reference(raw, scale)
+     x = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
+     ids = torch.rand(m, e, device="cuda").topk(topk, dim=1).indices.int()
+     topk_weights = torch.full((m, topk), 1 / topk, device="cuda")
+@@ -807,11 +811,6 @@ def test_mxfp4_tp8_load_before_padding(tp_rank):
+         quant_method=method,
+         quant_config=None,
+     )
+-    fp4 = torch.tensor(
+-        [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6],
+-        device="cuda",
+-        dtype=torch.float64,
+-    )
+     references = {}
+     for shard in ("w1", "w3", "w2"):
+         down = shard == "w2"
+@@ -844,8 +843,7 @@ def test_mxfp4_tp8_load_before_padding(tp_rank):
+             expected.append(selected)
+         packed, sf = expected
+         packed = packed.view(torch.uint8)
+-        codes = torch.stack((packed & 15, packed >> 4), dim=-1).flatten(-2)
+-        references[shard] = fp4[codes.long()] * sf.double().repeat_interleave(32, -1)
++        references[shard] = _dequant_mxfp4_reference(packed, sf)
+ 
+     prepare_moe_mxfp4_layer_for_marlin(layer)
+     assert layer.w13_weight_scale.shape[-1] == 640
+
+From b96859b603d22a97ca86125d886faca50e52e6cf Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Sat, 26 Sep 2026 13:51:38 +0800
+Subject: [PATCH 18/24] Preserve Hopper paged indexer optimization across the
+ backend split
+
+---
+ .../ops/attention/dsv4/candidate_blocks.py    |  12 ++
+ .../dsv4/v41_indexer/dense_blocks.py          |  39 +++--
+ .../attention/dsv4/v41_indexer/full_topk.py   |   6 +-
+ .../attention/dsv4/v41_indexer/scoring.py     |  82 ++++++++-
+ .../kernels/ops/attention/test_fp4_indexer.py | 155 ++++++++++++++++++
+ 5 files changed, 276 insertions(+), 18 deletions(-)
+
+diff --git a/python/sglang/kernels/ops/attention/dsv4/candidate_blocks.py b/python/sglang/kernels/ops/attention/dsv4/candidate_blocks.py
+index ba5550f0adb6..4f292307051a 100644
+--- a/python/sglang/kernels/ops/attention/dsv4/candidate_blocks.py
++++ b/python/sglang/kernels/ops/attention/dsv4/candidate_blocks.py
+@@ -143,6 +143,18 @@ def amax_topk_blocks(
+     return blocks
+ 
+ 
++def candidate_block_mask(
++    blocks: torch.Tensor, width: int, block_size: int
++) -> torch.Tensor:
++    """Materialize a source's block IDs once for Hopper paged-score consumers."""
++    num_blocks = (width + block_size - 1) // block_size
++    keep = torch.zeros(
++        (*blocks.shape[:-1], num_blocks + 1), dtype=torch.bool, device=blocks.device
++    )
++    keep.scatter_(-1, blocks.to(torch.int64).masked_fill(blocks < 0, num_blocks), True)
++    return keep[..., :num_blocks].repeat_interleave(block_size, dim=-1)[..., :width]
++
++
+ def select_candidate_block_ids(
+     logits: torch.Tensor,
+     compress_lens: Union[torch.Tensor, int],
+diff --git a/python/sglang/srt/layers/attention/dsv4/v41_indexer/dense_blocks.py b/python/sglang/srt/layers/attention/dsv4/v41_indexer/dense_blocks.py
+index 3cc44e2bfd25..46da0d5675ef 100644
+--- a/python/sglang/srt/layers/attention/dsv4/v41_indexer/dense_blocks.py
++++ b/python/sglang/srt/layers/attention/dsv4/v41_indexer/dense_blocks.py
+@@ -9,16 +9,20 @@
+ import torch
+ 
+ from sglang.kernels.ops.attention.dsv4.candidate_blocks import (
++    amax_topk_blocks,
++    candidate_block_mask,
+     select_candidate_block_ids,
+     topk_among_blocks,
+ )
+ 
+ from .scoring import (
+     DeepGEMMPrefillData,
++    PagedDecodeScores,
+     decode_scores,
+     get_deep_gemm_prefill_data,
+     prefill_requests,
+     score_tiles,
++    select_decode,
+     write_decode,
+     write_prefill,
+ )
+@@ -40,6 +44,8 @@ class BlockIds(CandidateMetadata, msgspec.Struct):
+     blocks: torch.Tensor
+     # prefill: query rows of each request in row order, for the late-layer tail
+     rows_per_request: Optional[List[int]] = None
++    # Hopper decode materializes this once at the source and reuses it in consumers.
++    decode_mask: Optional[torch.Tensor] = None
+ 
+     def tail(self, rows_per_request: List[int]) -> BlockIds:
+         assert self.rows_per_request is not None, "prefill block ids missing"
+@@ -92,17 +98,25 @@ def publish_decode(self, inputs: DecodeInputs, out: Selection):
+         )
+         if d is None:
+             return None
+-        published = BlockIds(
+-            blocks=select_candidate_block_ids(
+-                d.scores,
+-                d.lens[:, None],
+-                topk_blocks=self.topk_blocks,
+-                block_size=self.block_size,
++        if isinstance(d, PagedDecodeScores):
++            assert self.block_size == 8
++            blocks = amax_topk_blocks(
++                d.scores, d.lens, (d.lens + 7) // 8, self.topk_blocks
+             )
+-        )
+-        k = min(inputs.indexer.index_topk, d.lmax)
+-        idx = d.scores.topk(k, dim=-1, sorted=False).indices
+-        write_decode(out, d, idx)
++            published = BlockIds(
++                blocks=blocks,
++                decode_mask=candidate_block_mask(blocks, d.lmax, self.block_size),
++            )
++        else:
++            published = BlockIds(
++                blocks=select_candidate_block_ids(
++                    d.scores,
++                    d.lens[:, None],
++                    topk_blocks=self.topk_blocks,
++                    block_size=self.block_size,
++                )
++            )
++        select_decode(out, d, inputs.indexer.index_topk)
+         return published
+ 
+     def consume_decode(
+@@ -116,10 +130,15 @@ def consume_decode(
+             out=out,
+             token_to_kv_pool=self.token_to_kv_pool,
+             req_to_token=self.req_to_token,
++            candidate_mask=published.decode_mask if published is not None else None,
+         )
+         if d is None:
+             return
+         assert published is not None and published.blocks.shape[0] == d.bs
++        if isinstance(d, PagedDecodeScores):
++            assert published.decode_mask is not None
++            select_decode(out, d, inputs.indexer.index_topk)
++            return
+         k = min(inputs.indexer.index_topk, d.lmax)
+         idx = topk_among_blocks(
+             d.scores, d.lens, published.blocks, k, block_size=self.block_size
+diff --git a/python/sglang/srt/layers/attention/dsv4/v41_indexer/full_topk.py b/python/sglang/srt/layers/attention/dsv4/v41_indexer/full_topk.py
+index db9dadfcd3e8..dc1e179b5b4c 100644
+--- a/python/sglang/srt/layers/attention/dsv4/v41_indexer/full_topk.py
++++ b/python/sglang/srt/layers/attention/dsv4/v41_indexer/full_topk.py
+@@ -21,7 +21,7 @@
+     get_index_k_cache,
+     prefill_requests,
+     quantize_index_q,
+-    write_decode,
++    select_decode,
+     write_prefill,
+ )
+ from .types import (
+@@ -138,9 +138,7 @@ def _torch_decode(self, inputs: DecodeInputs, out: Selection) -> None:
+         )
+         if d is None:
+             return
+-        k = min(inputs.indexer.index_topk, d.lmax)
+-        idx = d.scores.topk(k, dim=-1, sorted=False).indices
+-        write_decode(out, d, idx)
++        select_decode(out, d, inputs.indexer.index_topk)
+ 
+     def _deep_gemm_prefill_captured(
+         self, inputs: CapturedPrefillInputs, out: Selection
+diff --git a/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py b/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
+index 1cd46108fa1d..7d168c47cd7c 100644
+--- a/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
++++ b/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
+@@ -9,8 +9,17 @@
+ import msgspec
+ import torch
+ 
+-from sglang.kernels.ops.attention.dsv4.fp4_indexer import fp4_index_logits_decode
++from sglang.kernels.ops.attention.dsv4.fp4_indexer import (
++    finish_paged_indexer_topk,
++    fp4_index_logits_decode,
++    fp4_index_logits_paged,
++)
+ from sglang.kernels.ops.attention.dsv4.index_logits import flat_index_logits_tiles
++from sglang.kernels.ops.attention.dsv4.topk import (
++    plan_topk_v2,
++    topk_transform_paged_v2,
++)
++from sglang.srt.runtime_context import get_platform
+ 
+ from .types import (
+     DecodeInputs,
+@@ -332,24 +341,38 @@ def write_prefill(
+         out.raw_indices[chunk.tok, :k] = torch.where(reach, idx, -1).to(torch.int32)
+ 
+ 
++class PagedDecodeScores(msgspec.Struct, frozen=True):
++    bs: int
++    lmax: int
++    lens: torch.Tensor
++    scores: torch.Tensor
++    req: torch.Tensor
++    req_to_token: torch.Tensor
++    ratio: int
++    plan: torch.Tensor
++    mask_scores: bool
++
++
+ def decode_scores(
+     *,
+     inputs: DecodeInputs,
+     out: Selection,
+     token_to_kv_pool: DeepSeekV4TokenToKVPool,
+     req_to_token: torch.Tensor,
+-) -> Optional[DecodeScores]:
++    candidate_mask: Optional[torch.Tensor] = None,
++) -> Optional[DecodeScores | PagedDecodeScores]:
+     """None when there is no row, or nothing visible yet."""
+     pool = token_to_kv_pool
+     ratio = inputs.compress_ratio
+     indexer = inputs.indexer
+     req, pos = inputs.req_rows, inputs.positions
+-    out.reset()
++    paged = get_platform().is_sm90
+     bs = req.shape[0]
+     assert pos.shape[0] == bs, (
+         f"decode expects one token per request, {pos.shape=} {bs=}"
+     )
+     if bs == 0:
++        out.reset()
+         return None
+     lens = (pos + 1) // ratio
+     metadata = inputs.paged_metadata
+@@ -357,20 +380,71 @@ def decode_scores(
+     # A capture-time length read would both synchronize and truncate replay.
+     lmax = min(metadata.max_compressed_seq_len, req_to_token.shape[1] // ratio)
+     if lmax == 0:
++        out.reset()
+         return None
+     q = indexer.queries(inputs.q_lora, inputs.freqs_cis[pos])
+     weights = indexer.head_weights(inputs.x)
++    table = pool.get_index_k_with_scale_buffer(inputs.layer_id)
++    if paged:
++        lens = lens.to(torch.int32)
++        # Prepare the device-side plan before scoring, away from its top-k consumer.
++        plan = plan_topk_v2(lens)
++        scores = fp4_index_logits_paged(
++            q,
++            weights,
++            req,
++            req_to_token,
++            lens,
++            table,
++            table.shape[1] // 68,
++            lmax,
++            ratio,
++            candidate_mask,
++        )
++        return PagedDecodeScores(
++            bs=bs,
++            lmax=lmax,
++            lens=lens,
++            scores=scores,
++            req=req,
++            req_to_token=req_to_token,
++            ratio=ratio,
++            plan=plan,
++            mask_scores=candidate_mask is not None,
++        )
++    out.reset()
+     j = torch.arange(lmax, device=pos.device)
+     valid = j[None, :] < lens[:, None]
+     slots = req_to_token[req[:, None], (j * ratio)[None, :]].to(torch.int64) // ratio
+     slots = slots.masked_fill(~valid, 0)
+-    table = pool.get_index_k_with_scale_buffer(inputs.layer_id)
+     scores = fp4_index_logits_decode(
+         q, weights, slots, lens, table, table.shape[1] // 68
+     )
+     return DecodeScores(bs=bs, lmax=lmax, lens=lens, slots=slots, scores=scores)
+ 
+ 
++def select_decode(
++    out: Selection, d: DecodeScores | PagedDecodeScores, topk: int
++) -> None:
++    k = min(topk, d.lmax)
++    if isinstance(d, PagedDecodeScores):
++        idx = torch.empty((d.bs, k), dtype=torch.int32, device=d.scores.device)
++        topk_transform_paged_v2(d.scores, d.lens, None, idx, 1, d.plan)
++        finish_paged_indexer_topk(
++            idx,
++            d.scores,
++            d.lens,
++            d.req,
++            d.req_to_token,
++            out.page_indices,
++            out.raw_indices,
++            d.ratio,
++            d.mask_scores,
++        )
++    else:
++        write_decode(out, d, d.scores.topk(k, dim=-1, sorted=False).indices)
++
++
+ def write_decode(out: Selection, d: DecodeScores, idx: torch.Tensor) -> None:
+     k = idx.shape[1]
+     idx = idx.sort(dim=-1).values
+diff --git a/test/registered/kernels/ops/attention/test_fp4_indexer.py b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+index 6edfd1dfc54c..97c6472d8089 100644
+--- a/test/registered/kernels/ops/attention/test_fp4_indexer.py
++++ b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+@@ -1,6 +1,8 @@
+ from __future__ import annotations
+ 
+ import sys
++from types import SimpleNamespace
++from unittest.mock import patch
+ 
+ import pytest
+ import torch
+@@ -588,5 +590,158 @@ def run():
+                 )
+ 
+ 
++@pytest.mark.skipif(
++    not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] != 9,
++    reason="Hopper paged indexer dispatch",
++)
++@pytest.mark.parametrize("ratio", [1, 2])
++def test_hopper_indexer_backends_replay(ratio):
++    from sglang.srt.layers.attention.dsv4.v41_indexer import scoring
++    from sglang.srt.layers.attention.dsv4.v41_indexer.dense_blocks import (
++        DenseBlocksBackend,
++    )
++    from sglang.srt.layers.attention.dsv4.v41_indexer.full_topk import FullTopKIndexer
++    from sglang.srt.layers.attention.dsv4.v41_indexer.types import (
++        DecodeInputs,
++        Selection,
++    )
++
++    batch, width, capacity, topk = 12, 193, 32772, 64
++    q, weights, slots, lens, table = _make_logits_case(batch, 32, width)
++    consumer_q = -q
++    req = torch.arange(batch, device=q.device, dtype=torch.int32) // 6
++    req_table = torch.full(
++        (2, capacity * ratio), -1, device=q.device, dtype=torch.int32
++    )
++    req_table[:, : width * ratio : ratio] = (slots[::6] * ratio).int()
++    positions = (lens * ratio - 1).clamp_min(0)
++    pool = SimpleNamespace(get_index_k_with_scale_buffer=lambda layer: table)
++    indexer = SimpleNamespace(
++        queries=lambda q, freqs: q, head_weights=lambda x: x, index_topk=topk
++    )
++    common = dict(
++        indexer=indexer,
++        layer_id=0,
++        compress_ratio=ratio,
++        freqs_cis=torch.zeros(width * ratio + 1, device=q.device),
++        x=weights,
++        positions=positions,
++        req_rows=req,
++        paged_metadata=SimpleNamespace(max_compressed_seq_len=capacity),
++        is_verify=True,
++    )
++    inputs = DecodeInputs(q_lora=q, **common)
++    consumer_inputs = DecodeInputs(q_lora=consumer_q, **common)
++    kwargs = dict(
++        token_to_kv_pool=pool, req_to_token=req_table, use_deep_gemm_prefill=False
++    )
++    full = FullTopKIndexer(**kwargs, use_deep_gemm_decode=False)
++    candidates = DenseBlocksBackend(
++        **kwargs, candidate_topk_blocks=4, candidate_block_size=8
++    )
++    outputs = [
++        Selection(
++            page_indices=torch.empty(
++                (batch + 1, topk + 8), device=q.device, dtype=torch.int32
++            ),
++            raw_indices=torch.empty(
++                (batch + 1, topk + 8), device=q.device, dtype=torch.int32
++            )
++            if ratio == 1
++            else None,
++        )
++        for _ in range(3)
++    ]
++    captured_scores = []
++
++    def record_scores(*args, **kwargs):
++        result = fp4_index_logits_paged(*args, **kwargs)
++        captured_scores.append(result)
++        return result
++
++    def run():
++        full.topk_decode(inputs, outputs[0])
++        published = candidates.publish_decode(inputs, outputs[1])
++        candidates.consume_decode(consumer_inputs, published, outputs[2])
++        return published
++
++    for _ in range(3):
++        run()
++    graph = torch.cuda.CUDAGraph()
++    with patch.object(scoring, "fp4_index_logits_paged", side_effect=record_scores):
++        with torch.cuda.graph(graph):
++            published = run()
++    assert (
++        len(captured_scores) == 3
++    )  # all three runtime entrypoints took the paged path
++    mask = published.decode_mask
++    for step, visible in enumerate([193, 0, 1, 7, 8, 9, 65, 193]):
++        # -1 positions exercise zero-length padded rows, also for ratio 1.
++        lens.copy_((visible - torch.arange(batch, device=q.device) % 6).clamp_min(0))
++        positions.copy_(lens * ratio - 1)
++        req.copy_(req.roll(1))
++        req_table[:, : width * ratio : ratio] = (slots[::6].roll(step, 1) * ratio).int()
++        q.neg_()
++        for scores in captured_scores:
++            scores.fill_(torch.inf)
++        for out in outputs:
++            out.page_indices.fill_(12345)
++            if out.raw_indices is not None:
++                out.raw_indices.fill_(12345)
++        graph.replay()
++        assert published.decode_mask is mask
++        current_slots = req_table[req.long(), : width * ratio : ratio].long() // ratio
++        source_scores = _reference_logits(q, weights, current_slots, lens, table)
++        consumer_scores = _reference_logits(
++            consumer_q, weights, current_slots, lens, table
++        )
++        for row, length in enumerate(lens.tolist()):
++            blocks = published.blocks[row]
++            blocks = blocks[blocks >= 0].long()
++            nblocks = (length + 7) // 8
++            assert blocks.numel() == blocks.unique().numel() == min(4, nblocks)
++            if nblocks:
++                assert nblocks - 1 in blocks.tolist()
++                maxima = torch.full((nblocks * 8,), -torch.inf, device=q.device)
++                maxima[:length] = source_scores[row, :length]
++                maxima = maxima.view(-1, 8).amax(-1)
++                maxima[-1] = torch.inf
++                torch.testing.assert_close(
++                    maxima[blocks].sort().values,
++                    maxima.topk(min(4, nblocks)).values.sort().values,
++                )
++            keep = torch.isin(torch.arange(width, device=q.device) // 8, blocks)
++            torch.testing.assert_close(mask[row, :width], keep)
++            consumer_scores[row].masked_fill_(~keep, -torch.inf)
++            for out, scores in zip(
++                outputs, (source_scores, source_scores, consumer_scores)
++            ):
++                pages = out.page_indices[row]
++                pages = pages[pages >= 0]
++                # The shuffled request mapping is bijective within a row.
++                selected = (current_slots[row, :, None] == pages[None, :]).nonzero()[
++                    :, 0
++                ]
++                count = min(topk, int(torch.isfinite(scores[row]).sum()))
++                assert pages.numel() == selected.unique().numel() == count
++                torch.testing.assert_close(
++                    scores[row, selected].sort().values,
++                    scores[row].topk(count).values.sort().values,
++                )
++                expected_pages = torch.full_like(out.page_indices[row], -1)
++                expected_pages[:count] = current_slots[
++                    row, selected.sort().values
++                ].int()
++                torch.testing.assert_close(out.page_indices[row], expected_pages)
++                if out.raw_indices is not None:
++                    expected_raw = torch.full_like(out.raw_indices[row], -1)
++                    expected_raw[:count] = selected.sort().values.int()
++                    torch.testing.assert_close(out.raw_indices[row], expected_raw)
++        for out in outputs:
++            assert (out.page_indices[batch] == -1).all().item()
++            if out.raw_indices is not None:
++                assert (out.raw_indices[batch] == -1).all().item()
++
++
+ if __name__ == "__main__":
+     sys.exit(pytest.main([__file__, "-v"]))
+
+From f3476d40e9fffe1a4cd8a48d9ed62ccfd43268a0 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Sat, 26 Sep 2026 14:01:43 +0800
+Subject: [PATCH 19/24] Check candidate mask reuse at the scoring call
+
+---
+ test/registered/kernels/ops/attention/test_fp4_indexer.py | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/test/registered/kernels/ops/attention/test_fp4_indexer.py b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+index 97c6472d8089..aaecd203b39d 100644
+--- a/test/registered/kernels/ops/attention/test_fp4_indexer.py
++++ b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+@@ -653,10 +653,12 @@ def test_hopper_indexer_backends_replay(ratio):
+         for _ in range(3)
+     ]
+     captured_scores = []
++    captured_masks = []
+ 
+     def record_scores(*args, **kwargs):
+         result = fp4_index_logits_paged(*args, **kwargs)
+         captured_scores.append(result)
++        captured_masks.append(args[-1])
+         return result
+ 
+     def run():
+@@ -675,6 +677,8 @@ def run():
+         len(captured_scores) == 3
+     )  # all three runtime entrypoints took the paged path
+     mask = published.decode_mask
++    assert captured_masks[:2] == [None, None]
++    assert captured_masks[2] is mask
+     for step, visible in enumerate([193, 0, 1, 7, 8, 9, 65, 193]):
+         # -1 positions exercise zero-length padded rows, also for ratio 1.
+         lens.copy_((visible - torch.arange(batch, device=q.device) % 6).clamp_min(0))
+@@ -689,7 +693,6 @@ def run():
+             if out.raw_indices is not None:
+                 out.raw_indices.fill_(12345)
+         graph.replay()
+-        assert published.decode_mask is mask
+         current_slots = req_table[req.long(), : width * ratio : ratio].long() // ratio
+         source_scores = _reference_logits(q, weights, current_slots, lens, table)
+         consumer_scores = _reference_logits(
+
+From 50e39bd322882466f6509f88bc321c9c465fd128 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Sat, 26 Sep 2026 14:37:42 +0800
+Subject: [PATCH 20/24] Remove the Hopper group32 linear test file
+
+---
+ .../test_hopper_group32_linear.py             | 134 ------------------
+ 1 file changed, 134 deletions(-)
+ delete mode 100644 test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+
+diff --git a/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py b/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
+deleted file mode 100644
+index eb26c04528ea..000000000000
+--- a/test/registered/kernels/ops/quantization/test_hopper_group32_linear.py
++++ /dev/null
+@@ -1,134 +0,0 @@
+-import sys
+-
+-import pytest
+-import torch
+-
+-from sglang.kernels.ops.quantization.fp8_kernel import (
+-    dequant_group_fp8_to_bf16,
+-    sglang_per_token_group_quant_fp8,
+-)
+-from sglang.srt.layers.quantization.fp8_utils import (
+-    block_quant_dequant,
+-    triton_w8a8_block_fp8_linear,
+-)
+-from sglang.srt.utils import is_sm90_supported
+-from sglang.test.ci.ci_register import register_cuda_ci
+-
+-register_cuda_ci(est_time=15, stage="base-b-kernel-unit", runner_config="1-gpu-large")
+-
+-
+-@pytest.mark.skipif(not is_sm90_supported(), reason="Hopper group32 path")
+-@pytest.mark.parametrize(
+-    "m,k", [(0, 288), (1, 1024), (63, 288), (64, 288), (65, 1024), (257, 5120)]
+-)
+-def test_cached_weight_linear(m, k):
+-    torch.manual_seed(103 + m)
+-    x = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
+-    w = (torch.randn(576, k, device="cuda") * 32).to(torch.float8_e4m3fn)
+-    scale = torch.exp2(torch.randint(-12, -5, (18, k // 32), device="cuda").float())
+-    cached = block_quant_dequant(w, scale, [32, 32], torch.bfloat16)
+-    bias = torch.randn(576, device="cuda", dtype=torch.bfloat16)
+-    kwargs = dict(
+-        weight=w,
+-        block_size=[32, 32],
+-        weight_scale=scale,
+-        act_scale_ue8m0=True,
+-        bias=bias,
+-    )
+-    if not m:
+-        q = torch.empty_like(x, dtype=torch.float8_e4m3fn)
+-        sf = torch.empty(0, k // 32, device="cuda")
+-        assert dequant_group_fp8_to_bf16(q, sf).shape == x.shape
+-        return
+-    q, sf = sglang_per_token_group_quant_fp8(x, 32, scale_ue8m0=True)
+-    ref_x = q.double() * sf.double().repeat_interleave(32, 1)
+-    torch.testing.assert_close(
+-        dequant_group_fp8_to_bf16(q, sf).double(), ref_x, rtol=0, atol=0
+-    )
+-    actual = triton_w8a8_block_fp8_linear(x, weight_bf16=cached, **kwargs)
+-    if m < 64:
+-        torch.testing.assert_close(
+-            actual, triton_w8a8_block_fp8_linear(x, **kwargs), rtol=0, atol=0
+-        )
+-    else:
+-        ref = ref_x @ cached.double().T
+-        raw = triton_w8a8_block_fp8_linear(
+-            x, weight_bf16=cached, **{**kwargs, "bias": None}
+-        )
+-        # Check GEMM rounding before a potentially cancelling bias addition.
+-        torch.testing.assert_close(
+-            raw.double(),
+-            ref,
+-            rtol=1 / 256,
+-            atol=ref.square().mean().sqrt().item() * 1e-5,
+-        )
+-        torch.testing.assert_close(actual, raw + bias, rtol=0, atol=0)
+-        # Capture the complete quantize/dequantize/GEMM path, then change inputs.
+-        graph = torch.cuda.CUDAGraph()
+-        with torch.cuda.graph(graph):
+-            replay = triton_w8a8_block_fp8_linear(x, weight_bf16=cached, **kwargs)
+-        x.neg_()
+-        graph.replay()
+-        torch.testing.assert_close(
+-            replay,
+-            triton_w8a8_block_fp8_linear(x, weight_bf16=cached, **kwargs),
+-            rtol=0,
+-            atol=0,
+-        )
+-
+-
+-@pytest.mark.skipif(not is_sm90_supported(), reason="Hopper group32 path")
+-def test_cached_weight_refresh():
+-    from sglang.srt.environ import envs
+-    from sglang.srt.layers.quantization.fp8 import Fp8Config, Fp8LinearMethod
+-    from sglang.srt.model_executor.model_runner_components.weight_updater import (
+-        _unsupported_derived_weight_cache_error,
+-    )
+-
+-    method = Fp8LinearMethod(
+-        Fp8Config(
+-            is_checkpoint_fp8_serialized=True,
+-            weight_block_size=[32, 32],
+-            scale_fmt="ue8m0",
+-        )
+-    )
+-    layer = torch.nn.Module()
+-    layer.orig_dtype = torch.bfloat16
+-    layer.weight = torch.nn.Parameter(
+-        torch.ones(64, 288, device="cuda").to(torch.float8_e4m3fn), requires_grad=False
+-    )
+-    layer.weight_scale_inv = torch.nn.Parameter(
+-        torch.ones(2, 9, device="cuda"), requires_grad=False
+-    )
+-    for scale in (1, 2):
+-        layer.weight_scale_inv.data.fill_(scale)
+-        method.process_weights_after_loading_block_quant(layer)
+-        torch.testing.assert_close(
+-            layer._block_fp8_bf16_weight,
+-            torch.full((64, 288), scale, device="cuda", dtype=torch.bfloat16),
+-            rtol=0,
+-            atol=0,
+-        )
+-        assert "_block_fp8_bf16_weight" not in layer.state_dict()
+-        assert "Hopper FP8" in _unsupported_derived_weight_cache_error(layer)
+-    with envs.SGLANG_OPT_HOPPER_BLOCK_FP8_BF16.override(False):
+-        method.process_weights_after_loading_block_quant(layer)
+-        assert layer._block_fp8_bf16_weight is None
+-        assert layer._derived_weight_cache_error is None
+-    for scale in (2.0**-118, 2.0**120, 1.5, float("nan")):
+-        layer.weight_scale_inv.data.fill_(scale)
+-        method.process_weights_after_loading_block_quant(layer)
+-        assert layer._block_fp8_bf16_weight is None
+-        assert layer._derived_weight_cache_error is None
+-    for scale in (2.0**-117, 2.0**119):
+-        layer.weight_scale_inv.data.fill_(scale)
+-        method.process_weights_after_loading_block_quant(layer)
+-        assert layer._block_fp8_bf16_weight is not None
+-    layer.weight_scale_inv.data.fill_(1)
+-    layer.keep_plain_weight_layout = True
+-    method.process_weights_after_loading_block_quant(layer)
+-    assert layer._block_fp8_bf16_weight is None
+-
+-
+-if __name__ == "__main__":
+-    sys.exit(pytest.main([__file__]))
+
+From 79ca0230567ce675868de8ef9d80941c035197a6 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 2 Oct 2026 11:10:53 +0800
+Subject: [PATCH 21/24] Clarify Hopper dispatch and indexer cache contracts
+
+---
+ .../attention/dsv4/v41_indexer/scoring.py     | 13 ++++--
+ .../model_runner_components/weight_updater.py | 10 +++--
+ python/sglang/srt/models/deepseek_v4.py       | 42 +++++++------------
+ .../attention/bench_fp4_index_logits.py       |  3 ++
+ .../test_compensated_mhc_update_guard.py      |  1 +
+ 5 files changed, 35 insertions(+), 34 deletions(-)
+
+diff --git a/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py b/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
+index 7d168c47cd7c..2938e5676f5e 100644
+--- a/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
++++ b/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
+@@ -342,6 +342,13 @@ def write_prefill(
+ 
+ 
+ class PagedDecodeScores(msgspec.Struct, frozen=True):
++    """Paged decode scores with graph-stable capacity ``lmax``.
++
++    Only positions below each device-side ``lens`` are initialized. Top-k
++    consumers must respect those lengths. With ``has_candidate_mask``, masked
++    positions have -inf scores and must be discarded during selection writeback.
++    """
++
+     bs: int
+     lmax: int
+     lens: torch.Tensor
+@@ -350,7 +357,7 @@ class PagedDecodeScores(msgspec.Struct, frozen=True):
+     req_to_token: torch.Tensor
+     ratio: int
+     plan: torch.Tensor
+-    mask_scores: bool
++    has_candidate_mask: bool
+ 
+ 
+ def decode_scores(
+@@ -410,7 +417,7 @@ def decode_scores(
+             req_to_token=req_to_token,
+             ratio=ratio,
+             plan=plan,
+-            mask_scores=candidate_mask is not None,
++            has_candidate_mask=candidate_mask is not None,
+         )
+     out.reset()
+     j = torch.arange(lmax, device=pos.device)
+@@ -439,7 +446,7 @@ def select_decode(
+             out.page_indices,
+             out.raw_indices,
+             d.ratio,
+-            d.mask_scores,
++            d.has_candidate_mask,
+         )
+     else:
+         write_decode(out, d, d.scores.topk(k, dim=-1, sorted=False).indices)
+diff --git a/python/sglang/srt/model_executor/model_runner_components/weight_updater.py b/python/sglang/srt/model_executor/model_runner_components/weight_updater.py
+index f6f707f36b2c..2f418849b16a 100644
+--- a/python/sglang/srt/model_executor/model_runner_components/weight_updater.py
++++ b/python/sglang/srt/model_executor/model_runner_components/weight_updater.py
+@@ -42,10 +42,12 @@ def _unsupported_derived_weight_cache_error(
+ ) -> Optional[str]:
+     """Reject online weight updates that derived-weight caches cannot survive.
+ 
+-    The HPC-Ops bf16xfp32 GEMM caches the fp32 weight split; in-place loader
+-    writes are invisible to it, so an update would silently keep serving the
+-    old weights. The check is startup-determined and rank-uniform, so an
+-    update never proceeds on some workers while rejected on others.
++    Compensated mHC projections and HPC-Ops bf16xfp32 GEMM retain derived
++    weight splits that in-place loader writes do not refresh. Model-owned
++    caches can also declare this constraint via ``_derived_weight_cache_error``.
++    Reject before writing weights to avoid serving stale cached values,
++    including references retained by captured CUDA graphs. These constraints
++    must be startup-determined and rank-uniform so all workers reject together.
+     """
+     if model is not None and any(
+         getattr(module, "_hc_attn_tf32_parts", None) is not None
+diff --git a/python/sglang/srt/models/deepseek_v4.py b/python/sglang/srt/models/deepseek_v4.py
+index b2da78330bfd..0a124952611b 100644
+--- a/python/sglang/srt/models/deepseek_v4.py
++++ b/python/sglang/srt/models/deepseek_v4.py
+@@ -3427,33 +3427,21 @@ def _hc_mix_stats_impl(
+                 parts = getattr(self, "_hc_ffn_tf32_parts", None)
+                 bf16_parts = getattr(self, "_hc_ffn_bf16_parts", None)
+ 
+-        if (
+-            x.is_cuda
+-            and (
+-                # gfx950: the fused Triton port wins at every row count (MI350X)
+-                _is_gfx95_supported
+-                or (
+-                    torch.version.cuda is not None
+-                    and (
+-                        get_platform().is_blackwell
+-                        or (
+-                            get_platform().is_sm90
+-                            and (
+-                                x.shape[0] == 1
+-                                or (
+-                                    bf16_parts is not None and 32 <= x.shape[0] <= 65536
+-                                )
+-                            )
+-                        )
+-                    )
+-                )
+-            )
+-            and x.dtype == torch.bfloat16
+-        ):
+-            # Fusing the split-K reduction with sinkhorn keeps it batch-invariant.
+-            if bf16_parts is not None and (
+-                hopper_medium or 4096 <= x_flat.shape[0] <= 65536
+-            ):
++        use_bf16_projection = bf16_parts is not None and (
++            hopper_medium or 4096 <= x_flat.shape[0] <= 65536
++        )
++        hopper_fused_stats = get_platform().is_sm90 and (
++            x.shape[0] == 1 or (bf16_parts is not None and 32 <= x.shape[0] <= 65536)
++        )
++        # gfx950 uses the fused Triton port at every row count (MI350X).
++        use_fused_stats = _is_gfx95_supported or (
++            torch.version.cuda is not None
++            and (get_platform().is_blackwell or hopper_fused_stats)
++        )
++        if x.is_cuda and use_fused_stats and x.dtype == torch.bfloat16:
++            # The default split-K/Sinkhorn fusion preserves batch invariance;
++            # compensated projections above are disabled in batch-invariant mode.
++            if use_bf16_projection:
+                 from sglang.kernels.ops.layernorm.mhc import (
+                     hc_mix_stats_sinkhorn_bf16x3,
+                 )
+diff --git a/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py b/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
+index 8f72b1348ae0..a461457bff07 100644
+--- a/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
++++ b/test/registered/kernels/benchmark/attention/bench_fp4_index_logits.py
+@@ -18,6 +18,9 @@
+ 
+ 
+ def index_topk(q, weights, req, req_table, lens, table, capacity, paged):
++    """Measure scoring and top-k only; exclude final index sorting, KV slot
++    mapping, and selection writeback from both implementations.
++    """
+     if paged:
+         plan = plan_topk_v2(lens)
+         scores = fp4_index_logits_paged(
+diff --git a/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py b/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py
+index d4837d5c3b66..c1b9a2e9431f 100644
+--- a/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py
++++ b/test/registered/unit/model_executor/test_compensated_mhc_update_guard.py
+@@ -54,6 +54,7 @@ def test_all_update_entries_reject_before_writes(self):
+     def test_models_without_derived_splits_keep_update_support(self):
+         model = torch.nn.Sequential(torch.nn.Linear(1, 1))
+         model[0]._hc_attn_tf32_parts = model[0]._hc_ffn_tf32_parts = None
++        model[0]._hc_attn_bf16_parts = model[0]._hc_ffn_bf16_parts = None
+         with patch(
+             "sglang.kernels.ops.gemm.bf16_fp32.hpc_bf16xfp32_gemm_enabled",
+             return_value=False,
+
+From 22e352d873954406ddd31e9e80e8526fe70d23f5 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 2 Oct 2026 11:39:38 +0800
+Subject: [PATCH 22/24] test: adapt MXFP4 TP loading coverage to current MoE
+ loader API
+
+---
+ test/registered/kernels/ops/moe/test_moe_wna16_marlin.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+index 973691f5b14b..2eb478836dd9 100644
+--- a/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
++++ b/test/registered/kernels/ops/moe/test_moe_wna16_marlin.py
+@@ -804,6 +804,7 @@ def test_mxfp4_tp8_load_before_padding(tp_rank):
+     assert layer.w13_weight.shape == (e, 2 * intermediate, h // 2)
+     loader = SimpleNamespace(
+         moe_tp_size=tp,
++        moe_tp_rank=tp_rank,
+         use_padded_loading=False,
+         use_presharded_weights=False,
+         use_triton_kernels=False,
+@@ -829,7 +830,7 @@ def test_mxfp4_tp8_load_before_padding(tp_rank):
+         ]:
+             parameter = getattr(layer, f"{prefix}_{suffix}")
+             for expert in range(e):
+-                load(loader, parameter[expert], axis, shard, data[expert], tp_rank)
++                load(loader, parameter[expert], axis, shard, data[expert])
+             width = data.shape[axis + 1] // tp
+             selected = data.narrow(axis + 1, tp_rank * width, width)
+             actual = (
+
+From 94d21e316202e5f6a7b633207aff0c23f55f32a2 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 2 Oct 2026 13:06:09 +0800
+Subject: [PATCH 23/24] test: align sparse prefill mock with SWA page-size API
+
+---
+ .../kernels/ops/attention/test_q8kv8_sparse_prefill_backend.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/test/registered/kernels/ops/attention/test_q8kv8_sparse_prefill_backend.py b/test/registered/kernels/ops/attention/test_q8kv8_sparse_prefill_backend.py
+index 57d061339eb2..ef87a256979a 100644
+--- a/test/registered/kernels/ops/attention/test_q8kv8_sparse_prefill_backend.py
++++ b/test/registered/kernels/ops/attention/test_q8kv8_sparse_prefill_backend.py
+@@ -95,6 +95,9 @@ def get_extra_key_buffer(self, layer_id: int) -> torch.Tensor:
+     def get_swa_key_layout(self) -> KVLayout:
+         return KVLayout.V4
+ 
++    def get_swa_key_page_size(self) -> int:
++        return self.swa_kv_pool.page_size
++
+     def get_extra_key_layout(self, layer_id: int) -> KVLayout:
+         _ = layer_id
+         return KVLayout.V4
+
+From 179b1ab2d330edf979f8e349a441592ff767ab25 Mon Sep 17 00:00:00 2001
+From: BBuf <1182563586@qq.com>
+Date: Fri, 2 Oct 2026 23:28:07 +0800
+Subject: [PATCH 24/24] perf: fuse Blackwell flattened prefill index selection
+
+---
+ .../kernels/ops/attention/dsv4/fp4_indexer.py |  71 +++++++++++
+ .../attention/dsv4/v41_indexer/scoring.py     |  14 +++
+ .../kernels/ops/attention/test_fp4_indexer.py | 117 ++++++++++++++++++
+ 3 files changed, 202 insertions(+)
+
+diff --git a/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py b/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
+index 36177396a1db..b3043301644e 100644
+--- a/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
++++ b/python/sglang/kernels/ops/attention/dsv4/fp4_indexer.py
+@@ -108,6 +108,77 @@ def finish_paged_indexer_topk(
+     )
+ 
+ 
++# Visible key counts change across batches; keep them out of the JIT key.
++@triton.jit(do_not_specialize=["NUM_SLOTS"])
++def _finish_flat_indexer_topk_kernel(
++    Indices,
++    Slots,
++    Starts,
++    Pages,
++    Raw,
++    K: tl.constexpr,
++    NUM_SLOTS,
++    IDX_STRIDE: tl.constexpr,
++    PAGE_STRIDE: tl.constexpr,
++    RAW_STRIDE: tl.constexpr,
++    WRITE_RAW: tl.constexpr,
++    BLOCK: tl.constexpr,
++):
++    row = tl.program_id(0)
++    col = tl.arange(0, BLOCK)
++    unselected = 2147483647
++    idx = tl.load(Indices + row * IDX_STRIDE + col, col < K, unselected)
++    idx = tl.sort(tl.where(idx < 0, unselected, idx), descending=False)
++    chosen = (col < K) & (idx != unselected)
++    slot = tl.load(Slots + tl.minimum(idx, NUM_SLOTS - 1), chosen, -1)
++    tl.store(Pages + row * PAGE_STRIDE + col, slot, col < K)
++    if WRITE_RAW:
++        start = tl.load(Starts + row)
++        tl.store(
++            Raw + row * RAW_STRIDE + col, tl.where(chosen, idx - start, -1), col < K
++        )
++
++
++def finish_flat_indexer_topk(
++    indices: torch.Tensor,
++    slots: torch.Tensor,
++    request_starts: torch.Tensor,
++    page_indices: torch.Tensor,
++    raw_indices: torch.Tensor | None,
++) -> None:
++    """Sort flattened prefill positions and map them to KV slots in one kernel.
++
++    Negative positions and INT32_MAX are unselected. Write only the selected
++    rows and columns; callers retain responsibility for resetting output padding.
++    """
++    rows, k = indices.shape
++    if not rows or not k:
++        return
++    assert indices.dtype == torch.int32 and indices.stride(1) == 1
++    assert slots.ndim == 1 and slots.is_contiguous() and slots.numel() > 0
++    assert request_starts.shape == (rows,) and request_starts.is_contiguous()
++    assert page_indices.shape[0] >= rows and page_indices.shape[1] >= k
++    assert page_indices.dtype == torch.int32 and page_indices.stride(1) == 1
++    if raw_indices is not None:
++        assert raw_indices.shape[0] >= rows and raw_indices.shape[1] >= k
++        assert raw_indices.dtype == torch.int32 and raw_indices.stride(1) == 1
++    _finish_flat_indexer_topk_kernel[(rows,)](
++        indices,
++        slots,
++        request_starts,
++        page_indices,
++        raw_indices,
++        k,
++        slots.numel(),
++        indices.stride(0),
++        page_indices.stride(0),
++        raw_indices.stride(0) if raw_indices is not None else 0,
++        raw_indices is not None,
++        triton.next_power_of_2(k),
++        num_warps=4,
++    )
++
++
+ @triton.jit
+ def _select_group_value(group, v0, v1, v2, v3):
+     return tl.where(
+diff --git a/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py b/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
+index 2938e5676f5e..8127b2c4bf01 100644
+--- a/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
++++ b/python/sglang/srt/layers/attention/dsv4/v41_indexer/scoring.py
+@@ -10,6 +10,7 @@
+ import torch
+ 
+ from sglang.kernels.ops.attention.dsv4.fp4_indexer import (
++    finish_flat_indexer_topk,
+     finish_paged_indexer_topk,
+     fp4_index_logits_decode,
+     fp4_index_logits_paged,
+@@ -66,6 +67,19 @@ def empty_selection(self, topk: int) -> torch.Tensor:
+         )
+ 
+     def write_selection(self, selected: torch.Tensor, out: Selection) -> None:
++        if (
++            selected.is_cuda
++            and get_platform().is_sm100
++            and selected.dtype == torch.int32
++        ):
++            finish_flat_indexer_topk(
++                selected,
++                self.k_slots,
++                self.request_starts,
++                out.page_indices,
++                out.raw_indices,
++            )
++            return
+         num_tokens, topk = selected.shape
+         unselected = torch.iinfo(torch.int32).max
+         selected = selected.masked_fill(selected < 0, unselected).sort(dim=-1).values
+diff --git a/test/registered/kernels/ops/attention/test_fp4_indexer.py b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+index aaecd203b39d..c8acbfd35732 100644
+--- a/test/registered/kernels/ops/attention/test_fp4_indexer.py
++++ b/test/registered/kernels/ops/attention/test_fp4_indexer.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import sys
++from contextlib import nullcontext
+ from types import SimpleNamespace
+ from unittest.mock import patch
+ 
+@@ -746,5 +747,121 @@ def run():
+                 assert (out.raw_indices[batch] == -1).all().item()
+ 
+ 
++@pytest.mark.parametrize("rows", [0, 1, 32, 129])
++@pytest.mark.parametrize("topk", [0, 1, 65, 512])
++@pytest.mark.parametrize("write_raw", [False, True])
++def test_flat_indexer_selection_replay(rows, topk, write_raw):
++    from sglang.srt.layers.attention.dsv4.v41_indexer import scoring
++
++    torch.manual_seed(81 + rows + topk)
++    indices = torch.randint(
++        0, 2048, (rows, topk + 8), device="cuda", dtype=torch.int32
++    )[:, :topk]
++    slots = torch.randperm(2048, device="cuda").to(torch.int64)
++    starts = torch.randint(0, 128, (rows,), device="cuda", dtype=torch.int32)
++    pages = torch.full((rows + 1, topk + 8), 12345, device="cuda", dtype=torch.int32)
++    raw = torch.full_like(pages, 12345) if write_raw else None
++
++    data = SimpleNamespace(k_slots=slots, request_starts=starts)
++    selection = SimpleNamespace(page_indices=pages, raw_indices=raw)
++
++    def run():
++        # Use real platform dispatch on Blackwell; also check integer
++        # finalization on other CUDA GPUs through the SM100 runtime entry.
++        platform = scoring.get_platform()
++        context = (
++            nullcontext()
++            if platform.is_sm100
++            else patch.object(
++                scoring, "get_platform", return_value=SimpleNamespace(is_sm100=True)
++            )
++        )
++        with context:
++            scoring.DeepGEMMPrefillData.write_selection(data, indices, selection)
++
++    for _ in range(3):
++        run()
++    graph = None
++    if rows and topk:
++        graph = torch.cuda.CUDAGraph()
++        with torch.cuda.graph(graph):
++            run()
++    for step in range(3):
++        indices.copy_(
++            torch.randint(0, 2048, indices.shape, device="cuda", dtype=torch.int32)
++        )
++        indices[:, step::7] = -1 - step
++        indices[:, 2::11] = torch.iinfo(torch.int32).max
++        if step == 1:
++            indices.fill_(-1)
++        slots.copy_(slots.roll(17))
++        starts.add_(1)
++        pages.fill_(12345)
++        if raw is not None:
++            raw.fill_(12345)
++        if graph is not None:
++            graph.replay()
++        else:
++            run()
++        sentinel = torch.iinfo(torch.int32).max
++        selected = indices.masked_fill(indices < 0, sentinel).sort(-1).values
++        chosen = selected != sentinel
++        expected_pages = torch.full_like(pages, 12345)
++        expected_pages[:rows, :topk] = torch.where(
++            chosen, slots[selected.clamp_max(slots.numel() - 1)], -1
++        ).int()
++        torch.testing.assert_close(pages, expected_pages, rtol=0, atol=0)
++        if raw is not None:
++            expected_raw = torch.full_like(raw, 12345)
++            expected_raw[:rows, :topk] = torch.where(
++                chosen, selected - starts[:, None], -1
++            )
++            torch.testing.assert_close(raw, expected_raw, rtol=0, atol=0)
++
++
++@pytest.mark.parametrize("write_raw", [False, True])
++def test_flat_indexer_slot_count_does_not_recompile(write_raw):
++    from sglang.kernels.ops.attention.dsv4.fp4_indexer import (
++        _finish_flat_indexer_topk_kernel,
++    )
++
++    rows, topk = 32, 512
++    torch.manual_seed(95)
++    indices = torch.randint(0, 8192, (rows, topk), device="cuda", dtype=torch.int32)
++    indices[:, 0] = -3
++    indices[:, 1] = torch.iinfo(torch.int32).max
++    starts = torch.arange(rows, device="cuda", dtype=torch.int32)
++    pages = torch.empty_like(indices)
++    raw = torch.empty_like(indices) if write_raw else None
++    hashes = set()
++    for num_slots in (1, 17, 64, 65, 129, 2048, 8192):
++        slots = torch.arange(num_slots, device="cuda", dtype=torch.int64) * 3 + 7
++        compiled = _finish_flat_indexer_topk_kernel[(rows,)](
++            indices,
++            slots,
++            starts,
++            pages,
++            raw,
++            topk,
++            num_slots,
++            indices.stride(0),
++            pages.stride(0),
++            raw.stride(0) if raw is not None else 0,
++            write_raw,
++            topk,
++            num_warps=4,
++        )
++        hashes.add(compiled.hash)
++        sentinel = torch.iinfo(torch.int32).max
++        selected = indices.masked_fill(indices < 0, sentinel).sort(-1).values
++        chosen = selected != sentinel
++        expected = torch.where(chosen, slots[selected.clamp_max(num_slots - 1)], -1)
++        torch.testing.assert_close(pages, expected.int(), rtol=0, atol=0)
++        if raw is not None:
++            expected_raw = torch.where(chosen, selected - starts[:, None], -1)
++            torch.testing.assert_close(raw, expected_raw, rtol=0, atol=0)
++    assert len(hashes) == 1, "Changing the visible slot count must reuse the kernel"
++
++
+ if __name__ == "__main__":
+     sys.exit(pytest.main([__file__, "-v"]))

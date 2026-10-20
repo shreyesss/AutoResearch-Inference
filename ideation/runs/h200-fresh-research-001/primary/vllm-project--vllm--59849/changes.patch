@@ -1,0 +1,106 @@
+From 8e91c6ea3164487585bfe75241e4dd9f241ffcf9 Mon Sep 17 00:00:00 2001
+From: git bisector <gitbisector@gmail.com>
+Date: Fri, 2 Oct 2026 21:09:38 -0700
+Subject: [PATCH] [Perf][DSv4.1] Register CPU-offloaded Engram tables at their
+ exact size
+
+Use the THP registration helper without huge pages for the default
+cpu_offload tables instead of pin_memory=True, which rounds them up to a
+power of two.
+
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: git bisector <gitbisector@gmail.com>
+---
+ tests/kernels/test_engram.py              |  9 +++++---
+ vllm/models/deepseek_v41/common/engram.py | 26 ++++++++++++++---------
+ 2 files changed, 22 insertions(+), 13 deletions(-)
+
+diff --git a/tests/kernels/test_engram.py b/tests/kernels/test_engram.py
+index 15bdc9162cf6..13f80c4943d9 100644
+--- a/tests/kernels/test_engram.py
++++ b/tests/kernels/test_engram.py
+@@ -735,9 +735,11 @@ def test_engram_lookup_matches_torch(cpu_offload, background, num_tokens):
+ 
+ 
+ @pytest.mark.skipif(not current_platform.is_cuda(), reason="CUDA required")
++@pytest.mark.parametrize("use_thp", [False, True])
+ @pytest.mark.parametrize("register_fails", [False, True])
+-def test_engram_use_thp_lookup_and_fallback(monkeypatch, register_fails):
+-    """Huge-page tables and their pinned fallback both give exact lookup rows."""
++def test_engram_use_thp_lookup_and_fallback(monkeypatch, register_fails, use_thp):
++    """Registered tables (small or huge pages) and their pinned fallback all give
++    exact lookup rows; only huge pages skip the sorted lookup."""
+     monkeypatch.setattr(engram_ops, "get_tensor_model_parallel_world_size", lambda: 1)
+     monkeypatch.setattr(engram_ops, "get_tensor_model_parallel_rank", lambda: 0)
+     if register_fails:
+@@ -747,13 +749,14 @@ def test_engram_use_thp_lookup_and_fallback(monkeypatch, register_fails):
+     rows, dim = 32769, 64
+     with torch.device("cuda"):
+         layer = ParallelEngramEmbedding(
+-            rows, dim, (rows,), cpu_offload=True, use_thp=True
++            rows, dim, (rows,), cpu_offload=True, use_thp=use_thp
+         )
+     assert layer.weight.is_pinned() and layer.weight_scale_inv.is_pinned()
+     same_storage = layer.weight.untyped_storage().data_ptr() == (
+         layer.weight_scale_inv.untyped_storage().data_ptr()
+     )
+     assert same_storage != register_fails
++    assert (layer._packed is not None) == (use_thp and not register_fails)
+     layer.weight.data.fill_(2)
+     layer.weight_scale_inv.data.fill_(127)
+     ids = torch.tensor(
+diff --git a/vllm/models/deepseek_v41/common/engram.py b/vllm/models/deepseek_v41/common/engram.py
+index d4810ee4ea9e..f8b76498dc3d 100644
+--- a/vllm/models/deepseek_v41/common/engram.py
++++ b/vllm/models/deepseek_v41/common/engram.py
+@@ -876,20 +876,24 @@ def can_share_engram_tables(layout: EngramLayout, block_size: int = 32) -> bool:
+     return error is None
+ 
+ 
+-def _allocate_huge_page_storage(num_bytes: int) -> torch.Tensor | None:
+-    """Register prefaulted huge pages, or return None for pinned-memory fallback."""
++def _allocate_registered_storage(
++    num_bytes: int, huge_pages: bool
++) -> torch.Tensor | None:
++    """Register exact-size host memory, or return None for pinned-memory fallback."""
+     try:
+         mapping = mmap.mmap(-1, num_bytes, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS)
+-        mapping.madvise(mmap.MADV_HUGEPAGE)
++        if huge_pages:
++            mapping.madvise(mmap.MADV_HUGEPAGE)
+     except OSError as exc:
+         logger.warning(
+-            "Engram huge-page allocation failed (%s); using pinned memory.", exc
++            "Engram host table allocation failed (%s); using pinned memory.", exc
+         )
+         return None
+ 
+     owner = np.frombuffer(mapping, dtype=np.uint8)
+-    # Fault the pages in before CUDA pins them, so they can be huge.
+-    owner[:: mmap.PAGESIZE] = 0
++    if huge_pages:
++        # Fault the pages in before CUDA pins them, so they can be huge.
++        owner[:: mmap.PAGESIZE] = 0
+     tensor = torch.from_numpy(owner)
+     pointer = tensor.data_ptr()
+     result = torch.cuda.cudart().cudaHostRegister(pointer, num_bytes, 0)
+@@ -1022,13 +1026,15 @@ def _allocate_weights(self) -> tuple[torch.Tensor, torch.Tensor]:
+                 ),
+                 torch.empty(self.part_num_embeddings, scale_dim, dtype=torch.uint8),
+             )
+-        if self.use_thp:
++        if self.use_thp or current_platform.is_cuda():
+             weight_bytes = self.part_num_embeddings * self.dim
+-            packed = _allocate_huge_page_storage(
+-                weight_bytes + weight_bytes // self.block_size
++            packed = _allocate_registered_storage(
++                weight_bytes + weight_bytes // self.block_size, huge_pages=self.use_thp
+             )
+             if packed is not None:
+-                self._packed = packed
++                # Only huge pages skip the sorted lookup.
++                if self.use_thp:
++                    self._packed = packed
+                 return (
+                     packed[:weight_bytes].view(torch.float8_e4m3fn).view(-1, self.dim),
+                     packed[weight_bytes:].view(-1, scale_dim),

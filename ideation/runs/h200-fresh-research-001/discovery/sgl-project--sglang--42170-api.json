@@ -1,0 +1,39 @@
+{
+  "document": {
+    "id": "github:sgl-project/sglang:42170",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/sgl-project/sglang/issues/42170",
+    "title": "[Roadmap] DeepSeek V4.1 Optimization",
+    "body": "Track optimization and feature support for DeepSeek V4.1 in SGLang.\n\n## Refactor\n\n- [x] mHC (DSV41 only) code clean up \u2014  #42245\n## General optimization\n\n- [ ] Prefill optimizations\n  - [ ] mHC SP + engram fusion \u2014 #43065\n  - [x] Fold `q_rope_store` into `fused_q_norm_rope` \u2014 #41657\n  - [x] Faster FP4 index-K gather and `combine_topk_swa_indices` \u2014 #41658\n  - [x] Prefill indexer: raw selection, row-pair schedule IDs, and host synchronization removal \u2014 #41659\n  - [x] Fused c1/c2 compression for eager extend and faster c2 decode \u2014 #41660\n  - [x] Trim prefill model-entry overhead \u2014 #41704\n- [ ] Decode optimizations\n  - [ ] TP4 low latency attention layer #44933 \n- [x] Add opt-in TRT-LLM sparse attention support \u2014 #41603 \n- [ ] Integrate the MegaMoE update: locality-aware scheduling, epilogue prefetch, and shared-memory optimizations \u2014 [DeepGEMM #462](https://github.com/deepseek-ai/DeepGEMM/pull/462)\n- [x] Add MegaMHC support \u2014 #42808 \n- [ ] Integrate DeepEP V2.5: migrate to dedicated buffer APIs and enable the new communication optimizations \u2014 [DeepEP #763](https://github.com/deepseek-ai/DeepEP/pull/763)\n- [ ] Packed BF16 prefill on B200/B300 \u2014 #41512\n- [ ] Fuse source prefill Top-K and block maxima \u2014 #41627\n- [ ] Use CUDA candidate selection in dense prefill \u2014 #40521\n- [ ] Shard Engram WKV projections \u2014 #40508\n- [x] Cache MXFP8 dispatch \u2014 #42156\n- [ ] Persist FlashInfer autotune measurement policies with cached tactics \u2014 #42158\n- [x] Reduce eager Engram extend preparation \u2014 #42159\n- [ ] Replace the legacy topk-v2 with DeepSelect (need LL optimization) \u2014 #44051 \n\n## Feature: bounded replay\n\nGoal: both replay flags on by default \u2014 same accuracy, never slower than off, faster prefill.\n\n### Encoder replay\n\n- [x] Fix SWA page size with bounded replay \u2014 #42128\n- [x] Bounded replay with sparse mla - #42273 \n- [ ] Enable encoder bounded replay.\n  - [x] Fold the replay into the extend forward (16 \u00d7 64K hits: 4.6 s \u2192 1.0 s TTFT) \u2014 #43166, #43165\n  - [ ] Cut decode request-window copies (+6\u201311 ms \u2192 +0.3 ms per step) \u2014 #42715\n  - [ ] Cut prefill request-window overhead (cold prefill gap 26% \u2192 2%) \u2014 #42921\n  - [ ] Serve HiCache host-tier hits \u2014 #42716\n  - [x] Keep the DSpark draft SWA from cutting prefix hits \u2014 #44673\n\n### Decoder replay and prefill graph\n\n- [ ] Enable decoder bounded replay.\n  - [x] Serve prompt-logprob requests under decoder replay \u2014 #44850\n  - [ ] Enable the prefill CUDA graph by default for DeepSeek-V4.1 (+19% cold prefill) \u2014 #43440 \n  - [ ] Make both replay flags compatible with the prefill graph\n  - [ ] Capture eager prefill layers as graphs (+54% cold prefill)\n  - [ ] Lift the 16K prefill-graph cap; faster prefill all-reduce\n\n### Compatibility and default\n\n- [ ] Support decoder SWA bounded replay with prefill CP and static DSpark PD \u2014 #40161\n- [ ] DP attention and PD disaggregation\n- [ ] Turn both replay flags on by default\n\n## Feature: PD\n\nOriginal roadmap: #39700 (B200).\n\n### Prefill\n\n- [ ] Support context parallelism \u2014 #40323\n- [ ] Support CP with breakable CUDA graphs \u2014 #40333\n- [ ] Avoid host synchronization in CP prefill \u2014 #40335\n- [ ] Support CP with multistream forward preparation \u2014 #40179\n- [ ] Reuse shared compressed KV dequantization \u2014 #40421\n- [ ] Fuse candidate selection and masking \u2014 #40436\n- [ ] Capture indexer and compressor in breakable CUDA graphs \u2014 #40548\n\n### Decode\n\n- [x] Support DP attention \u2014 #40177\n- [ ] Support MegaMoE \u2014 #40178\n\n## Hopper optimization\n\n- [x] Optimize dense GEMM, indexer, mHC, and MoE paths on Hopper \u2014 #41251\n- [ ] Support candidate-only SM90 indexer scoring \u2014 #40860\n- [ ] Skip invisible SM90 FP4 indexer tiles \u2014 #40503\n- [ ] Add an FP8 Tensor Core path for the FP4 grouped indexer \u2014 #40160\n- [ ] Use DeepSelect Top-K with fused page mapping for Hopper decode \u2014 #41561\n- [ ] Enable Hopper decode optimizations for TP8 \u2014 #39114\n- [ ] Add H20 block-FP8 tuned configurations \u2014 #41098\n- [ ] Add and extend H200 block-FP8 tuned configurations \u2014 #40452\n\n\n\n",
+    "created_at": "2026-10-02T01:52:47Z",
+    "updated_at": "2026-10-18T17:55:43Z",
+    "fetched_at": "2026-10-20T12:21:35Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "b200",
+      "h100",
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "moe",
+      "mla",
+      "ttft",
+      "performance",
+      "speculation",
+      "communication",
+      "nvfp4"
+    ],
+    "metadata": {
+      "number": 42170,
+      "labels": [],
+      "comments": 8,
+      "state_reason": null
+    },
+    "content_hash": "c2e5520539b3a0f859b3e4d0bf600925549acf40e5fab15b49f71a8b8e96e222"
+  },
+  "cached": false,
+  "discussion_complete": false,
+  "next_step": "Use github.hydrate only when discussion, reviews or patches can change the decision."
+}

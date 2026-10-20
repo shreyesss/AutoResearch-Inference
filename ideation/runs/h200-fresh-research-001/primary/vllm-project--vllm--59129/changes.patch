@@ -1,0 +1,215 @@
+From 7d60c8d14ae64be457d6e3c96ca74d29bbb088e5 Mon Sep 17 00:00:00 2001
+From: mengziheng <121283369+mengziheng@users.noreply.github.com>
+Date: Mon, 28 Sep 2026 17:35:38 +0800
+Subject: [PATCH 1/2] [Bugfix] Package the SM90 DeepGEMM mHC register lifetime
+ fix
+
+Integrate leevan's deepseek-ai/DeepGEMM#448 into the vendored JIT
+header until the pinned dependency includes the fix. Preserve custom
+source trees and keep standalone installs consistent. Add split-K and
+side-stream regressions against independent FP32 references.
+
+Co-authored-by: Codex <noreply@openai.com>
+Signed-off-by: mengziheng <121283369+mengziheng@users.noreply.github.com>
+(cherry picked from commit d076c1fe241a2c106c41a47f8a6471226ba60755)
+---
+ cmake/external_projects/deepgemm.cmake | 18 ++++++++++
+ tests/kernels/mhc/test_mhc_kernels.py  | 46 ++++++++++++++++++++++++++
+ tools/install_deepgemm.sh              |  5 +++
+ tools/patch_deepgemm_sm90.py           | 42 +++++++++++++++++++++++
+ 4 files changed, 111 insertions(+)
+ create mode 100644 tools/patch_deepgemm_sm90.py
+
+diff --git a/cmake/external_projects/deepgemm.cmake b/cmake/external_projects/deepgemm.cmake
+index a17031cc5e0f..568cc588ae2a 100644
+--- a/cmake/external_projects/deepgemm.cmake
++++ b/cmake/external_projects/deepgemm.cmake
+@@ -211,6 +211,24 @@ if(DEEPGEMM_ARCHS)
+   # DeepGEMM's own CUDA headers
+   install(DIRECTORY "${deepgemm_SOURCE_DIR}/deep_gemm/include/"
+     DESTINATION vllm/third_party/deep_gemm/include
++    COMPONENT _deep_gemm_C
++    PATTERN "sm90_tf32_hc_prenorm_gemm.cuh" EXCLUDE)
++
++  # Backport deepseek-ai/DeepGEMM#448 until the dependency pin includes it.
++  # Only the runtime JIT header changes; preserve DEEPGEMM_SRC_DIR itself.
++  set(_dg_sm90_header "deep_gemm/impls/sm90_tf32_hc_prenorm_gemm.cuh")
++  set(_dg_sm90_patched "${CMAKE_CURRENT_BINARY_DIR}/deepgemm_patched/${_dg_sm90_header}")
++  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
++    "${CMAKE_SOURCE_DIR}/tools/patch_deepgemm_sm90.py"
++    "${deepgemm_SOURCE_DIR}/deep_gemm/include/${_dg_sm90_header}")
++  execute_process(
++    COMMAND "${Python_EXECUTABLE}"
++            "${CMAKE_SOURCE_DIR}/tools/patch_deepgemm_sm90.py"
++            "${deepgemm_SOURCE_DIR}/deep_gemm/include/${_dg_sm90_header}"
++            "${_dg_sm90_patched}"
++    COMMAND_ERROR_IS_FATAL ANY)
++  install(FILES "${_dg_sm90_patched}"
++    DESTINATION vllm/third_party/deep_gemm/include/deep_gemm/impls
+     COMPONENT _deep_gemm_C)
+ 
+   # CUTLASS and CuTe headers (vendored for JIT, separate from vLLM's CUTLASS)
+diff --git a/tests/kernels/mhc/test_mhc_kernels.py b/tests/kernels/mhc/test_mhc_kernels.py
+index 0554e9ca660b..96194d8e127a 100644
+--- a/tests/kernels/mhc/test_mhc_kernels.py
++++ b/tests/kernels/mhc/test_mhc_kernels.py
+@@ -51,6 +51,52 @@
+ DEVICE = current_platform.device_type
+ 
+ 
++@pytest.mark.skipif(
++    not current_platform.is_cuda()
++    or not current_platform.is_device_capability_family(90),
++    reason="SM90 WGMMA regression",
++)
++@pytest.mark.parametrize("num_tokens,num_splits", [(256, 19), (512, 9), (1024, 4)])
++@pytest.mark.parametrize("side_stream", [False, True])
++def test_sm90_mhc_prenorm_preserves_register_operands(
++    num_tokens, num_splits, side_stream, monkeypatch
++):
++    """An in-flight WGMMA must finish before its register A inputs are reused.
++
++    Regression adapted from deepseek-ai/DeepGEMM#448. These multi-stage K
++    loops reproduce corruption that short decode shapes do not expose.
++    """
++    from vllm.utils.deep_gemm import tf32_hc_prenorm_gemm
++
++    set_random_seed(123)
++    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
++    stream = torch.cuda.Stream() if side_stream else torch.cuda.current_stream()
++    with torch.cuda.stream(stream):
++        x = torch.randn(num_tokens, 16384, dtype=torch.bfloat16, device=DEVICE)
++        weight = torch.randn(24, 16384, dtype=torch.float32, device=DEVICE) * 0.02
++        blocks, remainder = divmod(x.shape[1] // 64, num_splits)
++        ref_out, ref_sqrsum = [], []
++        for split in range(num_splits):
++            start = (split * blocks + min(split, remainder)) * 64
++            end = start + (blocks + (split < remainder)) * 64
++            part = x[:, start:end].float()
++            ref_out.append(part @ weight[:, start:end].T)
++            ref_sqrsum.append(part.square().sum(-1))
++        ref_out, ref_sqrsum = torch.stack(ref_out), torch.stack(ref_sqrsum)
++        previous = None
++        for _ in range(3):
++            out = torch.empty(num_splits, num_tokens, 24, device=DEVICE)
++            sqrsum = torch.empty(num_splits, num_tokens, device=DEVICE)
++            tf32_hc_prenorm_gemm(x, weight, out, sqrsum, num_splits)
++            stream.synchronize()
++            torch.testing.assert_close(out, ref_out, rtol=1e-3, atol=2e-3)
++            torch.testing.assert_close(sqrsum, ref_sqrsum, rtol=1e-5, atol=2e-3)
++            if previous is not None:
++                torch.testing.assert_close(out, previous[0], rtol=0, atol=0)
++                torch.testing.assert_close(sqrsum, previous[1], rtol=0, atol=0)
++            previous = out, sqrsum
++
++
+ @pytest.mark.parametrize(
+     "tp,ep,hidden,hc,multicast,expected",
+     [
+diff --git a/tools/install_deepgemm.sh b/tools/install_deepgemm.sh
+index 949aa28da533..e45504fccd11 100755
+--- a/tools/install_deepgemm.sh
++++ b/tools/install_deepgemm.sh
+@@ -3,6 +3,7 @@
+ # Default: build and install immediately
+ # Optional: build wheels to a directory for later installation (useful in multi-stage builds)
+ set -e
++SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ 
+ # Default values
+ # Keep DEEPGEMM_GIT_REF in sync with cmake/external_projects/deepgemm.cmake
+@@ -94,6 +95,10 @@ pushd "$INSTALL_DIR/deepgemm"
+ # Checkout the specific reference
+ git checkout "$DEEPGEMM_GIT_REF"
+ 
++# Keep standalone installs consistent with the vendored JIT header.
++SM90_HEADER=deep_gemm/include/deep_gemm/impls/sm90_tf32_hc_prenorm_gemm.cuh
++python3 "$SCRIPT_DIR/patch_deepgemm_sm90.py" "$SM90_HEADER" "$SM90_HEADER"
++
+ # Clean previous build artifacts
+ # (Based on https://github.com/deepseek-ai/DeepGEMM/blob/main/install.sh)
+ rm -rf -- build dist *.egg-info 2>/dev/null || true
+diff --git a/tools/patch_deepgemm_sm90.py b/tools/patch_deepgemm_sm90.py
+new file mode 100644
+index 000000000000..b619e639bcb7
+--- /dev/null
++++ b/tools/patch_deepgemm_sm90.py
+@@ -0,0 +1,42 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Backport deepseek-ai/DeepGEMM#448 into the packaged SM90 JIT header.
++
++The upstream fix by jason (leevan) keeps register A operands alive until
++asynchronous WGMMA finishes. Remove this backport when the dependency pin
++includes that fix. A separate output preserves user-supplied source trees.
++"""
++
++import argparse
++from pathlib import Path
++
++OLD_WAIT = """            ptx::warpgroup_wait<0>();
++            if (s > 0)
++"""
++NEW_WAIT = """            ptx::warpgroup_commit_batch();
++            // Keep register A operands live until the asynchronous WGMMA completes.
++            ptx::warpgroup_wait<0>();
++"""
++COMMIT = "            ptx::warpgroup_commit_batch();\n"
++
++
++def patch_header(source: Path, output: Path) -> None:
++    text = source.read_text()
++    if text.count(NEW_WAIT) != 1:
++        if text.count(OLD_WAIT) != 1 or text.count(COMMIT) != 1:
++            raise ValueError(
++                "Unrecognized SM90 mHC header; check whether DeepGEMM#448 "
++                "has been integrated before updating this backport."
++            )
++        text = text.replace(OLD_WAIT, "            if (s > 0)\n", 1)
++        text = text.replace(COMMIT, NEW_WAIT, 1)
++    output.parent.mkdir(parents=True, exist_ok=True)
++    output.write_text(text)
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("source", type=Path)
++    parser.add_argument("output", type=Path)
++    args = parser.parse_args()
++    patch_header(args.source, args.output)
+
+From 137662bc943108acbc06eec596255959f4b18450 Mon Sep 17 00:00:00 2001
+From: mengziheng <121283369+mengziheng@users.noreply.github.com>
+Date: Mon, 28 Sep 2026 17:39:29 +0800
+Subject: [PATCH 2/2] [Test] Skip the SM90 regression when DeepGEMM is
+ unavailable
+
+Match the existing mHC tests' dependency guard; the numerical regression
+and the supported H20 execution path are unchanged.
+
+Co-authored-by: Codex <noreply@openai.com>
+Signed-off-by: mengziheng <121283369+mengziheng@users.noreply.github.com>
+(cherry picked from commit bc0075e3340d80c0498d7b31138f5848d8c48e7e)
+---
+ tests/kernels/mhc/test_mhc_kernels.py | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/tests/kernels/mhc/test_mhc_kernels.py b/tests/kernels/mhc/test_mhc_kernels.py
+index 96194d8e127a..39d2a2d06907 100644
+--- a/tests/kernels/mhc/test_mhc_kernels.py
++++ b/tests/kernels/mhc/test_mhc_kernels.py
+@@ -66,7 +66,13 @@ def test_sm90_mhc_prenorm_preserves_register_operands(
+     Regression adapted from deepseek-ai/DeepGEMM#448. These multi-stage K
+     loops reproduce corruption that short decode shapes do not expose.
+     """
+-    from vllm.utils.deep_gemm import tf32_hc_prenorm_gemm
++    from vllm.utils.deep_gemm import (
++        is_deep_gemm_supported,
++        tf32_hc_prenorm_gemm,
++    )
++
++    if not is_deep_gemm_supported():
++        pytest.skip("DeepGEMM required")
+ 
+     set_random_seed(123)
+     monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)

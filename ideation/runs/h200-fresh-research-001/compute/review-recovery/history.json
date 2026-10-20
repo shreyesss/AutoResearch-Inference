@@ -1,0 +1,589 @@
+[
+  {
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Use three fixed arms with identical precision: MARLIN, Humming grouped, and Humming indexed. Attribute indexed value only to the within-Humming contrast.",
+          "explanation": "Any improvement comes from changing MARLIN to Humming, rather than indexed GEMM."
+        },
+        {
+          "distinguishing_test": "Verify identical communication configuration and graph behavior; compare actual routed shapes and all-rank draft/verify/accepted counters. Time the complete expert boundary separately.",
+          "explanation": "Changes in communication, graph padding, or speculative acceptance explain the serving difference."
+        }
+      ],
+      "applicability": "Qualification deferred pending loader and communication checks. Preserve E384/H5120/I2304/top6, swiglu_limit10, Humming 0.1.16, and two independent EP4 replicas. #59488's automatic rule covers no all2all kernels or allgather_reducescatter; it does not establish indexed compatibility with DeepEP. Its described startup check uses H200 TP8+EP and DSpark k1, differing from the target.",
+      "classification": "activation",
+      "code_surface": "vllm/model_executor/layers/fused_moe/oracle/mxfp4.py; experts/fused_humming_moe.py:get_humming_moe_gemm_type; MXFP4 loader and Humming expert dispatch. Complete installed explicit-backend eligibility is unknown.",
+      "evidence": [
+        {
+          "quote": "Using 'MARLIN' Mxfp4 MoE backend.",
+          "relation": "supports",
+          "source_id": "code:h200-excerpts:compute"
+        },
+        {
+          "quote": "env_gemm_type: str | None = envs.VLLM_HUMMING_MOE_GEMM_TYPE",
+          "relation": "supports",
+          "source_id": "code:h200-excerpts:compute"
+        },
+        {
+          "quote": "and (not parallel.use_all2all_kernels or parallel.use_ag_rs_all2all_kernels)",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:59488:patch"
+        }
+      ],
+      "experiment": {
+        "control": "Supplied pinned MARLIN deployment, preserving both replicas, API2, seq64, MBT16384, graphcap512, cache settings, Engram, DSpark k5, and telemetry. Primary workloads remain native agent-f75 8K/1K prefixes and fixed-schedule Mooncake adapted to H200 seq64. Establish the actual activation schema before matching backend arms.",
+        "correctness": "Validate routing and expert outputs at exact shipped geometry, swiglu_limit10 and intermediate rounding; empty/uneven EP ranks; target and drafter execution; graph replay; KV rollback and real rejection. Use independent numerical references and a quality subset. Apply the common TF32 prerequisite if affected prenorm paths execute.",
+        "cost": "Low integration cost if existing controls work; loader integration cost otherwise unknown. Future serving cost is P8*T_hours/N_valid_output_tokens using the full eight-GPU node; P8 and required run duration are unknown.",
+        "held_out_condition": "Separate cache-isolated 1K/1K diagnostic; unseen ragged arrivals, expert skew, long contexts, mixed prefill/decode, and cold/warm prefix conditions. Keep seq128 outside this comparison.",
+        "inconclusive_if": "Backend/schema activation is unverified, rank coverage is missing, intervals remain broad, or output/acceptance and graph differences confound attribution. Insufficient eligible opportunities cannot support a zero-effect conclusion.",
+        "metrics": "Across every rank and replica, count actual backend/GEMM calls over eligible MXFP4 expert-call opportunities, separated by target/draft and execution phase. Record routed-row distributions and full MoE spans. Measure request TPOT=(last-first token time)/(server output tokens-1) for outputs>1, TTFT tails, exact throughput, qualified goodput, replay lag, KV blocks/preemption, draft/verify/accepted deltas, and quality.",
+        "rejects_if": "Adequately covered, precise comparisons rule out the prespecified useful improvement, or the best eligible Humming arm regresses. Reject indexed preference if grouped wins. Unrepaired numerical, routing, or distributed failures veto the affected path.",
+        "supports_if": "A fixed Humming arm improves the prespecified serving metric over MARLIN without guardrail failures. Indexed preference additionally requires improvement over grouped at identical precision. Confirm small gains with at least five alternating paired full-run blocks, drift checks, and run-level intervals; mechanism diagnostics must agree with the attribution.",
+        "treatment": "Future sequence: source/configuration eligibility check; activation verification; correctness; unprofiled three-arm screen; separate mechanism profiling; paired confirmation and held-out evaluation. Force each Humming GEMM choice statically. If explicit Humming cannot reach the installed MXFP4 loader, defer execution until a bounded integration is established."
+      },
+      "id": "R1",
+      "mechanism": "Changing the expert implementation and its treatment of routed matrices may reduce GEMM and staging costs. Backend activation and grouped-versus-indexed selection require separate contrasts to identify which change matters.",
+      "novelty": {
+        "implementation": "Prefer existing configuration controls; port only missing, verified integration.",
+        "nearest_prior_art": "vLLM #59488 and the installed Humming selector.",
+        "scientific": "No novelty claim; existing backend activation and static GEMM selection.",
+        "specific_delta": "Replace the attested MARLIN path and independently test the existing indexed override.",
+        "workload": "Evaluate native V4.1 geometry under TP1/DP4/EP4 and real DSpark k5."
+      },
+      "observed_bottleneck": "No measured target bottleneck. Supplied implementation evidence shows MARLIN selection and an existing Humming GEMM override. The #59488 author claims indexed is faster for this model on Hopper; a corresponding performance effect size is unknown in the supplied excerpt.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:1cfa90d6272adde75b8849bc008e2654370d1db3fcf0f8046a13edb91a0ef42a"
+      ],
+      "predicted_direction": "Potentially lower TPOT and higher throughput if expert execution is exposed. Prefill, tails, memory use, and target effect size are unknown; regression remains possible.",
+      "prior_art_query": "Humming indexed expert GEMM",
+      "proposed_change": "First inspect explicit-backend registration, loader support, effective environment, activation schema, and communication selection. Then compare MARLIN, Humming grouped_contiguous, and Humming indexed using --moe-backend humming and VLLM_HUMMING_MOE_GEMM_TYPE. Keep precision fixed. Use the existing override before considering #59488's automatic-selection policy.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "Explicitly activate Humming for the shipped MXFP4 experts, then compare fixed indexed and grouped GEMM paths at unchanged activation precision. The supplied startup log selects MARLIN, and the installed automatic priority list omits Humming, so an indexed override alone cannot change execution. Installed code already exposes the override; #59488 supplies a narrower indexed-selection predicate for V4.1 on SM90 with compatible communication. First verify that explicit Humming selection reaches this loader and that the actual communication backend qualifies. The transfer hypothesis is that indexed execution reduces the complete routed-expert cost enough to improve serving. No supplied measurement establishes that cost or a Humming advantage over this MARLIN deployment."
+    },
+    "global_id": "hypothesis:eaa599659d884ea8fa57ac168bb78edeee17f66935c779deccdc8cc39dcab29b",
+    "review": {
+      "id": "R1",
+      "criteria": {
+        "credible_improvement_required": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The supplied startup excerpt says \"Using 'MARLIN' Mxfp4 MoE backend.\" The installed Humming selector exposes an override, establishing a concrete activation lead. MARLIN versus Humming, followed by grouped versus indexed at fixed precision, separates the two mechanisms. Exposed expert cost and H200 gains remain unknown; measuring them is a legitimate first falsification step."
+        },
+        "h200_applicability_and_correctness_required": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The #59488 patch supplies an SM90 selector restricted to compatible communication, but pinned-loader registration and effective EP4 transport remain unknown. The supplied port-check artifact also reports that #59488 does not apply completely. Routing, rounding, empty ranks, graph replay, target/drafter behavior and quality checks are appropriately proposed; they do not establish current eligibility."
+        },
+        "discriminating_experiment": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The three fixed arms, eligible-call denominators, complete expert-boundary timing, all-rank speculation counters, held-out traffic and alternating full-run confirmation distinguish backend effects from GEMM selection. Useful-improvement thresholds and guardrail margins still need concrete definitions."
+        },
+        "traceable_engineering_support": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Observed supplied artifacts establish MARLIN startup selection and the existing override. The source change establishes the proposed automatic-selection predicate. The statement \"the indexed GEMM is much faster for this model\" is a #59488 author claim without a supplied effect size. The draft correctly treats improvement over this deployment as transfer inference."
+        },
+        "practical_value_and_portfolio_coverage": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Existing controls offer inexpensive falsification and rollback before a source port. This also establishes the incumbent needed by the precision and fusion experiments. Integration cost becomes unknown if explicit Humming selection cannot reach the installed loader; parameterized full-node cost is appropriate."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "The startup excerpt covers one identified worker; it does not establish executed backend/schema coverage across both replicas, every rank and both models.",
+        "The failed #59488 patch-application check should be included explicitly in the integration assessment.",
+        "SGLang #40417 reports that changing a shape-estimation heuristic regressed serving despite favorable kernel comparisons. Its environment identifies L20X, so this is a caution about tuning and graph effects, not direct target-H200 evidence."
+      ],
+      "required_revision": "Deferred at 76/100 because applicability is unknown. Make the first deliverable an explicit-loader and communication eligibility table for the pinned build. Retain the existing backend/GEMM controls, document the failed patch application, and record selected tuning variants and hint values alongside actual routed rows."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 76.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: The #59488 patch supplies an SM90 selector restricted to compatible communication, but pinned-loader registration and effective EP4 transport remain unknown. The supplied port-check artifact also reports that #59488 does not apply completely. Routing, rounding, empty ranks, graph replay, target/drafter behavior and quality checks are appropriately proposed; they do not establish current eligibility."
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  },
+  {
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Record exact package versions and resolved input schemas, and require fallback-disabled behavior. Treat the block-FP8 report as unresolved unless its actual execution format is established.",
+          "explanation": "The apparent block-FP8 benefit in #61875 came from fallback to per-token FP8 or a different dependency build."
+        },
+        {
+          "distinguishing_test": "Measure quantization plus both GEMMs and routing as one boundary; retain real DSpark verification and compare all-rank acceptance and exact output lengths alongside quality.",
+          "explanation": "Quantization overhead or changed speculative acceptance cancels faster GEMMs."
+        }
+      ],
+      "applicability": "Qualification deferred pending schema and complete-model validation. The #59488 startup description uses H200 TP8+EP and DSpark k1; #61875 uses V4 H4096/I2048, not V4.1 H5120/I2304. Neither establishes target quality or serving gains. Preserve E384/top6/swiglu_limit10 and both EP4 groups.",
+      "classification": "activation",
+      "code_surface": "vllm/config/quantization.py; layers/quantization/mxfp4.py; fused_moe/oracle/mxfp4.py; quantization/utils/humming/moe.py; Humming input-schema checks and W1/W2 activation paths.",
+      "evidence": [
+        {
+          "quote": "Humming takes the named format as a fixed input schema, with its input-schema fallback off.",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:59488:live-page"
+        },
+        {
+          "quote": "humming-kernels 0.1.16 refuses the pair.",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:60600:live-page"
+        },
+        {
+          "quote": "DeepSeek-V4.1-Flash was not run",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:61875:live-page"
+        },
+        {
+          "quote": "\"humming-kernels\": \"0.1.16\"",
+          "relation": "context",
+          "source_id": "runtime:h200:dependency-versions"
+        }
+      ],
+      "experiment": {
+        "control": "Validated Humming BF16 with a fixed GEMM choice, including indexed as the explicit simple comparator. Retain original MARLIN and the best validated static backend as deployment incumbents. Preserve all other supplied settings and the primary agent-f75/Mooncake workloads.",
+        "correctness": "Check scale dtype/granularity, quantization boundaries, clipping at swiglu_limit10, routing, numerical outliers, graph replay, and target/drafter inheritance. Use prespecified numerical tolerances and a quality noninferiority assessment. Acceptance is a diagnostic, not a correctness score. Apply relevant common TF32 checks.",
+        "cost": "Low configuration cost if supported; otherwise a small integration whose extent is unknown. Future cost uses P8*T_hours/N_valid_output_tokens for both replicas; H200 price and evaluation duration remain unknown.",
+        "held_out_condition": "Unseen long-context and reasoning/tool-use quality cases; low-concurrency decode; ragged and mixed arrivals; cold/warm prefixes. Keep cache-isolated 1K/1K results separate from primary workload evidence.",
+        "inconclusive_if": "Requested and executed schemas cannot be distinguished, target/drafter coverage is incomplete, baseline precision changes, quality uncertainty is too large, or confidence intervals cannot distinguish a useful gain from regression.",
+        "metrics": "Count verified per-token-FP8 executions over eligible W1/W2 opportunities on all ranks, including target and drafter. Record quantization time, expert time, activation storage, and fallback counts. Measure request TPOT=(last-first)/(output_tokens-1), TTFT tails, exact throughput, goodput/replay lag, KV/preemption, draft/verify/accepted deltas, and quality.",
+        "rejects_if": "Quality or numerical gates fail, quantization cost eliminates useful serving improvement with adequately precise measurements, or the incumbent remains superior across the intended primary operating range.",
+        "supports_if": "Verified per-token FP8 reduces complete expert cost and improves a prespecified serving metric over fixed BF16 while satisfying numerical and quality guardrails. Deployment additionally requires beating the incumbent static backend. Confirm small gains with at least five alternating paired full-run blocks and drift-aware run-level intervals.",
+        "treatment": "First establish schema support without treating package presence as activation. Then verify actual FP8 inputs/scales, pass correctness, run an unprofiled precision screen, diagnose the complete expert boundary separately, and confirm paired serving results. If a source port is needed, run both precision arms on that same source build."
+      },
+      "id": "R2",
+      "mechanism": "Per-token FP8 may reduce activation traffic and improve expert GEMM execution, offset by quantization, scaling, and possible numerical loss. Preserve weights and GEMM selection to isolate this tradeoff.",
+      "novelty": {
+        "implementation": "Enforce a supported schema and isolate precision from backend selection.",
+        "nearest_prior_art": "vLLM #59488, #60600, and #61875.",
+        "scientific": "No novelty claim; established activation quantization.",
+        "specific_delta": "BF16-to-per-token-FP8 activations at fixed Humming execution; no weight conversion.",
+        "workload": "Test full-size V4.1 EP4 experts with native prefixes and real DSpark k5."
+      },
+      "observed_bottleneck": "No target activation-bandwidth or arithmetic bottleneck was measured. #60600 reports a faster per-token FP8 dense probe than BF16 on H200, using M4096/N2048/K4096 rather than the target routed MoE. #61875 reports an EP benefit and non-EP regression for V4, but its Humming version and resolved activation schema are unknown.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:686ee5f8bd7f13fbfad3439717480727edaf94960662e80fe532cb1435d14c32"
+      ],
+      "predicted_direction": "Potentially lower expert latency and higher throughput at sufficiently large routed batches; quantization overhead may worsen small-batch latency. Target magnitude and quality impact are unknown.",
+      "prior_art_query": "per-token FP8 activations",
+      "proposed_change": "Inspect whether the installed MXFP4 path honors named activation formats. If supported, compare verified BF16 with --quantization-config.moe.activation fp8_per_token at fixed Humming GEMM selection. Otherwise qualify equivalent explicit configuration or a minimal named-format port. Disable silent schema fallback. Exclude block-FP8 and MXFP8 from this 0.1.16 experiment.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "At a fixed, validated Humming GEMM selection, test per-token FP8 activations against BF16 while retaining native MXFP4 weights. This isolates activation traffic and arithmetic from backend selection. #59488 describes enforcing and logging the requested schema, while #60600 reports that installed Humming 0.1.16 rejects block-FP8/MXFP4 and can silently substitute per-token FP8 when fallback is allowed. Consequently, #61875's block-FP8 claim cannot justify enabling that format here. The transfer hypothesis is that per-token FP8 saves more expert work than quantization adds at the target's full-size EP4 experts. Establish named-format support or an equivalent verified configuration first; target quality, routed-MoE benefit, and effect size remain unknown."
+    },
+    "global_id": "hypothesis:ae74db2cfd0aa821476784d3a60a2aacf35839ba5f7347513499b704f64dfe79",
+    "review": {
+      "id": "R2",
+      "criteria": {
+        "credible_improvement_required": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Reducing activation traffic and changing expert arithmetic is a credible mechanism, with quantization overhead as a competing cost. Fixed-Humming BF16 versus verified per-token FP8 isolates the precision delta, while retaining MARLIN and the best static backend prevents a misleading local win. The explicit schema inspection addresses unresolved baseline support."
+        },
+        "h200_applicability_and_correctness_required": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "Per-token FP8 has relevant H200 engineering evidence, and excluding block-FP8/MXFP8 addresses the supplied 0.1.16 restrictions. However, installed named-format plumbing, actual W1/W2 schemas and target/drafter inheritance remain unknown. Proposed scale, clipping, graph and quality checks are suitable but not completed evidence."
+        },
+        "discriminating_experiment": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Fallback-disabled schema verification, separate W1/W2 opportunities, complete quantization-plus-expert timing, fixed GEMM selection and dependency-matched arms support attribution. Acceptance is correctly diagnostic. The quality subset, noninferiority margin, useful gain and maximum experiment budget remain unspecified."
+        },
+        "traceable_engineering_support": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "#60600 provides schema checks and a reproducible failure report: \"the input silently becomes per-token FP8 instead.\" Its author reports 72.2 us for per-token FP8 versus 110.9 us for BF16 at M4096/N2048/K4096 on H200; routed-MoE behavior and quantization-cost inclusion are not established by that passage. #61875 states \"DeepSeek-V4.1-Flash was not run\" and cannot supply target quality or gain evidence."
+        },
+        "practical_value_and_portfolio_coverage": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "This is a useful precision experiment after Humming eligibility is established. Small-batch latency, quality and acceptance tradeoffs are recognized. Its dependency on the backend experiment should prevent duplicate setup and premature implementation."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "The H200 dense probe supports testing per-token FP8, not predicting full-size EP4 MoE or serving improvement.",
+        "The named activation option may require a port on the pinned branch; the existing Humming input-schema environment control deserves an explicit eligibility check first.",
+        "A generic quality subset does not yet define how native agent behavior, truncation and long reasoning/tool-use failures will be scored."
+      ],
+      "required_revision": "Deferred at 76/100 because applicability is unknown. Specify the cheapest verified configuration route before proposing a named-format port. Publish requested versus resolved W1/W2 schemas for target and drafter, and define numerical tolerances, quality margins and complete-boundary timing before future execution."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 76.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: Per-token FP8 has relevant H200 engineering evidence, and excluding block-FP8/MXFP8 addresses the supplied 0.1.16 restrictions. However, installed named-format plumbing, actual W1/W2 schemas and target/drafter inheritance remain unknown. Proposed scale, clipping, graph and quality checks are suitable but not completed evidence."
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  },
+  {
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Compare old and new fixed configurations at H5120 across every eligible token count on H200, including complete delayed fused-operation latency.",
+          "explanation": "H20 scheduling behavior does not transfer to H200, or fewer tiles reduce useful parallelism."
+        },
+        {
+          "distinguishing_test": "Use real DSpark k5 rejection, matched graph state, complete warmup, and actual kernel token counts. Use 9–32-token calls as an unchanged-band control.",
+          "explanation": "Synthetic acceptance or warmup differences explain the reported serving improvement."
+        }
+      ],
+      "applicability": "Implementation delta is directly supported by supplied installed code and patch. H5120 satisfies the divisibility requirement; live hc_mult and executed token counts still require verification. H200 performance is unknown. The reported H7168/M128 failure is outside this target shape but prevents claiming a full upstream suite pass.",
+      "classification": "upstream_port",
+      "code_surface": "vllm/model_executor/kernels/mhc/tilelang_kernels.py:mhc_fused_post_pre_split_config and warmup methods; tests/kernels/mhc/test_mhc_jit_warmup.py and test_mhc_kernels.py.",
+      "evidence": [
+        {
+          "quote": "tile_n, n_splits = 2, 8",
+          "relation": "supports",
+          "source_id": "code:h200-excerpts:compute"
+        },
+        {
+          "quote": "return 12, hidden_size // 512, 256",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:61461:patch"
+        },
+        {
+          "quote": "H100/H200.\nThese GPUs are not measured.",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:61461:live-page"
+        }
+      ],
+      "experiment": {
+        "control": "Installed fixed synchronous mHC selection under the supplied baseline settings and native agent-f75/Mooncake workloads. If affected TF32 paths require repair, use the same verified repair in control and treatment and disclose that corrected-control delta separately.",
+        "correctness": "Check residuals, coefficients, and layer inputs against independent references with unchanged tolerances; summation-order changes need numerical and quality checks. Validate all warmup keys, changed-input graph replay, masked/empty cases, and unchanged larger-token fallbacks. The TF32 repair is a separate correctness prerequisite, not an attributed speedup.",
+        "cost": "Small source port with bounded shape tests. Exposure inspection is the cheapest falsification. Future node cost is P8*T_hours/N_valid_output_tokens; P8 and necessary runtime are unknown.",
+        "held_out_condition": "Low-load and bursty arrivals with unseen rank skew; token counts around 8/9 and 32/33; mixed and long-context traffic; separate cache-isolated 1K/1K and cold/warm prefix diagnostics.",
+        "inconclusive_if": "Token-band telemetry is incomplete, eligible calls are too rare, compilation contaminates timing, or run variation exceeds the effect. An operator-only improvement does not establish a serving gain.",
+        "metrics": "Count changed-configuration hits over calls satisfying SM90, H5120, confirmed hc_mult, and 1–8 kernel tokens; also report eligible calls/all mHC calls and exposed time. Track warmup/JIT misses. Measure request TPOT=(last-first)/(output_tokens-1), TTFT tails, exact throughput, goodput/replay lag, KV/preemption, and all-rank speculation counters.",
+        "rejects_if": "Covered eligible shapes regress, correctness fails, or sufficiently precise primary measurements exclude a useful gain. Adequately observed absence of eligible calls rejects primary-workload value, without claiming the kernel cannot help other traffic.",
+        "supports_if": "The complete eligible operation becomes faster and a prespecified serving metric improves where the band is exposed, with no guardrail failures. Confirm small gains using at least five alternating paired full-run blocks, baseline drift checks, and run-level intervals. Report a diagnostic-only win if primary traffic lacks exposure.",
+        "treatment": "First verify source absence and eligible dispatch. Port only the selector/warmup change, validate correctness, screen unprofiled, diagnose operator timing separately, then confirm serving and held-out effects. No simultaneous overlap or precision change."
+      },
+      "id": "R3",
+      "mechanism": "The new tile/thread/split configuration repeats post mapping across fewer projection tiles. Its benefit depends on real small-token launches and their exposed time, rather than the configured sequence ceiling.",
+      "novelty": {
+        "implementation": "Port an existing selector and its warmup changes.",
+        "nearest_prior_art": "vLLM #61461 and the installed GB300-derived fused mHC selector.",
+        "scientific": "No novelty claim; architecture-specific launch tuning.",
+        "specific_delta": "Use (12,10,256) for eligible H5120 SM90 calls instead of (2,8,128).",
+        "workload": "Measure exposure under TP1/DP4/EP4 and real DSpark, rather than TP8 synthetic acceptance."
+      },
+      "observed_bottleneck": "The supplied installed selector lacks the SM90 branch. Actual eligible-call frequency and critical-path time are unknown. The author reports 9.1–14.1% lower H5120 operator latency on H20 and about 1% lower C1 TPOT in an 8xH20 TP8, 1K/1K synthetic-acceptance experiment; these are author reports, not H200 observations.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:7c28fd30939ac66d2d56196176a7309aa4d264c2ddd5ae918b0cc8dfa44471fe"
+      ],
+      "predicted_direction": "Potentially lower TPOT during small-batch decode. Little or no direct benefit is expected when calls remain outside the changed band; primary-workload exposure and effect size are unknown.",
+      "prior_art_query": "mHC split configuration",
+      "proposed_change": "Confirm hc_mult and delayed-kernel dispatch, then port the SM90 one-to-eight-token selector and matching warmup enumeration from #61461. Leave larger-token selection unchanged. Keep overlap and MoE settings fixed.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "Port #61461's SM90 launch configuration for the delayed fused mHC post/pre-norm operation only in its supported one-to-eight-token band. The installed selector uses a GB300-derived configuration; for H5120 and confirmed hc_mult=4, the patch selects (12,10,256) instead of (2,8,128). Fewer projection tiles reduce repeated post-mapping work, offering a plausible latency saving when these launches are exposed. The author reports H20 operator improvements and a small low-concurrency serving gain, but no H200 measurement and no separated C64 gain. Count actual eligible kernel calls before porting: seq64 and DSpark k5 do not establish small-token occupancy. Retain the existing selection outside the band and evaluate this independently of coefficient overlap."
+    },
+    "global_id": "hypothesis:107a8cb43f210c56f0932799758c0f1b1c58b0d52a39afc25eb218225e2e5baf",
+    "review": {
+      "id": "R3",
+      "criteria": {
+        "credible_improvement_required": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The installed selector and supplied patch establish a concrete configuration delta. Fewer projection tiles can reduce repeated post-mapping work. The unchanged synchronous configuration is the appropriate simple comparator, and counting actual small-token calls can cheaply determine whether the mechanism matters to primary traffic."
+        },
+        "h200_applicability_and_correctness_required": {
+          "verdict": "unknown",
+          "score": 4,
+          "rationale": "The patch explicitly guards SM90 and returns \"return 12, hidden_size // 512, 256\"; H5120 satisfies that condition. The source-hunk application check succeeds. However, live hc_mult and the delayed-kernel call path are not established. Numerical, warmup, replay and fallback checks are well scoped; the application check excludes tests and native dependencies."
+        },
+        "discriminating_experiment": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The changed-band denominator, eligible/all-call exposure, unchanged 9–32-token control, boundary tests and separate operator/serving measurements are discriminating. Real DSpark verification and paired full-run confirmation address the source experiment's limitations. Useful-effect thresholds and precise primary operating points remain to be fixed."
+        },
+        "traceable_engineering_support": {
+          "verdict": "pass",
+          "score": 5,
+          "rationale": "Supplied installed code, implementation patch and application-check artifact directly support the delta. The author reports 9.1–14.1% lower H5120 operator latency on H20 and about 1% lower C1 TPOT under TP8 with synthetic acceptance. The source explicitly says of H100/H200, \"These GPUs are not measured.\" The draft correctly retains the unrelated H7168/M128 failure and avoids transferring those gains."
+        },
+        "practical_value_and_portfolio_coverage": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "This is a bounded selector/warmup port with straightforward rollback. Value may be confined to low-load or ragged small-token launches, and the proposal explicitly permits a diagnostic-only outcome. It provides a stronger synchronous comparator for the overlap proposal."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "Seq64 and k5 do not establish that primary traffic executes the changed band; the proposal appropriately treats this as an exposure question.",
+        "The patch condition uses num_tokens <= 8 without a positive lower bound. Zero-token bypass must be established at the caller or explicitly tested.",
+        "Successful source-hunk application is not a complete port, warmup-test or numerical-validation result."
+      ],
+      "required_revision": "Deferred at 82/100 because target dispatch eligibility remains unknown. Establish the delayed caller and hc_mult, document zero-token handling, and retain the application-check scope. Keep any TF32 repair identical in both arms and report primary-workload exposure separately from low-load diagnostic value."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 82.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: The patch explicitly guards SM90 and returns \"return 12, hidden_size // 512, 256\"; H5120 satisfies that condition. The source-hunk application check succeeds. However, live hc_mult and the delayed-kernel call path are not established. Numerical, warmup, replay and fallback checks are well scoped; the application check excludes tests and native dependencies."
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  },
+  {
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Inspect the dependency graph and measure useful overlap with TP1 unchanged. Reject this topology-specific mechanism if coefficient consumers cannot proceed concurrently with independent work.",
+          "explanation": "At TP1 there is insufficient independent work, and the apparent opportunity depends on TP communication."
+        },
+        {
+          "distinguishing_test": "Compare complete mHC boundaries against the best validated synchronous configuration, including H200-COMP-003 if successful; measure extra launches, waits, and interference.",
+          "explanation": "The synchronous fused operation is faster than overlapping a less-fused path."
+        }
+      ],
+      "applicability": "Deferred, higher-risk port. The exact TP1 dependency window must be established. #60768 has no supplied Hopper GPU validation. SGLang #41251 reports a multi-operator bundle on H200 TP8/EP1; it supplies no overlap ablation. #60777's later H20 failure challenges the compensated-BF16 implementation, which is excluded here.",
+      "classification": "upstream_port",
+      "code_surface": "vllm/config/kernel.py; vllm/models/deepseek_v41/nvidia/ops/mhc.py; tests/kernels/mhc/test_mhc_dispatch.py and test_mhc_kernels.py. Separate prerequisite: packaged sm90_tf32_hc_prenorm_gemm.cuh and its generated/cached artifact.",
+      "evidence": [
+        {
+          "quote": "current_platform.is_device_capability_family(100)",
+          "relation": "supports",
+          "source_id": "code:h200-excerpts:compute"
+        },
+        {
+          "quote": "These mock capability checks validate dispatch only.",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:60768:live-page"
+        },
+        {
+          "quote": "ptx::warpgroup_commit_batch();\n            #pragma unroll",
+          "relation": "challenges",
+          "source_id": "code:h200:sm90-tf32-header"
+        },
+        {
+          "quote": "There is no throughput improvement claim for this correctness repair.",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:59129:live-page"
+        },
+        {
+          "quote": "The current implementation is not a performance win in the tested shapes, and its original numerical suite is not fully passing.",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:60777:live-page"
+        }
+      ],
+      "experiment": {
+        "control": "Best validated synchronous fused mHC at fixed arithmetic, plus a corrected-baseline reference if the TF32 repair is required. Preserve the supplied deployment and native agent-f75/Mooncake traffic. Use identical repaired artifacts in both performance arms.",
+        "correctness": "Verify the register-lifetime repair in the actual generated artifact; run independent FP32/FP64 references and repeated calls across split-K, PDL and side streams. Check stream ordering, changed-input graph replay, cache/configuration hashing, and fallback behavior with GPU synchronization diagnostics. Run model quality with real DSpark. Kernel repeatability does not establish whole-model token determinism.",
+        "cost": "Moderate-to-high integration and correctness cost; stop before GPU work if the dependency window is absent. Future full-node cost is P8*T_hours/N_valid_output_tokens; price and duration are unknown.",
+        "held_out_condition": "Ragged rank arrivals, mixed prefill/decode, long contexts, cold/warm prefixes, empty ranks, and batches around the overlap threshold; separately exercise eager, piecewise, and large-batch fallbacks.",
+        "inconclusive_if": "The executed TF32 artifact is unidentified, graph replay is unvalidated, eligible opportunities are sparse, or intervals remain broad. CPU dispatch tests and auxiliary-stream launches alone are insufficient.",
+        "metrics": "Count overlap launches over opportunities passing all non-architecture guards, and report eligible opportunities/all coefficient operations. Distinguish stream activity from useful concurrent execution and exposed waits. Across all ranks measure request TPOT=(last-first)/(output_tokens-1), TTFT tails, exact throughput, goodput/replay lag, KV/preemption, and draft/verify/accepted deltas.",
+        "rejects_if": "No legal TP1 overlap window exists, the port has an unrepaired stream/numerical failure, or sufficiently precise measurements show overhead and contention eliminate useful improvement.",
+        "supports_if": "Useful overlap reduces the complete critical path and improves a prespecified serving metric over the strongest synchronous comparator without quality or tail regressions. Confirm small gains with at least five alternating paired full-run blocks, drift checks, and run-level intervals.",
+        "treatment": "First establish dependencies, source applicability, and artifact correctness. Then enable only SM90 overlap, verify activation and numerical/graph behavior, screen unprofiled, diagnose overlap separately, and confirm serving results. Retain synchronous fallback and the initial sixteen-token threshold."
+      },
+      "id": "R4",
+      "mechanism": "Schedule dependency-independent coefficient work on an auxiliary stream so some latency is hidden. Additional launches, synchronization, contention, or lost post/pre fusion can outweigh that saving.",
+      "novelty": {
+        "implementation": "Qualify an existing experimental Hopper opt-in while retaining TF32 arithmetic.",
+        "nearest_prior_art": "vLLM #60768 and #57603; SGLang #41251 provides bundled context only.",
+        "scientific": "No novelty claim; asynchronous overlap of independent computation.",
+        "specific_delta": "Enable a guarded SM90 coefficient stream relative to the installed SM100-only gate.",
+        "workload": "Establish whether overlap helps TP1/EP4 rather than transferring TP4/TP8 behavior."
+      },
+      "observed_bottleneck": "No exposed coefficient latency or overlap opportunity has been measured on the target. Installed source gates overlap to SM100. The supplied TF32 header has the ordering addressed by #448, but neither execution of an affected cached binary nor numerical failure is observed. #60768 reports CPU dispatch validation only.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:41522cb001ec16da8974fbb80a2337f11cb4569bd7a5c8399928c9258998e3da"
+      ],
+      "predicted_direction": "Potentially lower small-batch TPOT if legal overlap exceeds added overhead. H200 effect size, suitable threshold, and primary-workload exposure are unknown.",
+      "prior_art_query": "mHC coefficient stream overlap",
+      "proposed_change": "Inspect exact stream dependencies and the installed JIT artifact first. Qualify the #448/#59129 repair separately where required. Adapt #60768's explicit SM90 opt-in, preserving shape, FULL-graph, ubatching and small-batch restrictions and excluding SM100 collective fusion. Initially keep the inherited threshold fixed.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "Test the existing mHC coefficient-stream overlap design on SM90 through an explicit opt-in, after repairing and validating any executed TF32 prenorm path. Installed source excludes SM90, while #60768 describes a constrained opt-in with CPU dispatch tests only. The proposed performance mechanism is to hide independent coefficient work behind other GPU work; at TP1, it cannot claim a fused TP all-reduce saving. First establish a legal overlap window and compare against the best validated synchronous fused mHC configuration. SGLang's bundled improvements do not isolate overlap, and the failed compensated-BF16 port supplies no reason to change arithmetic. Benefits, contention costs, and the suitability of the inherited sixteen-token threshold are unknown."
+    },
+    "global_id": "hypothesis:5c858537769874e30be5cdb3a17e4bf6ca5089dfc1ca331f2e8b61269345c01a",
+    "review": {
+      "id": "R4",
+      "criteria": {
+        "credible_improvement_required": {
+          "verdict": "pass",
+          "score": 3,
+          "rationale": "Hiding dependency-independent coefficient work is a credible testable mechanism, and the installed SM100-only gate establishes a source delta. Checking the TP1 dependency window before implementation is appropriate. The proposal correctly avoids claiming a TP all-reduce saving; the available independent work remains unknown."
+        },
+        "h200_applicability_and_correctness_required": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "An explicit guarded SM90 port is described, with a credible separate TF32 repair path. However, the complete overlap schedule, executed JIT artifact and Hopper stream/graph correctness are unverified. #60768 states \"These mock capability checks validate dispatch only.\" The compensated-BF16 failure does not veto this distinct TF32 proposal."
+        },
+        "discriminating_experiment": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Useful concurrent execution is distinguished from auxiliary-stream activity, and the complete critical path is compared against the strongest synchronous configuration. Corrected artifacts in both arms, fallback tests, eligible denominators and paired confirmation are appropriate. The exact independent operation and allowable stream-ordering window still need specification."
+        },
+        "traceable_engineering_support": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The supplied gate and TF32 header support the baseline concerns. #448 shows the register-lifetime repair, while #59129 says \"There is no throughput improvement claim for this correctness repair.\" SGLang's H200 TP8/EP1 results are a multi-change bundle without an overlap ablation. Isolated overlap hardware results, workload effects and effect size remain unknown."
+        },
+        "practical_value_and_portfolio_coverage": {
+          "verdict": "pass",
+          "score": 3,
+          "rationale": "A source-only dependency check limits initial cost, but integration and stream correctness are substantially harder than launch tuning. Both mHC proposals may depend on the same small-token traffic. This remains a conditional research lead with uncertain primary-workload value."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "No supplied dependency graph identifies which operation can overlap coefficient computation at TP1.",
+        "The installed header ordering does not prove that the running cached binary executes the affected code or has produced incorrect outputs.",
+        "SGLang's bundled gain and the separate compensated-BF16 failure establish neither success nor failure of this overlap-only port."
+      ],
+      "required_revision": "Deferred at 67/100, below threshold and with applicability unknown. Name the TP1-independent operation, its producers/consumers and required stream events before a build. Identify the executed TF32 artifact and compare against the best synchronous configuration using the same verified arithmetic and repair."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 67.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: An explicit guarded SM90 port is described, with a credible separate TF32 repair path. However, the complete overlap schedule, executed JIT artifact and Hopper stream/graph correctness are unverified. #60768 states \"These mock capability checks validate dispatch only.\" The compensated-BF16 failure does not veto this distinct TF32 proposal.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  },
+  {
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Use exact native MXFP4 V4.1 weights, independent EP4 groups, and real DSpark k5. Hold the initial validated FP4 dispatch plan fixed and compare complete layer and serving behavior.",
+          "explanation": "Reported gains depend on EP8 push plans, GLM FP8 weights, or synthetic speculation."
+        },
+        {
+          "distinguishing_test": "Record actual processed capacity versus valid tokens and memory/KV impact. Diagnose validated fixed capacities separately on the same fused backend before attributing results to a workspace policy.",
+          "explanation": "Workspace padding or lost KV capacity outweighs fusion savings."
+        }
+      ],
+      "applicability": "Deferred eligibility-first lead with the highest integration cost. E384 divides into 96 experts per EP4 rank, but divisibility proves neither full plan legality nor clamp support. Installed FlashInfer is 0.7.0.post1; required FP4 API/fix availability is unknown. The #6517 implementation patch was unavailable in supplied material. The described upstream DeepGEMM MegaMoE path requires SM100; no supplied Hopper fork establishes target eligibility.",
+      "classification": "adaptation",
+      "code_surface": "Proposed adapter at vLLM's fused-MoE expert interface and MXFP4 oracle; FlashInfer megamoe FP4 planner, workspace, and flashinfer/megamoe/weights.py conversion interfaces. #62603's FP8 oracle is a reference integration, not a drop-in MXFP4 path.",
+      "evidence": [
+        {
+          "quote": "H20 and EP4 plans unchanged",
+          "relation": "challenges",
+          "source_id": "github:flashinfer-ai/flashinfer:6517:live-page"
+        },
+        {
+          "quote": "otherwise outputs silently saturate or flush",
+          "relation": "context",
+          "source_id": "github:flashinfer-ai/flashinfer:6517:live-page"
+        },
+        {
+          "quote": "This PR runs block-FP8 MoE checkpoints on Hopper",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62603:live-page"
+        },
+        {
+          "quote": "The kernel always processes its whole token buffer",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:62603:live-page"
+        },
+        {
+          "quote": "\"flashinfer-python\": \"0.7.0.post1\"",
+          "relation": "context",
+          "source_id": "runtime:h200:dependency-versions"
+        }
+      ],
+      "experiment": {
+        "control": "Best validated static MARLIN or Humming configuration, including indexed and supported precision comparators, under the supplied topology and primary agent-f75/Mooncake workloads. Use a dependency-matched non-fused control if the adapter requires an upgrade.",
+        "correctness": "Validate nibble order, decoder scale ranges and per-expert global-scale redistribution against independent native-weight references. Preserve top6 routing, swiglu_limit10 and rounding boundaries. Verify workspace cleanup under skew and repeated launches, identical capacity agreement within each EP4 group, idle-rank participation, graph buffers, and real DSpark behavior. Run target-model quality; GLM scores do not qualify this conversion.",
+        "cost": "High and currently unknown integration cost. A source-only eligibility check should precede any build or GPU allocation. Future cost uses P8*T_hours/N_valid_output_tokens, including memory-induced throughput loss; H200 price remains unset.",
+        "held_out_condition": "Hot-expert routing, uneven and zero-token ranks, repeated graph replay, capacity boundaries, long-context KV pressure, mixed prefill/decode, and cold/warm prefixes. Keep cache-isolated 1K/1K diagnostics separate.",
+        "inconclusive_if": "Clamp/API/plan legality remains unknown, dependency changes are confounded, activation coverage is missing, or only different-model FP8/EP8 evidence is available. Unknown eligibility defers qualification rather than establishing ineffectiveness.",
+        "metrics": "Count native-FP4 fused calls over eligible expert-layer opportunities across all EP4 ranks and both replicas. Record plan IDs, per-group capacity agreement, valid/processed tokens, expert skew, staging/communication spans, workspace bytes and KV loss. Measure request TPOT=(last-first)/(output_tokens-1), TTFT tails, exact throughput, goodput/replay lag, preemption, speculation counters, and quality.",
+        "rejects_if": "The branch cannot preserve required geometry or swiglu_limit10 without an unqualified redesign, conversion fails correctness, or precise measurements show fusion offers no useful serving improvement after workspace and KV costs.",
+        "supports_if": "Exact native-MXFP4 semantics and EP4 correctness pass, and the fused path improves a prespecified serving metric over the best static incumbent without memory, quality, or tail guardrail failures. Confirm small gains with at least five alternating paired full-run blocks, drift checks, and run-level intervals.",
+        "treatment": "Source-only eligibility review first; stop pending missing clamp, geometry, or API evidence. If eligible, validate conversion and distributed kernel behavior, establish activation, screen unprofiled, diagnose the full MoE boundary separately, then perform paired confirmation and held-out evaluation. Keep workspace/plan selection fixed and validated initially."
+      },
+      "id": "R5",
+      "mechanism": "A legal fused expert-parallel kernel may avoid intermediate staging and separate dispatch/GEMM/combine overhead. Workspace capacity must track supported execution shapes without making peers disagree or processing unnecessarily large buffers.",
+      "novelty": {
+        "implementation": "Conditional native-MXFP4 framework adaptation with exact model semantics.",
+        "nearest_prior_art": "FlashInfer #6517 and its referenced SM90 FP4 implementation; vLLM #62603 supplies FP8 integration context.",
+        "scientific": "No novelty claim; fused communication and expert computation.",
+        "specific_delta": "Replace the separate MARLIN/Humming expert-parallel path with a qualified native-FP4 fused adapter.",
+        "workload": "Two EP4 replicas, native V4.1 geometry, prefixes, and real DSpark distinguish the target from supplied demonstrations."
+      },
+      "observed_bottleneck": "No target communication or staging bottleneck is measured. #6517 reports FP4 cleanup tests and H200 EP8 push improvements while leaving EP4 plans unchanged. #62603 reports GLM block-FP8 serving improvements, a low-load TTFT regression, and slower decode with an oversized workspace. None establishes target-model FP4 performance.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:bfb078a6ee44b31bc7736ef40b01b30b73c76aa89c69b343ecbb244137f11042"
+      ],
+      "predicted_direction": "Potentially lower complete MoE latency and better throughput if fusion removes exposed overhead. EP4 gains, memory footprint, quality, TTFT tradeoffs, and effect size are unknown.",
+      "prior_art_query": "native FP4 fused MoE",
+      "proposed_change": "First inspect the actual FP4 API, dependency availability, complete shape legality, clamp semantics, loader conversion, workspace contract, and cleanup-fix inclusion. If eligible, implement a narrow native-MXFP4 adapter with fixed validated EP4 plans and capture-compatible workspaces. Evaluate fusion before adding a new push policy or adaptive workspace policy.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "Investigate an opt-in native-MXFP4 FlashInfer MegaMoE adapter for each EP4 replica, with an eligibility check before implementation. #6517 describes SM90 FP4 kernels, checkpoint-layout requirements, and a workspace cleanup repair; its H200 push gains concern EP8 plans and do not transfer here. #62603 supplies complementary evidence that fused dispatch, expert computation, and combine can help eligible FP8 workloads, but it is not a native-MXFP4 V4.1 integration. The transfer hypothesis is that fusion reduces exposed communication and staging relative to the best validated static backend. Require exact E384/H5120/I2304/top6 support, swiglu_limit10, legal EP4 plans, and globally consistent workspace sizing. If these cannot be established, defer the port; do not substitute converted FP8 weights or an unclamped activation."
+    },
+    "global_id": "hypothesis:36df071dcbdc77a9b52132ab4f9eb7acd737660898bf49542c71d2f9b11caf78",
+    "review": {
+      "id": "R5",
+      "criteria": {
+        "credible_improvement_required": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Fusing dispatch, expert computation and combine can remove staging and launch overhead relative to the supplied separate expert path. The proposed eligibility review is concrete and precedes implementation. Comparing against the best validated static backend is appropriate; exposed communication cost and target gains remain unknown."
+        },
+        "h200_applicability_and_correctness_required": {
+          "verdict": "unknown",
+          "score": 2,
+          "rationale": "Exact FlashInfer FP4 API availability, plan legality, scale conversion and swiglu_limit10 behavior are unresolved on 0.7.0.post1. Supplied DeepGEMM #411/#473 patches provide additional SM90 paths whose visible dimensional checks admit the target geometry, but the excerpts do not establish clamp semantics or complete eligibility. These are gaps, not demonstrated incompatibility."
+        },
+        "discriminating_experiment": {
+          "verdict": "pass",
+          "score": 3,
+          "rationale": "The plan covers fused-call opportunities, per-group capacity agreement, valid/processed tokens, memory/KV loss, idle ranks, skew and held-out capacity boundaries. Dependency-matched controls are valuable. However, matching native weights alone does not isolate fusion if activation quantization, scale granularity or rounding also changes."
+        },
+        "traceable_engineering_support": {
+          "verdict": "pass",
+          "score": 3,
+          "rationale": "#6517 supplies a concrete cleanup failure and author-reported tests, but its implementation patch is unavailable. Its H200 push claim explicitly leaves \"H20 and EP4 plans unchanged.\" #62603 concerns block-FP8 weights and GLM serving, including low-load TTFT and oversized-workspace regressions. These reports motivate the adapter; they do not establish native-MXFP4 V4.1 behavior."
+        },
+        "practical_value_and_portfolio_coverage": {
+          "verdict": "pass",
+          "score": 3,
+          "rationale": "Fusion adds communication and staging coverage beyond expert GEMM tuning, but has the highest and currently unknown integration cost. Eligibility-first stopping and fixed initial plans contain scope. Workspace duplication, KV loss and low-load tails could erase value, so this is a conditional port investigation rather than a ready serving experiment."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "Scope the SM100 restriction to the integrated vLLM backend described by #62603. Supplied DeepGEMM #411/#473 contain SM90 implementation paths and deserve an explicit eligibility comparison.",
+        "E384/EP4 divisibility and passing visible dimension checks do not establish clamped SwiGLU, scale representability, complete planner legality or graph safety.",
+        "A faster fused arm could reflect changed activation arithmetic or weight-scale conversion. The current experiment does not fully isolate those effects from fusion."
+      ],
+      "required_revision": "Deferred at 63/100, below threshold and with applicability unknown. Build a branch/API eligibility matrix for FlashInfer and the supplied SM90 DeepGEMM paths. Require clamp-active and scale-boundary reference cases. Define a numerically matched unfused comparator where available; otherwise report a combined backend/precision effect and keep fusion attribution unresolved."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 63.0,
+      "reasons": [
+        "h200_applicability_and_correctness_required: Exact FlashInfer FP4 API availability, plan legality, scale conversion and swiglu_limit10 behavior are unresolved on 0.7.0.post1. Supplied DeepGEMM #411/#473 patches provide additional SM90 paths whose visible dimensional checks admit the target geometry, but the excerpts do not establish clamp semantics or complete eligibility. These are gaps, not demonstrated incompatibility.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  }
+]

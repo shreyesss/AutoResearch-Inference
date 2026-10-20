@@ -1,0 +1,591 @@
+From 47e6dff29f09351e7222af3ff53eb73e520db315 Mon Sep 17 00:00:00 2001
+From: Simon Veitner <simp.veitner@gmail.com>
+Date: Thu, 8 Oct 2026 17:36:18 +0000
+Subject: [PATCH] [Perf][DeepSeek V4.1] Humming indexed MoE GEMM with EP on
+ Hopper, and a named MoE activation format
+
+Humming indexed GEMM with EP on Hopper: for DeepSeek V4.1 (model_type
+deepseek_v41 / deepseek_v41_text) MXFP4 experts on SM90, Humming now
+picks the indexed GEMM also under expert parallelism, when there is no
+all2all or the all2all is allgather_reducescatter. Other EP setups still
+use grouped_contiguous. Humming is already the default MXFP4 MoE
+backend on SM90 (#56997), so this also changes the default path. On
+TP8+EP, indexed is 47% faster at prefill and 63% faster at decode with
+BF16 activations, and 24% and 36% faster with per-token FP8.
+VLLM_HUMMING_MOE_GEMM_TYPE still overrides the choice.
+
+Named MoE activation format: the DeepSeek V4 MXFP4 MoE selector now
+honors --quantization-config.moe.activation, so per-token FP8 on Humming
+is an explicit choice:
+
+  --moe-backend humming --quantization-config.moe.activation fp8_per_token
+
+- With --moe-backend humming, the format is checked before the weights
+  load and then passed to the Humming conversion with schema fallback
+  off. On SM90, mxfp8 is refused because WGMMA has no e8m0 input scales.
+  Setting VLLM_HUMMING_INPUT_QUANT_CONFIG as well is an error. The env
+  JSON alone works as on main.
+- Another explicit backend that does not run the format fails, and auto
+  keeps only the backends that run it. For example, fp8_per_token with
+  flashinfer_trtllm no longer runs MXFP8 without saying so.
+- The Kimi-K3 SiTU AITER path skips the selector and runs BF16 only, so
+  it refuses a named format.
+- The Humming MoE conversion logs the activation format it runs.
+- user_moe_activation_override() is public and returns None when no
+  vLLM config is set.
+
+Without moe.activation, backend and activation selection are unchanged.
+
+Signed-off-by: Simon Veitner <simp.veitner@gmail.com>
+Signed-off-by: Simon Veitner <sveitner@redhat.com>
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ docs/features/quantization/online.md          |  4 +-
+ tests/kernels/moe/test_b12x.py                |  6 +-
+ tests/kernels/moe/test_moe.py                 | 98 +++++++++++++++++++
+ tests/kernels/moe/test_ocp_mx_moe.py          |  2 +-
+ tests/quantization/test_gfx950_moe.py         |  5 +-
+ vllm/config/quantization.py                   | 20 ++--
+ .../fused_moe/experts/fused_humming_moe.py    | 29 +++++-
+ .../layers/fused_moe/oracle/mxfp4.py          | 71 ++++++++++++--
+ .../layers/quantization/mxfp4.py              |  8 ++
+ .../layers/quantization/utils/humming/moe.py  | 14 +++
+ 10 files changed, 228 insertions(+), 29 deletions(-)
+
+diff --git a/docs/features/quantization/online.md b/docs/features/quantization/online.md
+index a81ea219f718..83b261fd5f05 100644
+--- a/docs/features/quantization/online.md
++++ b/docs/features/quantization/online.md
+@@ -91,10 +91,12 @@ vllm serve <model> --quantization-config.moe.activation mxfp8
+ For checkpoint-quantized models, `quantization_config` lets you pick an
+ activation format independently of the baked-in weights. The supported
+ overrides are checkpoint-specific; today this is wired up for MXFP4 MoE
+-checkpoints (gpt-oss) where you can opt into FP8 activations:
++checkpoints (gpt-oss, DeepSeek V4) where you can opt into FP8 activations:
+ 
+ ```bash
+ vllm serve openai/gpt-oss-20b --quantization-config.moe.activation mxfp8
++vllm serve deepseek-ai/DeepSeek-V4.1-Flash --moe-backend humming \
++    --quantization-config.moe.activation fp8_per_token
+ ```
+ 
+ Combine with `--moe-backend` to pin a specific kernel family.
+diff --git a/tests/kernels/moe/test_b12x.py b/tests/kernels/moe/test_b12x.py
+index d0b1ce7cae46..60afb3601a11 100644
+--- a/tests/kernels/moe/test_b12x.py
++++ b/tests/kernels/moe/test_b12x.py
+@@ -397,7 +397,7 @@ def test_explicit_b12x_mxfp4_selection(
+     expected_backend: Mxfp4MoeBackend,
+ ) -> None:
+     monkeypatch.setattr(B12xExperts, "_supports_current_device", lambda: True)
+-    monkeypatch.setattr(mxfp4_oracle, "_user_moe_activation_override", lambda: None)
++    monkeypatch.setattr(mxfp4_oracle, "user_moe_activation_override", lambda: None)
+     monkeypatch.setattr(
+         mxfp4_oracle.envs,
+         "VLLM_B12X_MOE_FP4_FORCE_A16",
+@@ -419,7 +419,7 @@ def test_explicit_b12x_mxfp4_force_a16_uses_a16_contract(
+     monkeypatch: pytest.MonkeyPatch,
+ ) -> None:
+     monkeypatch.setattr(B12xExperts, "_supports_current_device", lambda: True)
+-    monkeypatch.setattr(mxfp4_oracle, "_user_moe_activation_override", lambda: None)
++    monkeypatch.setattr(mxfp4_oracle, "user_moe_activation_override", lambda: None)
+     monkeypatch.setattr(
+         mxfp4_oracle.envs,
+         "VLLM_B12X_MOE_FP4_FORCE_A16",
+@@ -547,7 +547,7 @@ def test_b12x_mxfp4_falls_back_to_a16(
+     monkeypatch: pytest.MonkeyPatch,
+ ) -> None:
+     monkeypatch.setattr(B12xExperts, "_supports_current_device", lambda: True)
+-    monkeypatch.setattr(mxfp4_oracle, "_user_moe_activation_override", lambda: None)
++    monkeypatch.setattr(mxfp4_oracle, "user_moe_activation_override", lambda: None)
+     monkeypatch.setattr(
+         mxfp4_oracle.envs,
+         "VLLM_B12X_MOE_FP4_FORCE_A16",
+diff --git a/tests/kernels/moe/test_moe.py b/tests/kernels/moe/test_moe.py
+index 8d6deac4f025..fbdba18e07e2 100644
+--- a/tests/kernels/moe/test_moe.py
++++ b/tests/kernels/moe/test_moe.py
+@@ -8,6 +8,7 @@
+ import functools
+ from collections.abc import Callable
+ from dataclasses import dataclass
++from types import SimpleNamespace
+ from typing import Any
+ 
+ import pytest
+@@ -35,6 +36,7 @@
+ )
+ from vllm.model_executor.layers.fused_moe.config import (
+     FUSED_MOE_UNQUANTIZED_CONFIG,
++    RoutingMethodType,
+     int4_w4a16_moe_quant_config,
+     int8_w8a16_moe_quant_config,
+ )
+@@ -1397,6 +1399,102 @@ def test_humming_selects_gemm_from_parallelism_and_override(
+     assert get_humming_moe_gemm_type(moe_config) == expected
+ 
+ 
++@pytest.mark.parametrize(
++    ("model_type", "capability", "all2all_backend", "indexed"),
++    [
++        ("deepseek_v41", 90, None, True),
++        ("deepseek_v41", 90, "allgather_reducescatter", True),
++        ("deepseek_v41", 90, "deepep_high_throughput", False),
++        ("deepseek_v41", 100, None, False),
++        ("deepseek_v4", 90, None, False),
++    ],
++)
++def test_humming_deepseek_v41_hopper_uses_indexed_gemm_with_ep(
++    monkeypatch: pytest.MonkeyPatch,
++    model_type: str,
++    capability: int,
++    all2all_backend: str | None,
++    indexed: bool,
++):
++    import vllm.model_executor.layers.fused_moe.experts.fused_humming_moe as humming
++
++    monkeypatch.delenv("VLLM_HUMMING_MOE_GEMM_TYPE", raising=False)
++    platform = humming.current_platform
++    monkeypatch.setattr(platform, "is_device_capability", lambda c, *_: c == capability)
++    hf_config = SimpleNamespace(model_type=model_type)
++    monkeypatch.setattr(
++        humming,
++        "get_current_vllm_config_or_none",
++        lambda: SimpleNamespace(model_config=SimpleNamespace(hf_config=hf_config)),
++    )
++    moe_config = make_dummy_moe_config()
++    moe_config.routing_method = RoutingMethodType.DeepseekV4
++    moe_config.moe_parallel_config.use_ep = True
++    if all2all_backend is not None:
++        moe_config.moe_parallel_config.dp_size = 2
++        moe_config.moe_parallel_config.all2all_backend = all2all_backend
++
++    assert humming.get_humming_moe_gemm_type(moe_config, humming.kMxfp4Static) == (
++        "indexed" if indexed else "grouped_contiguous"
++    )
++
++
++def _select_with(
++    monkeypatch: pytest.MonkeyPatch, backend: str, name: str, env: str | None = None
++):
++    import vllm.model_executor.layers.fused_moe.oracle.mxfp4 as oracle
++    from vllm.config.quantization import QuantizationConfigArgs, QuantSpec
++
++    args = QuantizationConfigArgs(moe=QuantSpec(activation=name))
++    monkeypatch.setattr(
++        oracle,
++        "get_current_vllm_config_or_none",
++        lambda: SimpleNamespace(model_config=SimpleNamespace(quantization_config=args)),
++    )
++    monkeypatch.delenv("VLLM_HUMMING_INPUT_QUANT_CONFIG", raising=False)
++    if env:
++        monkeypatch.setenv("VLLM_HUMMING_INPUT_QUANT_CONFIG", env)
++    config = make_dummy_moe_config()
++    config.moe_backend = backend
++    config.routing_method = RoutingMethodType.DeepseekV4
++    return oracle.select_deepseek_v4_mxfp4_moe_backend(config)
++
++
++@pytest.mark.parametrize(
++    ("backend", "env", "match"),
++    [
++        ("auto", None, "No auto-selected"),
++        ("flashinfer_trtllm", None, "does not run"),
++        ("humming", '{"dtype":"float8e4m3"}', "not both"),
++    ],
++)
++def test_deepseek_v4_mxfp4_backend_must_run_named_activation(
++    monkeypatch: pytest.MonkeyPatch, backend: str, env: str | None, match: str
++):
++    with pytest.raises(ValueError, match=match):
++        _select_with(monkeypatch, backend, "fp8_per_token", env)
++
++
++@pytest.mark.parametrize(
++    ("name", "runs"),
++    [("fp8_per_token", True), ("mxfp8", False)],
++)
++def test_humming_deepseek_v4_activation_on_sm90(
++    monkeypatch: pytest.MonkeyPatch, name: str, runs: bool
++):
++    pytest.importorskip("humming")
++    if not current_platform.is_device_capability(90):
++        pytest.skip("needs SM90")
++    from vllm.model_executor.layers.fused_moe.oracle.mxfp4 import Mxfp4MoeBackend
++
++    if runs:
++        backend, _ = _select_with(monkeypatch, "humming", name)
++        assert backend == Mxfp4MoeBackend.HUMMING
++    else:
++        with pytest.raises(ValueError, match="Humming MoE cannot run"):
++            _select_with(monkeypatch, "humming", name)
++
++
+ @pytest.mark.parametrize(
+     ("dp_token_counts", "topk_shape", "expected"),
+     [
+diff --git a/tests/kernels/moe/test_ocp_mx_moe.py b/tests/kernels/moe/test_ocp_mx_moe.py
+index 5a7053a8b1d4..cad2cc385bf5 100644
+--- a/tests/kernels/moe/test_ocp_mx_moe.py
++++ b/tests/kernels/moe/test_ocp_mx_moe.py
+@@ -1987,7 +1987,7 @@ def is_supported_config(
+     monkeypatch.setattr(
+         mxfp4_oracle, "backend_to_kernel_cls", lambda backend: [UnsupportedExperts]
+     )
+-    monkeypatch.setattr(mxfp4_oracle, "_user_moe_activation_override", lambda: None)
++    monkeypatch.setattr(mxfp4_oracle, "user_moe_activation_override", lambda: None)
+     monkeypatch.setattr(current_platform, "is_xpu", lambda: False)
+     monkeypatch.setattr(current_platform, "is_cpu", lambda: False)
+ 
+diff --git a/tests/quantization/test_gfx950_moe.py b/tests/quantization/test_gfx950_moe.py
+index 422fb20a3d64..ce7393bae11e 100644
+--- a/tests/quantization/test_gfx950_moe.py
++++ b/tests/quantization/test_gfx950_moe.py
+@@ -145,7 +145,7 @@ def is_supported_config(*args, **kwargs):
+     config.moe_backend = requested_backend
+     monkeypatch.setattr(current_platform, "is_rocm", lambda: True)
+     monkeypatch.setattr("vllm.platforms.rocm.on_gfx950", lambda: True)
+-    monkeypatch.setattr(mxfp4_oracle, "_user_moe_activation_override", lambda: None)
++    monkeypatch.setattr(mxfp4_oracle, "user_moe_activation_override", lambda: None)
+     monkeypatch.setattr(
+         mxfp4_oracle, "backend_to_kernel_cls", lambda backend: [SupportedExperts]
+     )
+@@ -165,7 +165,8 @@ def mxfp4_oracle_config():
+     from unittest.mock import patch
+ 
+     with patch(
+-        "vllm.model_executor.layers.fused_moe.oracle.mxfp4.get_current_vllm_config"
++        "vllm.model_executor.layers.fused_moe.oracle.mxfp4."
++        "get_current_vllm_config_or_none"
+     ) as mock_get_config:
+         mock_get_config.return_value.model_config.quantization_config = None
+         yield
+diff --git a/vllm/config/quantization.py b/vllm/config/quantization.py
+index face2c3a7ba7..4ab8d05614c1 100644
+--- a/vllm/config/quantization.py
++++ b/vllm/config/quantization.py
+@@ -48,6 +48,12 @@
+ }
+ 
+ 
++def quant_key_name(key: QuantKey | None) -> str:
++    if key is None:
++        return "bf16"
++    return next((n for n, k in QUANT_KEY_NAMES.items() if k == key), str(key))
++
++
+ def _coerce_quant_key(v: Any) -> QuantKey | None:
+     if v is None or isinstance(v, QuantKey):
+         return v
+@@ -89,19 +95,7 @@ class QuantSpec:
+     """Activation quantization key, or a name from QUANT_KEY_NAMES."""
+ 
+     def __str__(self) -> str:
+-        def quant_key_str(quant_key: QuantKey | None) -> str:
+-            if quant_key is None:
+-                return "None"
+-            return next(
+-                (
+-                    name
+-                    for name, known_quant_key in QUANT_KEY_NAMES.items()
+-                    if known_quant_key == quant_key
+-                ),
+-                str(quant_key),
+-            )
+-
+-        return quant_key_str(self.weight)
++        return "None" if self.weight is None else quant_key_name(self.weight)
+ 
+ 
+ @config
+diff --git a/vllm/model_executor/layers/fused_moe/experts/fused_humming_moe.py b/vllm/model_executor/layers/fused_moe/experts/fused_humming_moe.py
+index a6d44c3141f7..f653bfb27ff9 100644
+--- a/vllm/model_executor/layers/fused_moe/experts/fused_humming_moe.py
++++ b/vllm/model_executor/layers/fused_moe/experts/fused_humming_moe.py
+@@ -11,6 +11,7 @@
+ 
+ import vllm.model_executor.layers.fused_moe.modular_kernel as mk
+ from vllm import envs
++from vllm.config import get_current_vllm_config_or_none
+ from vllm.forward_context import get_forward_context
+ from vllm.logger import init_logger
+ from vllm.model_executor.layers.fused_moe.activation import (
+@@ -21,6 +22,7 @@
+     FusedMoEConfig,
+     FusedMoEParallelConfig,
+     FusedMoEQuantConfig,
++    RoutingMethodType,
+ )
+ from vllm.model_executor.layers.fused_moe.moe_align_block_size import (
+     moe_align_block_size,
+@@ -105,7 +107,26 @@ def _is_supported_wna16_weight_key(weight_key: QuantKey | None) -> bool:
+     )
+ 
+ 
+-def get_humming_moe_gemm_type(moe_config: FusedMoEConfig | None = None) -> str:
++def _use_deepseek_v41_hopper_indexed(
++    moe_config: FusedMoEConfig, weight_key: QuantKey | None
++) -> bool:
++    """DeepSeek V4.1 MXFP4 on SM90 is faster on the indexed GEMM, incl. AG/RS EP."""
++    parallel = moe_config.moe_parallel_config
++    model_config = getattr(get_current_vllm_config_or_none(), "model_config", None)
++    return (
++        weight_key == kMxfp4Static
++        and moe_config.routing_method == RoutingMethodType.DeepseekV4
++        and current_platform.is_device_capability(90)
++        and (not parallel.use_all2all_kernels or parallel.use_ag_rs_all2all_kernels)
++        and getattr(getattr(model_config, "hf_config", None), "model_type", None)
++        in ("deepseek_v41", "deepseek_v41_text")
++    )
++
++
++def get_humming_moe_gemm_type(
++    moe_config: FusedMoEConfig | None = None,
++    weight_key: QuantKey | None = None,
++) -> str:
+     env_gemm_type: str | None = envs.VLLM_HUMMING_MOE_GEMM_TYPE
+     if env_gemm_type is not None and env_gemm_type.lower() != "auto":
+         env_gemm_type = env_gemm_type.lower()
+@@ -113,6 +134,10 @@ def get_humming_moe_gemm_type(moe_config: FusedMoEConfig | None = None) -> str:
+             gemm_type = "grouped_contiguous"
+         else:
+             gemm_type = env_gemm_type
++    elif moe_config is not None and _use_deepseek_v41_hopper_indexed(
++        moe_config, weight_key
++    ):
++        gemm_type = "indexed"
+     elif moe_config is not None and moe_config.moe_parallel_config.use_ep:
+         gemm_type = "grouped_contiguous"
+     else:
+@@ -646,7 +671,7 @@ def is_supported_config(
+         if supported:
+             assert hasattr(cls, "humming_gemm_type")
+             gemm_type = cls.humming_gemm_type().value.lower()
+-            preferred_gemm_type = get_humming_moe_gemm_type(moe_config)
++            preferred_gemm_type = get_humming_moe_gemm_type(moe_config, weight_key)
+             supported = preferred_gemm_type.lower() == gemm_type
+             if not supported:
+                 reason = (
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+index 5463853caba1..c2d608697382 100644
+--- a/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
+@@ -7,13 +7,13 @@
+ 
+ import vllm.model_executor.layers.fused_moe.modular_kernel as mk
+ from vllm import envs
+-from vllm.config import get_current_vllm_config
++from vllm.config import get_current_vllm_config_or_none
+ from vllm.config.kernel import (
+     FLASHINFER_MOE_EP_CUTEDSL,
+     FLASHINFER_MOE_EP_DEEP_GEMM,
+     MoEBackend,
+ )
+-from vllm.config.quantization import QuantizationConfigArgs
++from vllm.config.quantization import QuantizationConfigArgs, quant_key_name
+ from vllm.logger import init_logger
+ from vllm.model_executor.layers.fused_moe import (
+     FusedMoEConfig,
+@@ -445,9 +445,10 @@ def _backend_activation_key(backend: Mxfp4MoeBackend) -> QuantKey | None:
+     return None  # BF16 activation
+ 
+ 
+-def _user_moe_activation_override() -> QuantKey | None:
++def user_moe_activation_override() -> QuantKey | None:
+     """User's MoE activation override from quantization_config, or None."""
+-    args = get_current_vllm_config().model_config.quantization_config
++    model_config = getattr(get_current_vllm_config_or_none(), "model_config", None)
++    args = getattr(model_config, "quantization_config", None)
+     if not isinstance(args, QuantizationConfigArgs) or args.moe is None:
+         return None
+     return args.moe.activation
+@@ -458,7 +459,7 @@ def _resolve_activation_key(
+ ) -> QuantKey | None:
+     """Combine the model-supplied activation key with the user override.
+     Raises on conflict (both set and disagreeing)."""
+-    user_override = _user_moe_activation_override()
++    user_override = user_moe_activation_override()
+     if user_override is None:
+         return model_activation_key
+     if model_activation_key is None or model_activation_key == user_override:
+@@ -470,6 +471,35 @@ def _resolve_activation_key(
+     )
+ 
+ 
++def _check_humming_moe_activation(config: FusedMoEConfig, key: QuantKey) -> None:
++    if envs.is_set("VLLM_HUMMING_INPUT_QUANT_CONFIG"):
++        raise ValueError(
++            "Set quantization_config.moe.activation or "
++            "VLLM_HUMMING_INPUT_QUANT_CONFIG, not both."
++        )
++    from vllm.model_executor.layers.quantization.utils.humming import (
++        check_and_fallback_input_schema,
++        quant_key_to_input_schema,
++    )
++    from vllm.utils.humming import BaseWeightSchema, dtypes
++
++    try:
++        schema = check_and_fallback_input_schema(
++            BaseWeightSchema.from_config({"quant_method": "mxfp4"}),
++            quant_key_to_input_schema(key),
++            param_dtype=config.in_dtype,
++            allow_fallback=False,
++        )
++        if current_platform.is_device_capability(90) and (
++            schema.input_scale_dtype not in (None, dtypes.float32)
++        ):
++            raise ValueError("SM90 WGMMA needs float32 input scales")
++    except ValueError as e:
++        raise ValueError(
++            f"Humming MoE cannot run activation={quant_key_name(key)}: {e}"
++        ) from e
++
++
+ def _make_log_backend(backend: Mxfp4MoeBackend) -> str:
+     return f"Using '{backend.value}' Mxfp4 MoE backend."
+ 
+@@ -706,6 +736,7 @@ def select_deepseek_v4_mxfp4_moe_backend(
+     # Honor explicit moe_backend (e.g. "marlin", "triton_unfused") before
+     # falling back to the auto priority list.
+     runner_backend = config.moe_backend
++    user_key = user_moe_activation_override()
+     if runner_backend != "auto":
+         if runner_backend == "b12x":
+             requested_backends = _get_requested_backends(runner_backend, None)
+@@ -721,12 +752,22 @@ def select_deepseek_v4_mxfp4_moe_backend(
+             ]
+         last_error: Exception | None = None
+         for requested_backend in requested_backends:
++            key = _backend_activation_key(requested_backend)
++            if requested_backend == Mxfp4MoeBackend.HUMMING and user_key is not None:
++                _check_humming_moe_activation(config, user_key)
++                key = user_key
++            elif user_key is not None and key != user_key:
++                last_error = last_error or ValueError(
++                    f"{requested_backend.value} does not run "
++                    f"activation={quant_key_name(user_key)}"
++                )
++                continue
+             try:
+                 return _return_or_raise(
+                     requested_backend,
+                     config,
+                     kMxfp4Static,
+-                    _backend_activation_key(requested_backend),
++                    key,
+                     activation_format,
+                 )
+             except ValueError as e:
+@@ -746,6 +787,15 @@ def select_deepseek_v4_mxfp4_moe_backend(
+         ]
+     else:
+         priority_backends = _get_priority_backends()
++    if user_key is not None:
++        priority_backends = [
++            b for b in priority_backends if _backend_activation_key(b) == user_key
++        ]
++        if not priority_backends:
++            raise ValueError(
++                "No auto-selected MXFP4 MoE backend runs activation="
++                f"{quant_key_name(user_key)}; set --moe-backend."
++            )
+ 
+     # Iterate priority backends: TRTLLM MXFP8, then Triton.
+     for backend in priority_backends:
+@@ -1423,6 +1473,7 @@ def convert_weight_to_mxfp4_moe_kernel_format(
+     _cache_permute_indices: dict[torch.Size, torch.Tensor] | None = None,
+     activation: MoEActivation | None = None,
+     use_separated_a4w4: bool = False,
++    humming_activation_key: QuantKey | None = None,
+ ) -> tuple[
+     torch.Tensor,
+     torch.Tensor,
+@@ -1471,10 +1522,16 @@ def convert_weight_to_mxfp4_moe_kernel_format(
+     if mxfp4_backend == Mxfp4MoeBackend.HUMMING:
+         from vllm.model_executor.layers.quantization.utils.humming import (
+             convert_to_humming_moe_kernel_format,
++            quant_key_to_input_schema,
+         )
+ 
+         convert_to_humming_moe_kernel_format(
+-            layer, quant_config={"quant_method": "mxfp4"}
++            layer,
++            quant_config={"quant_method": "mxfp4"},
++            input_schema=None
++            if humming_activation_key is None
++            else quant_key_to_input_schema(humming_activation_key),
++            allow_input_schema_fallback=humming_activation_key is None,
+         )
+         return (
+             layer.w13_weight,
+diff --git a/vllm/model_executor/layers/quantization/mxfp4.py b/vllm/model_executor/layers/quantization/mxfp4.py
+index 69ddd0045bbc..b626b9bbacfe 100644
+--- a/vllm/model_executor/layers/quantization/mxfp4.py
++++ b/vllm/model_executor/layers/quantization/mxfp4.py
+@@ -31,6 +31,7 @@
+     mxfp4_round_up_hidden_size_and_intermediate_size,
+     select_deepseek_v4_mxfp4_moe_backend,
+     select_mxfp4_moe_backend,
++    user_moe_activation_override,
+ )
+ from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
+ from vllm.model_executor.layers.quantization import QuantizationMethods
+@@ -548,6 +549,11 @@ def __init__(self, moe: FusedMoEConfig):
+         self.is_k3_situ_int4_gfx942 = _use_k3_situ_int4_gfx942(moe)
+         self.experts_cls: type[mk.FusedMoEExperts] | None
+         if self.is_k3_situ_aiter or self.is_k3_situ_int4_gfx942:
++            if user_moe_activation_override() is not None:
++                raise ValueError(
++                    "Kimi-K3 SiTU MoE on AITER runs BF16 activations only; "
++                    "unset quantization_config.moe.activation."
++                )
+             self.mxfp4_backend = Mxfp4MoeBackend.AITER_MXFP4_BF16
+             self.experts_cls = backend_to_kernel_cls(self.mxfp4_backend)[0]
+             if self.is_k3_situ_int4_gfx942:
+@@ -570,6 +576,7 @@ def __init__(self, moe: FusedMoEConfig):
+             self.mxfp4_backend, self.experts_cls = select_deepseek_v4_mxfp4_moe_backend(
+                 moe
+             )
++        self.humming_activation_key = user_moe_activation_override()
+ 
+         self.max_capture_size = moe.max_capture_size
+ 
+@@ -822,6 +829,7 @@ def _setup_kernel(
+                 _cache_permute_indices=self._cache_permute_indices,
+                 activation=self.moe.activation,
+                 use_separated_a4w4=self.moe.use_mxfp4_w4a4_dsv4,
++                humming_activation_key=self.humming_activation_key,
+             )
+         )
+ 
+diff --git a/vllm/model_executor/layers/quantization/utils/humming/moe.py b/vllm/model_executor/layers/quantization/utils/humming/moe.py
+index 37eb9c26f07d..3170a1037b7d 100644
+--- a/vllm/model_executor/layers/quantization/utils/humming/moe.py
++++ b/vllm/model_executor/layers/quantization/utils/humming/moe.py
+@@ -10,6 +10,7 @@
+ import vllm.model_executor.layers.fused_moe.modular_kernel as mk
+ import vllm.model_executor.layers.quantization.utils.humming.schema as humming_schema
+ from vllm import envs
++from vllm.config.quantization import quant_key_name
+ from vllm.logger import init_logger
+ from vllm.model_executor.layers.fused_moe.all2all_utils import (
+     maybe_make_prepare_finalize,
+@@ -622,5 +623,18 @@ def convert_to_humming_moe_kernel_format(
+         layer.input_schemas[sublayer_name] = final_input_schema
+         humming_configs[sublayer_name] = humming_config
+ 
++    schema = layer.input_schemas["w13"]
++    try:
++        name = quant_key_name(
++            humming_schema.input_schema_to_quant_key(schema, param_dtype)
++        )
++    except KeyError:  # a format with no QuantKey, e.g. int4
++        name = str(schema.a_dtype)
++    logger.info_once(
++        "Humming MoE activations: %s (group size %d, scale dtype %s)",
++        name,
++        schema.input_scale_group_size,
++        humming_configs["w13"].as_dtype,
++    )
+     layer.humming_configs = humming_configs
+     return humming_configs

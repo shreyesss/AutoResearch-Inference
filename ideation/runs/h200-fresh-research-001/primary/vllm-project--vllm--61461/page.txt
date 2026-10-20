@@ -1,0 +1,204 @@
+Conversation
+ShuoleiWang
+commented
+Oct 13, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Overview
+The fused mHC post + pre-norm kernel runs twice per decoder layer in DeepSeek-V4/V4.1 and GLM-5.3-Flash. Its split configs were tuned on GB300 (
+#56633
+). This PR gives SM90 its own config for 1–8 tokens:
+(tile_n, n_splits, n_thr) = (12, hidden / 512, 256)
+. Other architectures and token counts are unchanged.
+Claims
+On H20 at 1–8 tokens, the op gets faster:
+DeepSeek-V4-Flash and GLM-5.3-Flash (hidden 4096): 4.4–16.3%.
+DeepSeek-V4.1-Flash (hidden 5120): 9.1–14.1%.
+DeepSeek-V4-Pro (hidden 7168): 2.1–22.8%.
+The band includes DSpark k=5 decode at C1, which runs 6 tokens per step.
+Residual streams are bit-identical. The mixing coefficients, and through them the layer inputs, differ only in FP32 summation order.
+Startup warmup compiles the new variant. Off SM90, the set of compiled kernels is unchanged.
+Validation
+Microbenchmark.
+H20,
+hc_mult = 4
+, FlashInfer CUPTI with a CUDA graph and a cold L2, median of 3 runs of 200 replays. Outputs are checked before timing.
+The 4096 and 7168 columns time
+mhc_fused_post_pre_tilelang
+, which DeepSeek-V4 and GLM-5.3-Flash call.
+The 5120 column times
+mhc_fused_post_pre_delayed_tilelang
+, which DeepSeek-V4.1 calls.
+All columns come from one run of this PR's
+tilelang_kernels.py
+. Each cell is main → this PR, in µs.
+Tokens
+4096
+5120
+7168
+1
+10.94 → 10.05 (−8.2%)
+11.58 → 9.98 (−13.8%)
+13.92 → 10.75 (−22.8%)
+2
+10.85 → 9.84 (−9.3%)
+11.55 → 10.08 (−12.8%)
+13.54 → 10.62 (−21.5%)
+3
+11.04 → 10.14 (−8.1%)
+11.73 → 10.08 (−14.1%)
+13.70 → 11.30 (−17.5%)
+4
+10.82 → 9.86 (−8.9%)
+11.62 → 10.14 (−12.7%)
+13.50 → 11.20 (−17.1%)
+5
+10.85 → 9.82 (−9.4%)
+11.60 → 10.46 (−9.8%)
+13.63 → 11.30 (−17.1%)
+6
+10.85 → 10.24 (−5.6%)
+11.65 → 10.59 (−9.1%)
+13.66 → 13.38 (−2.1%)
+7
+11.01 → 10.53 (−4.4%)
+11.71 → 10.59 (−9.6%)
+13.86 → 13.54 (−2.3%)
+8
+12.48 → 10.45 (−16.3%)
+13.54 → 11.68 (−13.7%)
+16.42 → 14.21 (−13.5%)
+The minimum tensor traffic is 1.7–3.9 MB per op, corresponding to an effective bandwidth of 152–308 GB/s.
+From 9 to 32 tokens, main and this PR pick the same config, and their times agree within ±1.1%.
+At 5120, the new config had the lowest total time over 1, 2, 4, 6 and 8 tokens in a sweep of 63 configs. It was within 4.6% of the best config at each of those token counts.
+Tests.
+pytest tests/kernels/mhc/test_mhc_jit_warmup.py tests/kernels/mhc/test_mhc_kernels.py
+passes on H20, with one exception:
+test_mhc_fused_post_pre[4-7168-128]
+. That case runs 128 tokens, outside the band, and fails the same way without this change.
+A 1-hour TP8 serving run built no TileLang kernels after warmup. CI runs
+kernels/mhc
+on B200 only, so this H20 run is the only coverage for the SM90 cases.
+E2E sanity check.
+DeepSeek-V4.1-Flash on 8×H20 with TP8, 1K in / 1K out. It ran on main
+240ee8d
+(2026-10-07) with this change applied;
+kernels/mhc/
+has not changed since.
+DSpark k=5 at a synthetic acceptance length of 3.51.
+One run per server, in the order main, PR, PR, main.
+At C1, both PR runs beat both main runs: output throughput +0.9%, TPOT p50 −1.0%. At C64, which is outside the band, both PR runs fall between main's two runs in throughput and TPOT p50.
+Accuracy.
+DeepSeek-V4.1-Flash on the same build, GSM8K, 5-shot, with real DSpark verification:
+Correct answers: 1274 / 1319 on main, 1276 / 1319 with this PR.
+Acceptance length: 3.863 and 3.868.
+GLM-5.3-Flash and DeepSeek-V4 were checked at the op level only.
+Details
+Why it is faster.
+Every (token, tile, k-slice) block recomputes the post mapping.
+main's
+(2, 8, 128)
+runs 12 tiles, and each thread makes 4–7 serial memory round trips.
+The new config runs 2 tiles with 2 round trips each.
+Band.
+A separate candidate config,
+(12, 8, 128)
+, improved latency at 9–18 tokens on H20. Those gains may depend on H20's 78-SM grid scheduling and have not been validated on H100/H200, so this PR leaves that band unchanged.
+H100/H200.
+These GPUs are not measured. Both grids should fit in one wave on 132 SMs, so the gain is expected to carry over. The 6–7-token dip at 7168 looks like a wave spill on H20 and is not expected there.
+Scope.
+SM100, SM120 and ROCm are untouched. No open PR changes this config.
+AI assistance: Claude Code helped write the change and run the benchmarks. I reviewed every changed line and checked the results.
+Pull Request Checklist
+I used vLLM's
+/pr-checklist
+skill. (Mandatory for agents, optional for humans).
+AI assistance was used during the creation of this PR.
+Design Fit:
+Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+Testing and Validation:
+Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+Code Quality and Style:
+Keeps code and comments clear and concise, and updates relevant documentation and examples.
+Pull Request Contents:
+Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+[Perf][Kernel] Tune fused mHC post + pre-norm for SM90 at up to 8 tokens
+…
+dcbb047
+Signed-off-by: Shuolei Wang <shuoleiwang123@gmail.com>
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+mgoin
+Awaiting requested review from mgoin
+mgoin will be requested when the pull request is marked ready for review
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth will be requested when the pull request is marked ready for review
+tlrmchlsmth is a code owner
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon will be requested when the pull request is marked ready for review
+WoosukKwon is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 will be requested when the pull request is marked ready for review
+yewentao256 is a code owner
+zyongye
+Awaiting requested review from zyongye
+zyongye will be requested when the pull request is marked ready for review
+zyongye is a code owner
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+AndreasKaratzas will be requested when the pull request is marked ready for review
+AndreasKaratzas is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,97 @@
+{
+  "name": "Fresh DeepSeek-V4.1-Flash H200 research / systems",
+  "mode": "source_research",
+  "count": 5,
+  "target": {
+    "model": "DeepSeek-V4.1-Flash",
+    "gpu": "8x NVIDIA H200 SM90, 143771 MiB per GPU",
+    "topology": "two independent four-GPU TP1/DP4/EP4 replicas, API2 each",
+    "workload": "Preserve native agent-f75 8K/1K prefix workload and fixed-schedule Mooncake anchors, adapted explicitly to H200 seq64; separate 1K/1K cache-isolated diagnostic and long-context, ragged, mixed, cold/warm held-out diagnostics.",
+    "metrics": [
+      "TTFT",
+      "TPOT",
+      "throughput",
+      "cost per token",
+      "quality"
+    ]
+  },
+  "baseline": {
+    "vllm_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+    "deepseek_serve_commit": "11c249d28b2962f7384b4ab1fd7c1664704e7524",
+    "note": "Read-only live image/args attested. No measured bottleneck or new GPU result. Attention/MoE route needs source and dispatch proof. H200 cost unknown; do not copy B200 price. Allgather_reducescatter reported in prior H200 inventory; recheck source/logs.",
+    "runtime_attested_at": "2026-10-20T12:12:07Z",
+    "image": "sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c",
+    "model_revision": "2cba9e42aa026125f3ed06c6d98c1db82f7ca027",
+    "profile": "seq64 MBT16384 context1048576 graphcap512 FP8KV block64 hostEngram embedding_across_dp prefixON DSpark k5 probabilistic draft/block rejection adaptiveOFF no-swa-bounded-replay; verbose request/output/delta telemetry ON"
+  },
+  "after": "2026-01-01",
+  "seed_numbers": [],
+  "code_sources": [],
+  "queries": [
+    "deepseek-v4.1-flash b200",
+    "speculation tpot",
+    "moe communication",
+    "kv-cache ttft",
+    "nvfp4"
+  ],
+  "paper_queries": [
+    "speculative decoding adaptive draft length inference",
+    "mixture of experts inference communication overlap",
+    "prefix caching routing serving"
+  ],
+  "prior_decisions": [
+    "runs/pr-evaluation-audit-001/h200/RANKING.md"
+  ],
+  "constraints": [
+    "No GPU execution",
+    "No invented speedup estimates",
+    "Investigate negative evidence and branch/deployment applicability"
+  ],
+  "instructions": "Freshly research all 13 CSV repositories, PRs, issues, discussions and primary literature for useful H200 deployment improvements. Reopen B200 exclusions; do not use B200 ranking as selection prior. Known flags, ports, kernels, topology, routing and negative results welcome; novelty not required. Separate source claim, source fix and our transfer hypothesis. Every candidate needs concrete baseline delta, strongest simple comparator, activation signal and denominator, competing explanations, scoped correctness, held-out test, and support/reject/inconclusive decisions. Select a diverse, practical shortlist; do not invent gains or assume API endpoints establish kernel dispatch. GPU experiments and server modifications are outside this research run. DP systems and speculation: logical vs padded drafter rows, CPU allreduce, queue/prefill alignment, final-rank prefix locality with API2, exact-size Engram and packed exchange, and DeepEP communication alternatives. Current AG/RS backend is not DeepEP; Engram is host offload with embedding_across_dp, resolve sharded versus shared allocation. Existing scheduler/MBT/static prefill interval is the comparator before complex policy. k5 fixed adaptiveOFF seq64 MBT16384 means the draft reservation saving is at most256 tokens/rank (not a speedup). Decoder SWA replay is deliberately approximate and disabled: separate quality lane, not a free correctness-preserving activation. DSpark acceptance diagnostics never replace sampler correctness. Use BASS and CacheRoute as mechanism context; do not assume their algorithms are drop-in.",
+  "selection": {
+    "require_novelty": false
+  },
+  "repos": [
+    "SemiAnalysisAI/InferenceX",
+    "deepseek-ai/DeepEP",
+    "deepseek-ai/DeepGEMM",
+    "deepseek-ai/DeepJIT",
+    "deepseek-ai/DeepSelect",
+    "deepseek-ai/DeepSpec",
+    "deepseek-ai/Engram",
+    "deepseek-ai/FlashMLA",
+    "deepseek-ai/TileKernels",
+    "deepseek-ai/deepseek-recipe",
+    "flashinfer-ai/flashinfer",
+    "vllm-project/recipes",
+    "vllm-project/vllm",
+    "sgl-project/sglang",
+    "vllm-project/humming",
+    "vllm-project/FlashMLA"
+  ],
+  "evaluator_contract": {
+    "version": "h200-evalset-v1-research",
+    "baseline": "live H200 seq64; seq128 is a separate configuration arm",
+    "stages": [
+      "attestation",
+      "activation",
+      "correctness",
+      "unprofiled screen",
+      "separate mechanism diagnostic",
+      "paired confirmation and held-out frontier"
+    ],
+    "activation": "record path hits and eligible opportunities; zero only interpretable with adequate coverage; missing telemetry is unverified",
+    "metrics": "request TPOT=(last-first token time)/(server output tokens-1), TTFT tails, exact tokens, all-rank draft/verify/accepted counters, KV blocks and preemption, qualified request goodput, replay lag",
+    "statistics": "matched full-run A/B units; >=5 paired confirmation blocks for small gains, alternating order; baseline drift and intervals; never request-level pseudoreplication",
+    "cost": "full eight-GPU node price remains unset; parameterized cost only",
+    "slo": "preserve historical scorer definitions but H200 product SLO not supplied; diagnostic 2s TTFT/50ms TPOT is provisional, not production",
+    "telemetry": "all replicas/ranks; raw counter deltas, resets/missing coverage, request-to-final-rank join where needed; Nsight profiled results excluded from frontier",
+    "correctness": "relevant G01-G05, numerical/graph-cache branch tests; quality subset for changed math, SPEED-Bench acceptance diagnostic for speculation is not a correctness score",
+    "capability_gaps": [
+      "AIPerf local 0.11 versus planned 0.13 needs separate environment verification",
+      "profiler requires instrumented launch and clean-marker integration",
+      "historical B200 seq128 and node pricing cannot transfer unchanged"
+    ]
+  },
+  "focus": "DP systems and speculation: logical vs padded drafter rows, CPU allreduce, queue/prefill alignment, final-rank prefix locality with API2, exact-size Engram and packed exchange, and DeepEP communication alternatives. Current AG/RS backend is not DeepEP; Engram is host offload with embedding_across_dp, resolve sharded versus shared allocation. Existing scheduler/MBT/static prefill interval is the comparator before complex policy. k5 fixed adaptiveOFF seq64 MBT16384 means the draft reservation saving is at most256 tokens/rank (not a speedup). Decoder SWA replay is deliberately approximate and disabled: separate quality lane, not a free correctness-preserving activation. DSpark acceptance diagnostics never replace sampler correctness. Use BASS and CacheRoute as mechanism context; do not assume their algorithms are drop-in."
+}

@@ -1,0 +1,845 @@
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+New issue
+Copy link
+New issue
+Copy link
+Open
+Open
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+Copy link
+Description
+Oasis-Git
+opened
+on Oct 2, 2026
+Issue body actions
+Track optimization and feature support for DeepSeek V4.1 in SGLang.
+Refactor
+mHC (DSV41 only) code clean up —
+[DeepSeek-V4.1] Unify mHC into one state machine and drop medium-batch fusion variants
+#42245
+General optimization
+Prefill optimizations
+mHC SP + engram fusion —
+[DeepSeek-V4.1] Sequence-parallel mHC boundary and fused Engram gather/seam
+#43065
+Fold
+q_rope_store
+into
+fused_q_norm_rope
+—
+[DSv4.1] Fold q_rope_store into fused_q_norm_rope
+#41657
+Faster FP4 index-K gather and
+combine_topk_swa_indices
+—
+[DSv4.1] Faster fp4 index-K gather and combine_topk_swa_indices
+#41658
+Prefill indexer: raw selection, row-pair schedule IDs, and host synchronization removal —
+[DSv4.1] Prefill indexer: raw selection, row-pair schedule ids, no host syncs
+#41659
+Fused c1/c2 compression for eager extend and faster c2 decode —
+[DSv4.1] Fused c1/c2 compress for eager extend, faster c2 decode
+#41660
+Trim prefill model-entry overhead —
+[DSv4.1] Trim prefill model-entry overhead
+#41704
+Decode optimizations
+TP4 low latency attention layer
+[Perf] DSv4.1: Fused low-latency TP4 decode chain on SM100
+#44933
+Add opt-in TRT-LLM sparse attention support —
+[DSV4.1] Add opt-in TRT-LLM sparse attention support
+#41603
+Integrate the MegaMoE update: locality-aware scheduling, epilogue prefetch, and shared-memory optimizations —
+DeepGEMM #462
+Add MegaMHC support —
+[Dsv4.1] Mega-mhc integration
+#42808
+Integrate DeepEP V2.5: migrate to dedicated buffer APIs and enable the new communication optimizations —
+DeepEP #763
+Packed BF16 prefill on B200/B300 —
+[Perf] Add packed BF16 prefill for DeepSeek-V4.1 on B200/B300
+#41512
+Fuse source prefill Top-K and block maxima —
+[DSV4.1] Fuse source prefill Top-K and block amax
+#41627
+Use CUDA candidate selection in dense prefill —
+[DSV4.1] Use CUDA candidate selection in dense prefill
+#40521
+Shard Engram WKV projections —
+[DSV4.1] Enable Engram WKV projection sharding
+#40508
+Cache MXFP8 dispatch —
+[DSv4.1] mxfp8 dispatch cache
+#42156
+Persist FlashInfer autotune measurement policies with cached tactics —
+[FlashInfer][DSv4.1] Persist autotune measurement policies with cached tactics
+#42158
+Reduce eager Engram extend preparation —
+[DSV4.1] Reduce eager Engram extend preparation
+#42159
+Replace the legacy topk-v2 with DeepSelect (need LL optimization) —
+[DeepSeek-V4.1] DeepSelect cluster top-k for long rows and bf16 index logits
+#44051
+Feature: bounded replay
+Goal: both replay flags on by default — same accuracy, never slower than off, faster prefill.
+Encoder replay
+Fix SWA page size with bounded replay —
+[Fix][DSV4.1] SWA page size with bounded replay
+#42128
+Bounded replay with sparse mla -
+[Dsv4.1] Bounded replay with sparse mla path
+#42273
+Enable encoder bounded replay.
+Fold the replay into the extend forward (16 × 64K hits: 4.6 s → 1.0 s TTFT) —
+[DSv4.1] Fold encoder-SWA replay into the extend forward
+#43166
+,
+[DSv4.1] Initialize the full-to-SWA mapping for request-window pools
+#43165
+Cut decode request-window copies (+6–11 ms → +0.3 ms per step) —
+[Perf] dsv41: Cut encoder SWA bounded-replay window copies from ~4.2 ms to ~0.1 ms per decode step
+#42715
+Cut prefill request-window overhead (cold prefill gap 26% → 2%) —
+[Perf] dsv41: Speed up encoder SWA bounded-replay prefill by checking the request-window history once per layout
+#42921
+Serve HiCache host-tier hits —
+[Fix] [AMD] hicache: Serve encoder-replay prefix hits with a paged DSpark draft SWA
+#42716
+Keep the DSpark draft SWA from cutting prefix hits —
+[Fix] deepseek-v4.1: Keep the DSpark draft SWA out of the radix tree
+#44673
+Decoder replay and prefill graph
+Enable decoder bounded replay.
+Serve prompt-logprob requests under decoder replay —
+[Fix] deepseek-v4.1: Serve prompt-logprob requests under decoder SWA bounded replay
+#44850
+Enable the prefill CUDA graph by default for DeepSeek-V4.1 (+19% cold prefill) —
+[Dsv4.1] allow decoder bounded replay with breakable prefill graphs
+#43440
+Make both replay flags compatible with the prefill graph
+Capture eager prefill layers as graphs (+54% cold prefill)
+Lift the 16K prefill-graph cap; faster prefill all-reduce
+Compatibility and default
+Support decoder SWA bounded replay with prefill CP and static DSpark PD —
+[DSV4.1] DeepSeek-V4.1 support prefill CP
+#40161
+DP attention and PD disaggregation
+Turn both replay flags on by default
+Feature: PD
+Original roadmap:
+#39700
+(B200).
+Prefill
+Support context parallelism —
+[DSV4.1][PD][1/N] Support prefill node use cp parallel strategy
+#40323
+Support CP with breakable CUDA graphs —
+[Feat] [NVIDIA] deepseek-v4.1: Support prefill CP with BCG in PD serving (2/N)
+#40333
+Avoid host synchronization in CP prefill —
+[DSV4.1][PD][3/N] Avoid host synchronization in DeepSeek V4.1 CP prefill
+#40335
+Support CP with multistream forward preparation —
+[Feat][NVIDIA] DeepSeek-V4.1: Prefill support CP with multistream forward prepare (4/N)
+#40179
+Reuse shared compressed KV dequantization —
+[Perf] [NVIDIA] deepseek-v4.1: Reuse dequantized compressed KV in PD CP prefill (7/N)
+#40421
+Fuse candidate selection and masking —
+[Perf] [NVIDIA] deepseek-v4.1: Fuse candidate selection and masking in PD prefill (8/N)
+#40436
+Capture indexer and compressor in breakable CUDA graphs —
+[Feat][NVIDIA] DeepSeek-V4.1: Support indexer & compressor to be captured into BCG (3/N)
+#40548
+Decode
+Support DP attention —
+[DSV4.1][PD][5/N] Decode node support DP attention
+#40177
+Support MegaMoE —
+[DSV4.1][PD][6/N] Decode node support MegaMoE
+#40178
+Hopper optimization
+Optimize dense GEMM, indexer, mHC, and MoE paths on Hopper —
+[Perf] Optimize DeepSeek V4.1 Flash Hopper paths and Blackwell prefill selection
+#41251
+Support candidate-only SM90 indexer scoring —
+[DSv4.1] Support SM90 candidate indexers
+#40860
+Skip invisible SM90 FP4 indexer tiles —
+[DSV4.1] Skip invisible SM90 FP4 indexer tiles
+#40503
+Add an FP8 Tensor Core path for the FP4 grouped indexer —
+[DeepSeek V4.1] an FP8 Tensor Core path for the FP4 grouped indexer
+#40160
+Use DeepSelect Top-K with fused page mapping for Hopper decode —
+[DeepSeek V4.1] Use DeepSelect for Hopper full top-k decode.
+#41561
+Enable Hopper decode optimizations for TP8 —
+[DSV4.1] Enable Hopper decode optimizations for TP8
+#39114
+Add H20 block-FP8 tuned configurations —
+[DSV4.1] Add H20 block-FP8 tuned configs
+#41098
+Add and extend H200 block-FP8 tuned configurations —
+[Quantization] Add and extend H200 [32,32] fp8_w8a8 tuned configs
+#40452
+Reactions are currently unavailable
+Activity
+GSM2017PMK-OSV
+commented
+on
+Oct 2, 2026
+GSM2017PMK-OSV
+on Oct 2, 2026
+More actions
+Оле оле оле
+nvpohanh
+commented
+on
+Oct 5, 2026
+nvpohanh
+on Oct 5, 2026
+Collaborator
+More actions
+@Oasis-Git
+FYI, optimizations from
+@ajit283
+to remove the two additional mul kernels in DSV4.1-Flash attn:
+https://github.com/sgl-project/FlashMLA/pull/17/changes
+[Perf] Skip unused FlashMLA sparse-prefill statistics in serving
+#42232
+nvpohanh
+commented
+on
+Oct 5, 2026
+nvpohanh
+on Oct 5, 2026
+Collaborator
+More actions
+cc
+@DarkSharpness
+about the optimization above
+vincentzed
+commented
+on
+Oct 7, 2026
+vincentzed
+on Oct 7, 2026
+Contributor
+More actions
+Is anyone planning EPD (encoder disaggregation) for V4.1? The V4.1 report says DeepSeek serves it with EPD, but
+--encoder-only
+/
+--language-only
+don't support any DeepSeek model yet. Worth adding here? cc
+@JustinTong0323
+ormandj
+commented
+on
+Oct 7, 2026
+ormandj
+on Oct 7, 2026
+Last edited by
+ormandj
+Contributor
+More actions
+Open PRs related to DeepSeek V4.1. My serving setup is 4x RTX PRO 6000 Blackwell (SM120, PCIe), TP4, with DSpark speculative decoding. Test and benchmark scope varies by PR and is documented in each description; performance figures below are the microbenchmark results reported there.
+Bounded replay
+[Perf] dsv41: Cut encoder SWA bounded-replay window copies from ~4.2 ms to ~0.1 ms per decode step
+#42715
+Cut encoder SWA bounded-replay window copies from ~4.2 ms to ~0.1 ms per decode step
+[Fix] [AMD] hicache: Serve encoder-replay prefix hits with a paged DSpark draft SWA
+#42716
+Serve host-tier HiCache prefix hits with encoder SWA bounded replay
+[DeepSeek-V4] Reject prompt-logprob requests at admission under decoder SWA bounded replay instead of crashing the server
+#42719
+Reject prompt-logprob requests at admission under decoder SWA bounded replay instead of crashing the server
+[Perf] dsv41: Speed up encoder SWA bounded-replay prefill by checking the request-window history once per layout
+#42921
+Check the request-window history once per layout, without a host sync (stacked on
+[Perf] dsv41: Cut encoder SWA bounded-replay window copies from ~4.2 ms to ~0.1 ms per decode step
+#42715
+)
+[Fix] dsv41: Warm up the image path under encoder SWA bounded replay
+#43241
+Serve image requests under encoder SWA bounded replay
+DSpark and compact verify
+[Fix] dsv41: Run DSpark compact verify by mapping packed verify tokens to their requests
+#42718
+Let compact verify run on V4.1 by mapping packed verify tokens to their requests (fixes
+[Bug] DeepSeek-V4.1-Flash + Engram: profiled SPS table (compact ragged verify) dies in CUDA-graph capture with "engram target-verify expects one equal block per request"
+#39173
+; includes the
+[Spec] Fix wrong tokens from compact-verify CUDA graphs when a token tier is captured more than once
+#42709
+fix)
+[Fix] dsv4: Make compact-verify replays find their own tier's metadata under forced uniform capture
+#42713
+Fix compact-verify replays in the test-only
+SGLANG_TEST_RAGGED_VERIFY_FORCE_UNIFORM_CAPTURE
+mode
+[Fix] dspark: Keep output sampling exact under folded draft sampling by storing corrected logits in FP32
+#42710
+Keep output sampling exact with folded draft sampling (FP32 corrected logits)
+[Fix] dspark: Produce correct SPS cost tables when profiling a server without a table
+#42711
+Correct SPS cost tables when profiling a server without a table
+[Fix] dspark: Calibrate STS temperatures from the drafts each step actually accepted
+#42712
+Calibrate STS temperatures from the drafts each step actually accepted
+[Fix] dspark: Keep TP ranks planning the same verify budget under overlap scheduling
+#42717
+Keep TP ranks planning the same verify budget under overlap scheduling
+[Fix] dspark: Select DSv4.1 candidate verify graphs from committed lengths under compact verify
+#43225
+Select candidate verify graphs from committed lengths under compact verify
+[Fix] dspark: Skip top-p renormalization on compact verify padding rows
+#43374
+Skip top-p renorm on compact verify padding rows
+Indexer and prefill
+[Perf] dsv41: Score only candidate blocks in paged decode consumer layers
+#43401
+Score only candidate blocks in paged decode consumer layers
+[Fix] dsv41: Bound prefill indexer score tiles by free memory to avoid OOM
+#43376
+Bound prefill indexer score tiles by a memory budget (long-context prefill OOMs)
+[Perf] dsv41: Restore the wide-prefill mHC stats overlap with the TP all-reduce
+#42985
+Restore the wide-prefill mHC stats overlap with the TP all-reduce
+Model loading
+[Feat] model-loader: Let InstantTensor load DeepSeek-V4.1 with the Engram host table
+#42919
+Let InstantTensor load V4.1 with the Engram host table (stacked on
+[Model Loader] Add InstantTensor loader support
+#40453
+)
+[Perf] dsv41: Speed up Engram host-table loading with parallel positioned reads
+#42920
+Speed up Engram host-table loading with parallel positioned reads (stacked on
+[Feat] model-loader: Let InstantTensor load DeepSeek-V4.1 with the Engram host table
+#42919
+)
+SM120
+[Fix] [SM120] dsv4: Stop CUDA graphs from writing into freed FlashMLA page-split buffers
+#42714
+Stop CUDA graphs from writing into freed FlashMLA page-split buffers
+[Perf] dsv41: Speed up the FP4 indexer scorer by decoding keys without exp2
+#42861
+FP4 indexer scorer without
+exp2
+(1.23x to 1.33x per call)
+[Perf] dsv41: Speed up decode-size mHC mixing with a vectorized split-K reduce and 160 K slices on SM120
+#42864
+mHC mixing with a vectorized split-K reduce and 160 K slices for decode (26% to 35% lower latency at 1 to 16 rows; based on
+[DeepSeek-V4.1] Unify mHC into one state machine and drop medium-batch fusion variants
+#42245
+)
+[Perf] [SM120] all-gather: Speed up TP4 logits and DSpark vocab all-gathers on PCIe-only hosts
+#42863
+PCIe-IPC all-gathers for TP4 logits and the DSpark vocab gather (1.4x to 2.9x faster than NCCL per call)
+[Perf] [SM120] gemm: Speed up decode-sized MXFP8 linears with a Triton GEMM
+#42865
+Triton MXFP8 GEMM for decode-sized linears
+[Perf] lm-head: Add an opt-in batch-invariant BF16 GEMM for decode-sized batches
+#42867
+Opt-in batch-invariant BF16 LM head GEMM for decode-sized batches
+[Perf] [SM120] dsv41: Read decode and verify WO-A from an exact FP8 copy of the weight
+#43008
+Decode/verify WO-A from an exact FP8 copy of the weight
+Related upstream PRs
+perf(gemm): SM120 MXFP8 GEMM uses the swap-AB 128x32 tile when no tactic is tuned
+flashinfer-ai/flashinfer#6162
+SM120 MXFP8 GEMM defaults to the swap-AB 128x32 tile when no tactic is tuned
+[Release][Cherry-Pick] [TritonGPU] Restore dot operand rematerialization reuse (#11940)
+triton-lang/triton#12151
+Triton 3.8 cherry-pick of
+[TritonGPU] Restore dot operand rematerialization reuse
+triton-lang/triton#11940
+, which fixes the tf32x3 shared-memory regression
+👍
+React with 👍
+1
+Reacted by
+lllllinux
+freedomkk-qfeng
+commented
+on
+Oct 13, 2026
+freedomkk-qfeng
+on Oct 13, 2026
+– with
+ChatGPT Codex Connector
+More actions
+Single-node H20-3e report: vision CP + DSpark, long-prefill improvements, and three upstream PRs
+Thanks for maintaining this roadmap and for the kernel/CP work behind it. We have been integrating and testing DeepSeek-V4.1-Flash on
+one 8× NVIDIA H20-3e server
+, with text, image+text, tool calling, streaming, and cache reporting as requirements.
+Our October 5–7 experiments started from
+unmodified SGLang v0.5.21
+and ended with a production deployment of a pinned integration build. The strongest paired comparisons were:
+524,032-token cold TTFT: 323.261 → 25.531 s
+, a
+92.1% reduction / 12.66× speedup
+.
+C64 aggregate output: 877.01 → 2,534.61 token/s (+189.0%)
+; per-request streaming decode:
+15.69 → 49.10 token/s (+213.0%)
+.
+These are
+whole-deployment improvements
+, not the isolated effect of any one PR. We have contributed
+#39306
+,
+#42922
+, and
+#42924
+; their narrower validation and attribution are described below.
+1. Setup and measurement scope
+Hardware: 8× H20-3e, SM90, approximately 140 GiB visible memory per GPU, NVLink/NVSwitch (NV18 topology), 2 TiB host RAM, two NUMA nodes.
+Baseline: v0.5.21 at
+e00930c5489053f26d86b179cee0d087f846acbb
+,
+TP8/EP8, DSpark block size 5 already enabled
+, no CP, no decoder bounded replay, GPU-resident Engram, no HiCache.
+Final:
+TP8/EP4, CP8 interleave, CP decode-attention TP, DSpark5, decoder SWA bounded replay
+, FlashInfer MXFP4 MoE with FP8 precision; Engram host table in
+per_rank
+layout, NUMA binding, HiCache ratio 1.5 /
+write_through
+.
+Both use a 524,288-token context limit, static memory fraction 0.8, chunk size 8192 and max-running-requests 64. Prefill CUDA graphs remain disabled; decode CUDA graphs are enabled.
+Final local integration revision:
+79b468a7435e1bd29ad0d377587ff10b3c214ba3
+(
+not an upstream release/commit
+). Runtime: PyTorch 2.13.0+cu130, Triton 3.7.1, FlashInfer 0.6.18; the final DeepGEMM integration uses
+sgl-deep-gemm 0.2.2
+. This is a backported integration, not a claim that stock v0.5.21 supports this configuration.
+The baseline and final integration use the same V4.1 model weights on the same hardware. No P/D disaggregation is used. All performance below is from a single eight-GPU server. These results describe the pinned October 5–7 snapshots, not the latest heads of every roadmap PR.
+Comparison boundary:
+the near-512K and C64 baseline measurements were supplemented using exactly the final workload construction, warmup and three measured rounds. Input hashes, token counts, output lengths and zero-cache-hit conditions match. Other baseline cells are historical references: cold-prefill nonces differ, and the early natural-generation prompts/warmup procedure differ from the final protocol. The tables explicitly mark the paired supplements with †. Runs were sequential, on different dates, not randomized interleaved A/B trials.
+2. Optimization path and what we retained
+Use vision-compatible CP as the foundation.
+We chose
+model: DeepSeek V4.1 vision CP and single-owner image encoding
+#40219
+for its merge-before-shard multimodal preparation and single-owner image encoding. We adapted the owner callback API and fixed physical request-pool row mapping in the Torch prefill indexer. We borrowed the replay-tail idea from
+[DSV4.1] DeepSeek-V4.1 support prefill CP
+#40161
+later, rather than importing its entire P/D integration.
+Integrate the Hopper paths and H20 configurations.
+This included
+[Perf] Optimize DeepSeek V4.1 Flash Hopper paths and Blackwell prefill selection
+#41251
+,
+[DSV4.1] Add H20 block-FP8 tuned configs
+#41098
+and the relevant
+[DSV4.1] Enable Hopper decode optimizations for TP8
+#39114
+path, plus scorer/Top-K, compression, RoPE, dispatch and preparation changes listed below. We checked actual dispatch and added tables for six further missing matrix shapes encountered in this integration; small tuning differences below 3% retained the default. These additional local tables are distinct from the original six tables in
+[DSV4.1] Add tuned H20-3e block-FP8 GEMM configs
+#39306
+.
+Enable Engram host storage and HiCache together, then tune EP.
+The
+per_rank
+layout shards the host Engram table across ranks rather than replicating the entire table eight times. The combined memory configuration increased the engine-reported KV token-pool capacity by about 31.25% relative to our preceding GPU-Engram/HiCache-ratio-2/memory-fraction-0.88 configuration, with essentially unchanged near-512K TTFT. This is a combined memory-layout result, not a standalone offload speedup.
+Add decoder bounded replay while preserving image requests and DSpark.
+After the last KV-source layer, replay shortens the late-layer token rows. We added tail-aware CP gather, global token indices for logits/DSpark, original CP-owner mapping, and preservation of canonical image IDs. This became
+[DSV4.1] Support decoder SWA bounded replay with vision CP and DSpark
+#42924
+, with
+[DSV4.1] Fix Torch prefill indexer request-pool rows under CP
+#42922
+as a separate row-mapping fix.
+Add fused prefill scoring and native SM90 block32 FP8 GEMM.
+[DSV4.1] Fuse Hopper prefill indexer scoring into one Triton kernel
+#42365
+fuses indexer score/ReLU/weighting/head reduction;
+[SM90] Use native block32 DeepGEMM for DeepSeek-V4.1
+#42604
+enables the supported native DeepGEMM linear paths. We retained the existing compact-candidate path and fallbacks. Routed MXFP4 experts still use FlashInfer.
+The later stages used the same workload protocol:
+Stage
+128K cold TTFT (s)
+524,032-token cold TTFT (s)
+C64 aggregate output (token/s)
+Integrated CP/DSpark + host Engram/HiCache, EP8
+10.533
+56.613
+2,263.19
+Change to EP4
+9.416
+52.323
+2,362.80
+Add decoder bounded replay
+6.682
+41.390
+2,380.37
+Add
+#42365
++
+#42604
+5.385
+25.531
+2,534.61
+These are sequential stage comparisons. EP4 improved long prefill and C64 throughput, but at that step C1 decode
+fell 5.2%
+(169.42 → 160.53 token/s); it was a workload tradeoff, not a universal EP4 win.
+Ablation of
+#42604
+:
+retaining
+#42365
+but removing
+#42604
+and reverting its DeepGEMM dependency upgrade
+changed 524,032-token TTFT from
+25.531 to 26.824 s (+5.1%)
+, C1 decode from
+180.05 to 168.23 token/s (−6.6%)
+, and C64 aggregate output from
+2,534.61 to 2,356.33 token/s (−7.0%)
+. We therefore retained both. This ablation compares the adjacent runs and includes the dependency change; it is not a kernel-only attribution.
+Included community work, local adaptations, and experiments not retained
+Area
+PR snapshots integrated or adapted
+Vision CP
+#40219
+Hopper paths / tuning
+#41251
+,
+#41098
+,
+#39114
+, plus local H20 tuning
+Candidate scoring / grouped scoring / Top-K
+#40860
+,
+#40945
+,
+#41561
+RoPE, gather, compression and indexer interfaces
+#41657
+,
+#41658
+,
+#41660
+,
+#41294
+,
+#41659
+SWA paging / model-entry / Engram preparation / dispatch
+#42128
+,
+#41704
+,
+#42159
+,
+#42156
+DSpark buffer reuse / input safeguards
+#40919
+,
+#40758
+Shared compressed-KV dequantization / prefill candidate selection
+#40421
+,
+#40521
+Final fused indexer / native block32 FP8 GEMM
+#42365
+,
+#42604
+Local integration work also covered output-buffer contracts between scorer variants, rebuilding the current mask on compact-path fallback, CP decode-attention BF16 weight-cache compatibility, and missing H20 shape configurations. At the snapshots we fetched,
+#40436
+and
+#40421
+contained the same KV-reuse changes, so we counted that work once. Some paths replace others; backported PR count is not a count of simultaneously active speedups.
+Experiments not retained:
+TP8/EP1 with Marlin W4A16:
+C64 aggregate output 1,797.47 token/s, versus 2,362.80 for the then-current EP4 build. Both backend and parallelism changed, so this is not an isolated EP comparison.
+TP8/EP1 with an adapted FlashInfer W4A8 path:
+preserve logical shard boundaries, then pad the 288-wide expert intermediate dimension to 384 for the required 128 alignment, including gate/up halves, down columns and scale handling. It passed our operator/model checks, but C64 reached 2,139.99 token/s, still below EP4.
+TP8/EP2:
+slightly better TTFT, generally worse natural-generation aggregate throughput.
+Chunk 8192 → 16384:
+about 1.5% better long TTFT, about 4.6% worse C64 aggregate output; retained 8192.
+CP local-projection deduplication:
+approximately 21–33% faster in the projection+gather microbenchmark, only 0.4–1.1% TTFT improvement end to end with mixed throughput results; removed.
+[DeepSeek V4.1] an FP8 Tensor Core path for the FP4 grouped indexer
+#40160
+H32 adaptation:
+correctness checks passed, but none of the six tested shapes beat the existing scorer; not dispatched in production.
+The medium-mHC path remained disabled pending further validation.
+3. End-to-end performance versus original v0.5.21
+Cold prefill:
+synthetic text, one output token; client-side TTFT includes scheduling and first generation. Median of three measured runs, in seconds (lower is better).
+Input tokens
+Original v0.5.21 (s)
+Final integration (s)
+TTFT reduction
+8,192
+1.329
+0.338
+74.6%
+32,768
+6.010
+1.318
+78.1%
+131,072
+35.326
+5.385
+84.8%
+262,144
+101.004
+11.412
+88.7%
+524,032 †
+323.261
+25.531
+92.1%
+Natural Chinese generation:
+medians over three measured batches (per-request values are the median of the three batch medians); thinking disabled, temperature 0, seed 0, normal EOS, output cap 512. Final measured requests reached 512 output tokens. Per-request decode is
+(output_tokens - 1) / (last_content_time - first_content_time)
+; DSpark can deliver multiple tokens per event. Aggregate output includes prefill and scheduling: total output tokens divided by the whole batch's elapsed time.
+Concurrency
+Per-request decode, original → final (token/s)
+Change
+Aggregate output, original → final (token/s)
+Change
+1
+134.11 → 180.05
++34.3%
+128.58 → 169.14
++31.6%
+4
+99.36 → 174.16
++75.3%
+331.48 → 508.35
++53.4%
+8
+76.62 → 144.41
++88.5%
+504.59 → 882.61
++74.9%
+16
+47.87 → 104.44
++118.2%
+638.16 → 1351.94
++111.9%
+32
+30.34 → 72.34
++138.4%
+809.68 → 1905.77
++135.4%
+64 †
+15.69 → 49.10
++213.0%
+877.01 → 2534.61
++189.0%
+† Paired supplemental baseline; other rows have the historical-comparison limitation described above. The C64 supplement contains 192 matched formal requests plus 64 matched warmup requests per arm. Final formal coverage was 441 requests, including 432 cold requests with zero cache hits and 375 natural-generation requests. These are finite batches,
+not sustained-arrival capacity or production P99 measurements
+. HiCache/Engram are part of the configuration, but the cold performance gains above do not come from prefix-cache hits.
+4. Task accuracy and functional validation
+Task
+Items
+Original V4.1 baseline
+Final integration
+Delta (percentage points)
+GSM8K
+1,319
+1,279/1,319 (96.97%)
+1,276/1,319 (96.74%)
+−0.23
+MMMU
+900
+612/900 (68.00%)
+613/900 (68.11%)
++0.11
+OCRBench
+1,000
+837/1,000 (83.70%)
+837/1,000 (83.70%)
+0.00
+GSM8K uses fixed sgl-eval, temperature 0.7, top-p 0.9, seed 0, max 2048 output tokens, concurrency 16, thinking disabled. MMMU/OCRBench use matched questions/images and a fixed lmms-eval scorer, max 512 output tokens; all 1,900 multimodal inputs were matched.
+This is MMMU, not MMMU-Pro.
+Request errors were zero in these runs. Final MMMU had five outputs reaching the token cap. Aggregate scores stayed close, but answers were not identical: MMMU had 17 correct→incorrect and 18 incorrect→correct changes; OCRBench had 16 in each direction. These single-seed task results
+do not establish numerical identity or lossless accuracy
+. We have not evaluated real 512K task accuracy or multi-seed equivalence.
+Text/chat, streaming usage, tools, image+text and cold/repeated/extended-prefix cache checks were exercised. Forced host-tier KV readback was additionally validated in a controlled small-pool configuration with GPU-resident Engram; we are not claiming exhaustive eviction/readback coverage for the final combined host-Engram/HiCache configuration.
+5. Our three upstream PRs and their independent evidence
+#39306
+— H20-3e block-FP8 GEMM configurations.
+The original Hopper kernel prerequisite has since landed as
+#39657
+, so our updated PR uses that upstream kernel and preserves the six H20-3e tuning tables, numerical tests and benchmarks in the current GEMM module layout. October 7 validation on pinned main covered
+3,120 numerical subcases
+and
+72 GEMM shape/batch points
+. Against generic configs:
+69 faster / 3 within ±3% / 0 slower
+; against H200 tables run on H20:
+49 / 12 / 11
+. Thus the H20 tables are not universally best. The previously reported
+44.16 → 84.48 token/s (+91.3%)
+C1 serving improvement is explicitly
+historical
+, measured in the earlier pinned
+#39114
+integration without CP/speculation, not a new current-main serving result or an additive gain on top of the tables above.
+#42922
+— Torch prefill indexer request-pool rows under CP.
+Maps real local query rows to physical request-pool IDs, covering non-contiguous slots, unequal request lengths, tails and padding. It is a small correctness/enablement fix, directly targeting main; exercising the relevant end-to-end vision-CP path requires
+#40219
+. We do
+not
+attribute a standalone model speedup to this fix.
+#42924
+— decoder SWA bounded replay with vision CP and DSpark.
+Stacked on
+#40219
++
+#42922
+. The new replay implementation is isolated in a
+seven-file incremental diff
+. It preserves
+#40219
+'s multimodal input contract and supplies tail-aware hidden/auxiliary-state gather, global logits/DSpark indices, original CP ownership and canonical image IDs, following the tail-handling idea in
+#40161
+.
+For
+#42924
+we ran a
+separate, smaller control/candidate comparison
+: pinned
+main@d7190b01
++
+#40219@cfbace49
++
+#42922
+and a common owner-callback API adaptation,
+TP8/EP8, CP8, DSpark5
+. The candidate adds replay support and enables it.
+No other production optimization bundle, host Engram or HiCache
+is included. These isolated PR runs use a separate official dev runtime: PyTorch 2.14.1+cu130, Triton 3.8.0, FlashInfer 0.7.0.post1 and sglang-kernel 0.4.9; exact pins and commands are in the PR.
+Input tokens
+Replay off TTFT (s)
+Replay on TTFT (s)
+Reduction
+8,192
+0.6103
+0.4051
+33.62%
+131,072
+12.3247
+7.2886
+40.86%
+262,144
+30.7955
+17.1084
+44.45%
+524,032
+86.9698
+44.8640
+48.41%
+Image+32K-text TTFT fell by approximately
+33%
+, with the image tested both before and after the text. This is a
+prefill
+improvement: C1/C8/C32 per-request decode changed
+−0.11% / −2.65% / −0.38%
+; aggregate output changed
+−0.08% / +1.89% / −1.02%
+. No decode speedup is claimed.
+Isolated replay evaluation
+Off
+On
+Delta (percentage points)
+GSM8K, 1,319 items
+96.74%
+96.66%
+−0.08
+MMMU, 900 items
+68.44%
+68.67%
++0.22
+OCRBench, 1,000 items
+83.40%
+83.00%
+−0.40
+Both arms had zero request errors/empty answers; MMMU had four capped outputs per arm. This validation also includes
+329 CPU tests + 108 subtests
+, real Gloo multimodal-owner communication,
+180 paired text performance requests
+,
+24 paired image performance requests
+, and
+27/27 cache checks per arm
+. Full protocols, dependencies, commands and the score regressions are in the PR; these numbers must not be mixed with the production bundle's results.
+As of
+October 13
+, all three PRs are open and non-draft.
+#42924
+is ready for review but needs a rebase as main and its still-open
+#40219
+dependency have advanced; the tested pins above remain the provenance of these results. We are reporting local validation, not claiming upstream GPU CI has passed.
+Our practical takeaway for this hardware/workload is that
+vision-compatible CP + DSpark + decoder replay
+, followed by the
+fused Hopper prefill indexer / native block32 FP8 paths
+, made the deployment substantially more usable. Decode and mixed-load scheduling still have room to improve: in two finite mixed-load checks (128K+C8 and 256K+C32), the longest streaming gaps were about 5.0 s and 11.1 s, respectively—not production P99s.
+Thanks to the authors of the underlying SGLang, FlashInfer and DeepGEMM work. Our contributions are H20-specific tuning, integration/compatibility fixes, and validation of this combined serving path. Hopefully the measurements and the three focused PRs provide useful feedback for this roadmap.
+simple-sun
+commented
+on
+Oct 14, 2026
+simple-sun
+on Oct 14, 2026
+Last edited by
+simple-sun
+Contributor
+More actions
+Hi maintainers
+@Oasis-Git
+, could someone help review
+#40508
+(Engram WKV projection sharding), which is already tracked in this roadmap?
+The PR is ready for review, with implementation details, benchmark results, and validation limitations documented in the description. CI is currently blocked by the missing run-ci label. Could you help enable CI and take an initial look? I’m happy to address feedback and add any targeted validation needed.
+Thanks!
+nvpohanh
+commented
+on
+Oct 14, 2026
+nvpohanh
+on Oct 14, 2026
+Collaborator
+More actions
+BCG + long context requires
+#43733
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+No labels
+No labels
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

@@ -1,0 +1,134 @@
+{
+  "claims": [
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "Paged MQA logits (separate kernel, untouched) is unaffected.",
+      "claim": "Author-stated scope: #452 changes the contiguous SM90 FP8 MQA logits epilogue, separately from paged candidate-only decode optimizations.",
+      "relation": "supports",
+      "conditions": "Execution must reach sm90_fp8_mqa_logits.cuh; the paged MQA kernel is outside this patch.",
+      "reported_result": "The author reports improvements for contiguous MQA and no effect on the separate paged kernel.",
+      "transfer_inference": "Attribute potential gains only to requests that execute the changed contiguous kernel. Do not transfer these measurements to paged decode.",
+      "limitations": "The supplied sources contain no target execution trace or candidate-only decode patch implementation. Runtime invocation frequency is unknown."
+    },
+    {
+      "source_id": "code:h200:mqa-epilogue",
+      "quote": "return fmaxf(shifted_accum[j], 0) * weights[i][(j / 4) * 2 + (j & 1)];",
+      "claim": "Observed source text: the installed contiguous header retains fmaxf and multiplies the reduced sums by unhalved scale_kv_0 and scale_kv_1.",
+      "relation": "supports",
+      "conditions": "Read-only snapshot of the vendored SM90 contiguous MQA header.",
+      "reported_result": "The inspected epilogue does not contain #452's replacement or its two compensating half-scale factors.",
+      "transfer_inference": "This identifies a concrete patch candidate if the running process actually builds and invokes this header.",
+      "limitations": "Source inspection is not proof of the loaded implementation, generated instructions, invocation, or a measured bottleneck."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "FADD R3, R3, |R3|    ; one instruction, full rate (cuobjdump, sm_90a)",
+      "claim": "Author claim: replacing FMNMX with FADD using its absolute-value operand modifier improves the instruction throughput of the ReLU operation.",
+      "relation": "supports",
+      "conditions": "SM90A code generation; the author gives FMNMX and FADD rates of 64 and 128 operations per clock per SM, respectively.",
+      "reported_result": "The author reports zero FMNMX instructions across the tested JIT-instantiated contiguous MQA cubins and no additional instructions from scale compensation.",
+      "transfer_inference": "The mechanism is plausible when this epilogue consumes meaningful kernel time. Inspect generated code for the target's actual specializations.",
+      "limitations": "Disassembly files and target compiler details are not supplied. Doubling one instruction's issue rate does not double kernel or serving throughput."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "Production indexer shapes, best of 3 reps, before → after:",
+      "claim": "Author-reported H200 microbenchmarks support a modest, shape-dependent contiguous-kernel improvement.",
+      "relation": "supports",
+      "conditions": "H200, 132 SMs, SM90A. Listed cases: H=32/D=128/SQ=512/SKV=140k/FP32 logits; SQ=512/SKV=130560/H=64/BF16/CP=1; SQ=512/SKV=130560/H=32/BF16/CP=0; SQ=2048/SKV=8192/H=64/BF16/CP=1.",
+      "reported_result": "Respectively: 1018→1093 TFLOPS (+7.4%), 1042→1126 (+8.1%), 941→989 (+5.1%), and 980→1027 (+4.8%). The 192-case contiguous sweep reportedly averaged +3.7%, with SK=65536 averaging +4.4%, H=64 averaging +5.5%, and a best case of +11.3%.",
+      "transfer_inference": "Compare actual invocation shapes, head counts, dimensions, dtypes, and modes before choosing a representative microbenchmark. Larger SKV, more heads, and smaller head dimensions are author-proposed favorable conditions.",
+      "limitations": "Independent reproduction, timing distributions, uncertainty, worst-case results, and per-case regressions are unknown. D is unspecified for three listed cases, and CP is undefined in the excerpt. These are not serving measurements."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "pass (numeric diff vs simulated reference, 20× bitwise self-consistency, mask equality)",
+      "claim": "Author-reported testing supports correctness on the tested inputs, but does not establish universal bitwise equivalence or unchanged top-k selections.",
+      "relation": "supports",
+      "conditions": "192 SM90 cases in tests/test_attention.py, reportedly run on H200.",
+      "reported_result": "The author reports all cases passing numeric comparison, repeated-run bitwise self-consistency, and mask equality. The visible review states that its environment lacked CUDA tools or a GPU and did not rerun tests or performance measurements.",
+      "transfer_inference": "Require baseline-versus-patch comparisons against an appropriate reference, mask checks, and downstream top-k-set checks, including near ties and the deployed tie policy.",
+      "limitations": "Self-consistency measures repeatability, not equivalence to the original implementation. Input ranges, tolerances, reference details, top-k values, and top-k-set results are unknown."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "holds exactly for all finite IEEE-754 floats",
+      "claim": "Analyst challenge: the universal exactness claim is too broad for this floating-point transformation with delayed compensation.",
+      "relation": "challenges",
+      "conditions": "Float32 addition, weighted products, reductions, and multiplication of the KV scale by 0.5.",
+      "reported_result": "The source claims exactness and bit-exact numerics, but supplies no overflow-boundary or subnormal-scale results.",
+      "transfer_inference": "A finite positive x such as FLT_MAX overflows when doubled. With unit weight and scale 0.5, the original scalar contribution remains finite, while doubling x before applying the compensated scale produces infinity. Weighted products and reductions also need overflow headroom; halving a subnormal scale can round or underflow. Require bounds and tests for accumulators, weights, scales, and intermediate reductions.",
+      "limitations": "The target's numerical ranges, scaling constraints, flush-to-zero behavior, and boundary-test outcomes are unknown. Finite accumulator inputs alone do not establish safety."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "propagates NaN;",
+      "claim": "Author-acknowledged challenge: the replacement changes NaN handling.",
+      "relation": "challenges",
+      "conditions": "A NaN reaches the ReLU transform.",
+      "reported_result": "The author states that x + |x| propagates NaN, whereas fmaxf(NaN, 0) returns zero, and asserts that WGMMA accumulators are finite in practice.",
+      "transfer_inference": "Test exceptional values explicitly and establish the target's finite-input invariant. Matching the claimed SM100 behavior does not establish equivalence to the installed SM90 baseline.",
+      "limitations": "No target NaN telemetry, invariant proof, or exceptional-value test results are supplied."
+    },
+    {
+      "source_id": "runtime:h200:runtime-inventory",
+      "quote": "\"--max-num-batched-tokens\",\n        \"16384\"",
+      "claim": "Observed configuration establishes an H200 deployment, but does not establish a match to the author's kernel workloads.",
+      "relation": "context",
+      "conditions": "Eight NVIDIA H200 GPUs are listed with driver 580.126.20. Two running containers serve DeepSeek-V4.1-Flash with TP=1, DP=4, expert parallelism, FP8 KV cache, block size 64, chunked prefill, and five speculative tokens.",
+      "reported_result": "Both health checks succeeded. Configuration permits model length 1048576, up to 64 sequences, and 16384 batched tokens.",
+      "transfer_inference": "Hardware-family overlap makes testing relevant. Record actual contiguous versus paged calls and their SQ, SKV, H, D, dtypes, and execution modes; configuration limits are not observed kernel shapes.",
+      "limitations": "Actual requests, concurrency, chunk sizes, kernel dispatch, head dimensions, clock settings, and exposed prefill time are unknown. FP8 KV configuration alone does not prove use of this epilogue."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "avg +3.7%",
+      "claim": "H200 serving improvement remains unmeasured; the reported kernel gains cannot be used as serving multipliers.",
+      "relation": "challenges",
+      "conditions": "Transfer depends on the changed kernel's exposed share of the target latency and on overlap, scheduling, and other bottlenecks.",
+      "reported_result": "Only kernel throughput improvements are supplied; no before/after target prefill latency, TTFT, throughput, or tail-latency results are provided.",
+      "transfer_inference": "For the 1018→1093 TFLOPS case, fixed-work kernel time would fall by about 6.9%. Under a simple serial model, if that kernel occupies fraction f of baseline latency, the latency reduction is f × (1 − 1018/1093). Measure f on the critical path rather than assuming it.",
+      "limitations": "The exposed fraction f is unknown. Summed kernel time can overstate critical-path exposure, and the serial model does not capture serving interactions."
+    },
+    {
+      "source_id": "runtime:h200:runtime-inventory",
+      "quote": "\"--enable-prefix-caching\"",
+      "claim": "Observed prefix caching makes cold-prefill versus warm-prefix comparison a useful discriminator for this optimization.",
+      "relation": "context",
+      "conditions": "The runtime enables both prefix caching and chunked prefill.",
+      "reported_result": "Caching is configured, but cache-hit rates and comparative timings are not supplied.",
+      "transfer_inference": "Warm JIT compilation for both variants, then compare matched requests with uncached prefixes and confirmed warm-prefix hits. Measure changed-kernel calls, shapes, exposed prefill time, TTFT, and cache-hit tokens. Little or no benefit is expected where cache hits remove most relevant prefill work; paged-only execution is another negative control.",
+      "limitations": "These are proposed discriminators, not observed results. Actual cache reuse, residual prefill work, and serving effect sizes are unknown."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:452:live-page",
+      "quote": "The diff is exactly 3 lines",
+      "claim": "The reported patch scope supports a small, reversible JIT-header experiment, with the transform and both scale compensations kept together.",
+      "relation": "supports",
+      "conditions": "One changed path: deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh. The visible review warns that separating the transform from compensation can double logits.",
+      "reported_result": "The author describes one transform replacement and two half-scale folds. No target integration result is supplied.",
+      "transfer_inference": "Prefer an isolated copy of the installed header with those coupled changes and an explanatory comment. Verify include resolution, rebuild affected JIT artifacts, inspect actual specializations, and preserve the original header and artifacts for rollback before correctness and serving comparisons.",
+      "limitations": "The active JIT include path, cache invalidation behavior, running artifact provenance, and #452 merge status are unknown. No integration or test was performed in this analysis."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepGEMM:303:live-page",
+      "quote": "I am seeing a similar slowdown with fp8_mqa_logits on long-context prefill",
+      "claim": "A separate closed PR contains an anecdotal long-context prefill complaint, not evidence that #452 fixes the target deployment.",
+      "relation": "context",
+      "conditions": "#303 explored stores, staging, thread counts, block sizes, and weight placement. Its changed paths include both contiguous and paged SM90 MQA headers and a JIT launcher.",
+      "reported_result": "#303 was marked draft and closed on April 11, 2026. A later commenter reported a similar slowdown and asked why it was closed.",
+      "transfer_inference": "Treat this as motivation to profile long-context prefill. Keep its broader kernel changes separate from the three-line epilogue experiment.",
+      "limitations": "The complaint's hardware, exact workload, baseline, slowdown magnitude, and cause are unknown. Closure rationale and validated performance results are absent."
+    }
+  ],
+  "unanswered": [
+    "Does the serving process compile and invoke the inspected contiguous SM90 header, and which JIT artifacts are active?",
+    "What are the actual SQ, SKV, H, D, dtypes, execution modes, invocation counts, and contiguous-versus-paged split?",
+    "How much cold-prefill and end-to-end latency is exposed to this kernel on the critical path?",
+    "What accumulator, weight, scale, and intermediate-reduction ranges occur, and do overflow, subnormal, NaN, reference, mask, and top-k-set checks pass?",
+    "What are the target compiler settings, JIT cache behavior, GPU clocks, and workload conditions relative to the author's microbenchmarks?",
+    "What are the kernel timing variance, worst-case regressions, and cold-prefix versus warm-prefix serving results?",
+    "What is #452's merge status? The supplied page is truncated, and its state and merged_at fields are null.",
+    "Why was #303 closed? No supplied evidence resolves that question."
+  ]
+}

@@ -1,0 +1,394 @@
+Conversation
+Oseltamivir
+commented
+Sep 14, 2026
+•
+edited by cursor
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+Raise H200 DSpark CUDA graph capture to a minimum of 64 for c1/c2/c4 subagent fan-out. Preserve c8+ sizing, the full AgentX trace, synthetic AL 3.51, and Engram UVA. B300 c1 evidence:
+CI
+, ITL P90/P99 38.74/41.42 → 2.62/3.45 ms; other points require sweep validation.
+将 H200 DSpark 的 CUDA graph 最小捕获范围设为 64，以覆盖 c1/c2/c4 子代理并发。保持 c8+ 大小、完整 AgentX 轨迹、合成 AL 3.51 和 Engram UVA；B300 c1 已验证改善，其他点由 sweep 验证。
+Validation / 验证：12 behavioral tests, Bash syntax, exact c1/c2/c4 matrix / 12 项行为测试、Bash 语法及精确 c1/c2/c4 矩阵。
+Note
+Medium Risk
+Changes vLLM CUDA graph sizing for a production AgentX benchmark recipe; wrong capture bounds could affect latency/throughput or startup, though scope is limited to H200 launcher env and defaults elsewhere stay at 1.
+Overview
+Raises the CUDA graph capture floor for H200 DeepSeek-V4.1-Flash DSpark AgentX runs
+so low-concurrency points size graphs for concurrent AgentX subagents instead of undersized captures.
+The shared
+dsv41flash_fp4_vllm_mtp.sh
+script now seeds
+--max-cudagraph-capture-size
+from optional
+DSV41_MIN_CUDAGRAPH_CAPTURE_SIZE
+(still doubling up to
+CONC * 6
+and 2048). The H200 Slurm launcher sets that env to
+64
+for
+dsv41flash
+jobs, lifting c1/c2/c4 from 8/16/32 while c8+ behavior is unchanged. Speculative DSpark settings, synthetic AL 3.51, Engram UVA, and trace replay are untouched.
+Documentation (EN/ZH) and
+perf-changelog.yaml
+record the H200 recipe change. New pytest coverage in
+runners/test_dsv41flash_capture.py
+asserts the capture-size matrix and that eval vs throughput speculative config stays correct.
+Reviewed by
+Cursor Bugbot
+for commit
+a67a4c5
+. Bugbot is set up for automated code reviews on this repo. Configure
+here
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+fix: cover H200 DSpark subagents at low concurrency
+…
+127c1dd
+将 H200 的图捕获下限设为 64，以覆盖低并发 AgentX 子代理；保留完整轨迹和 AL 3.51。
+Oseltamivir
+requested a review
+  from
+a team
+September 14, 2026 10:53
+github-project-automation
+Bot
+added this to
+InferenceX Board
+Sep 14, 2026
+github-actions
+Bot
+commented
+Sep 14, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+chore: link H200 graph sweep PR
+…
+a67a4c5
+补充 PR
+#3099
+的性能变更记录链接。
+Oseltamivir
+added
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+and removed
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+labels
+Sep 14, 2026
+claude
+Bot
+reviewed
+Sep 14, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Beyond the inline findings, I checked whether seeding
+CAPTURE_SIZE
+from the unvalidated
+DSV41_MIN_CUDAGRAPH_CAPTURE_SIZE
+env var (benchmarks/single_node/agentic/dsv41flash_fp4_vllm_mtp.sh:31) could silently skip the doubling loop — if the override is already >= 2048 the loop correctly no-ops since 2048 is already the intended cap, so this isn't a bug in the normal flow.
+Extended reasoning...
+The two confirmed findings (perf-changelog.yaml pr-link placeholder rejected by the changelog gate validator, and the new test file not wired into any CI workflow) are sufficient to warrant human review before merge, so I did not approve. I additionally examined the candidate concern about
+CAPTURE_SIZE
+in benchmarks/single_node/agentic/dsv41flash_fp4_vllm_mtp.sh being seeded from an unvalidated
+DSV41_MIN_CUDAGRAPH_CAPTURE_SIZE
+env var: if that override is already >= 2048, the
+while (( CAPTURE_SIZE < CONC * (1 + NUM_SPEC_TOKENS) && CAPTURE_SIZE < 2048 ))
+guard never runs — but since 2048 is the script's own intended ceiling, the loop correctly not running in that case reflects the value already being at (or past) the cap, not an unintended skip of the sizing logic for realistic CONC values. This is worth surfacing briefly since it's a distinct code path from the two confirmed findings, but it did not rise to the level of a standalone finding.
+Findings marked 🟡 are optional suggestions and need no follow-up push.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+perf-changelog.yaml
+Outdated
+description:
+- "Set a 64-token CUDA graph capture floor for H200 DSpark at c1/c2/c4; preserve c8+ sizing, full AgentX traces, AL 3.51, and Engram UVA"
+- "将 H200 DSpark 的 c1/c2/c4 CUDA graph 最小捕获范围设为 64 tokens；保持 c8+ 大小、完整 AgentX 轨迹、AL 3.51 和 Engram UVA"
+pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/TBD
+claude
+Bot
+Sep 14, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔴 The new changelog entry uses
+pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/TBD
+, which is not an accepted placeholder (
+infx/workflows/validate_perf_changelog.py
+only allows
+XXX
+or the full
+pull/XXX
+link, or the exact
+pull/<pr_number>
+URL) so
+validate_added_pr_link
+raises
+ChangelogValidationError
+, failing the changelog CI gate this PR needs to merge. Fix: replace
+TBD
+with
+XXX
+(or the real PR number once known) to match
+PR_LINK_PLACEHOLDERS
+/
+CANONICAL_PR_LINK
+.
+Extended reasoning...
+test-changelog-gate.yml runs infx/workflows/validate_perf_changelog.py, which calls compare_entries -> validate_added_pr_link(str(entry.get('pr-link')), pr_number) for the newly appended entry. Since '
+https://github.com/SemiAnalysisAI/InferenceX/pull/TBD
+' is neither in PR_LINK_PLACEHOLDERS ({'XXX', '.../pull/XXX'}) nor equal to the expected '.../pull/<pr_number>' string nor matching CANONICAL_PR_LINK, the function raises ChangelogValidationError('new PR entry must use ... found ...'), causing the changelog validation workflow to fail on this exact commit.
+Verification:
+normal. The appended entry at perf-changelog.yaml:7605 uses
+pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/TBD
+. This is not an accepted placeholder: PR_LINK_PLACEHOLDERS = {"XXX", ".../pull/XXX"} (infx/workflows/validate_perf_changelog.py:24-27), and validate_added_pr_link (lines 156-160) raises ChangelogValidationError when the link is neither a placeholder nor equal to…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+runners/test_dsv41flash_capture.py
+@@ -0,0 +1,45 @@
+import json
+claude
+Bot
+Sep 14, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡 (optional) New test file is not wired into any CI workflow: every pytest invocation in .github/workflows/
+.yml lists explicit file names (e.g. test-changelog-gate.yml lists runners/test_slurm_utils.py) and none reference runners/test_dsv41flash_capture.py, so it never runs automatically despite the PR citing '12 behavioral tests' as validation. Fix: add this file to test-changelog-gate.yml's pytest arg list (and its trigger paths, alongside runners/launch_
+.sh) so future edits to the CAPTURE_SIZE/DSV41_MIN_CUDAGRAPH_CAPTURE_SIZE logic are actually regression-tested, matching how runners/test_slurm_utils.py is wired.
+Extended reasoning...
+Sibling file runners/test_slurm_utils.py is both a trigger path and an explicit pytest arg in .github/workflows/test-changelog-gate.yml (lines ~31 and ~125); the new runners/test_dsv41flash_capture.py appears in neither list, and no other workflow (test-process-result.yml, test-matrix-logic.yml) references it either — confirmed via repo-wide grep for the filename, only the .git index matches. Every CI pytest step in this repo passes an explicit file list rather than discovering tests in a directory, so this file is silently never executed. A later PR that changes the CAPTURE_SIZE doubling formula or removes the DSV41_MIN_CUDAGRAPH_CAPTURE_SIZE floor would pass CI with no signal, even though a correct regression test already exists in the tree.
+Verification:
+nit. The new runners/test_dsv41flash_capture.py is orphaned from CI. .github/workflows/test-changelog-gate.yml runs pytest with an explicit file list (lines 106-125), ending "runners/test_slurm_utils.py " then "-v -n 4" (lines 125-126); the new file is absent. Repo-wide grep for "test_dsv41flash_capture" matches nothing outside .git. There is no conftest.py, pytest.ini, pyproject.toml,…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+github-actions
+Bot
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Contributor
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/inference?unofficialRun=34835741716
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/evaluation?unofficialRun=34835741716
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge main into H200 low-concurrency graph fix
+…
+6a07edc
+将 main 合并到 H200 低并发 CUDA graph 修复分支。
+Oseltamivir
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/reuse-sweep-run 34835741716
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Hide details
+View details
+Oseltamivir
+merged commit
+7ed0b3f
+into
+main
+Sep 15, 2026
+23 of 34 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oseltamivir
+deleted the
+fix/dsv41flash-h200-low-conc-graphs
+branch
+September 15, 2026 12:20
+github-project-automation
+Bot
+moved this to
+Done
+in
+InferenceX Board
+Sep 15, 2026
+github-actions
+Bot
+commented
+Sep 15, 2026
+Copy link
+Copy Markdown
+Contributor
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/inference?unofficialRun=34967844783
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/evaluation?unofficialRun=34967844783
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+Assignees
+No one assigned
+Labels
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+Projects
+InferenceX Board
+Status: Done
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,470 @@
+Conversation
+hnyls2002
+commented
+Sep 15, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+Summary
+Batch-invariant mHC mixing statistics for DeepSeek-V4.1's hyper-connection layers, in
+mhc.py
+:
+hc_mix_stats
+computes the per-row mixing projections and sum of squares over a fixed number of K slices with
+tf32x3
+dots, so a row's result is bitwise identical whether computed alone or in a batch;
+hc_mix_stats_sinkhorn
+fuses the slice reduction with the sinkhorn normalisation that
+hc_split_sinkhorn
+performs.
+Two compensated variants of the same projection for large batches, keeping the fp32 weight exact on the tensor cores:
+hc_mix_stats_sinkhorn_bf16x3
+(Triton, three bf16 weight components, one activation read) and
+hc_mix_stats_sinkhorn_deepgemm
+(tf32 high part plus fp32 residual through DeepGEMM), with
+split_bf16_hc_weight
+/
+split_tf32_hc_weight
+preparing the weight parts. Both accumulate over
+_HC_MIX_COMPENSATED_SLICES
+and share the sinkhorn reduce kernel; sizes come from the input shapes and
+hc_mult
+.
+hc_split_sinkhorn
+answers an empty batch directly instead of launching a zero-sized grid, which the TileLang backend rejects.
+Changes to existing kernels
+hc_split_sinkhorn
+: the empty-batch return only. Its existing caller already returns before reaching it with no tokens, so results on existing models are unchanged; the guard is for callers that do not pre-check.
+Verification
+Sinkhorn arithmetic (eps placement, iteration count, RMS scaling order) matches the existing Triton
+hc_split_sinkhorn
+port and the reference implementation.
+The two compensated variants produce bitwise identical outputs to their previous standalone-module versions for M in {4096, 5000, 8192} (bf16x3) and {128, 1000, 4096} (DeepGEMM) at K = 20480.
+test_mhc_kernels.py
+and
+test_hc_combine.py
+cover the untouched kernels of the module.
+CI States
+Latest PR Test (Base): ❌
+Run #35165253652
+Latest PR Test (Extra): ❌
+Run #35165253438
+Latest PR Test (AMD ROCm 10): ❌
+Run #35165253625
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+hnyls2002
+requested review from
+BBuf
+,
+DarkSharpness
+,
+HaiShaw
+,
+HydraQYH
+,
+celve
+and
+yuan-luo
+September 15, 2026 22:30
+github-actions
+Bot
+added
+  the
+jit-kernel
+label
+Sep 15, 2026
+hnyls2002
+added this pull request to stack #39667
+September 15, 2026 22:32
+This was referenced
+Sep 15, 2026
+dsv4.1: chat encoding and tool parsing
+#39665
+Merged
+dsv4.1: vision tower and image preprocessing
+#39668
+Merged
+hnyls2002
+removed this pull request from stack #39667
+September 15, 2026 22:43
+hnyls2002
+added this pull request to stack #39669
+September 15, 2026 22:43
+hnyls2002
+removed this pull request from stack #39669
+September 15, 2026 22:56
+hnyls2002
+force-pushed
+the
+dsv4.1-hopper
+branch
+    from
+5cf6459
+to
+fe97034
+Compare
+September 15, 2026 22:57
+hnyls2002
+requested review from
+Fridge003
+,
+Qiaolin-Yu
+,
+hebiao064
+,
+ispobock
+and
+merrymercy
+September 15, 2026 22:57
+hnyls2002
+force-pushed
+the
+dsv4.1-mhc
+branch
+    from
+e6a5980
+to
+124c47f
+Compare
+September 15, 2026 22:57
+hnyls2002
+added this pull request to stack #39672
+September 15, 2026 22:58
+hnyls2002
+force-pushed
+the
+dsv4.1-hopper
+branch
+    from
+fe97034
+to
+e005f05
+Compare
+September 15, 2026 23:38
+hnyls2002
+force-pushed
+the
+dsv4.1-mhc
+branch
+    from
+124c47f
+to
+e996f4e
+Compare
+September 15, 2026 23:38
+hnyls2002
+force-pushed
+the
+dsv4.1-hopper
+branch
+    from
+e005f05
+to
+7f33ed3
+Compare
+September 16, 2026 00:27
+hnyls2002
+force-pushed
+the
+dsv4.1-mhc
+branch
+    from
+e996f4e
+to
+63f7d97
+Compare
+September 16, 2026 00:27
+hnyls2002
+force-pushed
+the
+dsv4.1-hopper
+branch
+    from
+7f33ed3
+to
+5112b92
+Compare
+September 16, 2026 01:12
+hnyls2002
+force-pushed
+the
+dsv4.1-mhc
+branch
+    from
+63f7d97
+to
+111265c
+Compare
+September 16, 2026 01:12
+hnyls2002
+force-pushed
+the
+dsv4.1-hopper
+branch
+    from
+5112b92
+to
+0834e67
+Compare
+September 16, 2026 01:52
+hnyls2002
+force-pushed
+the
+dsv4.1-mhc
+branch
+    from
+111265c
+to
+6dcb649
+Compare
+September 16, 2026 01:52
+hnyls2002
+force-pushed
+the
+dsv4.1-hopper
+branch
+    from
+0834e67
+to
+d225e3b
+Compare
+September 16, 2026 03:45
+77 hidden items
+Load more…
+hnyls2002
+added
+13
+commits
+September 16, 2026 12:40
+merge metadata
+b32b53d
+merge candidate
+68ce340
+merge rope-fp4
+3e0335f
+merge hopper
+81016b0
+merge main
+fe06b61
+merge candidate
+90723f1
+merge rope-fp4
+1989687
+merge hopper
+9bdd420
+merge main
+b1be221
+merge dsv4.1-rope-fp4
+ae963bc
+merge dsv4.1-hopper
+895f441
+merge main
+aa10ae4
+merge dsv4.1-hopper
+3bef642
+Base automatically changed from
+dsv4.1-hopper
+to
+main
+September 16, 2026 23:54
+hnyls2002
+added
+2
+commits
+September 16, 2026 16:59
+merge main
+d8a9654
+mhc: fold compensated hc_mix_stats variants into mhc.py; derive sizes…
+…
+235af92
+… from hc_mult; share the slice count
+hnyls2002
+commented
+Sep 17, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/rerun-test test/registered/kernels/ops/layernorm/test_mhc_kernels.py test/registered/kernels/ops/layernorm/test_hc_combine.py
+👍
+1
+github-actions[bot] reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+github-actions
+Bot
+commented
+Sep 17, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Results for
+/rerun-test test/registered/kernels/ops/layernorm/test_mhc_kernels.py test/registered/kernels/ops/layernorm/test_hc_combine.py
+:
+🚀
+1-gpu-h100
+(2 tests): ✅
+View workflow run
+cd test/ && python3 registered/kernels/ops/layernorm/test_mhc_kernels.py
+cd test/ && python3 registered/kernels/ops/layernorm/test_hc_combine.py
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+trim comments
+6d606f0
+Hide details
+View details
+hnyls2002
+merged commit
+408d233
+into
+main
+Sep 17, 2026
+104 of 119 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+hnyls2002
+deleted the
+dsv4.1-mhc
+branch
+September 17, 2026 00:11
+This was referenced
+Sep 17, 2026
+[CI Monitor] Daily Report - 2026-09-17
+bingxche/sglang-ci-bot#198
+Open
+[CI Monitor] Daily Report - 2026-09-18
+bingxche/sglang-ci-bot#199
+Open
+zozyo
+mentioned this pull request
+Sep 20, 2026
+Backport DeepSeek V4.1 native support onto SGLang v0.5.20
+Phala-Network/sglang#43
+Closed
+This was referenced
+Sep 25, 2026
+dsv4.1-amd: gfx950 MXFP8 matmul kernels and fp8-grid producers
+#41018
+Merged
+dsv4.1-amd: KV cache layouts, FP4 indexer, compressor and router kernels
+#41019
+Merged
+dsv4.1-amd: gfx950 sparse decode attention and sorted top-k
+#41020
+Merged
+dsv4.1-amd: serve DeepSeek-V4.1 on gfx950
+#41308
+Merged
+dsv4.1-amd: fused mHC boundary and all-reduce + mHC post kernels
+#41021
+Merged
+xijiaat
+mentioned this pull request
+Oct 9, 2026
+[WIP][Kernel][DSv4.1] Add compensated BF16 mHC prenorm for SM90
+vllm-project/vllm#60777
+Closed
+5 tasks
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+DarkSharpness
+Awaiting requested review from DarkSharpness
+DarkSharpness is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+BBuf
+Awaiting requested review from BBuf
+BBuf is a code owner
+celve
+Awaiting requested review from celve
+celve is a code owner
+HydraQYH
+Awaiting requested review from HydraQYH
+HydraQYH is a code owner
+yuan-luo
+Awaiting requested review from yuan-luo
+yuan-luo is a code owner
+merrymercy
+Awaiting requested review from merrymercy
+Fridge003
+Awaiting requested review from Fridge003
+ispobock
+Awaiting requested review from ispobock
+Qiaolin-Yu
+Awaiting requested review from Qiaolin-Yu
+hebiao064
+Awaiting requested review from hebiao064
+Ying1123
+Awaiting requested review from Ying1123
+ch-wan
+Awaiting requested review from ch-wan
+Edwardf0t1
+Awaiting requested review from Edwardf0t1
+yizhang2077
+Awaiting requested review from yizhang2077
+Assignees
+No one assigned
+Labels
+jit-kernel
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

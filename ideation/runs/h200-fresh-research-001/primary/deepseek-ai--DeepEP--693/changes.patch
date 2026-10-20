@@ -1,0 +1,347 @@
+From b9ef9b3f2e8dc33e5acf8e4826aab65c41fd5b77 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E7=8E=84=E6=AD=A6?= <wangmingyao@xiaohongshu.com>
+Date: Tue, 14 Jul 2026 15:14:35 +0800
+Subject: [PATCH 1/3] perf: double-buffer direct NVLink dispatch
+
+---
+ csrc/kernels/elastic/dispatch.hpp          | 10 +++++++-
+ deep_ep/include/deep_ep/impls/dispatch.cuh | 28 +++++++++++++++-------
+ 2 files changed, 29 insertions(+), 9 deletions(-)
+
+diff --git a/csrc/kernels/elastic/dispatch.hpp b/csrc/kernels/elastic/dispatch.hpp
+index 3b624c642..d2bb82a06 100644
+--- a/csrc/kernels/elastic/dispatch.hpp
++++ b/csrc/kernels/elastic/dispatch.hpp
+@@ -128,6 +128,8 @@ static void __instantiate_kernel() {{
+ };
+ 
+ constexpr int kNumNotifyWarps = 4;
++constexpr int kNumDirectNVLinkDispatchWarps = 14;
++constexpr int kNumDirectNVLinkTmaBuffers = 2;
+ 
+ static int get_num_notify_smem_bytes(const int& num_ranks, const int& num_experts) {
+     return math::align(num_ranks + num_experts, kNumNotifyWarps * 32) * sizeof(int);
+@@ -185,8 +187,14 @@ static void launch_dispatch(void* x, void* sf,
+     // Maximize shared memory utilization
+     if (num_scaleout_ranks == 1) {
+         const auto token_layout = get_dispatch_token_layout(hidden, elem_size, num_sf_packs, num_topk);
++        const int num_tma_buffers = is_scaleup_nvlink ? kNumDirectNVLinkTmaBuffers : 1;
++        const int max_num_dispatch_warps = is_scaleup_nvlink ?
++            kNumDirectNVLinkDispatchWarps : 32 - num_notify_warps;
+         num_dispatch_warps = std::min<int>(
+-            (num_smem_bytes - num_notify_smem_bytes) / token_layout.get_num_bytes<true>(), 32 - num_notify_warps);
++            (num_smem_bytes - num_notify_smem_bytes) /
++                (token_layout.get_num_bytes<true>() * num_tma_buffers),
++            std::min(32 - num_notify_warps, max_num_dispatch_warps));
++        EP_HOST_ASSERT(num_dispatch_warps > 0);
+         num_threads = (num_notify_warps + num_dispatch_warps) * 32;
+     } else {
+         // Hybrid kernels
+diff --git a/deep_ep/include/deep_ep/impls/dispatch.cuh b/deep_ep/include/deep_ep/impls/dispatch.cuh
+index a7d42f3b0..5bcc08d31 100644
+--- a/deep_ep/include/deep_ep/impls/dispatch.cuh
++++ b/deep_ep/include/deep_ep/impls/dispatch.cuh
+@@ -261,27 +261,39 @@ dispatch_impl(
+ 
+         // Buffer layouts
+         const auto token_layout = layout::TokenLayout(kNumHiddenBytes, kNumSFPacks * sizeof(sf_pack_t), kNumTopk, true);
+-        const auto tma_buffer = layout::BufferLayout<true>(token_layout, kNumDispatchWarps, 1,
+-            math::advance_ptr<int>(smem, kNumSmemBytesForNotify)).get_rank_buffer(dispatch_warp_idx).get_token_buffer(0);
++        constexpr int kNumTmaBuffers = kIsScaleupNVLink ? 2 : 1;
++        const auto warp_tma_buffers = layout::BufferLayout<true>(token_layout, kNumDispatchWarps, kNumTmaBuffers,
++            math::advance_ptr<int>(smem, kNumSmemBytesForNotify)).get_rank_buffer(dispatch_warp_idx);
+         auto recv_buffer = layout::BufferLayout<false>(token_layout, kNumRanks, kNumMaxTokensPerRank, buffer);
+         auto send_buffer = layout::BufferLayout<false>(token_layout, 1, kNumMaxTokensPerRank, recv_buffer.get_buffer_end_ptr());
+         recv_buffer = recv_buffer.get_rank_buffer(rank_idx);
+ 
+         // Init TMA
+-        ptx::arrival_phase phase = 0;
+-        const auto mbarrier_ptr = tma_buffer.get_mbarrier_ptr();
+-        if (ptx::elect_one_sync())
+-            ptx::mbarrier_init_with_fence(mbarrier_ptr, 1);
++        ptx::arrival_phase phase_0 = 0, phase_1 = 0;
++        #pragma unroll
++        for (int i = 0; i < kNumTmaBuffers; ++ i) {
++            const auto tma_buffer = warp_tma_buffers.get_token_buffer(i);
++            if (ptx::elect_one_sync())
++                ptx::mbarrier_init_with_fence(tma_buffer.get_mbarrier_ptr(), 1);
++        }
+         __syncwarp();
+ 
+         // Iterate all tokens
+         const auto token_start = dispatch_warp_idx * kNumSMs + sm_idx;
+         const auto token_stride = kNumDispatchWarps * kNumSMs;
+-        for (int token_idx = token_start; token_idx < num_tokens; token_idx += token_stride) {
++        for (int token_idx = token_start, token_iter = 0;
++             token_idx < num_tokens; token_idx += token_stride, ++ token_iter) {
+             const auto token_i64_idx = static_cast<int64_t>(token_idx);
++            const int tma_buffer_idx = token_iter & (kNumTmaBuffers - 1);
++            const auto tma_buffer = warp_tma_buffers.get_token_buffer(tma_buffer_idx);
++            const auto mbarrier_ptr = tma_buffer.get_mbarrier_ptr();
++            auto& phase = tma_buffer_idx == 0 ? phase_0 : phase_1;
+ 
+             // Wait TMA store arrivals
+-            ptx::tma_store_wait();
++            if constexpr (kIsScaleupNVLink)
++                ptx::tma_store_wait<1>();
++            else
++                ptx::tma_store_wait();
+             __syncwarp();
+ 
+             // Issue data TMA
+
+From d2be99a22990606775dd21623ddfa1a702e42e91 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E7=8E=84=E6=AD=A6?= <wangmingyao@xiaohongshu.com>
+Date: Tue, 14 Jul 2026 16:00:46 +0800
+Subject: [PATCH 2/3] perf: prefetch direct dispatch tokens across NVLink
+ stores
+
+---
+ csrc/kernels/elastic/dispatch.hpp          |  2 +-
+ deep_ep/include/deep_ep/impls/dispatch.cuh | 72 ++++++++++++++++------
+ 2 files changed, 55 insertions(+), 19 deletions(-)
+
+diff --git a/csrc/kernels/elastic/dispatch.hpp b/csrc/kernels/elastic/dispatch.hpp
+index d2bb82a06..00bda0da7 100644
+--- a/csrc/kernels/elastic/dispatch.hpp
++++ b/csrc/kernels/elastic/dispatch.hpp
+@@ -129,7 +129,7 @@ static void __instantiate_kernel() {{
+ 
+ constexpr int kNumNotifyWarps = 4;
+ constexpr int kNumDirectNVLinkDispatchWarps = 14;
+-constexpr int kNumDirectNVLinkTmaBuffers = 2;
++constexpr int kNumDirectNVLinkTmaBuffers = 3;
+ 
+ static int get_num_notify_smem_bytes(const int& num_ranks, const int& num_experts) {
+     return math::align(num_ranks + num_experts, kNumNotifyWarps * 32) * sizeof(int);
+diff --git a/deep_ep/include/deep_ep/impls/dispatch.cuh b/deep_ep/include/deep_ep/impls/dispatch.cuh
+index 5bcc08d31..2a327e062 100644
+--- a/deep_ep/include/deep_ep/impls/dispatch.cuh
++++ b/deep_ep/include/deep_ep/impls/dispatch.cuh
+@@ -261,7 +261,7 @@ dispatch_impl(
+ 
+         // Buffer layouts
+         const auto token_layout = layout::TokenLayout(kNumHiddenBytes, kNumSFPacks * sizeof(sf_pack_t), kNumTopk, true);
+-        constexpr int kNumTmaBuffers = kIsScaleupNVLink ? 2 : 1;
++        constexpr int kNumTmaBuffers = kIsScaleupNVLink ? 3 : 1;
+         const auto warp_tma_buffers = layout::BufferLayout<true>(token_layout, kNumDispatchWarps, kNumTmaBuffers,
+             math::advance_ptr<int>(smem, kNumSmemBytesForNotify)).get_rank_buffer(dispatch_warp_idx);
+         auto recv_buffer = layout::BufferLayout<false>(token_layout, kNumRanks, kNumMaxTokensPerRank, buffer);
+@@ -269,7 +269,7 @@ dispatch_impl(
+         recv_buffer = recv_buffer.get_rank_buffer(rank_idx);
+ 
+         // Init TMA
+-        ptx::arrival_phase phase_0 = 0, phase_1 = 0;
++        ptx::arrival_phase phases[kNumTmaBuffers] = {};
+         #pragma unroll
+         for (int i = 0; i < kNumTmaBuffers; ++ i) {
+             const auto tma_buffer = warp_tma_buffers.get_token_buffer(i);
+@@ -278,23 +278,15 @@ dispatch_impl(
+         }
+         __syncwarp();
+ 
+-        // Iterate all tokens
+-        const auto token_start = dispatch_warp_idx * kNumSMs + sm_idx;
+-        const auto token_stride = kNumDispatchWarps * kNumSMs;
+-        for (int token_idx = token_start, token_iter = 0;
+-             token_idx < num_tokens; token_idx += token_stride, ++ token_iter) {
++        // Prepare a token without waiting for the G2S transfer. With three
++        // buffers the next token can be prepared before the current token's
++        // S2G stores are issued, so its hidden/SF load overlaps the stores.
++        auto prepare_token = [&](const int token_idx, const int token_iter,
++                                 int& stored_dst_rank_idx, int& stored_dst_slot_idx) {
+             const auto token_i64_idx = static_cast<int64_t>(token_idx);
+-            const int tma_buffer_idx = token_iter & (kNumTmaBuffers - 1);
++            const int tma_buffer_idx = token_iter % kNumTmaBuffers;
+             const auto tma_buffer = warp_tma_buffers.get_token_buffer(tma_buffer_idx);
+             const auto mbarrier_ptr = tma_buffer.get_mbarrier_ptr();
+-            auto& phase = tma_buffer_idx == 0 ? phase_0 : phase_1;
+-
+-            // Wait TMA store arrivals
+-            if constexpr (kIsScaleupNVLink)
+-                ptx::tma_store_wait<1>();
+-            else
+-                ptx::tma_store_wait();
+-            __syncwarp();
+ 
+             // Issue data TMA
+             if (ptx::elect_one_sync()) {
+@@ -325,7 +317,7 @@ dispatch_impl(
+ 
+             // Load top-k indices and weights
+             EP_STATIC_ASSERT(kNumTopk <= 32, "Insufficient lanes for loading top-k indices");
+-            int stored_dst_rank_idx = -1;
++            stored_dst_rank_idx = -1;
+             if (lane_idx < kNumTopk) {
+                 const auto uncasted_dst_expert_idx = __ldg(topk_idx + token_idx * kNumTopk + lane_idx);
+                 const auto dst_expert_idx = static_cast<int>(uncasted_dst_expert_idx);
+@@ -346,7 +338,7 @@ dispatch_impl(
+             __syncwarp();
+ 
+             // Deduplicate ranks and assign slots
+-            int stored_dst_slot_idx = -1;
++            stored_dst_slot_idx = -1;
+             if constexpr (kReuseSlotIndices) {
+                 if (lane_idx < kNumTopk)
+                     stored_dst_slot_idx = __ldg(dst_buffer_slot_idx + token_idx * kNumTopk + lane_idx);
+@@ -363,6 +355,37 @@ dispatch_impl(
+             }
+             __syncwarp();
+ 
++        };
++
++        // Iterate all tokens. The current route remains in registers while
++        // the following token is prefetched into another shared buffer.
++        const auto token_start = dispatch_warp_idx * kNumSMs + sm_idx;
++        const auto token_stride = kNumDispatchWarps * kNumSMs;
++        int token_idx = token_start, token_iter = 0;
++        int stored_dst_rank_idx = -1, stored_dst_slot_idx = -1;
++        if (token_idx < num_tokens)
++            prepare_token(token_idx, token_iter, stored_dst_rank_idx, stored_dst_slot_idx);
++
++        while (token_idx < num_tokens) {
++            const int next_token_idx = token_idx + token_stride;
++            const int next_token_iter = token_iter + 1;
++            int next_dst_rank_idx = -1, next_dst_slot_idx = -1;
++
++            if constexpr (kIsScaleupNVLink) {
++                if (next_token_idx < num_tokens) {
++                    // Reduce the outstanding stores to one. With three
++                    // buffers, the buffer selected for the next token belongs
++                    // to the group that this wait just retired.
++                    ptx::tma_store_wait<1>();
++                    __syncwarp();
++                    prepare_token(next_token_idx, next_token_iter, next_dst_rank_idx, next_dst_slot_idx);
++                }
++            }
++
++            const int tma_buffer_idx = token_iter % kNumTmaBuffers;
++            const auto tma_buffer = warp_tma_buffers.get_token_buffer(tma_buffer_idx);
++            const auto mbarrier_ptr = tma_buffer.get_mbarrier_ptr();
++            auto& phase = phases[tma_buffer_idx];
+             // Wait TMA load arrival
+             // NOTES: this arrive must be after the `ptx::cp_async_mbarrier_arrive`
+             if (ptx::elect_one_sync()) {
+@@ -403,6 +426,19 @@ dispatch_impl(
+                 }
+                 __syncwarp();
+             }
++
++            if constexpr (not kIsScaleupNVLink) {
++                if (next_token_idx < num_tokens) {
++                    ptx::tma_store_wait();
++                    __syncwarp();
++                    prepare_token(next_token_idx, next_token_iter, next_dst_rank_idx, next_dst_slot_idx);
++                }
++            }
++
++            token_idx = next_token_idx;
++            token_iter = next_token_iter;
++            stored_dst_rank_idx = next_dst_rank_idx;
++            stored_dst_slot_idx = next_dst_slot_idx;
+         }
+     }
+ 
+
+From 45c96fa945081bd14d598ef294daf64cbded4b5f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E7=8E=84=E6=AD=A6?= <wangmingyao@xiaohongshu.com>
+Date: Wed, 22 Jul 2026 13:31:15 +0800
+Subject: [PATCH 3/3] fix: keep dispatch TMA buffer count in sync
+
+---
+ csrc/kernels/elastic/dispatch.hpp          |  7 +++++--
+ deep_ep/include/deep_ep/impls/dispatch.cuh | 14 +++++++++-----
+ 2 files changed, 14 insertions(+), 7 deletions(-)
+
+diff --git a/csrc/kernels/elastic/dispatch.hpp b/csrc/kernels/elastic/dispatch.hpp
+index 00bda0da7..8168f558b 100644
+--- a/csrc/kernels/elastic/dispatch.hpp
++++ b/csrc/kernels/elastic/dispatch.hpp
+@@ -18,6 +18,7 @@ class DispatchRuntime final : public jit::LaunchRuntime<DispatchRuntime> {
+         bool is_scaleup_nvlink;
+         bool do_cpu_sync;
+         bool reuse_slot_indices;
++        int num_tma_buffers;
+         int num_notify_warps;
+         int num_dispatch_warps; // For hybrid dispatch
+         int num_scaleout_warps, num_forward_warps; // For direct dispatch
+@@ -52,8 +53,9 @@ class DispatchRuntime final : public jit::LaunchRuntime<DispatchRuntime> {
+         std::string header_name, func_name;
+         if (args.num_scaleout_ranks == 1) {
+             header_name = "dispatch";
+-            func_name = fmt::format("dispatch_impl<{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}>",
++            func_name = fmt::format("dispatch_impl<{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}>",
+                 args.is_scaleup_nvlink,
++                args.num_tma_buffers,
+                 args.do_cpu_sync,
+                 args.reuse_slot_indices,
+                 args.launch_args.grid_dim.first,
+@@ -183,11 +185,11 @@ static void launch_dispatch(void* x, void* sf,
+     int num_dispatch_warps = 0;
+     int num_scaleout_warps = 0, num_forward_warps = 0;
+     int num_threads = 0;
++    const int num_tma_buffers = is_scaleup_nvlink ? kNumDirectNVLinkTmaBuffers : 1;
+ 
+     // Maximize shared memory utilization
+     if (num_scaleout_ranks == 1) {
+         const auto token_layout = get_dispatch_token_layout(hidden, elem_size, num_sf_packs, num_topk);
+-        const int num_tma_buffers = is_scaleup_nvlink ? kNumDirectNVLinkTmaBuffers : 1;
+         const int max_num_dispatch_warps = is_scaleup_nvlink ?
+             kNumDirectNVLinkDispatchWarps : 32 - num_notify_warps;
+         num_dispatch_warps = std::min<int>(
+@@ -208,6 +210,7 @@ static void launch_dispatch(void* x, void* sf,
+         .is_scaleup_nvlink = is_scaleup_nvlink,
+         .do_cpu_sync = do_cpu_sync,
+         .reuse_slot_indices = reuse_slot_indices,
++        .num_tma_buffers = num_tma_buffers,
+         .num_notify_warps = num_notify_warps,
+         .num_dispatch_warps = num_dispatch_warps,
+         .num_scaleout_warps = num_scaleout_warps, .num_forward_warps = num_forward_warps,
+diff --git a/deep_ep/include/deep_ep/impls/dispatch.cuh b/deep_ep/include/deep_ep/impls/dispatch.cuh
+index 2a327e062..6252a8bc7 100644
+--- a/deep_ep/include/deep_ep/impls/dispatch.cuh
++++ b/deep_ep/include/deep_ep/impls/dispatch.cuh
+@@ -15,6 +15,7 @@
+ namespace deep_ep::elastic {
+ 
+ template <bool kIsScaleupNVLink,
++          int kNumTmaBuffers,
+           bool kDoCPUSync,
+           bool kReuseSlotIndices,
+           int kNumSMs,
+@@ -44,8 +45,11 @@ dispatch_impl(
+     const int rank_idx
+ ) {
+     constexpr int kNumExpertsPerRank = kNumExperts / kNumRanks;
++    constexpr int kNumNVLinkStoreGroupsToKeep = 1;
+     EP_STATIC_ASSERT(kNumExperts % kNumRanks == 0, "Invalid number of experts or ranks");
+     EP_STATIC_ASSERT(kNumNotifyWarps % 4 == 0, "Invalid warpgroup size");
++    EP_STATIC_ASSERT(kIsScaleupNVLink ? kNumTmaBuffers > kNumNVLinkStoreGroupsToKeep + 1 : kNumTmaBuffers == 1,
++                     "Invalid number of dispatch TMA buffers");
+ 
+     // Utils
+     const auto sm_idx = static_cast<int>(blockIdx.x), thread_idx = static_cast<int>(threadIdx.x);
+@@ -261,7 +265,6 @@ dispatch_impl(
+ 
+         // Buffer layouts
+         const auto token_layout = layout::TokenLayout(kNumHiddenBytes, kNumSFPacks * sizeof(sf_pack_t), kNumTopk, true);
+-        constexpr int kNumTmaBuffers = kIsScaleupNVLink ? 3 : 1;
+         const auto warp_tma_buffers = layout::BufferLayout<true>(token_layout, kNumDispatchWarps, kNumTmaBuffers,
+             math::advance_ptr<int>(smem, kNumSmemBytesForNotify)).get_rank_buffer(dispatch_warp_idx);
+         auto recv_buffer = layout::BufferLayout<false>(token_layout, kNumRanks, kNumMaxTokensPerRank, buffer);
+@@ -373,10 +376,11 @@ dispatch_impl(
+ 
+             if constexpr (kIsScaleupNVLink) {
+                 if (next_token_idx < num_tokens) {
+-                    // Reduce the outstanding stores to one. With three
+-                    // buffers, the buffer selected for the next token belongs
+-                    // to the group that this wait just retired.
+-                    ptx::tma_store_wait<1>();
++                    // Keep only the youngest store groups before recycling a
++                    // staging buffer. Safety requires at least two other
++                    // buffers: one for the current token and one for every
++                    // store group that can remain in flight after this wait.
++                    ptx::tma_store_wait<kNumNVLinkStoreGroupsToKeep>();
+                     __syncwarp();
+                     prepare_token(next_token_idx, next_token_iter, next_dst_rank_idx, next_dst_slot_idx);
+                 }

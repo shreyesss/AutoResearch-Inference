@@ -1,0 +1,183 @@
+FILE vllm/v1/worker/gpu/spec_decode/dspark/speculator.py:1-80; SHA256 97bcfaa655c6d4a5ecdfb17ab87b80547e8216b9d15a91c341798ebbb558f146
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+"""DSpark speculator: semi-autoregressive parallel drafting.
+
+DSpark drafts a block of ``num_speculative_tokens`` tokens in one parallel pass
+(reusing the DFlash machinery: context-KV precompute + a query-block forward),
+then injects intra-block dependency with a lightweight sequential Markov head.
+
+Differences from DFlash:
+  * Anchor-as-first-prediction: each request emits exactly ``N =
+    num_speculative_tokens`` query tokens (anchor + N-1 noise), NOT ``1 + N``.
+    Every query position is a prediction (the anchor predicts the first draft
+    token), so we sample at all N positions and ``sample_pos = query_pos + 1``
+    (standard next-token), whereas DFlash's masks sit AT the predicted position.
+    This is the ``sample_from_anchor`` path in the shared prepare-inputs kernel.
+    Speculators-format checkpoints instead use the DFlash ``1 + N`` fill-in
+    layout (anchor is the bonus token).
+  * Sequential Markov sampling: instead of DFlash's single parallel sample, we
+    sample left-to-right, adding a prefix-dependent Markov bias derived from the
+    previously sampled token at each step.
+
+CUDA graphs (FULL, mirroring DFlash) cover the whole draft step: the parallel
+backbone forward AND the sequential Markov sampling.
+"""
+
+from typing import Any
+
+import torch
+
+from vllm.config import VllmConfig
+from vllm.config.compilation import CUDAGraphMode
+from vllm.logger import init_logger
+from vllm.v1.worker.gpu.sample.gumbel import gumbel_sample
+from vllm.v1.worker.gpu.spec_decode.dflash.speculator import DFlashSpeculator
+from vllm.v1.worker.gpu.spec_decode.dspark.utils import load_dspark_model
+
+logger = init_logger(__name__)
+
+
+class DSparkSpeculator(DFlashSpeculator):
+    _speculator_name = "DSpark"
+
+    def __init__(self, vllm_config: VllmConfig, device: torch.device):
+        super().__init__(vllm_config, device)
+
+        # Whether to sample from the anchor position. When True, uses anchor-as-first
+        # (N slots, each position predicts the next token). When False, uses 1+N
+        # fill-in block (anchor is a bonus token).
+        self.sample_from_anchor = getattr(
+            self.draft_model_config.hf_config, "sample_from_anchor", True
+        )
+        if self.sample_from_anchor:
+            self.num_query_per_req = self.num_speculative_steps
+        else:
+            self.num_query_per_req = 1 + self.num_speculative_steps
+
+        # DSpark consumes mean-pooled target aux hidden states at the target
+        # layers, combined to hidden_size via main_proj. Store that combined
+        # main_x (hidden_size wide). DSpark does not use the same pre-allocated buffer
+        # that DeepSeek-V4's MTP uses.
+        draft_hidden = self.draft_model_config.get_hidden_size()
+        self.hidden_states = torch.zeros(
+            self.max_num_tokens, draft_hidden, dtype=self.dtype, device=device
+        )
+
+        self._step_cols = torch.arange(
+            self.num_speculative_steps, dtype=torch.int32, device=device
+        )
+
+        self._anchor_idx = (
+            torch.arange(self.max_num_reqs, dtype=torch.int64, device=device)
+            * self.num_query_per_req
+        )
+
+        # Reduced-vocab probabilistic drafting only; set in load_draft_model.
+        self._d2t_scatter_index: torch.Tensor | None = None
+        self._draft_scatter_buf: torch.Tensor | None = None
+        self._draft_topk: int | None = getattr(
+            self.draft_model_config.hf_config, "dspark_draft_topk", None
+        )
+
+FILE vllm/v1/worker/gpu/dp_utils.py:1-100; SHA256 b81a663c7e736f93c7be6ff7b6facebeb93ee4a52c280163b2ba9146fe33c341
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+
+import torch
+import torch.distributed as dist
+
+from vllm.config import ParallelConfig
+from vllm.config.compilation import CUDAGraphMode
+from vllm.distributed.parallel_state import get_dp_group
+from vllm.v1.worker.dp_utils import should_skip_dp_coordination
+from vllm.v1.worker.gpu.cudagraph_utils import (
+    BatchExecutionDescriptor,
+    CudaGraphManager,
+)
+from vllm.v1.worker.ubatch_utils import check_ubatch_thresholds, get_num_ubatches
+
+
+@dataclass(frozen=True)
+class DPSyncState:
+    """What a `dispatch_cg_and_sync_dp` call agreed across DP ranks.
+
+    Every field is identical on every rank, so callers can branch on them
+    without disagreeing about whether to run a collective. Never add a per-rank
+    value here.
+    """
+
+    # Per-rank token counts, for the forward context. All entries hold the
+    # agreed padded count, unless `eager`, where nothing was padded.
+    num_tokens_across_dp: torch.Tensor
+    # Agreed uniform decode length. None means the ranks disagreed, which is an
+    # answer, not "unknown".
+    uniform_token_count: int | None
+    # Whether the ranks agreed to run eager. A dispatch reusing this must run
+    # eager too; no shape was agreed, so picking a graph per rank would diverge.
+    eager: bool
+    # Agreed upper bound on any rank's request count. Holds the padded count when
+    # a FULL descriptor imposed one, else the most any rank scheduled.
+    num_reqs: int
+
+
+def sync_cudagraph_and_dp_padding(
+    cudagraph_manager: CudaGraphManager | None,
+    desired_batch_desc: BatchExecutionDescriptor,
+    num_tokens: int,
+    num_reqs: int,
+    uniform_token_count: int | None,
+    dp_size: int,
+    dp_rank: int,
+    max_query_len: int | None = None,
+    num_active_loras: int = 0,
+    parallel_config: ParallelConfig | None = None,
+    allow_ubatching: bool = False,
+    uniform_decode: bool = False,
+) -> tuple[BatchExecutionDescriptor, DPSyncState | None]:
+    """Coordinates the batch descriptor and DP padding across all ranks.
+
+    `parallel_config` is only needed to decide whether to microbatch, so callers
+    that never do (`allow_ubatching=False`) can leave it out.
+
+    Returns (synced_batch_desc, sync). `sync` is None when no rank has work.
+    """
+    assert dp_size > 1, "DP size must be greater than 1"
+    group = get_dp_group().cpu_group
+    tensor = torch.zeros(6, dp_size, dtype=torch.int32, device="cpu")
+    tensor[0][dp_rank] = num_tokens
+    tensor[1][dp_rank] = desired_batch_desc.cg_mode.value
+    tensor[2][dp_rank] = uniform_token_count or 0  # (0 means None)
+    tensor[3][dp_rank] = max_query_len or -1  # (-1 means None)
+    tensor[4][dp_rank] = int(allow_ubatching)
+    tensor[5][dp_rank] = num_reqs
+    if should_skip_dp_coordination():
+        tensor[:] = tensor[:, dp_rank, None].clone()
+    else:
+        dist.all_reduce(tensor, group=group)
+
+    num_tokens_across_dp = tensor[0]
+    cg_mode_across_dp = tensor[1]
+    uniform_token_counts_across_dp = tensor[2]
+    max_query_lens_across_dp = tensor[3]
+    allow_ubatching_across_dp = tensor[4]
+    num_reqs_across_dp = tensor[5]
+
+    # If ranks disagree on the uniform token count, or its 0 (means None) set to None
+    synced_uniform_token_count: int | None = int(uniform_token_counts_across_dp[0])
+    if synced_uniform_token_count == 0 or not torch.all(
+        uniform_token_counts_across_dp == synced_uniform_token_count
+    ):
+        synced_uniform_token_count = None
+
+    if torch.all(num_tokens_across_dp == 0).item():
+        synced_desc = BatchExecutionDescriptor(
+            cg_mode=CUDAGraphMode.NONE, num_tokens=0, num_reqs=0
+        )
+        return synced_desc, None
+
+    if torch.all(allow_ubatching_across_dp == 1):
+        # This rank voted too, so its caller passed a config.

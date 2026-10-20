@@ -1,0 +1,264 @@
+Conversation
+cjackal
+commented
+Aug 5, 2026
+Copy link
+Copy Markdown
+Description
+In
+sm90_paged_mqa_logits.cuh
+,
+we compute
+num_segs
+using diff of
+prefix_sum
+, but current diff calculation logic is unsafe as
+q_idx
+can be
+batch_size
+after the binary search which is out of bound of
+prefix_sum
+if
+batch_size
+is aligned. In this case, we should instead refer to the already computed segment sum (the would-be
+prefix_sum[batch_size]
+).
+The overall math is trivial, so no further comments added in this ternary.
+We have hit this error in production, the following is the CUDA coredump -
+sm90_paged_mqa_logits_metadata<kAlignedBatchSize=96, SPLIT_KV=256, kNumSMs=132, kIsVarlen=false>
+hits the problematic line with 16 sequences with next_n=6:
+...
+[19:25:48.404432] coredump: Detected an exception of type CUDBG_EXCEPTION_WARP_OUT_OF_RANGE_ADDRESS (5)
+[19:25:48.404435] coredump:   - Device: 4
+[19:25:48.404437] coredump:   - SM: 124
+[19:25:48.404439] coredump:   - Warp: 1
+[19:25:48.404440] coredump:   - PC 0x7ef928bc46b0
+[19:25:48.404688] coredump: Stack trace (lane masks: active 0xFFFFFFFF, valid 0xFFFFFFFF):
+[19:25:48.404692] coredump:   # 0   0x7ef928bc46b0  _ZN9deep_gemm5sched30sm90_paged_mqa_logits_metadataILj96ELj256ELj132ELb0EEEvjjbPKjS3_Pj
+...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+fix
+prefix_sum
+out of index error
+…
+75d9d49
+Signed-off-by: cjackal <44624812+cjackal@users.noreply.github.com>
+ds-review-bot
+reviewed
+Aug 5, 2026
+View reviewed changes
+Comment thread
+deep_gemm/include/deep_gemm/scheduler/sm90_paged_mqa_logits.cuh
+const uint32_t q_idx = lo;
+const uint32_t offset_in_q = (q_idx == 0 ? seg_starts : seg_starts - prefix_sum[q_idx - 1] * num_next_n_atoms);
+const uint32_t num_segs_q = (q_idx == 0 ? prefix_sum[0] : prefix_sum[q_idx] - prefix_sum[q_idx - 1]);
+const uint32_t num_segs_q = (q_idx == 0 ? prefix_sum[0] :
+(q_idx == batch_size ? sum :
+prefix_sum[q_idx]
+)
+- prefix_sum[q_idx - 1]);
+ds-review-bot
+Aug 5, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: 该三元表达式隐含一个不直观的前提：只有非 varlen 路径下越界项（q_idx >= batch_size）的 context_len 为 0，sum 才等于 prefix_sum[batch_size]。虽然数学上简单，但建议在行内加一句简短注释（例如“sum == prefix_sum[batch_size] since tail entries contribute 0”）或抽出一个小命名函数/常量，避免后续维护者误以为 sum 与 prefix_sum[batch_size] 恒等而破坏该假设。此为可选改进，不影响合入。
+🤖 v4f
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_gemm/include/deep_gemm/scheduler/sm90_paged_mqa_logits.cuh
+const uint32_t q_idx = lo;
+const uint32_t offset_in_q = (q_idx == 0 ? seg_starts : seg_starts - prefix_sum[q_idx - 1] * num_next_n_atoms);
+const uint32_t num_segs_q = (q_idx == 0 ? prefix_sum[0] : prefix_sum[q_idx] - prefix_sum[q_idx - 1]);
+const uint32_t num_segs_q = (q_idx == 0 ? prefix_sum[0] :
+(q_idx == batch_size ? sum :
+prefix_sum[q_idx]
+)
+- prefix_sum[q_idx - 1]);
+ds-review-bot
+Aug 5, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: 可选建议（非阻塞）：此三元嵌套较深，未来维护者可能不易理解
+sum
+即为逻辑上的
+prefix_sum[batch_size]
+。建议加一行简短注释或将 num_segs_q 的计算拆分（例如先取
+seg_end = (q_idx == batch_size ? sum : prefix_sum[q_idx])
+），以提高可读性。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Aug 5, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+该变更在 q_idx 等于 batch_size 时使用已计算的 sum，避免越界访问，同时保持原有前缀和差值语义。未发现引入新的功能性问题。
+v4f
+审查结论：修复正确，可以合入。问题根因是 sm90_paged_mqa_logits_metadata 非 varlen 分支中，二分查找的 hi = batch_size 使得 q_idx 可能取到 batch_size（当 batch_size 与 kAlignedBatchSize 对齐时），旧代码随即读取 prefix_sum[q_idx] = prefix_sum[batch_size]，而 prefix_sum 只有 kAlignedBatchSize 个元素（索引 0..kAlignedBatchSize-1），导致 CUDBG_EXCEPTION_WARP_OUT_OF_RANGE_ADDRESS。修复将其改为 (q_idx == batch_size ? sum : prefix_sum[q_idx])，其中
+sum
+是循环累加的总和；由于非 varlen 路径中 q_idx >= batch_size 的项 context_len = 0、对前缀和贡献为 0，所以 sum 恰好等于应有的 prefix_sum[batch_size]，语义完全正确。边界行为也已核对：q_idx == batch_size 时 q_atom_idx == batch_size * num_next_n_atoms，与 line ~133 写入 schedule_metadata[kNumSMs*2] 的结束哨兵一致，映射到该范围的 SM 会正确终止；offset_in_q 仅访问 prefix_sum[q_idx - 1]（q_idx - 1 <= batch_size - 1），仍在界内。varlen 分支不受影响：其二分查找 hi = num_items，且只读取 prefix_sum[atom_idx - 1]（atom_idx - 1 <= num_items - 1 <= kAlignedBatchSize - 1），不存在同类越界。修复为单行最小改动，与调度器其余逻辑一致，未发现其他问题。
+v5
+该 MR 修复了
+sm90_paged_mqa_logits_metadata
+中
+prefix_sum
+的越界读取问题（CUDBG_EXCEPTION_WARP_OUT_OF_RANGE_ADDRESS）。在非 varlen 分支中，二分查找区间为 [0, batch_size)，当
+seg_starts
+落在最后一个前缀边界之后时
+q_idx == lo
+可能等于
+batch_size
+，此时原代码
+prefix_sum[q_idx]
+会越界读取。修复通过三元表达式在
+q_idx == batch_size
+时改用已计算的段总和
+sum
+（即逻辑上的
+prefix_sum[batch_size]
+），数学语义完全等价：此时 num_segs_q = sum - prefix_sum[batch_size-1] = 0，由第 114-115 行的
+num_segs_q &gt; 0
+保护分支正确兜底。经核查，同行附近的
+offset_in_q
+（第 112 行）只访问
+prefix_sum[q_idx - 1]
+，下标最大为 batch_size-1，不存在越界；varlen 分支（第 89-90 行）对
+atom_idx == num_items
+也已有显式保护，本修复覆盖了最后一处越界路径。改动最小、正确，且与 coredump 中报告的场景（16 sequences, next_n=6, kAlignedBatchSize=96）吻合。建议合并。
+Files reviewed
+: 1
+Issues found
+: 🔵 2 suggestion
+Inline comments posted
+: 2
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+This was referenced
+Aug 5, 2026
+[Bug]: DeepSeekV4 DSpark CUDA graph capture failure on H100
+vllm-project/vllm#51181
+Closed
+fix: SM90 paged mqa
+prefix_sum
+out of range (
+CUDBG_EXCEPTION_WARP_OUT_OF_RANGE_ADDRESS
+)
+vllm-project/DeepGEMM#2
+Closed
+cjackal
+commented
+Aug 7, 2026
+Copy link
+Copy Markdown
+Author
+It seems essentially the same bugfix has been merged on
+nv_dev
+branch by
+#353
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Mazyod
+mentioned this pull request
+Sep 1, 2026
+[fork] DSV4 v0.28.0: add DSpark k=3 engine file, no PIECEWISE
+Mazyod/vllm#17
+Merged
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

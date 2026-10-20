@@ -1,0 +1,364 @@
+From e6e4426bbcdd31a86ba42582fc661ec60e9b7243 Mon Sep 17 00:00:00 2001
+From: ahmed xijiaat <52128022+xijiaat@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 14:26:26 +0900
+Subject: [PATCH] [Kernel][DSv4.1] Prototype compensated BF16 mHC prenorm for
+ SM90
+
+Co-authored-by: Codex <noreply@openai.com>
+Signed-off-by: ahmed xijiaat <52128022+xijiaat@users.noreply.github.com>
+---
+ benchmarks/kernels/benchmark_mhc_bf16x3.py |  87 +++++++++++++
+ tests/kernels/mhc/test_mhc_kernels.py      |  97 ++++++++++++++
+ vllm/model_executor/kernels/mhc/bf16x3.py  | 141 +++++++++++++++++++++
+ 3 files changed, 325 insertions(+)
+ create mode 100644 benchmarks/kernels/benchmark_mhc_bf16x3.py
+ create mode 100644 vllm/model_executor/kernels/mhc/bf16x3.py
+
+diff --git a/benchmarks/kernels/benchmark_mhc_bf16x3.py b/benchmarks/kernels/benchmark_mhc_bf16x3.py
+new file mode 100644
+index 000000000000..c71ac5b74183
+--- /dev/null
++++ b/benchmarks/kernels/benchmark_mhc_bf16x3.py
+@@ -0,0 +1,87 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Compare compensated BF16 mHC prenorm with DeepGEMM on Hopper.
++
++Run with the repository's .venv/bin/python. Reports prenorm only, excluding
++weight preparation, allocations and the common Sinkhorn/RMSNorm epilogue.
++No serving-level speedup can be inferred without an integrated benchmark.
++"""
++
++import argparse
++import json
++import statistics
++from functools import partial
++
++import torch
++from flashinfer.testing import bench_gpu_time_with_cupti
++
++from vllm.model_executor.kernels.mhc.bf16x3 import (
++    mhc_prenorm_bf16x3,
++    split_bf16_mhc_weight,
++)
++from vllm.utils.deep_gemm import tf32_hc_prenorm_gemm
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument(
++        "--tokens", nargs="+", type=int, default=[32, 64, 128, 512, 4096]
++    )
++    args = parser.parse_args()
++    assert torch.cuda.get_device_capability() == (9, 0), "Hopper benchmark"
++    torch.manual_seed(0)
++    print(json.dumps({"gpu": torch.cuda.get_device_name(), "torch": torch.__version__}))
++    for m in args.tokens:
++        assert m > 0
++        k, n = 20480, 24
++        x = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
++        weight = torch.randn(n, k, device="cuda") / k**0.5
++        parts = split_bf16_mhc_weight(weight)
++        reference = x.double() @ weight.double().T
++        square_reference = x.double().square().sum(-1)
++        for backend in ("deepgemm", "bf16x3"):
++            results = []
++            for splits in (1, 4, 16):
++                mix = torch.empty(splits, m, n, device="cuda")
++                sq = torch.empty(splits, m, device="cuda")
++                for block_m in (32, 64, 128) if backend == "bf16x3" else (0,):
++                    run = (
++                        partial(mhc_prenorm_bf16x3, x, parts, mix, sq, block_m=block_m)
++                        if backend == "bf16x3"
++                        else partial(tf32_hc_prenorm_gemm, x, weight, mix, sq, splits)
++                    )
++
++                    run()
++                    torch.testing.assert_close(
++                        mix.sum(0).double(), reference, rtol=5e-5, atol=2e-5
++                    )
++                    torch.testing.assert_close(
++                        sq.sum(0).double(), square_reference, rtol=2e-6, atol=1e-5
++                    )
++                    for _ in range(10):
++                        run()
++                    torch.accelerator.synchronize()
++                    samples = bench_gpu_time_with_cupti(
++                        run, use_cuda_graph=True, cold_l2_cache=True
++                    )
++                    us = statistics.median(samples) * 1e3
++                    row = dict(
++                        backend=backend,
++                        m=m,
++                        k=k,
++                        n=n,
++                        splits=splits,
++                        block_m=block_m,
++                        median_us=us,
++                        min_us=min(samples) * 1e3,
++                        max_us=max(samples) * 1e3,
++                        # Useful projection FLOPs, not the three component GEMMs.
++                        useful_tflops=2 * m * n * k / (us * 1e6),
++                    )
++                    results.append(row)
++                    print(json.dumps(row))
++            print(json.dumps({"best": min(results, key=lambda row: row["median_us"])}))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/kernels/mhc/test_mhc_kernels.py b/tests/kernels/mhc/test_mhc_kernels.py
+index 00e9834d6215..9aac5cbd3d21 100644
+--- a/tests/kernels/mhc/test_mhc_kernels.py
++++ b/tests/kernels/mhc/test_mhc_kernels.py
+@@ -51,6 +51,103 @@
+ DEVICE = current_platform.device_type
+ 
+ 
++@pytest.mark.parametrize("kind", ["random", "cancellation", "scaled"])
++def test_bf16x3_weight_preserves_small_fp32_components(kind):
++    """CPU check: a single BF16 cast loses the cancellation residual."""
++    from vllm.model_executor.kernels.mhc.bf16x3 import split_bf16_mhc_weight
++
++    generator = torch.Generator(device="cpu").manual_seed(0)
++    weight = torch.randn(24, 128, generator=generator, device="cpu")
++    if kind == "cancellation":
++        weight[:, 0::2] = 1 + 2**-10 + 2**-20
++        weight[:, 1::2] = -1
++    elif kind == "scaled":
++        weight *= torch.logspace(-4, 4, 128, device="cpu")
++    original = weight.clone()
++    parts = split_bf16_mhc_weight(weight)
++    reconstructed = sum(part.double() for part in parts)
++    torch.testing.assert_close(reconstructed, weight.double(), rtol=1e-7, atol=0)
++    torch.testing.assert_close(weight, original, rtol=0, atol=0)
++    if kind == "cancellation":
++        torch.testing.assert_close(
++            reconstructed.sum(-1), weight.double().sum(-1), rtol=0, atol=0
++        )
++        assert torch.count_nonzero(parts[0].float().sum(-1)) == 0
++
++
++@pytest.mark.skipif(not current_platform.is_cuda(), reason="CUDA required")
++@pytest.mark.parametrize(
++    "m,k,splits,block_m",
++    [
++        (0, 5120, 16, 64),
++        (1, 64, 16, 32),
++        (31, 5120, 4, 32),
++        (32, 20480, 16, 64),
++        (33, 20480, 1, 64),
++        (127, 5120, 4, 128),
++        (129, 20480, 16, 64),
++        (4096, 20480, 16, 128),
++    ],
++)
++def test_bf16x3_prenorm_partials_match_fp64(m, k, splits, block_m):
++    """Cover token/K tails, empty splits and offset contiguous allocations."""
++    from vllm.model_executor.kernels.mhc.bf16x3 import (
++        mhc_prenorm_bf16x3,
++        split_bf16_mhc_weight,
++    )
++
++    torch.manual_seed(0)
++    x = torch.randn(m * k + 1, device="cuda", dtype=torch.bfloat16)[1:].view(m, k)
++    weight = torch.randn(24, k, device="cuda", dtype=torch.float32) / k**0.5
++    parts = split_bf16_mhc_weight(weight)
++    storage = torch.full((splits * m * 24 + 2,), float("nan"), device="cuda")
++    mix = storage[1:-1].view(splits, m, 24)
++    sq = torch.empty(splits, m, device="cuda")
++    mhc_prenorm_bf16x3(x, parts, mix, sq, block_m=block_m)
++    torch.testing.assert_close(
++        mix.sum(0).double(), x.double() @ weight.double().T, rtol=5e-5, atol=2e-5
++    )
++    torch.testing.assert_close(
++        sq.sum(0).double(), x.double().square().sum(-1), rtol=2e-6, atol=1e-5
++    )
++    assert torch.isnan(storage[[0, -1]]).all()
++
++
++@pytest.mark.skipif(not current_platform.is_cuda(), reason="CUDA required")
++def test_bf16x3_prenorm_graph_reads_changed_inputs_and_weights():
++    from vllm.model_executor.kernels.mhc.bf16x3 import (
++        mhc_prenorm_bf16x3,
++        split_bf16_mhc_weight,
++    )
++
++    torch.manual_seed(1)
++    x = torch.randn(65, 5120, device="cuda", dtype=torch.bfloat16)
++    weight = torch.randn(24, 5120, device="cuda") / 5120**0.5
++    parts = split_bf16_mhc_weight(weight)
++    mix = torch.empty(16, 65, 24, device="cuda")
++    sq = torch.empty(16, 65, device="cuda")
++    mhc_prenorm_bf16x3(x, parts, mix, sq)
++    torch.accelerator.synchronize()
++    graph = torch.cuda.CUDAGraph()
++    with torch.cuda.graph(graph):
++        mhc_prenorm_bf16x3(x, parts, mix, sq)
++    for scale in (0.5, -2.0):
++        x.mul_(scale)
++        weight.mul_(-1)
++        for dst, src in zip(parts, split_bf16_mhc_weight(weight)):
++            dst.copy_(src)
++        graph.replay()
++        torch.testing.assert_close(
++            mix.sum(0).double(),
++            x.double() @ weight.double().T,
++            rtol=5e-5,
++            atol=2e-5,
++        )
++        torch.testing.assert_close(
++            sq.sum(0).double(), x.double().square().sum(-1), rtol=2e-6, atol=1e-5
++        )
++
++
+ @pytest.mark.parametrize(
+     "tp,ep,hidden,hc,multicast,expected",
+     [
+diff --git a/vllm/model_executor/kernels/mhc/bf16x3.py b/vllm/model_executor/kernels/mhc/bf16x3.py
+new file mode 100644
+index 000000000000..5923c32995f0
+--- /dev/null
++++ b/vllm/model_executor/kernels/mhc/bf16x3.py
+@@ -0,0 +1,141 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++# SPDX-FileCopyrightText: Copyright contributors to the SGLang project
++"""Experimental compensated mHC projection, targeting Hopper.
++
++Adapted from SGLang's hc_mix_stats_bf16x3 (PRs #39664 and #41251).
++This primitive is not selected by serving dispatch pending GPU validation.
++"""
++
++import torch
++
++from vllm.triton_utils import tl, triton
++
++
++@torch.no_grad()
++def split_bf16_mhc_weight(
++    weight: torch.Tensor,
++) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
++    """Prepare three BF16 components of an FP32 mHC weight outside the hot path.
++
++    The caller owns these derived weights and must rebuild them after updates.
++    This reduces BF16 conversion error; it does not make the GEMM bit-exact.
++    """
++    assert weight.ndim == 2 and weight.dtype == torch.float32
++    assert weight.is_contiguous()
++    high = weight.bfloat16()
++    residual = weight - high.float()
++    middle = residual.bfloat16()
++    low = (residual - middle.float()).bfloat16()
++    return high, middle, low
++
++
++@triton.jit(do_not_specialize=["M"])
++def _mhc_prenorm_bf16x3_kernel(
++    X,
++    W_HIGH,
++    W_MIDDLE,
++    W_LOW,
++    MIX,
++    SQUARE_SUM,
++    M,
++    K: tl.constexpr,
++    N: tl.constexpr,
++    K_PER_SPLIT: tl.constexpr,
++    BLOCK_M: tl.constexpr,
++    BLOCK_N: tl.constexpr,
++    BLOCK_K: tl.constexpr,
++):
++    rows = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
++    cols = tl.arange(0, BLOCK_N)
++    split = tl.program_id(1)
++    ks = split * K_PER_SPLIT + tl.arange(0, BLOCK_K)
++    high = tl.zeros((BLOCK_M, BLOCK_N), tl.float32)
++    middle = tl.zeros((BLOCK_M, BLOCK_N), tl.float32)
++    low = tl.zeros((BLOCK_M, BLOCK_N), tl.float32)
++    square_sum = tl.zeros((BLOCK_M,), tl.float32)
++    for block in range(K_PER_SPLIT // BLOCK_K):
++        k = ks + block * BLOCK_K
++        x = tl.load(
++            X + rows[:, None].to(tl.int64) * K + k[None, :],
++            (rows[:, None] < M) & (k[None, :] < K),
++            0,
++        )
++        offsets = cols[None, :].to(tl.int64) * K + k[:, None]
++        mask = (cols[None, :] < N) & (k[:, None] < K)
++        w_high = tl.load(W_HIGH + offsets, mask, 0)
++        w_middle = tl.load(W_MIDDLE + offsets, mask, 0)
++        w_low = tl.load(W_LOW + offsets, mask, 0)
++        high = tl.dot(x, w_high, high)
++        middle = tl.dot(x, w_middle, middle)
++        low = tl.dot(x, w_low, low)
++        xf = x.to(tl.float32)
++        square_sum += tl.sum(xf * xf, axis=1)
++    output_rows = split.to(tl.int64) * M + rows
++    tl.store(
++        MIX + output_rows[:, None] * N + cols[None, :],
++        (high + middle) + low,
++        (rows[:, None] < M) & (cols[None, :] < N),
++    )
++    tl.store(SQUARE_SUM + output_rows, square_sum, rows < M)
++
++
++def mhc_prenorm_bf16x3(
++    x: torch.Tensor,
++    weight_parts: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
++    mix: torch.Tensor,
++    square_sum: torch.Tensor,
++    *,
++    block_m: int = 64,
++) -> None:
++    """Write split-K projection and squared-norm partials without allocation.
++
++    Args:
++        x: Contiguous BF16 input, [M, K].
++        weight_parts: Three contiguous BF16 weights, each [N, K].
++        mix: FP32 output [splits, M, N]; sum dim 0 for x @ weight.T.
++        square_sum: FP32 output [splits, M]; sum dim 0 for squared norms.
++        block_m: Token tile, exposed for offline Hopper tuning.
++
++    Outputs follow the existing mHC prenorm epilogue's layout. Different split
++    counts can change rounding; batch invariance is not promised.
++
++    """
++    assert x.ndim == 2 and x.dtype == torch.bfloat16
++    assert x.is_cuda and x.is_contiguous()
++    assert len(weight_parts) == 3
++    m, k = x.shape
++    n = weight_parts[0].shape[0]
++    assert k > 0 and k % 64 == 0 and 0 < n <= 32
++    assert all(
++        w.shape == (n, k)
++        and w.dtype == torch.bfloat16
++        and w.device == x.device
++        and w.is_contiguous()
++        for w in weight_parts
++    )
++    assert mix.ndim == 3
++    splits = mix.shape[0]
++    assert splits in (1, 4, 16) and block_m in (32, 64, 128)
++    assert mix.shape == (splits, m, n) and square_sum.shape == (splits, m)
++    assert all(
++        t.dtype == torch.float32 and t.device == x.device and t.is_contiguous()
++        for t in (mix, square_sum)
++    )
++    if m == 0:
++        return
++    _mhc_prenorm_bf16x3_kernel[(triton.cdiv(m, block_m), splits)](
++        x,
++        *weight_parts,
++        mix,
++        square_sum,
++        m,
++        K=k,
++        N=n,
++        K_PER_SPLIT=triton.cdiv(k, splits * 64) * 64,
++        BLOCK_M=block_m,
++        BLOCK_N=max(16, triton.next_power_of_2(n)),
++        BLOCK_K=64,
++        num_warps=4,
++        num_stages=3,
++    )

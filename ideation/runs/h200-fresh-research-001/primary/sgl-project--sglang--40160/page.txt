@@ -1,0 +1,423 @@
+Conversation
+zhangxiaolei123456
+commented
+Sep 18, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Motivation
+DeepSeek-V4.1 verification rows from the same request score the same FP4 index-K cache. The existing Triton path decodes K independently for each query row; capacity-sized CUDA Graphs also leave substantial work on invisible positions.
+This PR adds an opt-in SM90 grouped indexer that converts packed E2M1 to E5M2 in shared memory and uses FP8 WGMMA, reusing each decoded K tile across query rows. Hopper has no native MXFP4 MMA. The grouped path preserves the existing BF16 rounding points, ReLU, head weighting, and reduction order.
+Changes
+Optimize scale decoding in the existing SM90 Triton fallback.
+Add a grouped CUDA path for H64/D128 request-major verification rows, with one query per warpgroup and shared K tiles of 64 positions.
+Retain up to six decoded Q rows across 2/4/8 K tiles, with shape-dependent dispatch.
+Compute
+group_max_len
+on device, skip completely invisible chunks/tiles, and write
+-inf
+. Partial tiles avoid reading invalid
+req_to_token
+entries.
+Add a persistent scheduler: parallel device-side length loading, visible-chunk prefixes, a bounded resident CTA grid, and chunk sizing based on actual visible work. Q remains resident across assigned chunks from the same group.
+Add a three-stage pipeline:
+cp.async
+loads packed tile i+2 while CUDA cores decode tile i+1 and WGMMA consumes tile i. Unaligned cache addresses retain a scalar-load fallback.
+Extend registered tests for invisible tiles, partial groups, and CUDA Graph replay after changing lengths.
+Dispatch and compatibility
+fp4_index_logits_grouped_sm90(..., implementation=...)
+accepts:
+Value
+Behavior
+"auto"
+(default)
+Shape-dependent rectangular grid with Q residency and visibility skipping
+"persistent"
+Schedule visible chunks on a resident grid
+"pipeline"
+Persistent scheduling plus asynchronous packed-load/software-decode/WGMMA overlap
+The grouped path remains opt-in; it is not enabled globally.
+auto
+does not automatically select persistent/pipeline. Measurements below show that the best mode depends on shape and visibility.
+Scheduler metadata is CTA-local shared memory, recomputed on every invocation and graph replay. There is no CPU length readback, global allocation/counter, or request-slot scratch. Persistent modes support up to 1024 request groups and six rows per group, falling back to the single-tile path for larger inputs. Random physical slots, partial final groups, per-row lengths, compression ratios 1/2, and padded output/cache strides are supported.
+Numerical behavior and resources
+Packed FP4 block scales are factored into a common power-of-two scale, restored after FP8 accumulation, and followed by the existing BF16 dot rounding, ReLU, BF16 weighted-product rounding, FP32 head reduction tree, and final BF16 rounding.
+H20 resource usage for the current four-warpgroup implementations:
+Variant
+Registers/thread
+Shared memory
+Resident CTAs/SM
+Spills
+Q-resident rectangular grid
+64
+63,872 bytes
+2
+None
+Persistent
+64
+80,000 bytes
+2
+None
+Pipeline
+64
+105,600 bytes
+2
+24-byte stack frame; 20 bytes each of spill loads/stores
+SASS inspection confirms QGMMA issuance, subsequent packed LDGSTS and software decode, then WARPGROUP.DEPBAR. The final build has no WGMMA serialization warning. The pipeline does not consistently outperform serial persistent scheduling.
+Validation
+Executed on H20:
+23 independent configurations: widths 1–1025, query group sizes 2/3/4/5/6/7/9, partial groups, pages 16/64, ratios 1/2, random physical slots, varying lengths including zero, padded strides and output guards. Applicable variants match the prior CUDA implementation bit for bit; an independent integer-dot oracle also matches.
+Three registered tests pass through the real Python/custom-op/JIT entry, including all three implementations against Triton with changing graph-replay visibility.
+Additional graph checks cover long → empty → short → long transitions, poisoned invisible slots and unaligned table strides; outputs match exactly.
+Metadata-capacity/fallback checks at 257, 1024 and 1025 groups, and group size nine pass.
+Full 23-case Compute Sanitizer memcheck/racecheck/synccheck: zero errors or hazards. Additional graph and metadata-boundary memcheck runs also pass.
+Pre-commit checks pass, including registered-test validation.
+Registered test command:
+PYTHONPATH=python python test/registered/kernels/ops/attention/test_sm90_fp4_grouped_indexer.py -v
+Performance against the visibility-pruned Triton implementation
+Comparison target:
+#40431
+at
+f9d444b20fb19ebf391712c91e5bdaccb35dc77d
+, using its unmodified
+fp4_index_logits_decode
+.
+Environment: NVIDIA H20, PyTorch 2.11.0+cu130, Triton 3.6.0. All paths in the tables ran in the same environment. All comparisons use H64/D128, group size six, page size 64 and compression ratio two. The H32 numbers in
+#40431
+'s description are not reused here.
+Both paths receive identical FP4-representable BF16 Q, head weights, packed K, request mapping and visible lengths. Model-side fake quantization is shared upstream and excluded. Timing uses CUDA Graphs with ten calls per replay and nine randomly interleaved rounds; figures are medians in microseconds. Capacity and visibility are compressed positions.
+Logits only
+Triton receives precomputed slots; CUDA receives prepacked Q and scales. Preparation is excluded on both sides.
+Rows
+Capacity
+Max visible
+PR
+#40431
+Triton
+CUDA auto/P0
+Persistent
+Pipeline
+5
+65
+65
+10.68
+26.62
+37.56
+37.93
+95
+4,096
+4,096
+560.92
+138.46
+149.60
+151.41
+383
+4,096
+4,096
+2,254.19
+464.52
+491.86
+496.39
+24
+16,384
+512
+25.00
+94.77
+32.40
+32.79
+384
+16,384
+512
+358.10
+161.24
+146.88
+141.98
+48
+1,048,896
+8,704
+1,192.80
+351.11
+316.88
+316.25
+96
+524,448
+4,352
+1,195.24
+366.10
+332.16
+331.24
+Including caller preparation
+Triton includes the exact slots preparation in
+#40431
+'s caller: arange, visibility mask, req_to_token gather, int64 conversion, division by ratio, and masked_fill. CUDA includes its additional Q packing and directly reads req_to_token. Shared upstream query/head-weight generation and downstream top-k/attention are excluded.
+Rows
+Capacity
+Max visible
+PR
+#40431
+Triton
+CUDA auto/P0
+Persistent
+Pipeline
+5
+65
+65
+27.58
+29.56
+42.23
+41.12
+95
+4,096
+4,096
+590.38
+156.31
+167.51
+169.51
+383
+4,096
+4,096
+2,324.02
+534.39
+560.33
+562.92
+24
+16,384
+512
+57.64
+102.60
+40.18
+40.47
+384
+16,384
+512
+702.04
+225.66
+213.05
+208.51
+48
+1,048,896
+8,704
+3,776.82
+359.87
+327.08
+326.43
+96
+524,448
+4,352
+3,749.59
+383.61
+349.65
+348.95
+The two large-capacity cases show
+3.61–3.77× logits-only speedup
+and
+10.75–11.57× including preparation
+for pipeline. Avoiding the capacity-sized slots intermediate contributes substantially to the latter. Persistent and pipeline are close; small/short workloads can still favor Triton, and full-length workloads often favor CUDA
+auto
+.
+All 18 measured configurations and eight paths per configuration produce bit-identical logits and masks, with matching selected top-k sets. Every graph is replayed after poisoning its output and checked against eager execution.
+These are synthetic operator measurements, not model-level TPOT or throughput claims. Equality on these inputs does not establish equivalence for arbitrary scale patterns or nonfinite inputs.
+Checklist
+Format code and run pre-commit.
+Add registered CUDA tests.
+Document dispatch choices and limitations.
+Provide accuracy and speed results.
+CI States
+Latest PR Test (Base): ❌
+Run #35502666324
+Latest PR Test (Extra): ❌
+Run #35502666193
+Latest PR Test (AMD ROCm 10): ❌
+Run #35502666305
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+1
+vladnosiv reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Add SM90 FP8 Tensor Core path for grouped FP4 indexer
+d58a4d0
+zhangxiaolei123456
+requested review from
+BBuf
+,
+DarkSharpness
+,
+HaiShaw
+,
+HydraQYH
+,
+celve
+and
+yuan-luo
+as
+code owners
+September 18, 2026 10:13
+github-actions
+Bot
+added
+  the
+jit-kernel
+label
+Sep 18, 2026
+zhangxiaolei123456
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+/tag-and-rerun-ci
+👍
+1
+github-actions[bot] reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yuan-luo
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+Likewise, pls fix the lint first.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Move grouped FP4 indexer test to kernel registry
+7e46a8d
+This was referenced
+Sep 19, 2026
+[CI Monitor] Daily Report - 2026-09-19
+bingxche/sglang-ci-bot#200
+Open
+[CI Monitor] Daily Report - 2026-09-20
+bingxche/sglang-ci-bot#201
+Open
+songkuan-zheng
+mentioned this pull request
+Sep 20, 2026
+[Feature][DeepSeek-V4.1] Default prefill_decode_interval so long-context prefill cannot starve decode
+#40443
+Open
+Add visibility pruning and persistent pipelines to SM90 FP4 indexer
+0041169
+Oasis-Git
+mentioned this pull request
+Oct 2, 2026
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+Open
+17 of 56 tasks
+Li-brua
+added a commit
+        to Li-brua/sglang
+      that referenced
+      this pull request
+Oct 13, 2026
+perf(pdmux): adapt
+sgl-project#40160
+grouped FP8 indexer for H32
+…
+812dff1
+Port the rectangular-grid kernel from
+sgl-project#40160
+at
+0041169
+and connect it to fixed-width
+DSPARK target verification on SM90. Support H32 and H64 by zeroing
+unused H32 heads only inside the physical 64-row shared-memory tile.
+
+Pass request grouping from CPU scheduling metadata, preserve compact
+candidate scoring and eight-float output alignment, and use the
+caller's CUDA stream without resetting its PDMux device context.
+Add shared-memory async-proxy fences before WGMMA reads. Do not port
+persistent/pipeline scheduling or add lane/collective synchronization.
+
+Gate the path behind SGLANG_OPT_USE_DSV41_SM90_GROUPED_INDEXER=1;
+default remains off. Document activation, numerical assumptions,
+current-baseline comparisons and GPU acceptance coverage.
+
+Validation: 225 CPU tests and 93 subtests passed across related
+indexer/PDMux/DSPARK, environment and kernel inventory selections.
+Two unrelated AMX subprocess checks were deselected due to the known
+missing-Triton host limitation. All 36 new CUDA cases skip locally.
+Python/C++ format, lint, test registration and whitespace checks pass.
+CUDA compilation, numerical accuracy, graph replay and multi-rank
+liveness/throughput remain unverified on this CPU-only machine.
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+DarkSharpness
+Awaiting requested review from DarkSharpness
+DarkSharpness is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+BBuf
+Awaiting requested review from BBuf
+BBuf is a code owner
+celve
+Awaiting requested review from celve
+celve is a code owner
+HydraQYH
+Awaiting requested review from HydraQYH
+HydraQYH is a code owner
+yuan-luo
+Awaiting requested review from yuan-luo
+yuan-luo is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+jit-kernel
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

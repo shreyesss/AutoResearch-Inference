@@ -1,0 +1,267 @@
+Conversation
+shoemoney
+commented
+Aug 24, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+SM90
+k_grouped_fp8_gemm_nt_contiguous
+(and the BF16 k-grouped path, which shares the same candidate enumerator) can hang or silently produce wrong output when the heuristic enables TMA multicast with an odd per-group block grid.
+Bug
+The k-grouped scheduler lays the groups' block grids back-to-back. SM90 clusters are consecutive block-index pairs. With
+num_groups=2, m=192, n=3072, ks=[128, 256]
+on 132 SMs,
+csrc/jit_kernels/heuristics/sm90.hpp
+selects
+BLOCK_M=64, BLOCK_N=72
+, cluster size 2. The per-group grid is
+ceil(192/64) * ceil(3072/72) = 3 * 43 = 129
+blocks, so group 1 starts at odd global block 129 and cluster
+{128, 129}
+spans both groups.
+The two CTAs then disagree on
+is_tma_multicast_valid()
+. Rank 0 is remapped to
+num_blocks_in_group == 1
+by the unaligned-multicast fix at
+deep_gemm/include/deep_gemm/scheduler/gemm.cuh:133-140
+; rank 1 is not. Only cluster rank 0 issues
+SM90_TMA_LOAD_MULTICAST_2D
+(
+deep_gemm/include/deep_gemm/common/tma_copy.cuh:47
+), so rank 1's full barrier never receives its B transaction bytes and the kernel hangs. Every later pair inside group 1 is parity-shifted: both CTAs consider multicast valid while needing different B tiles, which gives silently wrong output. Unequal
+ks
+also desync the empty-barrier phases across the straddling pair.
+Fix
+Reject k-grouped multicast candidates whose per-group grid is not divisible by the cluster size. The check sits next to the existing masked-layout legality check (
+sm90.hpp:87-91
+). This is the same invariant the SM100 heuristic already enforces at
+csrc/jit_kernels/heuristics/sm100.hpp:103
+and
+:115
+.
+The runtime remap in
+gemm.cuh:133-140
+could instead disable multicast for a straddling pair, but SM90 bakes the multicast arrival count into barrier initialization at launch. The host-side filter keeps the invariant the kernel already assumes, as SM100 does.
+Verification
+I ported the exact SM90 candidate enumeration and cost model to a script (132 SMs). Without the filter, 269
+(num_groups<=4, m, n)
+combos in a small scan select a group-straddling multicast config, including the shape above. With the filter, every one falls back to a legal even-grid or cluster-1 config; the example shape picks
+BLOCK_M=64, BLOCK_N=152
+, cluster 1, 63-block grid.
+I added that shape to the k-grouped test generator, mirroring the existing SM90 tensor-map stress shape. The shipped shapes all have even per-group grids, which is why the suite never hit this.
+I do not have Hopper hardware. The kernel-level failure is derived from the analysis and the model port, not an on-device run.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+reviewed
+Aug 24, 2026
+View reviewed changes
+Comment thread
+csrc/jit_kernels/heuristics/sm90.hpp
+continue;
+// Multicast legality for k-grouped layout: the scheduler lays the groups'
+// block grids back-to-back, while SM90 clusters are consecutive block pairs,
+ds-review-bot
+Aug 24, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: This check is slightly stricter than the SM90 runtime's own unaligned-multicast remap allows within a single group (gemm.cuh remaps a trailing odd block to num_blocks_in_group == 1), so some shapes lose multicast entirely where a per-group-aware runtime remap could keep it. That intra-group remap only works when all blocks agree on group boundaries, so the strictness is the right trade-off for now; consider a follow-up that makes the runtime remap group-aware if the fallback configs show measurable regressions.
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+tests/generators.py
+#        the second shape has an odd per-group block grid, for stressing SM90 TMA multicast legality
+for num_groups, m, n, expected_k_per_group in (( 8,  768, 2048,  128),
+( 2,  192, 3072,  128),
+( 4, 4096, 7168, 8192), ( 4, 7168, 2048, 8192),   # EP64
+ds-review-bot
+Aug 24, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: The new (2, 192, 3072, 128) shape reproduces the odd per-group grid (3 * 43 = 129 blocks with BLOCK_M=64, BLOCK_N=72) only under the old heuristic on 132-SM parts; on other SM counts or arches it degenerates to a normal small shape. Since the fix is host-side, the test now exercises the fallback config rather than the failing kernel path. Consider also adding a direct unit check on the heuristic output (asserting the selected layout's per-group grid is cluster-divisible) so the invariant is verified independently of SM count and hardware availability.
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Aug 24, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+新增过滤条件正确保证了 SM90 k-grouped 每组网格与 cluster 边界对齐，且 cluster size 为 1 时不受影响。回归测试形状能够复现所描述的非法候选场景，未发现破坏现有行为的问题。
+v5
+This MR fixes a real correctness bug in the SM90 k-grouped GEMM heuristic: the device scheduler lays per-group block grids back-to-back while SM90 TMA multicast clusters are consecutive block-index pairs, so an odd per-group grid causes a cluster to straddle a group boundary, leading to a hang (rank 1's full barrier never receives its B transaction bytes since only cluster rank 0 issues SM90_TMA_LOAD_MULTICAST_2D) or silent corruption (parity-shifted pairs multicast the wrong B tile). The fix rejects k-grouped multicast candidates whose per-group grid (ceil_div(m, block_m) * ceil_div(n, block_n)) is not divisible by the cluster size, placed alongside the existing masked-layout legality check and matching the invariant the SM100 heuristic already enforces (sm100.hpp:103, :115). A regression test shape (num_groups=2, m=192, n=3072, k≈128) with an odd per-group grid under the old selection is added to the k-grouped generator, and the BF16 k-grouped path is covered since it shares the same enumerator. The disable_multicast heuristic already forces cluster 1 for num_groups > 4, so the filter only affects num_groups <= 4 cases, consistent with the author's model-port scan. The change is minimal, well-commented, and correctly scoped to the host-side heuristic rather than a riskier runtime remap (SM90 bakes the multicast arrival count into barrier initialization at launch). Approve; only minor observations below.
+v4p
+本 MR 修复 SM90 k-grouped GEMM 在 TMA multicast 簇跨越 group 边界时可能挂起或产生静默错误的问题：在 SM90 启发式枚举中新增合法性过滤，拒绝 per-group block grid 不能被 cluster size 整除的 KGroupedContiguous multicast 候选，并补充了对应回归测试形状。整体评估：修复位置正确、条件与调度器实际布局一致（分组 block grid 即为 ceil_div(m, BM)*ceil_div(n, BN)），且 cluster-1 候选始终保留，不会引入空候选或新风险；测试形状能覆盖原问题场景。
+Files reviewed
+: 2
+Issues found
+: 🔵 2 suggestion
+Inline comments posted
+: 2
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+baptiste-bt
+mentioned this pull request
+Sep 8, 2026
+[BUG] Fix sm90 grouped multicast deadlock
+#429
+Open
+Reject SM90 k-grouped multicast configs whose per-group grid is not d…
+…
+7b270b5
+…ivisible by the cluster size
+
+For GemmType::KGroupedContiguous the device scheduler lays the groups'
+block grids back-to-back, while SM90 TMA multicast clusters are formed
+from consecutive block indices. If the heuristic picks a multicast
+config whose per-group block grid count is odd, every cluster inside
+the later groups is parity-shifted and one cluster straddles a group
+boundary: the two CTAs disagree on is_tma_multicast_valid(), only
+cluster rank 0 issues SM90_TMA_LOAD_MULTICAST_2D, and the peer's full
+barrier never receives its transaction bytes. Depending on the ks this
+either hangs the kernel or silently consumes the wrong B tile and
+produces incorrect output.
+
+Example on 132 SMs: num_groups=2, m=192, n=3072, ks=[128, 256] selects
+BLOCK_M=64, BLOCK_N=72, cluster size 2, giving a per-group grid of
+3 * 43 = 129 blocks, so group 1 starts on an odd global block index.
+Porting the exact SM90 candidate enumeration and cost model to a
+script reproduces 269 such (groups<=4, m, n) combos in a small scan;
+with this filter each falls back to a legal even-grid or cluster-1
+config (for the example shape, BLOCK_M=64, BLOCK_N=152, cluster 1).
+
+The SM100 heuristic already enforces this cluster-divisibility
+invariant (csrc/jit_kernels/heuristics/sm100.hpp:103 rejects
+ceil_div(m, block_m) % cluster_m != 0 and :115 does the same for N);
+this applies the equivalent rule to the SM90 enumerator, which also
+serves the SM90 BF16 k-grouped path. PR
+deepseek-ai#238
+(issue
+deepseek-ai#237
+) fixed the
+previous group-boundary hazard in this same SM90 k-grouped kernel, and
+PR
+deepseek-ai#343
+fixed the in-place tensormap update race there.
+
+Also adds a k-grouped test shape (2 groups, m=192, n=3072) whose
+per-group grid is odd under the old selection, mirroring the existing
+stress shape for the SM90 in-place tensor map update.
+shoemoney
+force-pushed
+the
+fix-sm90-kgrouped-multicast-group-straddle
+branch
+    from
+da90773
+to
+7b270b5
+Compare
+September 10, 2026 09:49
+LiRunGuo
+mentioned this pull request
+Sep 22, 2026
+[Fix] SM90 heuristic offers block M 16/32 to the FP8 1D1D kernel (JIT failure for M <= 32)
+#455
+Open
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

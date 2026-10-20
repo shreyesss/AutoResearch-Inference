@@ -1,0 +1,406 @@
+Conversation
+positive666
+commented
+Sep 13, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Purpose
+Reduce DeepSeek-V4.1-Flash MXFP4 expert padding on SM90 Marlin. At TP8,
+each 288-channel partition uses
+320 instead of 384
+channels, saving
+7.77 GiB of model-loading memory per H20 GPU
+at a fixed KV budget.
+The change applies to regular CUDA SM90 Marlin with BF16 activations and
+no A8 quantization. Hidden alignment remains 256. This storage-alignment
+change is separate from
+#56744
+'s batched tile selection and
+#56493
+'s
+SM89 block-FP8 tile grouping.
+Test Plan
+Rebase validation (
+b05a5ca710a9
+on
+7b942936276d
+): the original
+patch is unchanged apart from upstream context.
+142 MXFP4 tests passed
+on H20 with the prepared native Marlin runtime; changed-file lint and
+mypy 3.12 passed. Performance and quality results below retain their
+original frozen source versions.
+Run from each pinned source tree using the prepared test environment:
+#
+Both trees: 208 passed each
+CUDA_VISIBLE_DEVICES=0 uv run --no-project /study/.venv/bin/python -m pytest \
+
+  tests/kernels/test_fused_deepseek_v4_qnorm_rope_kv_insert.py \
+
+  tests/v1/spec_decode/test_adaptive_verification.py -q
+#
+PR tree: 142 passed
+CUDA_VISIBLE_DEVICES=0 uv run --no-project /study/.venv/bin/python -m pytest \
+
+  tests/kernels/quantization/test_marlin_tile_padding.py \
+
+  tests/kernels/moe/test_moe_weight_loading_padded.py -k mxfp4 -q
+558 passed, no skips
+in the frozen-source targeted run. The original broader
+padding/loading suite passed 281 tests with 13 skips on H20. Tests cover
+allocation guards, repack, both expert GEMMs against dequantized weights,
+and TP4/TP8 shard loading. The SM90 GPU tests skip on L4 CI workers.
+The committed
+benchmark_mxfp4_marlin_padding.py
+provides a paired
+synthetic expert-path benchmark. Pinned Ruff hooks and
+git diff --check
+pass.
+Test Result
+Frozen upstream
+bb5507741155
+, PR
+238e1c21f478
+; identical native
+binaries across layouts. H20×8, TP8, BF16, dense emulation, Python API1,
+default modalities/Engram, max sequences 64, batch tokens 8192, DSpark 5
+adaptive,
+fp8_ds_mla
+. GPU KV is fixed at 22,191,197,696 bytes/rank;
+native SimpleCPUOffloadConnector uses 64 GiB total. The service limit is
+1M; the performance inputs below are 8K/32K.
+EvalScope 1.11.1, matched random inputs, streaming and exactly 1024 output
+tokens. Two complete boots per layout in C→D / D→C order, with separate
+priming. Model-loading memory is
+51.09 → 43.32 GiB/GPU
+.
+| Input/concurrency | Round | Baseline tok/s | +PR tok/s | Throughput | E2E p95 |
+|---|---:|---:|---:|---:|---:|
+| 8K/C64 | 1 | 861.71 | 916.19 | +6.3% | -9.1% |
+| 8K/C64 | 2 | 850.94 | 916.65 | +7.7% | -7.2% |
+| 32K/C4 | 1 | 221.78 | 239.05 | +7.8% | -7.3% |
+| 32K/C4 | 2 | 218.73 | 232.51 | +6.3% | -3.2% |
+832 measured requests succeeded, plus 384 priming requests. 8K/C4 was
+inconsistent, including p95 regressions. C16 and one C4 run overlap JIT
+warnings and are excluded from the performance claim above. CPU prefix
+hits were zero in these random-input runs; these are PR gains with
+offload enabled, not an offload-benefit measurement.
+One baseline boot stopped at priming validation after an empty-text
+stream had unavailable TTFT. Its 64 completed measurements are retained
+separately; the entire boot was repeated with unchanged EvalScope commands
+and seeds after correcting only the priming validator.
+Quality:
+full GSM8K, three independent boots per layout:
+| Layout | Original | Repeat 1 | Repeat 2 |
+|---|---:|---:|---:|
+| Baseline | 1277/1319 | 1280/1319 | 1278/1319 |
+| +PR | 1275/1319 | 1280/1319 | 1277/1319 |
+Zero-shot chat, C16, greedy, thinking=false, max_tokens=1024, request
+seed=20260915, server seed=0. Prompt and grading logic were unchanged;
+truncations and missing final answers count as incorrect. The differences
+remain
+−2, 0, −1 answers
+. Within-layout repeats change 7–12 final answers;
+targeted C1 replays also vary. This does
+not
+establish quality equivalence
+or prove that the negative difference is entirely runtime variation.
+An additional 90-case numerical comparison passed the same dequantized
+BF16 reference tolerance (
+atol=rtol=0.03
+) for both padding extents.
+Mean relative L2 error was 0.00499137 / 0.00499136. Both layouts also pass
+three image, two streamed-tool and 16 controlled KV-retrieval checks.
+AI assistance was used; the original patch was reviewed and tested by the submitter.
+Newer-upstream compatibility check (2026-09-22)
+Retested the four production-file changes from PR head
+b05a5ca710a9
+on upstream
+a33b3bac5dad
+, using its matching official wheel on H20.
+The runtime audit verified 5,147 official wheel files and all four PR
+overlay files; native extensions and declared dependency constraints passed.
+CUDA_VISIBLE_DEVICES=0 uv run --offline --no-project /study/.venv/bin/python -m pytest \
+  --confcutdir=/upgrade/validation \
+  tests/kernels/quantization/test_marlin_tile_padding.py \
+  tests/kernels/test_compressor_kv_cache.py \
+  -k
+'
+mxfp4_marlin or dspark_context_kv_matches_query_insert
+'
+-q
+170 passed, 221 deselected, no skips
+: 138 Marlin padding tests and 32
+upstream DSpark KV-write tests. The latter are companion upgrade checks,
+not additional coverage attributable to this PR. The test source was the
+upstream tree plus the PR test changes, with the matching patched wheel.
+The newer full-model TP8 service still reports
+43.32 GiB/GPU
+model-loading
+memory with this patch. Its standard serving validation completed 648/648
+measured requests successfully (streaming, fixed 1,024 output tokens), and
+two basic chat checks passed. These are compatibility and serving checks,
+not a new quality evaluation or a clean PR on/off comparison: both compared
+deployments include this patch, and the newer deployment also disables CPU
+KV offload. The original
+7.77 GiB/GPU
+reduction and PR-only throughput
+measurements remain attributed to the frozen A/B versions above.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+positive666
+requested review from
+AndreasKaratzas
+,
+WoosukKwon
+,
+mgoin
+,
+pavanimajety
+,
+robertgshaw2-redhat
+,
+tjtanaa
+,
+tlrmchlsmth
+,
+yewentao256
+and
+zyongye
+as
+code owners
+September 13, 2026 12:19
+claude
+Bot
+reviewed
+Sep 13, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Claude Code Review
+This pull request is from a fork — automated review is disabled. A repository maintainer can comment
+@claude review
+to run a one-time review.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+performance
+Performance-related issues
+quantization
+labels
+Sep 13, 2026
+positive666
+mentioned this pull request
+Sep 13, 2026
+[Perf][Marlin] Group full-K tiles for wide block-FP8 GEMMs on SM89
+#56493
+Open
+WoosukKwon
+mentioned this pull request
+Sep 16, 2026
+[Perf][DSV4.1] Remove MegaMoE padding and shared padding workaround
+#57204
+Merged
+mergify
+Bot
+commented
+Sep 17, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@positive666
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 17, 2026
+[Perf][Marlin] Reduce DS V4.1 Flash MoE padding on SM90
+…
+b05a5ca
+Use 64-element MXFP4 intermediate alignment for regular SM90 Marlin
+with BF16 activations and no A8 input quantization. Preserve the
+existing policy for other paths and callers without an activation dtype.
+
+Cover the allocation, repack and TP loading contracts and add a
+reproducible kernel benchmark for the 384-to-320 padding reduction.
+
+Co-authored-by: Codex <noreply@openai.com>
+Signed-off-by: Cheng Rui <286040359@qq.com>
+positive666
+force-pushed
+the
+codex/dsv41-mxfp4-padding
+branch
+    from
+238e1c2
+to
+b05a5ca
+Compare
+September 18, 2026 02:59
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Sep 18, 2026
+positive666
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Contributor
+Author
+clear the merge conflict.
+This is still the SM90 Marlin MXFP4 storage-alignment change (384 → 320 channels at TP8),   Separate from the MegaMoE/DeepGEMM native-width change in
+#57204
+. After the rebase I re-ran the targeted MXFP4 tests, and an additional check on our own H20×8 serving workload still showed 7.77 GiB/GPU less model-loading memory at a fixed KV budget, with a positive throughput trend.。
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+commented
+Sep 30, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@positive666
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 30, 2026
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+claude[bot]
+claude[bot] left review comments
+tjtanaa
+Awaiting requested review from tjtanaa
+tjtanaa is a code owner
+mgoin
+Awaiting requested review from mgoin
+mgoin is a code owner
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+tlrmchlsmth is a code owner
+WoosukKwon
+Awaiting requested review from WoosukKwon
+WoosukKwon is a code owner
+yewentao256
+Awaiting requested review from yewentao256
+yewentao256 is a code owner
+zyongye
+Awaiting requested review from zyongye
+zyongye is a code owner
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+AndreasKaratzas is a code owner
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+robertgshaw2-redhat is a code owner
+pavanimajety
+Awaiting requested review from pavanimajety
+pavanimajety is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+needs-rebase
+performance
+Performance-related issues
+quantization
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,612 @@
+{
+  "at": "2026-10-20T12:46:30Z",
+  "actor": "root engineering synthesis",
+  "gpu_experiments": 0,
+  "candidates": [
+    {
+      "key": "H01",
+      "lane": "compute",
+      "original_id": "H200-COMP-001",
+      "title": "Humming backend and indexed/grouped comparison",
+      "priority": 1,
+      "source_observation": "Startup selects Marlin. Humming 0.1.16 and explicit backend/GEMM-type controls are installed; automatic MXFP4 priority excludes Humming.",
+      "source_fix": "#59488 adds explicit activation selection and SM90 indexed handling. It is broader than the first comparison and has source conflicts on this image.",
+      "root_prediction": "At fixed BF16 activation semantics, indexed Humming may reduce gather/permutation and grouped execution overhead on some token-per-expert distributions. This is unmeasured.",
+      "baseline_check": "Resolve actual W1/W2 schemas, GEMM type, EP4 AG/RS compatibility, target/drafter backend and graph coverage. Use shipped flags first; adapt only the missing behavior.",
+      "strongest_comparator": "Running Marlin, fixed Humming grouped, fixed Humming indexed; hold precision, transport, routing and checkpoint constant. Include total permutation/quantization/reduction time.",
+      "activation": "Backend and indexed-path calls / eligible expert invocations on every rank; tokens per expert and padded/empty experts.",
+      "mechanism_diagnostic": "End-to-end expert span, permutation bytes and exposed GEMM time versus total forward time; distinguish faster math from less data movement.",
+      "reject_or_defer_if": "No legal installed path, silent precision fallback, gain only from changing transport/precision, or HBM/workspace cost causing worse service.",
+      "correctness": "Expert IDs/scatter, scales, top6 routing, empty ranks, graph replay, SwiGLU clamp10, target/drafter parity and quality.",
+      "workloads": "D1 then E1/E2, with low and high tokens-per-expert and held-out routing skew.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/59488",
+        "https://github.com/vllm-project/vllm/issues/60600",
+        "https://github.com/vllm-project/humming/issues/38"
+      ],
+      "global_id": "hypothesis:eaa599659d884ea8fa57ac168bb78edeee17f66935c779deccdc8cc39dcab29b",
+      "latest_card_id": "R1",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 76.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The #59488 patch supplies an SM90 selector restricted to compatible communication, but pinned-loader registration and effective EP4 transport remain unknown. The supplied port-check artifact also reports that #59488 does not apply completely. Routing, rounding, empty ranks, graph replay, target/drafter behavior and quality checks are appropriately proposed; they do not establish current eligibility."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "compute/review-recovery",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H02",
+      "lane": "attention",
+      "original_id": "h200-attn-20261020-01",
+      "title": "Share compatible FlashMLA plans",
+      "priority": 2,
+      "source_observation": "Multiple compatible attention groups can repeat planning; #58818 reports small synthetic-acceptance H20 gains. The three-file source patch applies to the captured image.",
+      "source_fix": "Cache/reuse planning metadata within the intended compatibility and lifecycle scope.",
+      "root_prediction": "Removing repeated planning may reduce exposed host/device overhead at the actual group count. Small source gains may disappear into service noise.",
+      "baseline_check": "Identify active metadata builder and group compatibility, all live fields and graph lifetime. Source application is not execution proof.",
+      "strongest_comparator": "Same image with per-group planning; same groups, scheduler and graph buckets. Do not silently use a previously prepared but unverified image.",
+      "activation": "Shared-plan hits / compatible planning opportunities; builds per scheduler step and group, invalidation reasons.",
+      "mechanism_diagnostic": "Planning CPU span and launches, then unprofiled forward/TPOT; compare cold and warm paths.",
+      "reject_or_defer_if": "No duplicate active planning, incompatible live lengths/masks, no service benefit after adequately powered confirmation, or gain below drift.",
+      "correctness": "Mixed groups, changed lengths and masks, graph replay, prefill/decode, cache invalidation/lifetime and fallback.",
+      "workloads": "D1 and E1/E2; held-out mixed groups and ragged lengths.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/58818"
+      ],
+      "global_id": "hypothesis:95e5a4efdb308e9c9fb674e2f17cce046eb8a42e078266d5c5f55694d44420c5",
+      "latest_card_id": "h200-attn-20261020-01",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 76.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The three-file Python patch provides a plausible SM90 port without requiring small TP-local head counts. Active runner dispatch and compatibility across groups remain unknown. The patch states \"FlashMLA checks only shapes\"; its cache key does not itself establish equal live lengths, masks or replay state. The proposed correctness checks appropriately target these unresolved invariants."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "attention/hypotheses",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H03",
+      "lane": "compute",
+      "original_id": "H200-COMP-003",
+      "title": "SM90 small-row mHC launch tuning",
+      "priority": 3,
+      "source_observation": "Installed split-k selection is GB300-derived. #61461 introduces SM90 configuration for one to eight rows; its source hunk applies.",
+      "source_fix": "Use the SM90 tile/split/thread configuration only within the guarded shape range, retaining the existing fallback.",
+      "root_prediction": "A better launch shape may shorten the delayed fused mHC operation, if actual padded rows enter the small band.",
+      "baseline_check": "Confirm hc_mult4, H5120, executed delayed kernel and actual padded row histogram. Check the executed TF32 prenorm implementation first.",
+      "strongest_comparator": "Correctness-qualified unchanged launch config, then the narrow #61461 change alone; no concurrent overlap or dtype change.",
+      "activation": "Tuned launches / eligible delayed-mHC launches; row histogram including padded rows and graph buckets.",
+      "mechanism_diagnostic": "Kernel time and exposed mHC span; distinguish configuration benefit from compilation/cache warmup.",
+      "reject_or_defer_if": "No eligible rows at seq64 load, output mismatch, gain outside the guard only, or no service effect.",
+      "correctness": "Independent mHC reference, repeatability, warmup and graph replay, fallback shapes; apply relevant synchronization gate before timing.",
+      "workloads": "Low-load D1 plus native E1/E2; held-out 1–8 rows and larger fallback rows.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/61461",
+        "https://github.com/vllm-project/vllm/pull/59129",
+        "https://github.com/deepseek-ai/DeepGEMM/pull/448"
+      ],
+      "global_id": "hypothesis:107a8cb43f210c56f0932799758c0f1b1c58b0d52a39afc25eb218225e2e5baf",
+      "latest_card_id": "R3",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 82.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The patch explicitly guards SM90 and returns \"return 12, hidden_size // 512, 256\"; H5120 satisfies that condition. The source-hunk application check succeeds. However, live hc_mult and the delayed-kernel call path are not established. Numerical, warmup, replay and fallback checks are well scoped; the application check excludes tests and native dependencies."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "compute/review-recovery",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H04",
+      "lane": "systems",
+      "original_id": "h200-systems-001",
+      "title": "Use real request counts for draft sizing",
+      "priority": 4,
+      "source_observation": "Installed uniform-batch helper takes target DP-sync request counts. #58984 separates real requests from target graph capacity; its multi-commit patch conflicts with this image.",
+      "source_fix": "Carry DP-wide logical request count separately and use it for draft batches while retaining target padding and distributed liveness.",
+      "root_prediction": "Ragged/idle-rank workloads may spend less time drafting dummy rows. Fixed adaptiveOFF makes the observed padding gap a necessary activation question.",
+      "baseline_check": "Follow DSpark inheritance into the installed helper and compare logical, target-padded and draft-padded counts. Adapt exact final patch behavior; do not blindly cherry-pick.",
+      "strongest_comparator": "Identical k5, seq64, graph buckets and sampler with current request accounting; compare balanced as a negative control.",
+      "activation": "Steps with logical count below target graph capacity / all draft steps; dummy rows avoided by every rank.",
+      "mechanism_diagnostic": "Draft rows and time, acceptance and verify frequency, CPU synchronization and graph fallback. A better batch mix is a competing explanation.",
+      "reject_or_defer_if": "No active padding gap, draft resizing changes graph policy/acceptance, distributed mismatch, or only synthetic speedup.",
+      "correctness": "G01/G02/G05: sampling distributions, KV offsets, idle ranks, pause/resume, dummy inputs and graph replay.",
+      "workloads": "Ragged D1, mixed E1 and fixed burst E2; balanced and held-out arrival schedules.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/58984",
+        "https://arxiv.org/abs/2404.15778"
+      ],
+      "global_id": "hypothesis:b2152fd27e2f4afb4b1e368fc89e487169dc99e2c040bd598e1e0be60e203b25",
+      "latest_card_id": "R1",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 76.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The Python execution-shape port is plausible on SM90, and the proposed dummy-rank, graph, KV and sampler checks are well scoped. However, code:h200:port-checks records \"patch does not apply\" in both dp_utils.py and speculator.py. Complete final patch behavior and deployed dispatch remain unverified. This requires adaptation, not an architecture-incompatibility rejection."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "systems/review-recovery",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H05",
+      "lane": "systems",
+      "original_id": "h200-systems-002",
+      "title": "Small CPU DP reductions",
+      "priority": 5,
+      "source_observation": "Installed DP synchronization calls dist.all_reduce. #61767 offers CPU recursive doubling; its large multi-node measurements do not predict local DP4 benefit and its source port conflicts.",
+      "source_fix": "Use a guarded CPU collective for eligible small groups/tensors with normal collective fallback.",
+      "root_prediction": "Shorter exposed CPU control synchronization may improve steps where GPU work waits; observed allreduce duration might instead be arrival skew.",
+      "baseline_check": "Attest process-group backend, group-local ranks, tensor shape and invocation ordering; inspect fixed tags and fallback before adaptation.",
+      "strongest_comparator": "Current Gloo call with identical ranks/arrival skew; single-process and balanced timing controls where meaningful.",
+      "activation": "New collective calls / eligible CPU reductions; all-rank entry/exit times and skew.",
+      "mechanism_diagnostic": "Separate arrival wait, communication and exposed CPU critical path; trace only as a diagnostic.",
+      "reject_or_defer_if": "Mostly rank skew or hidden time, no eligible calls, inconsistent ordering/tags, or unchanged service despite microbenchmark gain.",
+      "correctness": "Group-local rank mapping, sequential/concurrent collectives, fallback, cancellation and idle/wake liveness.",
+      "workloads": "D1/E1 and burst E2, with deliberately balanced versus skewed batches.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/61767"
+      ],
+      "global_id": "hypothesis:a2d9dc8e242233e93a45a0ca6db4cbb750ebd1ac082d718a6474a39ed2c5637c",
+      "latest_card_id": "R2",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 76.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The CPU algorithm has a plausible DP4 path independent of GPU arithmetic. Nevertheless, actual process-group backend and invocation ordering are unknown, and code:h200:port-checks records a failed parallel_state.py hunk. The patch uses fixed reserved tags; scoped ordering, group-local rank, pause and fallback checks are necessary. The source says \"ray backend not tested\"."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "systems/review-recovery",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H06",
+      "lane": "attention",
+      "original_id": "h200-attn-20261020-02",
+      "title": "Candidate gather versus direct paged indexer scoring",
+      "priority": 6,
+      "source_observation": "#62000 and #62463 provide Hopper candidate-only implementations. The first reports single-request regression; the second has small samples and incomplete quality coverage. Both conflict with installed source.",
+      "source_fix": "Score only retained candidate blocks, either after KV gathering or directly through page tables; retain dense fallback.",
+      "root_prediction": "Avoiding irrelevant scoring may win at long contexts, while gather, irregular access or candidate bookkeeping may dominate shorter contexts.",
+      "baseline_check": "Match FP8 cache layout, compressed row IDs, candidate selection semantics and dependencies to this model; preserve dense selection semantics before claiming a lossless port.",
+      "strongest_comparator": "Current dense scoring, gather variant, direct-paged variant as separate arms. Compare exact candidate sets and equivalent fallback rules.",
+      "activation": "Candidate-path calls / eligible indexer calls; candidate fraction, fallback reasons, live lengths and token rows.",
+      "mechanism_diagnostic": "Scored KV bytes, gather traffic, launch count, logits allocation and exposed indexer time; check whether smaller candidate sets, rather than implementation, explain gains.",
+      "reject_or_defer_if": "No eligible long-context work, selection/quality failure, single-request/short-context regression beyond guard, or failed graph replay.",
+      "correctness": "Causal bounds, invalid candidates, ties, physical remapping, changing lengths inside graphs, numerical logits/top-k and quality.",
+      "workloads": "Long-context bands plus D1/E1/E2; held-out lengths and low concurrency, especially single request.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/62000",
+        "https://github.com/vllm-project/vllm/pull/62463",
+        "https://github.com/sgl-project/sglang/pull/40860"
+      ],
+      "global_id": "hypothesis:ebbeb3770815c1a4f41305f14c23ad88eb1d0b7ee21f60ff4115237924d0865f",
+      "latest_card_id": "h200-attn-20261020-02",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 72.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: An explicit SM90 FP8 implementation path is proposed, preserving dense fallback and device-resident live inputs. Complete scoring and dispatch bodies are absent from the excerpts. Actual indexer layout, shapes, dependency compatibility and graph behavior remain unknown. Independent numerical, causal, remapping, replay and model-quality checks are appropriately scoped."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "attention/hypotheses",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H07",
+      "lane": "attention",
+      "original_id": "h200-attn-20261020-03",
+      "title": "Native DeepSelect SM90 integration",
+      "priority": 7,
+      "source_observation": "Current gate permits SM100. #59204 has applicable Python hunks; DeepSelect #14 supplies SM90 work. Native extension/CMake compatibility was not tested.",
+      "source_fix": "Build and dispatch a supported SM90 FP32 selector with existing fallback and shape checks.",
+      "root_prediction": "A faster selector may reduce indexer overhead for sufficiently wide eligible logits; current optimized top-k may already be competitive.",
+      "baseline_check": "Pin/build native dependency, match FP32 logits, strides and row bounds, verify installed dispatcher and full-head kernel eligibility.",
+      "strongest_comparator": "Current optimized vLLM top-k, not torch.topk alone; compare selector-only before adding page-mapping fusion.",
+      "activation": "Native SM90 selections / eligible selector calls, with dimensions/dtype and fallback counts.",
+      "mechanism_diagnostic": "Selection time, output conversion and total indexer span; hold logits and selected K constant.",
+      "reject_or_defer_if": "Unsupported native build, different tie/causal semantics, no current-selector improvement, or small component gain with no service value.",
+      "correctness": "FP32 edge cases, ties, short rows, strides, invalid rows, graph replay and deterministic/index-equivalent selection where specified.",
+      "workloads": "Context/row-count matrix then E1/E2; held-out short and wide logits.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/59204",
+        "https://github.com/deepseek-ai/DeepSelect/pull/14"
+      ],
+      "global_id": "hypothesis:e5cf92bf1d2ce1b5c49f362d3976fd1c0a6ed89c195ac4e7de932954bb763e57",
+      "latest_card_id": "h200-attn-20261020-03",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 74.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The patch explicitly adds \"or current_platform.is_device_capability(90)\" and Hopper FP32 input validation. This provides a plausible port path while retaining separate sparse-scoring gates. Installed resolver behavior, SM90 extension build, actual input eligibility and complete fallback integration are unknown. The proposed tie, ordering, bounds, graph and quality checks address the relevant risks."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "attention/hypotheses",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H08",
+      "lane": "prefill-mqa",
+      "original_id": "h200-contiguous-mqa-epilogue-001",
+      "title": "Contiguous prefill MQA epilogue",
+      "priority": 8,
+      "source_observation": "Installed SM90 contiguous header still uses fmaxf and uncompensated scales. DeepGEMM #452 reports H200 kernel gains, with a best-of-three timing caveat and an overbroad numerical exactness claim.",
+      "source_fix": "Replace ReLU arithmetic with x+abs(x) and halve downstream scale factors in the contiguous kernel.",
+      "root_prediction": "Fewer epilogue instructions may help exposed prefill scoring. Intermediate overflow/underflow and rounding require a defensible domain or a stock fallback.",
+      "baseline_check": "Resolve include and JIT artifact, actual FP8/BF16 logit API and shape bands; source presence alone does not prove active dispatch. Preserve the saved CPU overflow counterexample.",
+      "strongest_comparator": "Equally compiled/warmed unchanged contiguous kernel; paged decode is a negative control, not an expected gain.",
+      "activation": "Changed contiguous calls / independently identified eligible prefill calls, by shape/dtype and cache-hit regime.",
+      "mechanism_diagnostic": "Epilogue and total kernel time, prefill span and TTFT; separate cold JIT, prefix reuse and hidden overlap.",
+      "reject_or_defer_if": "No enforceable numerical bounds, selected-token/quality mismatch, inactive contiguous path, or component gain without qualifying service improvement.",
+      "correctness": "Finite extremes, NaN/Inf, signed zero, subnormals/FTZ, scale halving, reduction bounds, logits/top-k and generation quality.",
+      "workloads": "Cold/warm prefill and mixed E1/E2, held-out lengths/dtypes; paged decode negative control.",
+      "urls": [
+        "https://github.com/deepseek-ai/DeepGEMM/pull/452",
+        "https://github.com/deepseek-ai/DeepGEMM/pull/303"
+      ],
+      "global_id": "hypothesis:a50211659561afd22b3c75c0946b24fe4eee81cf7b2a27aa9def0e3eaaa64c64",
+      "latest_card_id": "H200-MQA-REPAIR-001",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 78.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The matching SM90 header and author-reported H200 tests support a plausible narrow port. However, active artifact provenance and a sufficient numerical-domain invariant remain unknown. The author's \"bit-exact numerics\" assertion is not generally valid: intermediate doubling can overflow, scale halving can underflow, and exceptional-value behavior differs. The proposal correctly acknowledges these issues and specifies reference, top-k, graph/cache, distributed and quality checks, but their outcomes and applicable G01–G05 definitions are unavailable."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "prefill-mqa/quote-repair",
+      "root_disposition": "planned conditional diagnostic; prerequisites unresolved"
+    },
+    {
+      "key": "H09",
+      "lane": "systems",
+      "original_id": "h200-systems-003",
+      "title": "Shared prefix affinity at final DP rank",
+      "priority": 9,
+      "source_observation": "PRs #59468/#52464/#51199 and CacheRoute expose cache locality and worker-local routing issues. Two API workers per replica mean endpoint affinity need not imply final-rank affinity.",
+      "source_fix": "Existing upstream tie-break/locality mechanisms inform a shared per-replica affinity table at the final rank decision; this shared adaptation is a root hypothesis.",
+      "root_prediction": "Stable prefix placement may reduce duplicate prefill, but stale placement and hot-prefix imbalance may cost more than they save.",
+      "baseline_check": "Inspect existing router and rank-selection behavior, prefix key/salt semantics and shared-state lifetime before implementation.",
+      "strongest_comparator": "Current routing, least-loaded routing and a simple fixed hash at equal load; optimize only if baseline already fails to exploit useful locality.",
+      "activation": "Affinity-eligible requests, decisions honored at final rank, cache-hit source, stale entries and bypass rate across both API workers.",
+      "mechanism_diagnostic": "Avoided prefill tokens versus queue imbalance, lookup/locking overhead and routing-to-rank mismatch.",
+      "reject_or_defer_if": "Current routing already provides equivalent locality, all hits occur upstream, or hotspot/tail regressions outweigh saved compute.",
+      "correctness": "Tenant/cache isolation, stale state, cancellation, restarts, concurrent API workers and G04/G05 semantics.",
+      "workloads": "Prefix-heavy E1 and cache-heavy E2 plus cold/unique-prefix negative controls.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/59468",
+        "https://github.com/vllm-project/vllm/pull/52464",
+        "https://github.com/vllm-project/vllm/pull/51199",
+        "https://arxiv.org/abs/2608.19677"
+      ],
+      "global_id": "hypothesis:249a1e71e106968863d7f30c3f355944a2b4d5fd54a03e474186017e9b877b0b",
+      "latest_card_id": "R3",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 76.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: A host routing adaptation is plausible on SM90, with appropriate cache isolation, stale-entry, concurrency and bypass checks. The shared-table integration, installed routing behavior and exact prefix-key semantics remain unspecified or unverified. The source's local tie-break implementation does not establish the proposed shared implementation."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "systems/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H10",
+      "lane": "systems",
+      "original_id": "h200-systems-004",
+      "title": "Bounded coordinated prefill release",
+      "priority": 10,
+      "source_observation": "#61834 coordinates prefill across DP ranks to reduce mixed-phase interference; its topology/workload results do not establish value on two local EP4 replicas.",
+      "source_fix": "Use per-step coordination; the root extension compares an overdue-request escape rule with simple static scheduling controls.",
+      "root_prediction": "Aligned prefill could protect decode tails, but added waiting/communication may worsen TTFT and burst recovery.",
+      "baseline_check": "Inspect installed scheduler compatibility and exposed mixed-step interference; a per-step wall-clock check does not guarantee a hard waiting-time bound.",
+      "strongest_comparator": "Tuned existing scheduler, MBT and fixed prefill interval under the same budget before adaptive coordination.",
+      "activation": "Mixed-phase opportunities, coordination holds/releases/escapes and actual oldest-request wait; capture every rank.",
+      "mechanism_diagnostic": "Decode stalls versus coordination time, prefill debt, queue tails and synchronized burst behavior.",
+      "reject_or_defer_if": "No mixed-step interference, simple tuning matches it, starvation/liveness failure, or TTFT regressions beyond predeclared bounds.",
+      "correctness": "Fixed DP4/EP4 contract, idle/wake/cancel, no elastic/custom-scheduler assumptions, distributed agreement and bounded backlog.",
+      "workloads": "Mixed E1 and burst E2; held-out prefill lengths and sustained overload.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/61834"
+      ],
+      "global_id": "hypothesis:41df36bb4be53fef5cb6e5e98527dfdea3af1fe8535f5992a197b65ba82bd2df",
+      "latest_card_id": "R4",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 72.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The host protocol is plausibly adaptable to fixed DP4/EP4, but installed scheduler compatibility and the proposed overdue mechanism are unverified. The source excludes elastic EP and custom schedulers. A wall-clock flag checked once per step can override HOLD decisions; it does not by itself establish a hard request-wait bound during long steps, repeated chunks or resource starvation."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "systems/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H11",
+      "lane": "compute",
+      "original_id": "H200-COMP-002",
+      "title": "Humming per-token FP8 activation arm",
+      "priority": 11,
+      "source_observation": "#59488 and #60600 distinguish per-token FP8 from unsupported or slow grouped-scale formats on installed Humming 0.1.16.",
+      "source_fix": "At a validated fixed Humming GEMM path, change activation quantization to per-token FP8 and log the effective schema.",
+      "root_prediction": "Reduced activation traffic/arithmetic may outweigh quantization overhead while meeting an explicit quality tolerance.",
+      "baseline_check": "Require H01-compatible backend first; resolve named-format plumbing, W1/W2 scales, target/drafter inheritance and fallback.",
+      "strongest_comparator": "Same fixed Humming path in BF16; do not compare a bundled backend/precision change and attribute it to quantization.",
+      "activation": "Requested versus effective FP8 calls, quantization sites, dtype/scale format and fallback counts.",
+      "mechanism_diagnostic": "Quantization plus GEMM and memory time, acceptance/quality and KV capacity; backend changes are a confound.",
+      "reject_or_defer_if": "Silent fallback, incompatible schema, quality/sampler failure, or overhead/regressions erase gain.",
+      "correctness": "Scale/clipping extremes, numerical expert reference, graph replay and pinned generation-quality/tool fixtures.",
+      "workloads": "Low/high expert occupancy E1/E2 with held-out prompt/route distributions.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/59488",
+        "https://github.com/vllm-project/vllm/issues/60600"
+      ],
+      "global_id": "hypothesis:ae74db2cfd0aa821476784d3a60a2aacf35839ba5f7347513499b704f64dfe79",
+      "latest_card_id": "R2",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 76.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: Per-token FP8 has relevant H200 engineering evidence, and excluding block-FP8/MXFP8 addresses the supplied 0.1.16 restrictions. However, installed named-format plumbing, actual W1/W2 schemas and target/drafter inheritance remain unknown. Proposed scale, clipping, graph and quality checks are suitable but not completed evidence."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "compute/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H12",
+      "lane": "compute",
+      "original_id": "H200-COMP-005",
+      "title": "Native-MXFP4 SM90 MegaMoE adapter",
+      "priority": 12,
+      "source_observation": "FlashInfer #6343 includes EP4 and native MXFP4, but benchmark model dimensions differ. #6517 repairs stale workspace and documents scale conversion; its H200 push tuning is EP8-only.",
+      "source_fix": "Build a framework adapter for the native FP4 API, weight transformation, collective symmetric workspace and execution plans; #62603 is not that native-FP4 adapter.",
+      "root_prediction": "Fusing dispatch/expert computation/reduction may reduce communication and staging cost at eligible shapes, after accounting for packing and workspace.",
+      "baseline_check": "Check E384/H5120/I2304/top6,96 local experts, clamp10, weight byte order, scale ranges, group semantics and installed FlashInfer0.7.0 API. Alignment alone is insufficient.",
+      "strongest_comparator": "Current Marlin+AG/RS and qualified Humming at identical checkpoint/routing; do not combine backend gain with an EP8 topology change.",
+      "activation": "Native FP4 plan calls / eligible MoE calls, actual selected plans and all-rank workspace usage.",
+      "mechanism_diagnostic": "Include staging/packing/dispatch/combine, graph lifetime and HBM/KV loss; published kernel tables exclude some preparation.",
+      "reject_or_defer_if": "No exact-shape/clamp/layout support, stale hot-expert workspace, scale saturation, or workspace/precision cost removes service gain.",
+      "correctness": "Weight conversion versus FP32 reference, hot/empty experts, repeated launches/graphs, collective ordering, all-rank errors and quality.",
+      "workloads": "Exact-shape component matrix before E1/E2; held-out expert skew and token counts.",
+      "urls": [
+        "https://github.com/flashinfer-ai/flashinfer/pull/6343",
+        "https://github.com/flashinfer-ai/flashinfer/pull/6517",
+        "https://github.com/vllm-project/vllm/pull/62603"
+      ],
+      "global_id": "hypothesis:36df071dcbdc77a9b52132ab4f9eb7acd737660898bf49542c71d2f9b11caf78",
+      "latest_card_id": "R5",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 63.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: Exact FlashInfer FP4 API availability, plan legality, scale conversion and swiglu_limit10 behavior are unresolved on 0.7.0.post1. Supplied DeepGEMM #411/#473 patches provide additional SM90 paths whose visible dimensional checks admit the target geometry, but the excerpts do not establish clamp semantics or complete eligibility. These are gaps, not demonstrated incompatibility.",
+          "Priority below this task's threshold; reconsider with evidence or a revised policy"
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "compute/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H13",
+      "lane": "cross-engine",
+      "original_id": "h200-transfer-20261020-01",
+      "title": "Fuse top-k with physical KV mapping",
+      "priority": 13,
+      "source_observation": "SGLang #41561 replaces separate selection/page conversion work. Its microbenchmark compares a Torch chain and cannot establish a win over the current optimized vLLM selector.",
+      "source_fix": "Fuse physical-slot mapping into a compatible selection kernel; this is a consumer-aware adaptation beyond selector-only H07.",
+      "root_prediction": "Removing intermediate IDs and launches may help only where consumers do not need raw logical IDs or a different ordering.",
+      "baseline_check": "Trace all consumers, native SM90 build, block64 mapping and raw-index requirements; inspect newest DeepSelect before custom work.",
+      "strongest_comparator": "H07 selector-only and the current optimized chain; preserve raw-index fallback where needed.",
+      "activation": "Fused eligible consumers / all selector consumers; raw-index fallback and mapping launches avoided.",
+      "mechanism_diagnostic": "Intermediate traffic, mapping launches and total indexer span at identical selected set.",
+      "reject_or_defer_if": "Raw IDs remain needed, baseline already fuses equivalent work, or layout/order/tie differences invalidate the comparison.",
+      "correctness": "Logical/physical equality, block boundaries, causal bounds, ordering, padded rows and live-input graph replay.",
+      "workloads": "Context/row matrix and E1/E2; held-out layouts and fallback consumers.",
+      "urls": [
+        "https://github.com/sgl-project/sglang/pull/41561",
+        "https://github.com/vllm-project/vllm/pull/59204"
+      ],
+      "global_id": "hypothesis:42e6a9af04fe7bd2d3b8ad717ece4296d1ba0496c9df39728fddd89672105388",
+      "latest_card_id": "R1",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 76.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The reported Hopper integration provides a plausible port path, and the proposal covers raw-index fallback, ordering, block64 boundaries, causal bounds and graph replay. However, the dependency implementation, installed SM90 build, destination consumer contracts and final ordering behavior are unavailable. DeepSelect #14 supplies an explicit SM90 build lead; its BF16 cluster results do not establish eligibility of this particular integration."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "cross-engine/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H14",
+      "lane": "cross-engine",
+      "original_id": "h200-transfer-20261020-03",
+      "title": "DeepEP activation then triple-buffer dispatch",
+      "priority": 14,
+      "source_observation": "DeepEP #693 reports H100 direct-NVLink dispatch gains while combine is unchanged. Current startup uses AG/RS, so the patched DeepEP kernel is not the baseline path.",
+      "source_fix": "First integrate a compatible fixed DeepEP backend; then independently compare the direct-dispatch triple-buffer patch against that DeepEP control.",
+      "root_prediction": "Pipelining hidden/scales/metadata loads may reduce exposed dispatch time on EP4, but communication may already be hidden or backend conversion may dominate.",
+      "baseline_check": "Pin adapter/API version, direct-NVLink eligibility, payload/scales, rank topology, shared-memory limit and workspace. Account for newer elastic API migration rather than mixing revisions.",
+      "strongest_comparator": "AG/RS versus unpatched DeepEP; then unpatched versus patched DeepEP with identical backend and payload.",
+      "activation": "Direct-NVLink dispatch calls / eligible expert calls; actual warp/buffer policy, fallback and per-rank bytes.",
+      "mechanism_diagnostic": "Dispatch, combine, GEMM overlap and full expert span; compare balanced and skewed routes.",
+      "reject_or_defer_if": "No compatible native adapter/path, no exposed dispatch, buffer-lifetime failure, or increased workspace removes goodput.",
+      "correctness": "Token identity, empty/hot experts, repeated graph replay, TMA buffer reuse, all-rank liveness and scales.",
+      "workloads": "EP4 component skew matrix then E1/E2; held-out traffic skew.",
+      "urls": [
+        "https://github.com/deepseek-ai/DeepEP/pull/693"
+      ],
+      "global_id": "hypothesis:9e5674217265d5ff78ecc8c3e9279b39ad8c879788a6d392034de2667983572c",
+      "latest_card_id": "R3",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 74.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: The supplied H100 implementation is a plausible Hopper transfer lead, and buffer-lifetime, graph, token-identity and distributed checks are well scoped. The pinned engine's elastic adapter, Marlin payload compatibility, workspace requirements and actual peer connectivity remain unknown. DeepEP #763 adds a concrete version restriction: \"Migrate from ElasticBuffer to the dedicated buffer APIs.\" No target dependency inventory resolves which API generation applies."
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "cross-engine/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H15",
+      "lane": "compute",
+      "original_id": "H200-COMP-004",
+      "title": "Opt-in mHC coefficient-stream overlap",
+      "priority": 15,
+      "source_observation": "Installed source excludes SM90. #60768 provides dispatch-only CPU checks, not Hopper GPU validation; #60777 is a distinct compensated-BF16 draft path.",
+      "source_fix": "Add a narrow opt-in Hopper overlap path only after qualifying TF32 correctness; retain serial control.",
+      "root_prediction": "Independent coefficient work may overlap other work, but stream/event/graph overhead or resource contention may eliminate benefit.",
+      "baseline_check": "Resolve executed JIT artifact and exact dependency schedule; qualify #448/#59129 if the affected path executes. Do not conflate TF32 overlap with compensated-BF16 math.",
+      "strongest_comparator": "Correctness-qualified serial TF32 and, separately, H03 launch tuning; compensated BF16 is a separate precision experiment.",
+      "activation": "Overlapped opportunities / eligible mHC invocations, active streams/events and dependency waits.",
+      "mechanism_diagnostic": "Exposed critical-path span with event overhead and contention, not just summed kernel durations.",
+      "reject_or_defer_if": "No independent exposed work, mock-only validation, graph/race/numerical failure or no service benefit.",
+      "correctness": "Independent mHC reference, repeatability/race checks, stream ordering, changing graph inputs and fallback.",
+      "workloads": "Small and large rows, D1/E1/E2; held-out graph modes.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/60768",
+        "https://github.com/vllm-project/vllm/pull/60777",
+        "https://github.com/sgl-project/sglang/pull/39664"
+      ],
+      "global_id": "hypothesis:5c858537769874e30be5cdb3a17e4bf6ca5089dfc1ca331f2e8b61269345c01a",
+      "latest_card_id": "R4",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 67.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: An explicit guarded SM90 port is described, with a credible separate TF32 repair path. However, the complete overlap schedule, executed JIT artifact and Hopper stream/graph correctness are unverified. #60768 states \"These mock capability checks validate dispatch only.\" The compensated-BF16 failure does not veto this distinct TF32 proposal.",
+          "Priority below this task's threshold; reconsider with evidence or a revised policy"
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "compute/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H16",
+      "lane": "cross-engine",
+      "original_id": "h200-transfer-20261020-02",
+      "title": "Matched SGLang control and isolated group32 tuning",
+      "priority": 16,
+      "source_observation": "SGLang #41251 reports a multi-change H200 bundle under materially different engine/topology/precision settings. #40417 also supplies backend near-parity counterevidence.",
+      "source_fix": "Build a matched engine control if parity is feasible, then isolate the relevant GEMM tuning within SGLang before considering transfer.",
+      "root_prediction": "A reproducible service gap could identify worthwhile components; it would not establish which bundled mechanism caused the gap.",
+      "baseline_check": "Match model/tokenizer revision, TP1/DP4/EP4, host Engram, FP8 KV, graph settings and real DSpark rejection semantics. Report any irreducible mismatch.",
+      "strongest_comparator": "Pinned vLLM versus pinned matched SGLang, followed by a single SGLang tuning change; do not call an unmatched recipe a kernel ablation.",
+      "activation": "Backend/shape/format coverage, target/drafter semantic parity and exact workload completion.",
+      "mechanism_diagnostic": "Per-component critical path plus service frontier, workload mix and per-engine overhead.",
+      "reject_or_defer_if": "Parity is unavailable, quality differs, only old-engine comparison establishes gain, or tuning is inactive for our geometry.",
+      "correctness": "Tokenizer/tool/reasoning encoding, stochastic sampling, quality, KV semantics and liveness across engines.",
+      "workloads": "Same E1/E2 input bytes/arrival schedule and held-out workload; engine comparison remains a separate lane.",
+      "urls": [
+        "https://github.com/sgl-project/sglang/pull/41251",
+        "https://github.com/sgl-project/sglang/issues/40417"
+      ],
+      "global_id": "hypothesis:08bd87539ae26b8989f5ff52cee80060d1e5d457f309d46f84618ba625b983ca",
+      "latest_card_id": "R2",
+      "model_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 68.0,
+        "reasons": [
+          "h200_applicability_and_correctness_required: H200 execution is author-reported, but under TP8/EP1 and materially different checkpoint, Engram and replay settings. No pinned matched SGLang build or implementation evidence establishes the required TP1/DP4/EP4, host Engram, FP8 KV and real DSpark semantics together. The parity checklist is sound; whether its requirements can be met remains unknown.",
+          "Priority below this task's threshold; reconsider with evidence or a revised policy"
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "cross-engine/review-recovery",
+      "root_disposition": "defer implementation; retain conditional design"
+    },
+    {
+      "key": "H17",
+      "lane": "systems",
+      "original_id": "h200-systems-005",
+      "title": "Private-shard Engram allocation — inactive",
+      "priority": 17,
+      "source_observation": "Late startup logs establish shared DP memory in both replicas. The generated card explicitly targets private tables; that premise is false for this control.",
+      "source_fix": "#59849 exact-size private registration and #59923 packed shard exchange address different storage branches. #62359 shared cuMem is a different mechanism.",
+      "root_prediction": "No current-baseline improvement is predicted for the private branch. Retain the rejected card for lineage; reconsider only under an explicitly different storage configuration.",
+      "baseline_check": "Resolved dp_shared_memory=True is already established. Shared cuMem would require an independent FABRIC/export/NUMA capability probe and a new scoped card.",
+      "strongest_comparator": "Existing shared /dev/shm registration; do not disable sharing simply to create applicability.",
+      "activation": "Private-path hits are expected zero on this configuration; configuration and branch evidence suffice to stop this card.",
+      "mechanism_diagnostic": "No performance run for this card. For a separate shared-backing study, distinguish prefill lookup exposure from already-overlapped decode.",
+      "reject_or_defer_if": "Current scope is rejected as inactive. GB200 shared-cuMem gains and zero decode improvement do not predict H200 PCIe behavior.",
+      "correctness": "Any future shared-backing card needs collective allocation/import/failure cleanup and table-value correctness.",
+      "workloads": "No test planned against the current control.",
+      "urls": [
+        "https://github.com/vllm-project/vllm/pull/59849",
+        "https://github.com/vllm-project/vllm/pull/59923",
+        "https://github.com/vllm-project/vllm/pull/62359"
+      ],
+      "global_id": "hypothesis:3ffe09b5d47c1b6424a290df24831163adf92445d1d700513ac688c120f976c1",
+      "latest_card_id": "R5",
+      "model_assessment": {
+        "eligible": false,
+        "status": "rejected",
+        "score": 37.0,
+        "reasons": [
+          "Critic: factual claims unsupported or contradicted",
+          "credible_improvement_required: The supplied code:h200:resolved-engram logs resolve \"dp_shared_memory=True, use_thp=False\" on both replicas. R5 explicitly targets rounded private tables and rejects shared storage. Its own cheap eligibility check therefore rules out the proposed delta as scoped. No change to the active shared-storage path is proposed.",
+          "h200_applicability_and_correctness_required: Generic CUDA host registration is plausibly portable, but the proposed private-table intervention does not match the resolved shared-storage deployment. R5 preserves ownership and explicitly excludes the shared-backing alternative, leaving no remedy within this proposal. This is a deployment-path mismatch, not evidence that H200 cannot register host memory.",
+          "Priority below this task's threshold; reconsider with evidence or a revised policy"
+        ],
+        "policy_id": "policy:315fad46e36185738931316ca9064ba29896917ba0835ff500d2dd809e129688",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "model_artifact": "systems/review-recovery",
+      "root_disposition": "inactive on current baseline"
+    }
+  ]
+}

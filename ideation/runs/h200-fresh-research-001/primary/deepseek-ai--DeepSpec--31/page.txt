@@ -1,0 +1,59 @@
+Draft sampling uses a different distribution than speculative rejection
+#31
+New issue
+Copy link
+New issue
+Copy link
+Open
+Open
+Draft sampling uses a different distribution than speculative rejection
+#31
+Copy link
+Description
+morluto
+opened
+on Jun 30, 2026
+Issue body actions
+Problem
+sample_tokens
+samples draft tokens through the native-dtype logits path, while speculative rejection/correction uses the float32 distribution produced by
+logits_to_probs
+.
+In speculative decoding, the proposal sample must be drawn from the same draft distribution used in the acceptance ratio and correction distribution. If the sample is drawn from
+r
+but the algorithm computes acceptance as if it came from
+p
+, the final marginal distribution is generally biased.
+Impact
+With bfloat16 logits, the sampled draft distribution can differ from the float32 draft distribution used for rejection. That breaks the exact-distribution guarantee expected from speculative decoding.
+Fix
+Fixed in PR
+#30
+by casting logits to float32 before temperature scaling and softmax in
+sample_tokens
+, so sampling and rejection use the same draft distribution.
+Reactions are currently unavailable
+Activity
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+No labels
+No labels
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

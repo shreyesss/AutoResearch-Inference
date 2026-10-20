@@ -1,0 +1,1281 @@
+Conversation
+zkyue
+commented
+Sep 13, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Co-authored with
+@iclementine
+(the first SM90 ring buffer) and
+@Hyaloid
+(cluster and multicast).
+This adds a single-kernel SM90 FP8 MegaMoE next to the two-kernel path from
+#383
+. One task stream runs both GEMMs with L2 trailing L1 by a fixed lag, and the L1 activation pool becomes a ring sized around that lag instead of the token bound. On 8×H100 EP8 that is
+1.44–1.56× at 2048 tokens/rank and 1.33–1.43× at 8192
+against the summed device time of
+#383
+'s two kernels, on 4.3–4.6× less symmetric memory. It is opt-in and additive.
+Performance
+One 8×H100 node, EP8, this repo's own harness as this PR leaves it. Both arms size the symmetric buffer from the harness's default 8192-token bound rather than from the batch, so every row of a table runs on the same buffer: 3023 → 700 MiB on flash and 5083 → 1113 MiB on pro.
+--model-config flash
+— 4096 / 2048 / 256 / top-6
+tokens/rank
+split (µs)
+fused (µs)
+fused/split
+speedup
+64
+369
+352
+0.968 (0.923–0.975)
+1.03×
+128
+371
+362
+0.977 (0.944–1.005)
+1.02×
+256
+424
+381
+0.898 (0.868–1.029)
+1.11×
+512
+527
+431
+0.817 (0.814–0.820)
+1.22×
+1024
+737
+482
+0.646 (0.632–0.665)
+1.55×
+2048
+1188
+764
+0.642 (0.633–0.648)
+1.56×
+4096
+2073
+1376
+0.664 (0.661–0.676)
+1.51×
+8192
+3703
+2578
+0.697 (0.690–0.700)
+1.43×
+--model-config pro
+— 7168 / 3072 / 384 / top-6
+tokens/rank
+split (µs)
+fused (µs)
+fused/split
+speedup
+64
+1186
+1120
+0.947 (0.945–0.947)
+1.06×
+128
+1175
+1134
+0.965 (0.963–0.969)
+1.04×
+256
+1217
+1173
+0.972 (0.964–0.973)
+1.03×
+512
+1303
+1238
+0.944 (0.936–0.961)
+1.06×
+1024
+1550
+1400
+0.903 (0.883–0.932)
+1.11×
+2048
+2811
+1955
+0.695 (0.693–0.706)
+1.44×
+4096
+4854
+3295
+0.681 (0.671–0.681)
+1.47×
+8192
+8623
+6503
+0.755 (0.754–0.756)
+1.33×
+Each cell is
+bench_kineto
+device time over that arm's kernels, median of three bracketed rounds. The split arm is the run's own drift oracle: 0.5–6.0 % round-to-round across the sixteen cells. Read every cell at or above 0.93 as "no worse than
+#383
+inside that drift"; the flash rows from 512 up and the pro rows from 2048 up are 22–56 % apart. Both configurations in
+tests/bench_mega_moe_sm90.py
+are covered: fused/split is 0.642–0.977 over 64–8192 tokens/rank.
+pro at 1024 sits between the two regimes. Each rank streams 3.2 GB of expert weights per call on that shape against 0.8 GB on flash, and at 128 tokens per expert both arms are still within 1.5–1.7× of the HBM floor for those bytes, so there is little exposed L1 → L2 serialisation left for the fusion to hide; flash at 1024 runs 192 tokens per expert and its split arm is 3× its floor. At 2048 tokens (256 per expert) pro leaves the floor and the ratio drops to 0.695.
+Symmetric buffer per rank, by the bound it is sized for
+(
+--num-max-tokens-per-rank
+; 64 aligns up to 128 on both arms)
+bound
+flash split → fused
+pro split → fused
+128
+86 → 72 MiB
+175 → 141 MiB
+256
+132 → 117
+253 → 217
+512
+226 → 209
+409 → 371
+1024
+412 → 179
+721 → 386
+2048
+785 → 240
+1344 → 490
+4096
+1531 → 361
+2590 → 698
+8192
+3023 → 700
+5083 → 1113
+These are the two size queries the buffers call, which is also where the harness reads the 8192 figures. Below the 1024-token lag threshold the fused buffer keeps the full pool and saves 7–20 %; from 1024 the ring takes over, and the saving grows with the bound because only the L1/L2 activation pools come from the ring while the dispatch inputs and the combine buffer still scale with it.
+Benchmark method, the noisy cell, and a third shape
+8×H100 80 GB HBM3, EP8, driver 535.230.02, CUDA 13.3 (V13.3.73), PyTorch 2.13.0a0. One node, all eight GPUs held for the whole run with no other compute process on them. This repo's own harness, as this PR leaves it:
+python tests/bench_mega_moe_sm90.py --model-config {flash,pro} --batches <M> \
+    --num-max-tokens-per-rank 8192 --arms split fused --num-processes 8
+Each number is
+bench_kineto
+device time summed over that arm's kernels (
+sm90_fp8_mega_moe_l1_impl
++
+sm90_fp8_mega_moe_l2_impl
+for split,
+sm90_fp8_fused_mega_moe_impl
+for fused), with the harness's 8 GB L2 flush, ~10 ms sleep and
+dist.barrier
+before each call — a burst duty cycle, not a steady state. 20 calls per observation, the harness's own three observations per round above 128 tokens/rank and 50 at or below it, max over the eight ranks, then median over observations. Three rounds with the arms bracketed —
+split fused
+, then
+fused split
+, then
+split fused
+— so each cell is the median of three round medians, and the band in parentheses is the smallest and largest of the three per-round ratios. Lag units, the ring they size, and the single-wave order are defined under How it works.
+The fused arm passes
+num_tokens_bound=M
+on every call, which is what a caller whose ranks all run the same count would pass; the split path has no such argument and needs none, since none of its heuristics key on a rank-uniform count. That keyword is what makes the 64 / 128 / 256 rows take the single-wave order here, and on flash it also runs the 512 to 4096 rows at a 14-unit lag instead of the 29 its ring is sized for (
+DG_PRINT_CONFIGS
+reports
+l2_lag_units
+4014 against 4029); pro's buffer lag is 22 at this capacity and its bounded calls keep it.
+The one cell where the fused arm is the noisier of the two is flash at 256 tokens/rank, 12 % from a single high round against the split arm's 5.6 % — that row's band (0.868–1.029) is spread and not a stable difference, and no other cell's fused spread is above 4 %.
+Every cell runs the default intermediate-scale granularity, 128 on both of these shapes. The fused arm asks for PDL at ≤ 256 tokens/rank while
+#383
+'s kernels carry no griddepcontrol at all, so on the 64 / 128 / 256 rows the fused Kineto duration contains its own
+griddepcontrol.wait
+— part of why those rows show the smallest margins.
+A third shape — 4096 / 2048 with 288 experts and top-8, i.e. 36 experts per rank instead of 32 or 48 — was taken once rather than in rounds, at the same 8192-token bound: fused/split is 0.950, 0.968, 0.955, 0.739, 0.613, 0.607, 0.634 and 0.677 at 64, 128, 256, 512, 1024, 2048, 4096 and 8192 tokens per rank, and the symmetric buffer goes from 4000 to 857 MiB. Read the first three rows as "no worse" given the drift above; the rest behaves like the flash table.
+How it works
+The kernel fixes the order first. The B loader enumerates a stream in which a token block's L2 tasks sit
+lag
+units after its L1 tasks, in groups of
+group
+units; a unit is up to 8 consecutive m-blocks of one expert. The host picks
+lag = clamp(round(0.45 × units), 8, 64)
+and
+group = 4
+, with
+units
+estimated from the call's token bound and the buffer capacity, not the routed count.
+It also differs from
+#383
+numerically: one scale per 64 or 128 contiguous K elements of the intermediate activation (
+l2_act_sf_gran_k
+, a buffer parameter) where
+#383
+always writes one per 64, and the raw scale where
+#383
+'s SM90 kernel rounds it to the next power of two. Both are inside the shared test's tolerance against the same reference.
+Why the order and not the pool size, and the lag ladder
+The split path materialises every rank's L1 output before L2 starts, so its pool is sized for all tokens of all ranks and the GEMMs never overlap. Fusing them buys the overlap and does not fix the pool, because nothing bounds how far L2 trails L1. Worse, L2's NVLink combine scatter starts while the dispatch pull is still running on the same per-rank egress. A ladder that pins the ring at 356 blocks and varies only the lag still leaves the short-lag calls the slow ones, so what costs is the order and not the pool size.
+Event traces on an instrumented build of this kernel (8×H100, 8192 tokens/rank) put the end of the dispatch pull at 2671 µs from kernel start when the lag is 8 units and at 1102 µs when it is 40 — 2541 µs against 1044 µs measured from each run's own head barrier, which completes at 130 µs and at 58 µs. At the lag this picks, 55 % of the L1 tiles are done when the pull ends.
+Ring sizing, recycling, and why that granularity
+Fixing the order makes the ring size arithmetic: at most
+8 × (lag + group)
+blocks of L1 output are live, so the pool becomes a ring of
+8 × (lag + group) + 4
+slots, asserted against that live set on the host. L1 epilogues wait on
+l2_empty
+before overwriting a slot's previous generation, and dispatch warps publish any pending arrival before blocking, so no wait can point at unpublished work.
+kSm90FusedLagRingMargin
+is the
++ 4
+. Recycling reuses the
+l1/l2_full
+counters and adds the matching
+empty
+counters plus launch-parity banks for the flags that would otherwise need all-rank head and exit barriers. A ring clamped to the full pool never wraps and is exempt from the host assertion. Consumers replay the tile table the B loader publishes — payload first, then an acquire-loaded tag — and the L2 tail after the last L1 task is handed out by an atomic ticket. Calls whose worst-case pool already fits, and buffers below the lag threshold, keep a single-wave order instead.
+Also in the diff: arrival publishes batched up to 16 rows, on calls above a token threshold whose ring covers the batch; an early combine in which math warps reduce tokens whose selected experts have all published while the all-rank barrier is still pending; a BLOCK_M=64, 256-wide split-N tile with a sliced combine queue for decode-sized calls;
+num_tokens_bound
+; and an XOR bank swizzle on the L2 epilogue staging. The early combine stages whole rows in the pre-barrier shared memory where they fit and in chunks otherwise, and falls back from 2 chunks to 4 when 2 do not fit — which is what keeps 7168 hidden working at decode sizes, where the tile leaves that region smallest.
+The scale width defaults to 128 when
+hidden % 512 == 0
+and
+2 × intermediate_hidden % 512 == 0
+(the condition for the 256-wide decode tile) and to 64 otherwise. 128 is the grouping the non-fused DeepEP + grouped-GEMM path uses for this activation; it halves the act-SF pool and lets each 128-K step of L2's mainloop take one scale group and one rescale instead of two.
+#360
+reports an end-to-end accuracy issue it suspects came from quantising this same activation per-64 where the rest of the stack does per-128.
+The scale itself is
+sf = max(amax, 1e-10) / 448
+, the raw scale, which is also what the shared test's reference computes (with a 1e-4 floor on amax instead of 1e-10) and what the sgl-project SM90 kernel this data path comes from uses. The fused arm keeps the full FP8 range, the split one keeps an exactly representable scale.
+What to check before merging
+Two shared files are rewritten rather than added to, and they are the part of the diff to read hardest.
+In
+comm/barrier.cuh
+(+50/−14) the two waits become generic over the workspace type and, under
+BarrierTimeoutPolicy::TrapOnly
+, call
+handle_*_timeout
+after leaving the wait loop rather than from inside it. The fused kernel needs that shape: a
+trap;
+inside the loop makes ptxas allocate that region's registers against the kernel's launch bound and ignore its
+setmaxnreg.inc
+, which spills.
+csrc/jit/kernel_runtime.hpp
+(+10/−5) is the other: a launcher can now force the PDL launch attribute instead of leaving it to the global flag, and no existing launcher passes the new argument.
+Register inventory, and the SM100 /
+#383
+codegen check
+The 60 s timeout and the handler are unchanged, both policies still abort, and the
+Diagnostic
+branch is base's loop verbatim.
+#383
+'s split SM90 kernel does take
+TrapOnly
+, at four sites, and keeps identical REG/STACK on all 25 instantiations while its SASS shifts.
+Isolated TU,
+sm_90a
+,
+--register-usage-level=10
+. The SM100 comparison is a kernel that calls both waits with the default
+Diagnostic
+policy: identical SASS and identical REG/STACK against this branch and against
+nv_dev
+, so the SM100 callers' codegen is unchanged.
+For
+#383
+'s split SM90 kernel, recompiling all 25 instantiations the two SM90 test files and the benchmark produce gives identical REG / STACK / SHARED / LOCAL on every one of them: 23 at
+REG:168 STACK:0 SHARED:1024 LOCAL:0
+, 2 at
+REG:96 STACK:24 SHARED:1024 LOCAL:0
+. The SASS text does move, at the same instruction count, with a few
+ISETP
+variants and the branch targets shifted around the deadline compare. Its own accuracy test passes unchanged (see Tests).
+The PDL change only adds the launch attribute, never removes it, and it applies to a kernel compiled with griddepcontrol, which the fused path is and
+#383
+'s kernels are not.
+num_tokens_bound
+needs a warning label.
+It must be identical on every rank and cover every rank's own count, e.g. the max over ranks of the local batch. Each rank rejects a bound below its own count or above the buffer's capacity, but nothing compares the ranks, and a bound below a peer's count hangs: this rank's pool is then sized for fewer rows than will arrive, so the ring reuses a slot inside one wave.
+None
+means the buffer capacity, and a bound below it is what lets a large buffer take the single-wave order.
+What a per-rank token count changes, and what it does not
+The rules that key on a per-rank token count fall back to this rank's own count when the bound is omitted, so ranks with different local batches can pick different orders. Nothing cross-rank rides on that: the ring capacity is the buffer's, and the call's lag comes from the bound -- the capacity when none is given -- clamped to the buffer's, so both hold the same value on every rank.
+One rule keys on the token count in a way worth spelling out.
+block_m
+is chosen from this rank's token count (
+num_tokens * num_ranks * num_topk / num_experts >= 64
+flips it 64 -> 128),
+block_m
+sets
+num_stages
+through the per-stage smem cost, and early combine turns on only when
+hidden / block_k
+and
+intermediate_hidden / block_k
+both exceed
+num_stages
+. So it is a function of the shapes only where the shape leaves margin, and passing
+num_tokens_bound
+does not make it uniform -- the tile choice reads the raw count. On the shapes here the margin is wide: 4096/2048 gives 16 k-blocks and 7168/3072 gives 24, against 3 stages at both M=2048 and M=8192, and the mode never flips. I had to take
+intermediate_hidden
+down to 640, which no shipped config uses, before the flip appeared -- 287 tokens gives 7 stages and mode 0, 288 gives 4 stages and mode 1. What does move per rank on production shapes is
+block_m
+,
+block_n
+and
+num_stages
+, and since those are JIT template arguments like the mode itself, ranks with different local batches compile and launch different instantiations of the same kernel. They still meet at the same pre-combine rendezvous: same signal word, same phase and sign rule, same expected arrival count, one signal per rank either way. If the modes ever did disagree the cost would be throughput, not liveness -- a rank on the early-combine path only early-combines tokens whose experts all live on ranks that took the same path, and the rest fall through to the ordinary combine after the barrier. One gap worth noting on its own: the early-combine copy of the barrier keeps the 60 s deadline on the cross-rank signal wait but not on its two grid syncs, which the shared
+grid_sync
+does guard.
+The shape domain is a strict subset.
+intermediate_hidden ≤ 4096
+, rejected when the buffer is sized, where
+#383
+'s split path accepts 4224. No shared-expert fusion either, same as
+#383
+'s SM90 path.
+No CI coverage.
+Neither SM90 MegaMoE test runs in CI, since both need 8 GPUs and NVLink. Everything under Tests below was run by hand on one 8×H100 node, sm_90a, CUDA 13.3.
+fused=True
+at buffer allocation (
+--arms fused
+in the benchmark harness,
+--fused
+in the accuracy test) selects it;
+#383
+'s kernel, heuristics and launcher are untouched, and its two Python entry points only gain keywords that default to today's behaviour. The two arms are separate buffers, JIT instantiations and host paths. The shape subset, the quantisation difference and the missing CI are why this is opt-in rather than the default. A default needs a fallback for the shapes it cannot serve, and flipping it would change existing callers' outputs bit for bit without them asking. Say so and I'll flip it: the rounding is one line, the fallback a shape check in the buffer query.
+API, Tests, Files
+The buffer query takes three new keywords and
+fp8_mega_moe
+takes one; of the three, only
+fused
+matters to a production caller.
+Full API surface
+Opting in costs one keyword at allocation and nothing per call:
+fp8_mega_moe
+dispatches on the buffer type.
+get_symm_buffer_for_sm90_mega_moe(..., fused=False, num_experts_per_wave=None, l2_act_sf_gran_k=None)
+and
+fp8_mega_moe(..., num_tokens_bound=None)
+. At the defaults both calls do what they do today; with
+fused=True
+the buffer query returns an
+SM90FusedSymmBuffer
+and
+fp8_mega_moe
+dispatches on its type.
+num_experts_per_wave
+:
+None
+= ring from the lag rule (full pool below the threshold),
+-1
+= ring sized for an automatically chosen expert wave,
+N
+= capacity for a wave of
+min(N, E_local)
+experts, never more than the full pool. It is how the ring test builds its auto-wave and full-pool arms.
+l2_act_sf_gran_k
+pins 64 or 128 instead of taking the shape rule; pinning 128 where the rule says 64 is rejected at launch on decode-sized calls.
+get_symm_buffer_size_for_sm90_fused_mega_moe
+returns
+(bytes, slicer, num_ring_tokens, l2_lag_encoded)
+, and the ring capacity and lag encoding travel back to the kernel on every launch together with the scale granularity. Token alignment is 128 on both arms.
+The rules that fall back to this rank's own count when
+num_tokens_bound
+is omitted are whether the call takes the single-wave order instead of the lag order, the arrival-publish batch and its eager variant, and whether a decode-sized call takes PDL. The single-wave order additionally needs the worst-case pool at the call's bound -- the buffer's capacity when none is given -- to fit the ring.
+Tests: the accuracy runs, the bound replay, and the eight ring shapes
+tests/test_mega_moe_sm90.py --fused
+runs the file's 39 scenarios at both scale granularities, minus the 4224
+intermediate_hidden
+one the fused path skips: 76 cases, all pass on 8 ranks, largest deviation 1e-4 against the 0.01 tolerance. The same file's split arm still passes unchanged on this branch: 39 scenarios, largest deviation 7e-4 against the same 0.01 tolerance.
+tests/test_mega_moe_sm90_fused_ring.py
+is new: it checks the lag ring
+bitwise
+against a full-pool control on eight shapes, four launches per buffer with skewed routing in between, exercising both launch-parity banks and the wrap. A fourth buffer replays those launches under each call's own
+num_tokens_bound
+, bit for bit again, then under a bound one alignment above capacity, which has to raise on the host before any rank launches. Sixteen cases pass, at most 1e-4 from the reference against the test's 0.07 tolerance.
+The ring test takes ~2 min on 8 GPUs per granularity, and the sixteen cases are its eight shapes at both scale granularities. The shapes are the shared test's
+hidden=1024
+shape at 64, 256, 512, 1024 and 2048 tokens per rank, which straddles the 1024-token lag threshold from both sides; a 4096/2048/288/top-8 shape whose lag ring is 20992 of 135680 pool tokens, next to a 98304-token auto-wave ring; a 1024/1024/64/top-6 shape at a 5120-token capacity, 18944 ring tokens of a 246784-token pool next to an 81920-token auto-wave ring; and a 2-rank subgroup whose requested ring is larger than the pool and clamps to it. The verdict is all-reduced, so a single-rank mismatch reports instead of hanging.
+The replay is where both things a bound can change get covered. The decode-sized launch is bounded at 256 tokens, so on the lag rings that one call runs the single-wave order against the same allocation running the lag order without a bound (
+DG_PRINT_CONFIGS
+reports
+l2_lag_units
+4008, 4014 or 4016 unbounded and 0 under the bound); and on the 5120-token shape the 3840-token launch runs an 11-unit lag under its own bound where the unbounded allocation runs the 14 its ring is sized for (4011 against 4014). Every one of the sixteen cases reports
+bitwise=OK replay=OK bounds=...:OK over_cap_rejected=OK
+.
+Both tests spawn one process per GPU themselves, so they need 8 SM90 GPUs and a working NVLink group.
+Files, and the naming census
+New:
+deep_gemm/include/deep_gemm/impls/sm90_fp8_fused_mega_moe.cuh
+(the kernel),
+layout/sm90_fused_mega_moe.cuh
+(workspace and tile-table sizing),
+scheduler/sm90_fused_mega_moe.cuh
+(the lag scheduler),
+csrc/apis/sm90_fused_mega.hpp
+,
+csrc/jit_kernels/heuristics/sm90_fused_mega_moe.hpp
+,
+csrc/jit_kernels/impls/sm90_fp8_fused_mega_moe.hpp
+,
+tests/test_mega_moe_sm90_fused_ring.py
+.
+Changed outside the fused path: 13 wrappers in
+ptx/ld_st.cuh
+,
+advance_smem_desc
+in
+mma/sm90.cuh
+, one registration line each in
+csrc/python_api.cpp
+and
+deep_gemm/__init__.py
+, the fused branch in
+deep_gemm/mega/__init__.py
+, a subsection in
+README.md
+, a fused arm in
+tests/bench_mega_moe_sm90.py
+— which is restructured into arms rather than added to — and
+tests/test_mega_moe_sm90.py
+, where the reference now quantises the intermediate activation at the buffer's granularity, on the
+--fused
+path only; the split path's reference is unchanged. Plus the two shared files above,
+comm/barrier.cuh
+and
+csrc/jit/kernel_runtime.hpp
+.
+Of the 61 namespace-scope names the new fused files introduce, 57 carry a fused stem (
+MegaMoESM90FusedConfig
+,
+SM90FP8FusedMegaMoERuntime
+,
+get_mega_moe_config_sm90_fused
+,
+kSm90Fused*
+, and on the device
+SM90FusedWorkspace
+/
+SM90FusedMegaMoEScheduler
+). The four that do not are new sizing helpers in
+layout/sm90_fused_mega_moe.cuh
+(
+kNumSM90CandidateBlockMs
+,
+get_num_max_pool_tokens_sm90
+,
+get_sm90_tile_table_entries
+,
+get_sm90_tile_table_entries_compact
+); none of the four exists anywhere in the tree today, so nothing collides with
+#383
+'s SM90 names and
+DG_PRINT_CONFIGS
+tells the two apart.
+This PR adds no tuning environment variable. The only new reads are the two trace instruments
+DG_SM90_TRACE_PTR
+and
+DG_SM90_TRACE_EPI
+, next to the repo's existing diagnostics (
+DG_JIT_DEBUG
+/
+DG_PRINT_CONFIGS
+,
+DG_COMM_KERNEL_DEBUG
+), which the fused path honours exactly where the split path does.
+Relation to other work
+#383
+'s review named a fused SM90 kernel as follow-up work; this is one. It does not replace that PR: the split path stays the default.
+Overlaps with
+#422
+,
+#411
+,
+#393
+and
+#360
+, and the same kernel against sgl-project
+Overlaps to know about:
+[Feat] add support sm90 fp8 mega moe
+#422
+brings the sgl-project split SM90 kernel into the paths
+[SM90] Add FP8 MegaMoE support
+#383
+now occupies. It makes the same two barriers generic over the workspace type, with
+WorkspaceT
+after
+sync_scope_t
+rather than before, and takes trap-only on SM90 from inside the wait loop, the shape that costs this kernel its
+setmaxnreg
+. Whichever lands first, the policy parameter has to go in.
+feat: add SM90 FP8 x MXFP4 MegaMoE support
+#411
+adds SM90 FP8 × MXFP4 on top of
+[SM90] Add FP8 MegaMoE support
+#383
+'s kernel, with the same
+ld_shared(const uint2*)
+overload this PR adds, so whichever lands second drops its copy.
+Migrate pybind11 to TORCH_LIBRARY
+#393
+rewrites
+csrc/apis/*.hpp
+for
+TORCH_LIBRARY
+, including the registration this PR adds; whichever lands first, the other rebases three
+m.def
+s.
+Add SM90 MegaMoE by cooperative
+#360
+is a different fused SM90 design against
+main
+, one cooperative kernel whose two math warpgroups N-split a 64×256 tile. It predates
+[SM90] Add FP8 MegaMoE support
+#383
+and is the closest alternative to this one.
+The same kernel is open against sgl-project/DeepGEMM as
+sgl-project/DeepGEMM#88
+, where it replaces that fork's existing fused SM90 kernel instead of adding one. Same kernel, not the same bytes: the barriers here take a per-instantiation timeout policy where the fork gates the same trap on the architecture, and this workspace's flag bank has no publish-epoch word. Nothing reads a bank across the two repositories. Don't assume a patch to one applies to the other.
+The NVLink data path this kernel keeps comes from
+sgl-project/DeepGEMM#36
+. That, the first SM90 ring buffer this builds on, and the cluster and multicast paths are all credited in the commit trailers.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+🚀
+2
+vladnosiv and MARD1NO reacted with rocket emoji
+All reactions
+🚀
+2 reactions
+Add PTX/MMA helpers, a generic barrier wait and a PDL launch flag
+…
+e19160b
+The fused SM90 MoE kernel needs shared-memory and system-scope load/store wrappers that the PTX
+helpers did not have yet, plus a way to advance a WGMMA shared-memory descriptor by a byte offset
+instead of rebuilding it. The grid and NVLink barriers become generic over the workspace type, and
+under the existing trap-only timeout policy they now leave the wait loop on the deadline and call
+the same handler after it rather than from inside it: with the call inside the loop, ptxas allocates
+the registers of the region containing the loop against the kernel's launch bound and ignores that
+region's `setmaxnreg.inc`, which spills in that kernel. The timeout, the handler and its arguments
+are unchanged, and the diagnostic policy keeps the loop it had. And a kernel whose instantiation
+carries griddepcontrol wait/trigger can now ask for the programmatic dependent launch attribute
+itself, instead of the attribute following the global `set_pdl` flag; no existing launcher passes
+the new argument.
+ds-review-bot
+reviewed
+Sep 13, 2026
+View reviewed changes
+Comment thread
+csrc/jit_kernels/heuristics/sm90_fused_mega_moe.hpp
+// Publish-batch bound (ring mode): a dispatch warp at pool block p waits for the L1 consumers of block p - R (R = ring blocks),
+// which need every row of that block published. The kernel publishes a warp's pending rows before it blocks on a slot; this
+// bound additionally keeps the batch's unpublished span (N x 264 / block_m + one partial tail block per expert) inside the ring.
+if (pull_publish_batch > 1 and ring_mode_pull) {
+ds-review-bot
+Sep 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🟡
+warning
+:
+early_combine
+只检查
+hidden >= 512*topk
+与 k-block > stages，但 kernel 侧还有以
+kNumMaxTokensPerRank
+为键的
+static_assert
+：
+kNumECTokenStripes <= 32
+与
+32 + kNumECClaimWords*4 <= 64
+（impls/sm90_fp8_fused_mega_moe.cuh ~L520），等价于
+num_max_tokens_per_rank <= 32 × num_sms × 8
+（H100 SXM 132 SM ≈ 33792，PCIe 114 SM ≈ 29184）；以及 sliced combine 的
+(1 + kNumWLEntries)*4 <= kNumStages * SMEM_SFA_SIZE_PER_STAGE
+（~L3282，decode 拓扑、32 stripes、4 stages 时 1028 B > 1024 B）。超过上限的 buffer 会在 NVRTC 编译期失败，而不是 host 端降级。建议在此处镜像这两条约束：超限时置
+early_combine = 0
+，并让 kernel 的
+kCombineSliced
+在工作表不够时回落到 0。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zkyue
+Sep 14, 2026
+Copy link
+Copy Markdown
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+The bound is real: the two bitmap asserts put it at 32 x num_sms x 8 tokens per rank, so ~33K on a 132-SM part, and the sliced-combine work list is in the same range. Both are NVRTC-time asserts carrying their own message, and the shapes this path is built for cap out at 8192 per rank, so I would rather not carry a host rule that has to stay in sync with three device static asserts to describe a domain nobody is asking for yet. Worth doing the day someone wants a buffer that large.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/jit_kernels/heuristics/sm90_fused_mega_moe.hpp
+const auto config = MegaMoESM90FusedConfig {
+block_m, block_n, block_k,
+cluster_size,
+num_max_pool_tokens, num_padded_sf_pool_tokens,
+ds-review-bot
+Sep 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: 描述中称 early-combine 模式 "是 shape 的函数"，但这里
+early_combine
+依赖
+num_stages
+，而
+num_stages
+由
+block_m/block_n/use_swap_ab
+决定，后者来自本 rank 的
+num_tokens
+（
+get_block_config_sm90_fused
+）。我核对了 kernel：
+kEarlyCombineMathWait
+分支内联的 grid-sync + SM0 sys signal + grid-sync 与
+comm::nvlink_barrier
+都执行 tag-2 全 rank barrier，非 EC rank 收到的 done flag 只会被 bank 轮换清零，因此不同 rank 取不同模式不会挂，仅是性能差异。请把 PR 描述与代码注释修正为"各 rank 可取不同 early-combine 模式，两种模式都参与同一 all-rank barrier"。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zkyue
+Sep 14, 2026
+Copy link
+Copy Markdown
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+You're right on both halves, and the description was wrong. Early combine is not a function of the
+shapes:
+block_m
+follows this rank's token count, it sets the per-stage smem cost and so
+num_stages
+, and the mode turns on only when
+hidden / block_k
+and
+intermediate_hidden / block_k
+both exceed
+num_stages
+. Two ranks with different local batches can take different paths.
+I checked the barrier half rather than take it. No tag reaches the wire (
+kTag
+is consumed only by
+the timeout printer), and both paths derive the same words at the same offsets, signal once per rank
+from
+sm_idx == 0
+, bump the same phase counter once and wait for the same target. So disagreement
+costs throughput, not liveness: a rank on the early-combine path only early-combines tokens whose
+experts all live on ranks that took the same path.
+One thing that pass misses. The early-combine path keeps the 60 s timeout on the cross-rank signal
+wait, but its two grid syncs are bare
+while (not grid_flipped(...))
+, where
+nvlink_barrier
+routes
+both through
+grid_sync<..., kTimeoutPolicy>
+, so a stall in front of it hangs silently instead of
+aborting with a diagnostic. Description and both comments corrected; restoring the deadline is a
+follow-up.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/apis/sm90_fused_mega.hpp
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+deep_gemm/include/deep_gemm/scheduler/sm90_fused_mega_moe.cuh
+//       (tag 0: end of schedule, 1: Linear1, 2: Linear2, 3: not ready)
+//   y = num_tokens | pool_block_offset << kTBits                              (kTBits + kPBits <= 32)
+//   y = valid_m | last_m_block << kVBits | pool_block_offset << kVBits + 1   (otherwise, see kTilePayloadByRows)
+// Publish protocol: payload words first, then the tag word with a release store (CTA scope locally, cluster scope for
+ds-review-bot
+Sep 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: 描述与 README 都承认
+num_tokens_bound
+低于某个 peer 的实际 count 时会在单 wave 内复用 ring slot 而静默挂死。在 wave 调度且
+!kRingCoversFullPool
+的实例中，
+fetch_expert_recv_count()
+之后一个 wave 的 pool block 总数已知（
+get_pool_block_offset(wave_end) - get_pool_block_offset(wave_start)
+）；若
+> kNumRingBlocks
+直接
+DG_TRAP_ONLY_DEVICE_ASSERT
+，可把挂死变成可诊断的 trap，成本可忽略。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zkyue
+Sep 14, 2026
+Copy link
+Copy Markdown
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Agreed that this is the one failure mode the host cannot catch, and the detection point you name is the right one -- the wave's pool span is known right after the count fetch, and the check is off the hot path. I would rather add it on its own than put new hardening into a path in the same change that introduces the path. Tracked as a follow-up.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/jit_kernels/heuristics/sm90_fused_mega_moe.hpp
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+deep_gemm/include/deep_gemm/layout/sm90_fused_mega_moe.cuh
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+deep_gemm/mega/__init__.py
+self.num_experts_per_wave, self.l2_act_sf_gran_k,
+)
+# Ring capacity (0 = full pool) and encoded L2-lag schedule the buffer was sized for; passed back at every launch
+self.num_ring_tokens = num_ring_tokens
+ds-review-bot
+Sep 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+:
+self.num_ring_tokens = num_ring_tokens
+（满池为
+0
+），而 sgl
+#88
+的
+SM90SymmBuffer
+暴露为
+None
+；本仓测试用
+buffer.num_ring_tokens or None
+兜底。属性语义不一致不影响 C++ 契约（两边都传 0 给
+_C
+），但建议在注释或 README 明确
+0 = full pool
+，或与 sgl 侧统一为
+None
+。
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zkyue
+Sep 14, 2026
+Copy link
+Copy Markdown
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+0 = full pool
+is documented, one line above the assignment: "Ring capacity (0 = full pool) and encoded L2-lag schedule the buffer was sized for; passed back at every launch". Agreeing on
+0
+versus
+None
+across the two repos is worth doing, but that means changing a public attribute in one of the two repos, so not in this change.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/apis/sm90_fused_mega.hpp
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+deep_gemm/mega/__init__.py
+raise ValueError('`num_experts_per_wave` and `l2_act_sf_gran_k` apply to the fused buffer only')
+num_max_tokens_per_rank = align(
+num_max_tokens_per_rank, _C.get_token_alignment_for_sm90_mega_moe())
+return SM90SymmBuffer(
+ds-review-bot
+Sep 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: fp8_mega_moe is the only thing preventing a fused buffer from being driven by the split kernel (or the reverse): it switches on isinstance(sym_buffer, SM90FusedSymmBuffer), while the two layouts genuinely differ in x_sf outer alignment and l2_acts_sf granularity. The public helper paths already reject the fused-only keywords on the split arm, but a caller holding an SM90FusedSymmBuffer that reaches the raw _C.fp8_mega_moe (or a future refactor of this dispatch) would silently produce wrong numerics. Consider stating in the README/docstring that a buffer may not be reused across arms, and/or asserting l2_act_sf_gran_k exists on the buffer before the split fallback.
+🤖 v4
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+zkyue
+Sep 14, 2026
+Copy link
+Copy Markdown
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+fp8_mega_moe
+is the entry point and its dispatch on the buffer type is total, so a fused buffer cannot reach
+_C.fp8_mega_moe
+through it; the docstring already states that an
+SM90FusedSymmBuffer
+selects the single-kernel implementation. Getting the wrong numerics you describe takes a caller reaching past the public helper into the raw pybind module, and I would rather not put a runtime check on the launch path for that.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Sep 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+⚠️
+未完成评审（upstream_error：模型上游服务不可用）
+v5
+本 MR 在
+#383
+的拆分路径旁新增一个单 kernel 的 SM90 FP8 MegaMoE（lag 调度 + ring 激活池），改动为加性、opt-in。我通读了共享文件（barrier.cuh / kernel_runtime.hpp / ld_st.cuh / mma/sm90.cuh）、host 路径（apis / heuristics / impls）、layout 与 scheduler 头文件、kernel 的 dispatch / loader / epilogue / combine / cleanup 关键区段、两份测试与 bench，并与
+sgl-project#88
+做了
+git diff --no-index
+对照。
+跨仓契约（sgl
+#88
+）
+：kernel 主体除重命名外只有 3 处实质差异：(a) 本仓 4 处 barrier 使用
+TrapOnly
+，sgl 用默认
+Diagnostic
+（描述已说明）；(b) 本仓删除了 early-combine 的 "publish epoch" 字，
+SM90FusedWorkspace::get_t2_bank_flag_words
+比 sgl 少 1，workspace bank 布局不同——两库不共享 buffer，无线上契约问题，但描述中 "the same kernel" 应注明；(c)
+num_ring_tokens
+满池在本仓为
+0
+、sgl 为
+None
+，仅 Python 属性语义。启动参数顺序 (
+num_ring_tokens, num_tokens_bound, l2_lag_encoded, l2_act_sf_gran_k
+)、gran-k 默认规则、scale 公式
+max(amax,1e-10)/448
+、SF pool slot-major 布局均一致。
+结论
+：未发现会破坏
+#383
+拆分路径或导致跨 rank 挂死的必然缺陷，可合入；以下几点建议在合入前/后修正：
+[warning] 若干以
+kNumMaxTokensPerRank
+为键的 kernel 侧
+static_assert
+（early-combine stripes ≤ 32、sliced-combine 工作表大小）没有 host 镜像，大于 ~32K tokens/rank 的 buffer 会在 NVRTC 编译期失败而非降级。
+[warning] swapAB L1 epilogue 用
+__ldg
+读取同一 launch 内由 dispatch warps 写入（ring 模式下按 generation 复写）的
+l1_topk_weights_buffer
+，
+ld.global.nc
+对此无定义。
+[suggestion] 描述称 early-combine 模式 "是 shape 的函数"，实际经
+num_stages
+依赖本 rank 的
+num_tokens
+；我核对两条分支都执行 tag-2 全 rank barrier、非 EC rank 收到的 done flag 被 bank 轮换清零，因此不会挂，但描述需修正。
+[suggestion]
+intermediate_hidden/64 &lt;= 64
+只在 launch 检查，分配 IH=4224 的 buffer 会成功后首调失败。
+[suggestion] 对文档已承认的
+num_tokens_bound
+低于 peer 实际 count 的挂死场景，在 wave 调度 + ring 模式下加一个 device 端 trap。
+已核对无问题：barrier.cuh
+Diagnostic
+分支逐字保留、模板化不影响 SM100；
+force_pdl
+仅 OR 进
+enable_pdl
+，默认 false 且无现有 launcher 传入；ring 大小推导（
+R ≥ 8·(lag+group)
+为充分条件，
++4
+为余量）、L1 epilogue 等
+l2_empty
+/ dispatch 阻塞前 flush pending / dynamic tail 2-CTA 配对（
+kNumL2BlockNs
+偶数保证不跨 chunk）均无环；launch-parity 双 bank 与 PDL
+griddepcontrol.wait
+顺序相容，未 bank 化的
+src_token_topk_idx
+表在 peer 进入 g+1 前本 rank 的 pull 已完成；host/kernel smem 布局余量（
++8
+）与
+num_stages
+推导一致；非 fused 路径对 fused 专属 kwargs 抛
+ValueError
+；测试与 bench 改动为加性。
+v4
+Static review of cc_bot_base..HEAD (3 commits: PTX/MMA helpers + generic barrier wait + PDL force flag; fused SM90 FP8 MegaMoE with lag-ordered ring schedule; fused ring tests). Verdict: no blocking cross-repo contract inconsistency. The fused path is an additive, opt-in port of
+sgl-project#88
+that keeps
+#383
+'s two-kernel path untouched, and its buffer/tensor contract, SF formula and granularity, lag encoding (lag + 1000
+group, group=4, ring = 8
+(lag+group)+4), tile-table publish protocol (payload then acquire tag), NVLink data path (get_l1_arrival_count_ptr / get_l2_arrival_mask_ptr / get_token_src_metadata_ptr) and Python dispatch all line up with
+#88
+and the
+#36
+origin. Default dispatch is unchanged (fused=False and num_tokens_bound=None route to the existing SM90SymmBuffer and _C.fp8_mega_moe); token alignment is 128 on both arms. Hand-verified the host sizing for the ring test shapes (2048/2/top-2 -> l2_lag 4008, 288 experts/top-8 -> 4016, top-6/5120 -> 4014, bound 3840 -> 4011), matching the PR description exactly. Confirmation notes, not action items: this branch deliberately omits
+#88
+'s publish-epoch word (get_t2_bank_flag_words has no +1; the slot is write-only dead code in
+#88
+) and its dead smem_ec_marks receiver bitmap (smem_ec_claim correctly moves to word 8), omits the DG_SM90_FP8_SWAP_AB kill-switch (the PR explicitly adds no tuning env vars), and adds a host-side combine-vectorization rejection plus a num_tokens_bound <= capacity assertion; each is self-consistent. The only durable consequence is that the workspace flag-bank byte layout is not byte-compatible with
+#88
+'s, which is fine while no runtime path shares the struct. The split SM90 kernel source is unchanged; its codegen shifts only through the TrapOnly loop-exit refactor in comm/barrier.cuh, whose Diagnostic branch is base verbatim and whose handlers/policy semantics are unchanged, so SM100 callers are unaffected. Note: no GPU and only git/read tools are available, so the SM90 fused tests could not be executed; this review is static.
+Files reviewed
+: 16
+配对 MR checkout
+: 2
+Issues found
+: 🟡 2 warning | 🔵 8 suggestion
+Inline comments posted
+: 9
+General comments
+(无法定位到 diff): 1
+⚠️
+Parse warning: [v6] upstream_error：模型上游服务不可用
+📍 未定位到 diff 的评论
+🟡
+warning
+deep_gemm/include/deep_gemm/impls/sm90_fp8_fused_mega_moe.cuh:L2611
+: swapAB L1 epilogue 用
+__ldg
+（
+ld.global.nc
+）读取
+l1_topk_weights_buffer
+，但该 buffer 由 dispatch warps 在同一 launch 内写入（L1019），ring 模式下还会按 generation 复写同一 slot。
+.nc
+只对 kernel 生命周期内只读的数据有定义，非一致性缓存可能返回上一 generation 的值。非 swap 路径（L2758）用的是普通 load，这里应保持一致改为普通 load。sgl
+#88
+同源代码有同样问题，建议两边一起改。
+🤖 v5
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+zkyue
+force-pushed
+the
+nvdev-fused-v1
+branch
+      2 times, most recently
+    from
+a278890
+to
+c3586bb
+Compare
+September 14, 2026 07:13
+zkyue
+mentioned this pull request
+Sep 14, 2026
+[SM90] Ring-buffered FP8 MegaMoE with a lag-ordered L1/L2 schedule
+sgl-project/DeepGEMM#88
+Open
+zkyue
+and others
+added
+2
+commits
+September 17, 2026 05:48
+Add a fused SM90 FP8 MegaMoE with a lag-ordered ring schedule
+…
+cbd08d9
+The Hopper MegaMoE runs its two linears as two kernels, so the whole linear-1 activation is written
+to the symmetric buffer before linear 2 reads any of it, the two GEMMs cannot overlap, and the pool
+grows with the token bound rather than with what the GEMMs have in flight. This adds a single-kernel
+path next to it: one task stream in which a per-CTA tile table keeps linear 2 a bounded number of
+tiles behind linear 1, with the linear-1 activation pool sized as a ring around that lag, so it only
+holds the rows in flight. At the benchmark's 8192-token bound the symmetric buffer goes from 3023 to
+700 MiB on 4096/2048/256/top-6 and from 5083 to 1113 MiB on 7168/3072/384/top-6.
+
+The path is additive and opt-in: `fused=True` on the buffer size query allocates the ring buffer and
+the buffer type then selects the kernel at launch, so the two-kernel path, its heuristics and its
+launcher are untouched and its two Python entry points only gain keyword arguments whose defaults
+dispatch exactly as they do today. The query also returns the ring capacity and the lag encoding,
+and both travel back to the kernel on every launch together with the K granularity of the
+intermediate activation scales (per-128 K where the 256-wide decode tile fits, per-64 K otherwise).
+The default layout keeps the full pool below 1024 tokens per rank and rings above it; a caller can
+still ask for a ring sized for a given expert wave, or for an automatically chosen one. Decode-sized
+calls also take the programmatic dependent launch attribute, since their instantiation carries
+griddepcontrol wait/trigger.
+
+Co-authored-by: Haisha Zhao <33570593+Hyaloid@users.noreply.github.com>
+Co-authored-by: Clement Chan <16222986+iclementine@users.noreply.github.com>
+Co-authored-by: Ding Yin <12468551+qiushixiaoyu@users.noreply.github.com>
+Add tests for the fused SM90 MegaMoE ring layout
+…
+8cf8180
+The new test runs the fused kernel over several buffer sizes with a full activation pool and with a
+ring, four launches per buffer, and requires the layouts to agree bitwise; the verdict is all-reduced
+so a mismatch on one rank fails the run. Its shapes include the 1024-token buffer, the smallest one
+the default layout turns into a ring, and it mirrors the same thresholds as the host so the expected
+layout and the heuristic cannot drift apart. A further buffer repeats the same four launches with
+each call's own `num_tokens_bound` and has to match bit for bit as well, which covers both schedules
+a bound can pick, and a bound above that buffer's capacity has to be rejected on the host instead.
+The accuracy test takes `--fused` to run its layers against the fused kernel, with the reference
+quantising the intermediate activation at the buffer's granularity on that path only and the one
+scenario beyond the fused intermediate-dimension limit reported as skipped, and the benchmark takes
+`--arms split fused` to time both paths on the same inputs.
+zkyue
+force-pushed
+the
+nvdev-fused-v1
+branch
+    from
+c3586bb
+to
+8cf8180
+Compare
+September 17, 2026 06:03
+AIExplorer7
+mentioned this pull request
+Oct 14, 2026
+Add optimized fused FP8 x MXFP4 MegaMoE for SM90
+#473
+Open
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

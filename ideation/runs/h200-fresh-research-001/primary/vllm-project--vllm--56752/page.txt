@@ -1,0 +1,690 @@
+Conversation
+ivanium
+commented
+Sep 14, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Purpose
+Stacked on
+#56227
+(base branch
+feat/dsv41-swa-bounded-replay
+; the diff shows only this PR's three commits). DeepSeek-V4.1's layers past the last KV-source layer (21-39 on V4.1-Flash) own nothing but sliding-window KV: every later layer attends the compressed KV of the source layers, and only the last 128 tokens' window KV is read after prefill. This is DeepSeek's decoder-side SWA bounded replay: in prefill those layers run on each request's last 128 tokens only, cold prefills included, while layers 0-20 still run on every token. It is a deliberate approximation, not an equivalent reduction of work: the kept rows' window attention in layers 21-39 is bounded at the trailing window (the SWA kernels read no window KV below it), so the last token's hidden state is not bit-identical to a full prefill; the long-range context reaches it through the compressed KV. The accuracy runs below (gsm8k on TP4 and DP4, two passes each) and DSpark's unchanged acceptance length are what this rests on.
+DeepseekV4Model
+(
+nvidia/model.py
+): when the layers after the last KV source are all sliding-window and the configuration allows it, the forward is split into
+_run_layers
+up to the cut,
+DecoderReplayLayers
+for the rest, and the final mHC collapse. Otherwise the forward is unchanged and a warning names the reason.
+DeepseekV41ModelState.prepare_attn
+(
+nvidia/model_state.py
+): after the step's own metadata it builds the replay layers' batch from the same inputs: the replay rows (one Triton kernel fills the rows, the row-subset
+InputBuffers
+, its slot mappings and its replay start), attention metadata through metadata builders of its own (the runner's hold the batch's metadata past the forward) and, under piecewise graphs, the size of the replay layers' graph. Everything lives in persistent buffers because that graph reads them by address. The result is set on
+DecoderReplayLayers.replay_batch
+; it is None when nothing trims in an eager forward and under FULL graphs (uniform decode).
+DecoderReplayLayers
+(
+decoder_replay_layers.py
+): gathers the seven layer inputs by the rows, runs the layers under a copy of the forward context with the replay batch's attention metadata, slot mappings, padding mask, batch descriptor and DP metadata, and scatters the outputs back to full-batch rows. Under breakable piecewise graphs the replay is an eager break of the model graph: the layers run in a graph of their own (
+ReplayCudaGraphs
+, keyed by the replay batch's padded size) captured inside the model graph's capture of the same size. Only prefills trim, so a capture's dummy batch keeps all its rows and every capture size gets a replay graph of that size; at runtime the replay batch pads to the smallest capture size that fits, which therefore always exists.
+Data parallelism: the replay layers' MoE collectives need every rank's token count, so the model state has the ranks agree in
+prepare_attn
+with one CPU all-reduce carrying whether each rank trims and its replay token count. Any rank trimming makes every rank replay on those counts; under graphs all ranks run the one replay graph size that fits the largest count.
+DSpark (
+dspark/speculator.py
+): the drafter derives its context KV from the target's aux hidden states, which under decoder replay exist only for the last window of each request;
+_context_rows
+bounds the context KV writes to the drafter's own window.
+Shared changes, none behavioral for other models:
+AttentionGroup.make_metadata_builder
+(a builder outside the group's own list),
+prepare_inputs_to_capture
+hands the model state the capture's real cudagraph mode (the default state treats PIECEWISE like NONE), and an eager break of a breakable capture may capture graphs of its own.
+The decoder side stays off, with a warning, when the pipeline stage does not hold every layer after the last KV source, under sequence-parallel MoE, prefill context parallelism or microbatching, with an Engram layer after the cut, or with a drafter whose window is wider than the target's. DeepSeek-V4.1 turns sequence-parallel MoE on for EP with TP > 1 under DP, so under DP the decoder side runs with TP = 1 today.
+No other open PR implements the decoder side of SWA replay;
+#56227
+is the encoder side this builds on.
+Usage
+Nothing to configure: with
+#56227
+and this PR, DeepSeek-V4.1 on model runner V2 replays on both sides by default, including under
+--data-parallel-size > 1
+with TP = 1.
+--no-swa-bounded-replay
+turns both sides off.
+Test Plan
+pytest tests/models/test_deepseek_v41_replay_batch.py tests/models/test_deepseek_v4_decoder_replay_layers.py \
+  tests/v1/cudagraph/test_breakable_cudagraph.py tests/v1/spec_decode/test_dspark_context_rows.py
+Accuracy:
+deepseek-ai/DeepSeek-V4.1-Flash
+served on a GB200 node with
+vllm serve
+(default
+FULL_AND_PIECEWISE
+with breakable piecewise graphs), gsm8k (5-shot) run twice against the same server, pass 2 re-sending every prompt so each request is a full-prompt prefix hit, concurrency 512: TP4 (
+--max-num-seqs 1024
+) and DP4 x TP1 x EP4 (
+--max-num-seqs 256
+per rank). Baseline arms are
+--no-swa-bounded-replay
+on the same tree.
+Test Result
+Unit tests cover the replay rows and sub-batch fields (including prompt-logprobs requests, which keep every row, and the adaptive-verification query bound), the graph-size and DP agreement rules, an idle DP rank's dummy batch, gather/scatter with the indexer buffers, the replay graph against the eager path on a batch it never saw, nested breakable captures and the DSpark context rows; pre-commit and mypy are clean.
+gsm8k, n=1319, 0 request errors in every pass, decoder replay engaged on every rank:
+arm
+pass 1 (cold)
+pass 2 (prefix hits)
+TP4, replay on (encoder + decoder)
+0.9249
+0.9249
+TP4,
+--no-swa-bounded-replay
+0.9295
+0.9295
+DP4 x TP1 x EP4, replay on (encoder + decoder)
+0.9287
+0.9333
+DP4 x TP1 x EP4,
+--no-swa-bounded-replay
+0.9295
+0.9196
+All arms are within run-to-run noise of each other (one standard error at n=1319 is 0.0075). DSpark with adaptive verification on TP4 kept its acceptance length on an earlier revision of this branch (3.28 vs 3.29).
+🤖 Developed with
+Claude Code
+; all changes reviewed and tested by the author.
+Essential Elements of an Effective PR Description Checklist
+The purpose of the PR, such as "Fix some issue (link existing issues this PR will resolve)".
+The test plan, such as providing test command.
+The test results, such as pasting the results comparison before and after, or e2e results
+(Optional) The necessary documentation update, such as updating
+supported_models.md
+and
+examples
+for a new model.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+mergify
+Bot
+added
+deepseek
+Related to DeepSeek models
+DSv4.1
+Related to DeepSeek-V4.1 models
+nvidia
+speculative-decoding
+labels
+Sep 14, 2026
+github-project-automation
+Bot
+added this to
+NVIDIA
+Sep 14, 2026
+mergify
+Bot
+added
+dflash
+mrv2
+Model Runner V2 specific
+torch.compile
+labels
+Sep 14, 2026
+github-project-automation
+Bot
+added this to
+Sprint - DFlash
+and
+torch.compile integration
+Sep 14, 2026
+github-project-automation
+Bot
+moved this to
+Backlog
+in
+Sprint - DFlash
+Sep 14, 2026
+github-project-automation
+Bot
+moved this to
+To triage
+in
+torch.compile integration
+Sep 14, 2026
+ivanium
+force-pushed
+the
+feat/dsv41-decoder-swa-bounded-replay
+branch
+      4 times, most recently
+    from
+edf39ee
+to
+ac96ca1
+Compare
+September 14, 2026 06:14
+mergify
+Bot
+commented
+Sep 14, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@ivanium
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 14, 2026
+ivanium
+force-pushed
+the
+feat/dsv41-decoder-swa-bounded-replay
+branch
+      3 times, most recently
+    from
+2b75dcd
+to
+516a1dd
+Compare
+September 14, 2026 09:28
+ivanium
+changed the title
+[Model] DeepSeek-V4.1 decoder-side SWA bounded replay
+[Feat][Model] DeepSeek-V4.1 decoder-side SWA bounded replay
+Sep 14, 2026
+ivanium
+marked this pull request as ready for review
+September 14, 2026 09:29
+ivanium
+requested review from
+AndreasKaratzas
+,
+DarkLight1337
+,
+WoosukKwon
+,
+njhill
+,
+pavanimajety
+,
+yewentao256
+and
+ywang96
+as
+code owners
+September 14, 2026 09:29
+22 hidden items
+Load more…
+ivanium
+force-pushed
+the
+feat/dsv41-swa-bounded-replay
+branch
+    from
+5f225e3
+to
+8609569
+Compare
+September 15, 2026 00:46
+ivanium
+force-pushed
+the
+feat/dsv41-decoder-swa-bounded-replay
+branch
+    from
+2c8d5e7
+to
+9f4699a
+Compare
+September 15, 2026 00:49
+wangyicong52
+mentioned this pull request
+Sep 15, 2026
+[Perf][DSv4.1] Reuse prefill main-KV gathers across decoder groups
+#56986
+Draft
+ZJY0516
+reviewed
+Sep 16, 2026
+View reviewed changes
+Comment thread
+vllm/compilation/breakable_cudagraph.py
+Outdated
+@@ -332,6 +343,10 @@ def __call__(self, *args: Any, **kwargs: Any) -> Any:
+return self.runnable(*args, **kwargs)
+assert batch_descriptor is not None
+return self.run(batch_descriptor, *args, **kwargs)
+def run(self, batch_descriptor: BatchDescriptor, *args: Any, **kwargs: Any) -> Any:
+ZJY0516
+Sep 16, 2026
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+This is a little hacky
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ZJY0516
+Sep 16, 2026
+Copy link
+Copy Markdown
+Member
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+I updated it
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+1
+ivanium reacted with thumbs up emoji
+All reactions
+👍
+1 reaction
+foraxe
+mentioned this pull request
+Sep 17, 2026
+[Perf][DSv4.1] Compact large decoder prefills with a dependency-preserving halo
+#57281
+Draft
+ivanium
+force-pushed
+the
+feat/dsv41-swa-bounded-replay
+branch
+    from
+8609569
+to
+2e258aa
+Compare
+September 17, 2026 06:29
+ivanium
+force-pushed
+the
+feat/dsv41-decoder-swa-bounded-replay
+branch
+    from
+096d8e9
+to
+bf08573
+Compare
+September 17, 2026 06:29
+gz944367214
+mentioned this pull request
+Sep 17, 2026
+[RFC]: Asymmetric P/D Deployment for DeepSeek-V4.1 Flash
+#57383
+Open
+1 task done
+ivanium
+force-pushed
+the
+feat/dsv41-swa-bounded-replay
+branch
+    from
+6380817
+to
+4d4796c
+Compare
+September 17, 2026 21:55
+WoosukKwon
+mentioned this pull request
+Sep 17, 2026
+[Model Support] DeepSeek V4.1 Tracking Issue
+#57448
+Open
+17 of 19 tasks
+mergify
+Bot
+commented
+Sep 17, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@ivanium
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+needs-rebase
+DSv4
+labels
+Sep 17, 2026
+ivanium
+force-pushed
+the
+feat/dsv41-decoder-swa-bounded-replay
+branch
+    from
+bf08573
+to
+d90616d
+Compare
+September 17, 2026 23:30
+mergify
+Bot
+removed
+  the
+needs-rebase
+label
+Sep 17, 2026
+ivanium
+and others
+added
+3
+commits
+September 18, 2026 00:05
+[Model] Decoder-side SWA bounded replay for DeepSeek-V4.1
+…
+e8a0735
+DeepSeek-V4.1's layers past the last KV-source layer (21-39 on V4.1-Flash) own nothing but sliding-window KV, so in prefill they only need each request's last window of tokens. DeepseekV41ModelState builds that batch in prepare_attn, right after the step's own metadata and from the same inputs: the replay rows, a row-subset InputBatch, attention metadata from metadata builders of its own and, under piecewise graphs, the size of the replay layers' graph, all in fixed buffers. DecoderReplayLayers gathers the layer inputs by the rows, runs the layers under a forward context of their own (attention metadata, slot mappings, padding mask, batch descriptor), eagerly or in a breakable graph captured inside the model graph's capture of the same size, and scatters the outputs back to full-batch rows. Only prefills trim, so a capture's dummy batch keeps all its rows and every capture size gets a replay graph of that size.
+
+Shared changes: AttentionGroup.make_metadata_builder for a builder outside the group's own list; prepare_inputs_to_capture hands the model state the capture's real cudagraph mode (the default state treats PIECEWISE like NONE); an eager break of a breakable capture may capture graphs of its own.
+
+The decoder side stays off, with a warning, when the pipeline stage does not hold every layer after the last KV source, when the replay batch cannot shrink per rank (sequence, data or prefill-context parallelism, microbatching), with an Engram layer after the cut, or with a drafter whose window is wider than the target's.
+
+Co-authored-by: zjy0516 <riverclouds.zhu@qq.com>
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: Yifan Qiao <yifanqiao@inferact.ai>
+[SpecDecode] Bound the DSpark drafter's context KV to its window
+…
+618e894
+A DSpark drafter whose layers are all sliding-window attention can only
+ever read the last `window` context positions of a request, so projecting
+and inserting context KV for the rest of a long prefill chunk is wasted
+work. Under the target's decoder-side SWA bounded replay those rows also
+carry no real hidden state (the target never computed them), so
+restricting the precompute to the window removes the garbage KV they
+produced. It rides --swa-bounded-replay. Adaptive verification sizes the
+leading verification requests on the GPU, but those are never trimmed,
+so the row selection from the CPU query boundaries still holds.
+
+The DFlash context-KV precompute gains a row-selection hook that keeps
+every row by default; DSpark implements it.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: Yifan Qiao <yifanqiao@inferact.ai>
+[Model] Run DeepSeek-V4.1 decoder-side SWA bounded replay under data …
+…
+d87ddc6
+…parallelism
+
+The replay layers' MoE collectives need every DP rank's token count, and the
+replay batch shrinks per rank, so the decoder-side replay stayed off under
+DP. DeepseekV41ModelState now has the ranks agree on their replay batches
+where it builds them, in prepare_attn, which every rank calls every step:
+one CPU all-reduce carries whether each rank trims and how many tokens its
+replay layers would run on. Any rank trimming makes every rank replay on
+those counts, which are the replay layers' DP metadata in eager mode; under
+graphs all ranks run the one replay graph size that fits the largest count,
+or the padded batch's when none trims. An idle rank's dummy batch trims like
+a real one, so its rows fit whatever size was agreed.
+
+Microbatching (DBO) joins sequence and prefill-context parallelism in the
+unsupported list; it runs the model per microbatch, outside this agreement.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: Yifan Qiao <yifanqiao@inferact.ai>
+ivanium
+force-pushed
+the
+feat/dsv41-decoder-swa-bounded-replay
+branch
+    from
+d90616d
+to
+d87ddc6
+Compare
+September 18, 2026 00:18
+mergify
+Bot
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Contributor
+This pull request has merge conflicts that must be resolved before it can be
+merged. Please rebase the PR,
+@ivanium
+.
+https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+mergify
+Bot
+added
+  the
+needs-rebase
+label
+Sep 18, 2026
+WoosukKwon
+deleted the branch
+vllm-project:feat/dsv41-swa-bounded-replay
+September 18, 2026 22:01
+WoosukKwon
+closed this
+Sep 18, 2026
+github-project-automation
+Bot
+moved this from
+Backlog
+to
+Done
+in
+Sprint - DFlash
+Sep 18, 2026
+github-project-automation
+Bot
+moved this from
+To triage
+to
+Done
+in
+torch.compile integration
+Sep 18, 2026
+github-project-automation
+Bot
+moved this to
+Done
+in
+NVIDIA
+Sep 18, 2026
+wangyicong52
+mentioned this pull request
+Sep 21, 2026
+[Feature][KVConnector][DSv4.1] Encoder-only prefill with Mooncake P/D
+#57872
+Open
+ivanium
+mentioned this pull request
+Sep 22, 2026
+[Model] Decoder-side SWA bounded replay for DeepSeek-V4.1
+#58132
+Merged
+frida-andersson
+mentioned this pull request
+Sep 28, 2026
+[ROCm][Perf][DSv4.1] Enable decoder SWA bounded replay
+#59039
+Merged
+Juntian777
+mentioned this pull request
+Oct 1, 2026
+[Perf][DSv4.1] Run decoder replay layers in CUDA graphs and trim in PIECEWISE graphs
+#59532
+Merged
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ZJY0516
+ZJY0516 left review comments
+claude[bot]
+claude[bot] left review comments
+DarkLight1337
+Awaiting requested review from DarkLight1337
+ywang96
+Awaiting requested review from ywang96
+AndreasKaratzas
+Awaiting requested review from AndreasKaratzas
+WoosukKwon
+Awaiting requested review from WoosukKwon
+njhill
+Awaiting requested review from njhill
+yewentao256
+Awaiting requested review from yewentao256
+pavanimajety
+Awaiting requested review from pavanimajety
+zhuohan123
+Awaiting requested review from zhuohan123
+youkaichao
+Awaiting requested review from youkaichao
+alexm-redhat
+Awaiting requested review from alexm-redhat
+heheda12345
+Awaiting requested review from heheda12345
+zou3519
+Awaiting requested review from zou3519
+ProExpertProg
+Awaiting requested review from ProExpertProg
+BoyuanFeng
+Awaiting requested review from BoyuanFeng
+robertgshaw2-redhat
+Awaiting requested review from robertgshaw2-redhat
+ApostaC
+Awaiting requested review from ApostaC
+orozery
+Awaiting requested review from orozery
+mgoin
+Awaiting requested review from mgoin
+tlrmchlsmth
+Awaiting requested review from tlrmchlsmth
+zyongye
+Awaiting requested review from zyongye
+hmellor
+Awaiting requested review from hmellor
+Assignees
+No one assigned
+Labels
+deepseek
+Related to DeepSeek models
+dflash
+DSv4
+DSv4.1
+Related to DeepSeek-V4.1 models
+kv-cache-manager
+mrv2
+Model Runner V2 specific
+needs-rebase
+nvidia
+scheduler
+speculative-decoding
+torch.compile
+Projects
+NVIDIA
+Status: Done
++6 more
+Sprint - DFlash
+Status: Done
+torch.compile integration
+Status: Done
++6 more
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

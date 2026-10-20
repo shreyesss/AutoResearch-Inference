@@ -1,0 +1,130 @@
+Conversation
+CharlesXu-HQ
+commented
+Sep 25, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Summary
+add
+add_rmsnorm_forward_and_per_token_cast
+as a thin convenience API over the v2 unified norm path, using
+residual_out=residual
+for in-place residual writeback while leaving
+x
+unchanged
+extend CUDA per-token FP8 scaling from 32 to 32 or 128 channels; keep Ascend and Mega MoE scaling at 32 channels and reject whole-row scaling
+validate dense 2D CUDA inputs and overlapping
+x
+/
+residual
+/
+weight
+storage, with coverage for BF16/FP32, empty inputs, row-major scales, and packed TMA-aligned UE8M0 scales
+Testing
+pytest tests/quant/test_norm_forward.py -k 'group_128 or add_rmsnorm' -m 'not benchmark' -q
+(
+8 passed
+on an RTX 5090)
+pytest tests/quant/test_norm_forward.py -m 'not benchmark' -q
+(
+648 passed, 97 deselected
+)
+targeted group-128 per-token cast/cast-back regression nodes (
+4 passed
+)
+ruff check
+,
+ruff format --check
+,
+python -m py_compile
+, and
+git diff --check
+On this SM120 environment, the repository-wide run stops after five failures that reproduce unchanged on clean
+origin/main
+: four Engram dynamic shared-memory-limit cases and one MHC
+nvcc
+segmentation fault.
+Performance
+Measured on an otherwise idle RTX 5090 with BF16 tensors of shape
+(4001, 7168)
+, group size 128, and TMA-aligned rounded packed UE8M0 scaling factors. The GPU had no compute process before or after the run.
+Implementation
+Latency
+Effective bandwidth
+Add + RMSNorm + FP8 wrapper
+131.20 us
+1095.19 GB/s
+Direct unified norm alias path
+130.93 us
+-
+Unfused norm + per-token cast
+182.69 us
+-
+The wrapper adds effectively no overhead over the direct alias path and is about 1.39x faster than the unfused path for this case.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+support group-128 fused norm cast
+aa23b46
+CharlesXu-HQ
+force-pushed
+the
+feat/add-rmsnorm-fp8-cast
+branch
+    from
+eee853f
+to
+aa23b46
+Compare
+October 3, 2026 11:28
+CharlesXu-HQ
+changed the title
+Add Fused Add RMSNorm FP8 Quant Kernel
+Support Group-128 Fused Add RMSNorm FP8 Cast
+Oct 3, 2026
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

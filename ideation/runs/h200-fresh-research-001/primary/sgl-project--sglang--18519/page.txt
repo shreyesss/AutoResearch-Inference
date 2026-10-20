@@ -1,0 +1,139 @@
+[Bug]Cuda graph failure with DeepEP on Hopper
+#18519
+New issue
+Copy link
+New issue
+Copy link
+Closed
+Closed
+[Bug]Cuda graph failure with DeepEP on Hopper
+#18519
+Copy link
+Description
+hmthhh
+opened
+on Feb 10, 2026
+Issue body actions
+Checklist
+I searched related issues but found no solution.
+The bug persists in the latest version.
+Issues without environment info and a minimal reproducible demo are hard to resolve and may receive no feedback.
+If this is not a bug report but a general question, please start a discussion at
+https://github.com/sgl-project/sglang/discussions
+. Otherwise, it will be closed.
+Please use English. Otherwise, it will be closed.
+Describe the bug
+With container: lmsysorg/sglang:v0.5.8
+Running DeepEP with cuda graph enabled on Hopper, there is a assertion error:
+`Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/managers/scheduler.py", line 2937, in run_scheduler_process
+    scheduler = Scheduler(
+                ^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/managers/scheduler.py", line 346, in __init__
+    self.init_model_worker()
+  File "/sgl-workspace/sglang/python/sglang/srt/managers/scheduler.py", line 535, in init_model_worker
+    self.init_tp_model_worker()
+  File "/sgl-workspace/sglang/python/sglang/srt/managers/scheduler.py", line 497, in init_tp_model_worker
+    self.tp_worker = TpModelWorker(
+                     ^^^^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/managers/tp_worker.py", line 246, in __init__
+    self._init_model_runner()
+  File "/sgl-workspace/sglang/python/sglang/srt/managers/tp_worker.py", line 329, in _init_model_runner
+    self._model_runner = ModelRunner(
+                         ^^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/model_executor/model_runner.py", line 383, in __init__
+    self.initialize(min_per_gpu_memory)
+  File "/sgl-workspace/sglang/python/sglang/srt/model_executor/model_runner.py", line 575, in initialize
+    self.init_device_graphs()
+  File "/sgl-workspace/sglang/python/sglang/srt/model_executor/model_runner.py", line 2009, in init_device_graphs
+    self.graph_runner = graph_runners[self.device](self)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/model_executor/cuda_graph_runner.py", line 368, in __init__
+    raise Exception(
+Exception: Capture cuda graph failed: Failed: Assertion error /sgl-workspace/DeepEP/csrc/deep_ep.cpp:27 'num_nvl_bytes % NUM_BUFFER_ALIGNMENT_BYTES == 0 and (num_nvl_bytes <= std::numeric_limits<int>::max() or num_rdma_bytes == 0)'
+while running EpMoe with DeepEP. The error was hit at starting the server.
+Reproduction
+python -m sglang.launch_server \
+  --model-path /deepseek-ai/DeepSeek-V3-2 \
+  --tp 16 \
+  --dp 8 \
+  --enable-dp-attention \
+  --moe-a2a-backend deepep \
+  --dist-init-addr $HEADPODIP:6379 \
+  --nnodes 2 \
+  --node-rank 0 \
+  --trust-remote-code \
+  --port 8000 \
+  --host 0.0.0.0 \
+  --mem-fraction-static 0.7 \
+  --deepep-config '{"normal_dispatch": {"num_sms": 128},"normal_combine": {"num_sms": 128}}'
+Environment
+Container:
+lmsysorg/sglang:v0.5.8
+nvcc: Build cuda_12.9.r12.9/compiler.36037853_0
+Reactions are currently unavailable
+Activity
+hmthhh
+changed the title
+[-]
+[Bug]
+[/-]
+[+]
+[Bug]Cuda graph failure with DeepEP on Hopper
+[/+]
+on Feb 10, 2026
+Fridge003
+commented
+on
+Feb 10, 2026
+Fridge003
+on Feb 10, 2026
+Collaborator
+More actions
+Have you tried running with
+--tp 8 --ep 8 --dp 8 --enable-dp-attention
+hmthhh
+commented
+on
+Feb 11, 2026
+hmthhh
+on Feb 11, 2026
+Author
+More actions
+@Fridge003
+I tested with
+--tp 16 --ep 16 --dp 16 --enable-dp-attention
+(without --moe-a2a-backend deepep) on 2×H800 nodes and it runs successfully.
+👍
+React with 👍
+1
+Reacted by
+Baizhou Zhang
+Fridge003
+closed this
+as
+completed
+on Feb 11, 2026
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+No labels
+No labels
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

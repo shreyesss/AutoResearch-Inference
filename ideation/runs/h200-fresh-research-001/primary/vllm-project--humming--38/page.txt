@@ -1,0 +1,471 @@
+[Performance] MXFP4 x MXFP8 W4A8 with group-32 activation scales is slow on H100
+#38
+New issue
+Copy link
+New issue
+Copy link
+Closed as not planned
+Closed as not planned
+[Performance] MXFP4 x MXFP8 W4A8 with group-32 activation scales is slow on H100
+#38
+Copy link
+Description
+hit-zhengbao
+opened
+on Jul 13, 2026
+Issue body actions
+We are evaluating an MXFP4 x MXFP8 W4A8 GEMM on NVIDIA H100.
+The fused-E8M0 Humming kernel is numerically correct, but with group-32
+MXFP8 activation scales it is significantly slower than both:
+Humming's generic group-scale path
+A QDQ baseline that dequantizes both operands and then runs a BF16 GEMM
+We would like to ask whether group-32 MXFP8 input scaling is an intended
+performance target and whether there are plans to optimize this case on Hopper.
+Quantization format
+The operands use the following format:
+Activation payload: FP8 E4M3
+Activation scale: per-token, per-K-group power-of-two scale
+Activation group size: 32
+Weight payload: MXFP4 E2M1
+Weight scale: E8M0
+Weight group size: 32
+Output dtype: BF16
+This is an MXFP8-style activation representation: each 32-element K group
+contains an E4M3 payload and one power-of-two scale.
+Humming receives the decoded real FP32 activation scales through
+input_scale
+. The original activation scales are exactly representable
+as E8M0 powers of two.
+This differs from the DeepEP grouped-FP8 case added by
+#37
+:
+PR
+fix: support grouped FP8 MXFP4
+#37
+activation group size: 128
+This case activation group size: 32
+Both cases use MXFP4 weights with E8M0 group size 32
+Environment
+GPU: NVIDIA H100 80GB HBM3
+Humming commit tested:
+79c1cef
+/
+#35
+Output dtype: BF16
+Warmup: 20 iterations
+Measurement: 200 iterations
+Timing: CUDA events and CUDA Graph replay
+GEMM operation count:
+2 * M * N * K
+PR
+#37
+was merged after the tested commit. Based on its diff, it adds the
+group-128 integration and fixes non-fused scale tail decoding, but does
+not appear to change fused WGMMA accumulator scheduling or the H100
+heuristics. We can confirm the measurements on the latest main if needed.
+Humming configuration
+The fused kernel is configured approximately as follows:
+meta
+=
+HummingLayerMeta
+(
+shape_n
+=
+N
+,
+shape_k
+=
+K
+,
+a_dtype
+=
+dtypes
+.
+float8e4m3
+,
+b_dtype
+=
+dtypes
+.
+float4e2m1
+,
+c_dtype
+=
+dtypes
+.
+bfloat16
+,
+bs_dtype
+=
+dtypes
+.
+float8e8m0
+,
+input_scale_group_size
+=
+32
+,
+weight_scale_group_size
+=
+32
+,
+weight_scale_type
+=
+WeightScaleType
+.
+GROUP_TENSOR
+,
+use_fused_e8m0_scale
+=
+True
+,
+mma_type
+=
+"wgmma"
+,
+)
+The weight and E8M0 scale are prepared through the same fused preprocessing
+used by
+HummingLayerMethod.transform_humming_layer
+.
+The input scale passed to
+humming_gemm
+is FP32 with shape
+[M, K / 32]
+.
+Correctness
+The following implementations were compared against an FP32 reference:
+Fused-E8M0 Humming
+Generic Humming group-scale path
+QDQ followed by BF16 GEMM
+All tested correctness cases passed.
+QDQ baseline
+The QDQ latency includes activation dequantization, weight dequantization,
+and the BF16 GEMM. It is not a GEMM-only baseline.
+Equivalent pseudocode:
+a_scale_fp32
+=
+torch
+.
+exp2
+(
+a_scale_e8m0_u8
+.
+float
+()
+-
+127
+)
+w_scale_fp32
+=
+torch
+.
+exp2
+(
+w_scale_e8m0_u8
+.
+float
+()
+-
+127
+)
+a_dequant
+=
+(
+a_fp8
+.
+float
+()
+*
+a_scale_fp32
+.
+repeat_interleave
+(
+32
+,
+dim
+=
+1
+)
+).
+to
+(
+torch
+.
+bfloat16
+)
+w_dequant
+=
+(
+decode_mxfp4_e2m1
+(
+w_mxfp4_packed
+)
+*
+w_scale_fp32
+.
+repeat_interleave
+(
+32
+,
+dim
+=
+1
+)
+*
+global_scale
+).
+to
+(
+torch
+.
+bfloat16
+)
+output
+=
+torch
+.
+matmul
+(
+a_dequant
+,
+w_dequant
+.
+T
+)
+All operations shown above are inside the timed region.
+Performance results
+CUDA Graph replay results:
+Shape
+(M,N,K)
+QDQ core
+Generic Humming
+Fused-E8M0 Humming
+Fused vs generic
+Fused vs QDQ
+(512,3072,4096)
+0.299 ms
+0.048 ms
+0.637 ms
+13.3x slower
+2.1x slower
+(4096,3072,4096)
+0.580 ms
+0.965 ms
+4.969 ms
+5.1x slower
+8.6x slower
+(8192,3072,4096)
+0.893 ms
+1.911 ms
+9.681 ms
+5.1x slower
+10.8x slower
+(512,14336,4096)
+1.256 ms
+0.191 ms
+2.864 ms
+15.0x slower
+2.3x slower
+(4096,14336,4096)
+1.900 ms
+4.448 ms
+22.298 ms
+5.0x slower
+11.7x slower
+(4096,4096,7168)
+1.201 ms
+2.221 ms
+11.230 ms
+5.1x slower
+9.4x slower
+For large-M shapes, the fused kernel reaches only approximately
+20-22 effective TFLOPS.
+Suspected bottleneck
+Our current understanding is:
+For FP8,
+kPartMmaShapeK
+is 32.
+With
+input_scale_group_size=32
+, every WGMMA step reaches an activation
+scale boundary.
+scale_d
+is therefore false at every K=32 step.
+The current path performs
+wgmma_commit()
+followed by
+wgmma_wait<0>()
+, register fencing, and accumulator scaling for every
+K=32 group.
+The fused H100 heuristic selects a relatively large
+128x128x128
+base tile, which may increase the cost of processing the accumulator
+at each group boundary.
+With the group-128 input scales used by PR
+#37
+, four K=32 WGMMA operations
+can accumulate before applying the activation scale. The synchronization
+and accumulator-processing overhead can therefore be better amortized.
+This is only our interpretation of the current implementation; please
+correct us if we are missing another bottleneck.
+Comparison with an experimental Gluon implementation
+For reference, an experimental Gluon implementation reaches approximately
+580-665 effective TFLOPS for the same large-M shapes.
+That implementation performs one-time offline preprocessing of the static
+MXFP4 weight into a cached FP8 weight tensor and therefore consumes an
+additional
+N * K
+bytes of device memory. It is not a direct memory-footprint
+comparison with Humming's packed-MXFP4 kernel, but it suggests that the
+group-32 activation scaling itself does not necessarily prevent high
+throughput if preprocessing extra static weight storage is acceptable.
+We do not expect the packed-MXFP4 Humming kernel to match this result
+without considering that memory tradeoff.
+Questions
+Is MXFP8 activation group size 32 an intended performance target for
+Humming's fused-E8M0 W4A8 kernel?
+Is the current implementation primarily optimized for group-128 input
+scales such as the DeepEP format in PR
+fix: support grouped FP8 MXFP4
+#37
+?
+Are there plans to optimize the group-32 case on Hopper?
+Would you recommend a different block/warp shape or disabling stream-K
+for this workload?
+Could an accumulator ring, delayed retirement, or another scheduling
+strategy reduce the per-group
+wgmma_wait<0>
+overhead?
+Would it be useful for us to provide the complete benchmark script,
+Nsight Compute reports, or results from additional shapes?
+Thank you.
+Reactions are currently unavailable
+Activity
+jinzhen-lin
+commented
+on
+Jul 13, 2026
+jinzhen-lin
+on Jul 13, 2026
+Collaborator
+More actions
+Hi
+@hit-zhengbao
+, thank you for you interest.
+The performance issue you mentioned is most likely caused by register spilling, which is probably due to a problem in the configuration tuning algorithm. I will take another look when I have time, the expected performance should be able to reach several hundred TFLOPS.
+Humming's current support for FP8 on Hopper is still primarily focused on token‑wise FP8 input quantization now. This is because the combination of mixed‑precision quantization with group‑wise input quantization has a relatively low performance ceiling, it won't be much better than using BF16 activations.
+jinzhen-lin
+commented
+on
+Jul 13, 2026
+jinzhen-lin
+on Jul 13, 2026
+Collaborator
+More actions
+BTW, could you share the experimental Gluon implementation? Thank you!
+hit-zhengbao
+commented
+on
+Jul 13, 2026
+hit-zhengbao
+on Jul 13, 2026
+Author
+More actions
+@jinzhen-lin
+Hi，the attachment contains the source code.
+Core Kernels
+1. _gluon_w4a8_mxfp8_accs_kernel
+Processes one 32-element K group at a time:
+WGMMA(A_fp8, W_fp8) -> FP32 partial
+partial *= input_e8m0_scale
+master += partial
+This is the key to preserving numerical accuracy: the activation scale is applied to the FP32 partial accumulator, avoiding an additional rounding step from dequantizing and casting the activation back to FP8.
+2. _gluon_w4a8_mxfp8_accs_batched_kernel
+Loads multiple 32-element K groups in each TMA stage, typically using LOAD_K=128 or LOAD_K=256. This reduces TMA transactions, barrier overhead, and main-loop scheduling costs. It is the default high-performance path for large M.
+3. _gluon_w4a8_mxfp8_splitk_kernel
+Used for small M. It increases parallelism by distributing the K dimension across multiple CTAs. Each CTA accumulates into an FP32 temporary output using atomic additions, after which the result is converted to the requested output dtype.
+4. _gluon_w4a8_mxfp8_prmt_kernel
+A fallback path used when the WPREQ exactness guard fails. It uses prmt.b32 to fuse the decoding of packed MXFP4 weights with their weight scales into FP8 values. This path requires an offline T2 weight repacking step.
+5. _gluon_w4a8_mxfp8_kernel
+The most general but slower fallback path. It explicitly performs MXFP4 decoding, E8M0 scale application, and FP8 conversion inside the main loop.
+gluon_mxfp4_mxfp8.py
+gluon_mxfp4_mxfp8_configs.json
+bench_gluon_mxfp4_mxfp8.py
+❤️
+React with ❤️
+1
+Reacted by
+Pranshu Bahadur
+jinzhen-lin
+commented
+on
+Jul 13, 2026
+jinzhen-lin
+on Jul 13, 2026
+Collaborator
+More actions
+Thank you. I manually performed some temporary local tuning and achieved only 500+ TFLOPs, which is lower than gluon. This is mainly because Humming's current implementation is not friendly to groupwise input scaling; a major optimization would require reimplementing a separate WGMMA path.
+Additionally, I noticed a few issues with your code:
+For the kernels under small batch sizes, you dequantize the input, multiply by the scale, and then quantize back to FP8. This is likely to cause serious precision problems, especially when the actual FP16 input values are very small (e.g., on the order of 0.001).
+For the benchmarking script, you use CUDA Graphs. This may inflate the performance numbers for small batch sizes because the L2 cache is not flushed. I suggest using DeepGEMM's testing script instead.
+https://github.com/deepseek-ai/DeepGEMM/blob/1f6f3f378920ccb5cc036ef43eb3f5972e921713/deep_gemm/testing/bench.py#L79-L146
+👍
+React with 👍
+1
+Reacted by
+hit-zhengbao
+🚀
+React with 🚀
+1
+Reacted by
+Pranshu Bahadur
+Leoyzen
+commented
+on
+Sep 20, 2026
+Leoyzen
+on Sep 20, 2026
+More actions
+One cross-check from production serving on H200, same numeric recipe as this issue (MXFP4 e2m1/ue8m0-g32 weights × fp8 activations, DeepSeek-V4.1-Flash, TP4/EP4):
+An A/B between humming's indexed MXFP4A8 and FlashInfer's CUTLASS sm90 MXFP4A8 (flashinfer #3738 via sglang #34967) came out at parity end-to-end, ~2137 vs ~2142 tok/s output median on identical protocol — details in
+sgl-project/sglang#40417
+.
+Given the assessment above that a real fix needs a dedicated WGMMA path, the notable part is that an independent CUTLASS implementation lands in exactly the same place. That's consistent with groupwise-scale handling being a structural cost on Hopper across implementations, rather than something tuning on humming's side can recover. We also measured ~65% of peak memory bandwidth at decode-typical M for these shapes (analysis in 40417), which bounds what config-level work can gain.
+jinzhen-lin
+commented
+on
+Oct 14, 2026
+jinzhen-lin
+on Oct 14, 2026
+Collaborator
+More actions
+Humming has already achieved over 500 TFLOPS for MXFP4 × MXFP8. Given the limited use cases for this configuration, there are no plans for further dedicated optimizations. Therefore, we are closing this issue for now.
+jinzhen-lin
+closed this
+as
+not planned
+on Oct 14, 2026
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+No labels
+No labels
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

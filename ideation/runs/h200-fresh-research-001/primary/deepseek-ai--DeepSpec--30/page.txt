@@ -1,0 +1,340 @@
+Conversation
+morluto
+commented
+Jun 30, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Summary
+File
+Bug
+Fix
+Impact
+deepspec/utils/sampling.py
+Draft samples were drawn from native-dtype probabilities while rejection used float32 probabilities
+Cast logits to float32 before temperature scaling and softmax in
+sample_tokens
+Removes a speculative-decoding distribution mismatch
+deepspec/utils/optim.py
+Warmup wrapper delegated to
+CosineAnnealingLR.get_lr()
+in a bad handoff state
+Return the configured peak/base LRs directly at the handoff
+Prevents LR overshoot above the configured peak
+deepspec/modeling/eagle3/common.py
+Eagle3 fallback 4D mask used a key dimension shorter than
+kv_len
+once cache was present
+Extend the 2D keep-mask to
+kv_len
+before building the additive mask
+Fixes the non-flex cached attention path and preserves padded cache columns
+deepspec/modeling/dspark/loss.py
+Distributed
+train/loss
+metric was rank-weighted instead of token/objective-weighted
+Log the globally scaled
+backward_loss
+with
+dp_mean
+Makes logged DSpark loss match the global training objective
+Suggested review order: sampling, scheduler, Eagle3 mask, then DSpark metric logging. Each change is isolated in its own commit.
+1. Draft sampling dtype mismatch
+logits_to_probs
+computes the draft distribution as:
+p
+=
+softmax
+(
+logits
+.
+float
+()
+/
+T
+)
+and uses that float32
+p
+in the speculative acceptance ratio
+min(1, q / p)
+and correction distribution. Before this PR,
+sample_tokens
+sampled through the native-dtype path instead, so bfloat16 logits produced a bfloat16 probability tensor passed to
+torch.multinomial
+. In effect, the draft token was drawn from a represented distribution
+r
+, but acceptance and correction were computed as if it came from
+p
+.
+For a one-token speculative step, with sample distribution
+r
+but acceptance math using
+p
+:
+a_y = min(1, q_y / p_y)
+c_y = (q_y - p_y)_+ / sum_z (q_z - p_z)_+
+Pr[out = y] = r_y a_y + (sum_x r_x (1 - a_x)) c_y
+When
+r = p
+, this collapses to the target distribution
+q
+. When
+r != p
+, it generally does not.
+A minimal non-degenerate example demonstrates the final marginal bias:
+p = [0.3, 0.7]
+r = [0.30078125, 0.69921875]
+q = [0.4, 0.6]
+
+a = [1, 0.6 / 0.7]
+c = [1, 0]
+
+Pr[out = 0] = 0.30078125 + 0.69921875 * (1 - 0.6 / 0.7)
+            = 0.40066964
+q[0]        = 0.40000000
+The exact bf16 error bound is not the important part of the fix, but the scale is enough to matter: bf16 has 7 explicit mantissa bits, spacing near 1 of
+2^-7 ~= 0.78%
+, and round-to-nearest error on the order of
+2^-8 ~= 0.39%
+for normal-range values.
+This PR changes
+sample_tokens
+to cast before temperature scaling and softmax:
+flat_logits
+=
+logits
+.
+reshape
+(
+-
+1
+,
+vocab_size
+).
+float
+()
+/
+temperature
+That makes the sampled draft distribution match the
+p
+used by rejection sampling.
+2. Warmup to cosine LR overshoot
+This is a wrapper state-transition bug, not ordinary
+CosineAnnealingLR
+behavior.
+At the warmup/cosine handoff, the old wrapper delegated to the cosine scheduler's chainable
+get_lr()
+path with:
+cosine.last_epoch == 0
+cosine._is_initial == False
+optimizer.lr == warmup_peak
+That is not the ordinary closed-form epoch-0 cosine value. The recursive update applies:
+LR = eta_min + 2 / (1 + cos(pi / T_max)) * (LR_current - eta_min)
+With
+eta_min = 0
+and
+LR_current = peak_lr
+, the transition becomes:
+LR_transition = 2 / (1 + cos(pi / T_max)) * peak_lr
+Since
+cos(pi / T_max) < 1
+for
+T_max > 1
+, this is above the configured peak. Examples:
+T_max
+factor
+overshoot
+5
+1.10557
++10.56%
+10
+1.02509
++2.51%
+50
+1.00099
++0.0988%
+100
+1.00025
++0.0247%
+This PR special-cases the handoff to return the configured peak/base LRs directly instead of calling the recursive
+get_lr()
+branch at
+last_epoch == 0
+. The following scheduler step then advances cosine normally from epoch 0 to epoch 1.
+3. Eagle3 fallback mask crash
+prepare_4d_causal_attention_mask
+needs the additive padding-mask key dimension to equal
+kv_len
+.
+At TTT step
+k >= 1
+:
+q_len = seq_len
+past_seen_tokens = k * seq_len
+kv_len = past_seen_tokens + seq_len = (k + 1) * seq_len
+The causal mask has shape
+[1, 1, q_len, kv_len]
+, but the incoming 2D
+attention_mask
+covers one fixed-size chunk, so it has shape
+[B, seq_len]
+. Expanding or slicing it cannot create cached-key columns:
+causal:        [1, 1, seq_len, (k + 1) * seq_len]
+expanded_mask: [B, 1, 1, seq_len]
+Adding those tensors fails on dim 3 for every cached step where
+kv_len != seq_len
+. For
+seq_len = 4, k = 1
+, this is
+[1,1,4,8] + [B,1,1,4]
+.
+The initial fix padded the missing columns as valid, but that was too broad: if earlier cached chunks include padded positions, it would incorrectly make those cached padding slots attendable. This PR now extends the keep-mask by repeating the fixed chunk mask pattern until it reaches
+kv_len
+, then slices to
+kv_len
+. That fixes the shape invariant while preserving padded columns in cached chunks. For example,
+[1, 1, 0, 0]
+at
+kv_len = 12
+becomes
+[1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0]
+before conversion to the additive 4D mask.
+4. DSpark distributed loss metric
+The DSpark backward loss already uses global denominators so gradients are weighted by the global objective. The logged
+train/loss
+metric did not: it averaged each rank's locally normalized loss, which gives every rank equal weight even when ranks have different supervised-token counts.
+Example: one rank has 1 supervised token at loss 10, another has 100 supervised tokens at loss 0. The rank average logs 5, but the global objective is
+10 / 101
+.
+This PR logs
+backward_loss.detach()
+with
+dp_mean
+. Because
+backward_loss
+is scaled as
+world_size * local_objective_contribution
+, averaging it across ranks recovers the global objective contribution:
+dp_mean(world_size * local_num / global_den) = sum_r local_num_r / global_den
+The component metrics such as
+ce_loss
+,
+l1_loss
+, and confidence metrics already use numerator/denominator logging and remain unchanged.
+Verification
+python3 -m compileall deepspec/utils/sampling.py deepspec/utils/optim.py deepspec/modeling/eagle3/common.py deepspec/modeling/dspark/loss.py
+Additional local check:
+prepare_4d_causal_attention_mask(attention_mask=[[1,1,0,0]], q_len=4, kv_len=12, past_seen_tokens=8)
+returns shape
+[1,1,4,12]
+and keeps cached positions 6 and 7 masked.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+morluto
+added
+2
+commits
+June 30, 2026 20:46
+Use float32 softmax for draft sampling
+379f222
+Start cosine schedule from warmup peak
+f828b04
+morluto
+changed the title
+Fix speculative sampling precision and scheduler transition
+Fix draft sampling dtype mismatch, cosine LR overshoot, and Eagle3 mask crash
+Jun 30, 2026
+morluto
+marked this pull request as ready for review
+June 30, 2026 21:01
+morluto
+added
+2
+commits
+June 30, 2026 21:16
+Pad Eagle3 fallback masks to cached length
+bcd5d41
+Log DSpark loss with global weighting
+67d7bdd
+morluto
+force-pushed
+the
+fix-runtime-numerical-correctness
+branch
+    from
+7dba906
+to
+67d7bdd
+Compare
+June 30, 2026 21:17
+morluto
+changed the title
+Fix draft sampling dtype mismatch, cosine LR overshoot, and Eagle3 mask crash
+Fix speculative sampling, scheduler, mask, and loss metric correctness
+Jun 30, 2026
+This was referenced
+Jun 30, 2026
+Draft sampling uses a different distribution than speculative rejection
+#31
+Open
+Warmup to cosine scheduler handoff can overshoot peak LR
+#32
+Open
+Eagle3 fallback attention mask crashes with KV cache
+#33
+Open
+DSpark train/loss metric is rank-weighted instead of globally weighted
+#34
+Open
+whycoming
+mentioned this pull request
+Jul 2, 2026
+Add distribution-exactness tests for speculative rejection sampling
+#48
+Open
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

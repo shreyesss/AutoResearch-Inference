@@ -1,0 +1,263 @@
+[Bug][Humming] MXFP4 weight + block-FP8 activation is listed as supported on Hopper, but humming-kernels 0.1.16 rejects it
+#60600
+New issue
+Copy link
+New issue
+Copy link
+Closed
+Closed
+[Bug][Humming] MXFP4 weight + block-FP8 activation is listed as supported on Hopper, but humming-kernels 0.1.16 rejects it
+#60600
+Copy link
+Labels
+quantization
+Description
+simon-veitner-redhat
+opened
+on Oct 8, 2026
+Issue body actions
+Your current environment
+vLLM main at
+d5ee309
+humming-kernels 0.1.16 (the pin in
+requirements/cuda.txt
+)
+8x H200 (SM90), CUDA 13.0
+🐛 Describe the bug
+HummingExpertsBase._supports_quant_scheme()
+lists MXFP4 weights with block-FP8 activations (group 128, float32 scales) as a supported MoE pair. The comment says it works on Hopper (
+fused_humming_moe.py#L325-L328
+):
+# MXFP4 weight (group-32 e8m0) with block-FP8 activation
+# (group-128 float32). Runs via WGMMA software dequant, so it
+# works on Hopper (SM90/H200) as well as Blackwell.
+(
+kMxfp4Static
+,
+kFp8Dynamic128Sym
+),
+tests/quantization/test_humming_mxfp4_block_fp8.py
+(from
+#51332
+) asserts that this pair is allowed.
+humming-kernels 0.1.16 refuses the pair.
+is_humming_schema_compatible()
+in
+humming/schema/humming.py
+(lines 499 and 501) requires group-wise input scales to be e8m0 or e4m3 when the weights are FP4 with group scales:
+if
+input_group_size
+>
+0
+and
+as_dtype
+not
+in
+[
+dtypes
+.
+float8e8m0
+,
+dtypes
+.
+float8e4m3
+]:
+return
+False
+if
+input_group_size
+>
+0
+and
+weight_group_size
+>
+0
+and
+as_dtype
+!=
+bs_dtype
+:
+return
+False
+The rule does not depend on the GPU. So vLLM's backend selection accepts
+kFp8Dynamic128Sym
+with MXFP4 weights, and the run then fails at weight load in
+check_and_fallback_input_schema()
+. With
+allow_fallback=True
+the input silently becomes per-token FP8 instead.
+Minimal check on an H200:
+from
+vllm
+.
+model_executor
+.
+layers
+.
+quantization
+.
+utils
+.
+humming
+import
+(
+check_and_fallback_input_schema
+,
+quant_key_to_input_schema
+,
+)
+from
+vllm
+.
+model_executor
+.
+layers
+.
+quantization
+.
+utils
+.
+quant_utils
+import
+kFp8Dynamic128Sym
+from
+vllm
+.
+utils
+.
+humming
+import
+BaseWeightSchema
+import
+torch
+check_and_fallback_input_schema
+(
+BaseWeightSchema
+.
+from_config
+({
+"quant_method"
+:
+"mxfp4"
+}),
+quant_key_to_input_schema
+(
+kFp8Dynamic128Sym
+),
+param_dtype
+=
+torch
+.
+bfloat16
+,
+allow_fallback
+=
+False
+,
+)
+# ValueError: No compatible Humming input schema for HummingInputSchema(...,
+#   input_scale_group_size=128, input_scale_dtype=float32, ...) with weight schema
+#   HummingWeightSchema(b_dtype=float4e2m1, bs_dtype=float8e8m0, weight_scale_group_size=32, ...)
+#   on SM90 (allow_fallback=False)
+The kernel itself can run this layout. When the compatibility check is bypassed, a dense MXFP4 GEMM with group-128 float32 input scales runs on H200 and its output matches the reference (kernel error 0.0017-0.0032, the same level as per-token FP8). So the mismatch is between vLLM's supported-pairs table and humming's schema rule, not a missing kernel.
+A related limit on SM90: MXFP8 inputs (group 32, e8m0 scales) pass
+is_humming_schema_compatible()
+but have no SM90 kernel.
+humming/tune/candidate.py:287
+rejects every WGMMA candidate with "WGMMA input scales must use float32 storage, got float8e8m0", and
+humming/tune/sm90_policies.py:256
+then raises "no legal grouped-scale SM90 schedule".
+For context, the dense-GEMM probe on H200 (N=2048, K=4096, MXFP4 weights) also showed that group-wise input scales are much slower than per-token on WGMMA at M=4096: 535.7 us for group 128 and 1720 us for group 32 (fp32 scales), against 72.2 us for per-token FP8 and 110.9 us for BF16.
+Questions
+Should humming accept float32 group scales with MXFP4 weights on SM90 (the kernel runs), or should vLLM drop
+(kMxfp4Static, kFp8Dynamic128Sym)
+on SM90 and fix the comment and the test?
+Is e8m0 input-scale support on WGMMA planned? Without it, MXFP8 activations cannot run on Hopper.
+PR
+#59488
+makes
+--quantization-config.moe.activation
+select the Humming MoE activation format for MXFP4 checkpoints. Until this is settled, it refuses
+fp8_per_block_dynamic
+and
+mxfp8
+on SM90 Humming at startup.
+Before submitting a new issue...
+Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the
+documentation page
+, which can answer lots of frequently asked questions.
+AI assistance: Claude Code (Anthropic) was used to run the probes and draft this issue. The submitter reviewed it.
+Reactions are currently unavailable
+Activity
+github-actions
+added
+quantization
+on Oct 8, 2026
+michaelmanly
+commented
+on
+Oct 8, 2026
+michaelmanly
+on Oct 8, 2026
+More actions
+@simon-veitner-redhat
+I also ran the compatibility check from this report through Badgr as a bounded preflight.
+You can run the same probe with:
+badgr run --image vllm/vllm-openai:nightly --gpu RTX_4090 --max-cost 0.5 --max-runtime 10 --cmd 'python3 - <<'"'"'PY'"'"'
+from vllm.model_executor.layers.quantization.utils.humming import (
+check_and_fallback_input_schema,
+quant_key_to_input_schema,
+)
+from vllm.model_executor.layers.quantization.utils.quant_utils import kFp8Dynamic128Sym
+from vllm.utils.humming import BaseWeightSchema
+import torch
+check_and_fallback_input_schema(
+BaseWeightSchema.from_config({"quant_method": "mxfp4"}),
+quant_key_to_input_schema(kFp8Dynamic128Sym),
+param_dtype=torch.bfloat16,
+allow_fallback=False,
+)
+PY'
+This reproduces the Humming schema compatibility rejection.
+I haven't done the full H200 kernel execution proof, so this is a preflight reproduction rather than a full serving result.
+mgoin
+commented
+on
+Oct 8, 2026
+mgoin
+on Oct 8, 2026
+Member
+More actions
+This is resolved on humming main, so 0.1.17 will fix this
+👍
+React with 👍
+1
+Reacted by
+simon-veitner-redhat
+simon-veitner-redhat
+closed this
+as
+completed
+on Oct 8, 2026
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Metadata
+Metadata
+Assignees
+No one assigned
+Labels
+quantization
+Type
+No type
+Projects
+No projects
+Milestone
+No milestone
+Relationships
+None yet
+Development
+No branches or pull requests
+Issue actions
+Open in GitHub Copilot app

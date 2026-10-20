@@ -1,0 +1,76 @@
+From 7b270b53112c6ac8efa527da3ba2e3ca6a0e5ef6 Mon Sep 17 00:00:00 2001
+From: Jeremy Schoemaker <jeremy@shoemoney.com>
+Date: Mon, 24 Aug 2026 02:42:26 -0500
+Subject: [PATCH] Reject SM90 k-grouped multicast configs whose per-group grid
+ is not divisible by the cluster size
+
+For GemmType::KGroupedContiguous the device scheduler lays the groups'
+block grids back-to-back, while SM90 TMA multicast clusters are formed
+from consecutive block indices. If the heuristic picks a multicast
+config whose per-group block grid count is odd, every cluster inside
+the later groups is parity-shifted and one cluster straddles a group
+boundary: the two CTAs disagree on is_tma_multicast_valid(), only
+cluster rank 0 issues SM90_TMA_LOAD_MULTICAST_2D, and the peer's full
+barrier never receives its transaction bytes. Depending on the ks this
+either hangs the kernel or silently consumes the wrong B tile and
+produces incorrect output.
+
+Example on 132 SMs: num_groups=2, m=192, n=3072, ks=[128, 256] selects
+BLOCK_M=64, BLOCK_N=72, cluster size 2, giving a per-group grid of
+3 * 43 = 129 blocks, so group 1 starts on an odd global block index.
+Porting the exact SM90 candidate enumeration and cost model to a
+script reproduces 269 such (groups<=4, m, n) combos in a small scan;
+with this filter each falls back to a legal even-grid or cluster-1
+config (for the example shape, BLOCK_M=64, BLOCK_N=152, cluster 1).
+
+The SM100 heuristic already enforces this cluster-divisibility
+invariant (csrc/jit_kernels/heuristics/sm100.hpp:103 rejects
+ceil_div(m, block_m) % cluster_m != 0 and :115 does the same for N);
+this applies the equivalent rule to the SM90 enumerator, which also
+serves the SM90 BF16 k-grouped path. PR #238 (issue #237) fixed the
+previous group-boundary hazard in this same SM90 k-grouped kernel, and
+PR #343 fixed the in-place tensormap update race there.
+
+Also adds a k-grouped test shape (2 groups, m=192, n=3072) whose
+per-group grid is odd under the old selection, mirroring the existing
+stress shape for the SM90 in-place tensor map update.
+---
+ csrc/jit_kernels/heuristics/sm90.hpp | 8 ++++++++
+ tests/generators.py                  | 4 +++-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/csrc/jit_kernels/heuristics/sm90.hpp b/csrc/jit_kernels/heuristics/sm90.hpp
+index 144bfd19e..dc0071575 100644
+--- a/csrc/jit_kernels/heuristics/sm90.hpp
++++ b/csrc/jit_kernels/heuristics/sm90.hpp
+@@ -90,6 +90,14 @@ struct SM90ArchSpec {
+                             ceil_div(desc.n, block_n) % (cluster_m * cluster_n) != 0)
+                             continue;
+ 
++                        // Multicast legality for k-grouped layout: the scheduler lays the groups'
++                        // block grids back-to-back, while SM90 clusters are consecutive block pairs,
++                        // so the per-group grid must be divisible by the cluster size or a cluster
++                        // may straddle a group boundary (hanging or corrupting the multicast)
++                        if (desc.gemm_type == GemmType::KGroupedContiguous and
++                            (ceil_div(desc.m, block_m) * ceil_div(desc.n, block_n)) % (cluster_m * cluster_n) != 0)
++                            continue;
++
+                         // The block sizes cannot be too large (for enough registers), so at least one dim less than 128
+                         if (block_m > 128 and block_n > 128)
+                             continue;
+diff --git a/tests/generators.py b/tests/generators.py
+index 7b336e1c9..87a520b36 100644
+--- a/tests/generators.py
++++ b/tests/generators.py
+@@ -247,8 +247,10 @@ def enumerate_k_grouped_contiguous(dtype: torch.dtype):
+     else:
+         cd_options = [(True, torch.float), (False, torch.float), (False, torch.bfloat16)]
+ 
+-    # NOTES: the first shape has many small groups, for stressing the SM90 in-place tensor map update
++    # NOTES: the first shape has many small groups, for stressing the SM90 in-place tensor map update;
++    #        the second shape has an odd per-group block grid, for stressing SM90 TMA multicast legality
+     for num_groups, m, n, expected_k_per_group in (( 8,  768, 2048,  128),
++                                                   ( 2,  192, 3072,  128),
+                                                    ( 4, 4096, 7168, 8192), ( 4, 7168, 2048, 8192),   # EP64
+                                                    ( 8, 4096, 7168, 4096), ( 8, 7168, 2048, 4096),   # EP32
+                                                    (16, 4096, 7168, 2048), (16, 7168, 2048, 2048)):  # EP16

@@ -1,0 +1,248 @@
+{
+  "claims": [
+    {
+      "source_id": "runtime:h200:runtime-inventory",
+      "quote": "--no-swa-bounded-replay",
+      "claim": "Observed configuration establishes two H200 replicas, each TP1/DP4/EP4, with max_num_seqs=64, MBT=16384, API2, prefix caching, host-offloaded Engram with embedding_across_dp, and DSpark K=5 with adaptive verification disabled.",
+      "relation": "context",
+      "conditions": "DeepSeek-V4.1-Flash; chunked prefill; FP8 KV; block size 64; maximum CUDA graph capture size 512. The current AG/RS backend being distinct from DeepEP is a user-supplied premise, not established by these arguments.",
+      "reported_result": "The inventory records two running, healthy containers. It supplies configuration and source hashes, not serving performance. No new GPU experiment exists.",
+      "transfer_inference": "Evaluate each replica as a DP4 group, not as one DP8 group. Sequence capacity 64 does not imply 64 active requests or 64 execution rows. Decoder replay belongs in a separate quality evaluation lane.",
+      "limitations": "Actual workload, queue distribution, graph selections, collective timings, effective Engram allocation, and achieved throughput are unknown."
+    },
+    {
+      "source_id": "code:h200-excerpts:systems",
+      "quote": "dist.all_reduce(tensor, group=group)",
+      "claim": "Observed installed code has a CPU DP-metadata all-reduce and a DPSyncState request count that may represent graph-padded capacity. The supplied definition has no separate unpadded request-count field.",
+      "relation": "supports",
+      "conditions": "The metadata tensor is 6×DP int32, or 96 bytes at DP4. Coordination can be bypassed by should_skip_dp_coordination(). DSpark inherits DFlash machinery and selects K or K+1 query rows according to checkpoint layout.",
+      "reported_result": "These are observations from supplied source excerpts. They establish code structure, not execution frequency or time spent.",
+      "transfer_inference": "Logical-versus-padded dispatch and CPU metadata transport are concrete investigation targets. Preserve identical DP-wide synchronization decisions while separating scheduled requests from graph capacity.",
+      "limitations": "The installed uniform-batch helper and complete runtime branches are not supplied. Actual padded-drafter inflation, coordination frequency, and the checkpoint's effective anchor setting remain unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:58984:patch",
+      "quote": "max_num_reqs=dp_sync_state.num_reqs_unpadded,",
+      "claim": "Observed patch code adds a DP-wide real request maximum and passes it explicitly to DFlash uniform dispatch. This addresses multiplying target graph capacity by drafter query width.",
+      "relation": "supports",
+      "conditions": "Relevant when the target graph pads requests beyond the largest real DP batch and the drafter can select a smaller execution graph. DSpark applicability follows its supplied DFlash inheritance.",
+      "reported_result": "The patch adds num_reqs_unpadded, adjusts online dummy input preparation, and includes a subsequent correction whose stated purpose is preserving autoregressive drafter capacity.",
+      "transfer_inference": "This is an execution-shape optimization, distinct from scheduler draft-slot reservation. A valid adaptation must preserve startup capture capacity and align dummy inputs, metadata, dispatch, and collective shapes.",
+      "limitations": "The four-commit patch excerpt is incomplete. Final autoregressive, dummy-rank, and graph-capture behavior cannot be fully verified from the supplied hunks. H200 graph-boundary crossings and savings are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:58984:live-page",
+      "quote": "Acceptance varies between the two arms",
+      "claim": "Author-reported benchmarks support possible end-to-end benefit from smaller drafter batches, but challenge treating the gain as independent of acceptance or workload.",
+      "relation": "supports",
+      "conditions": "Separate H20 nodes, eight GPUs per arm, DP8, DeepSeek-V4.1-Flash, seq96, MBT2048, K=5, adaptive verification enabled; random 3500-token inputs and 1500-token outputs.",
+      "reported_result": "Reported output-throughput improvements range from 1.06% to 14.31%. At concurrency 64, throughput rises 1.06%, mean TPOT falls 1.47%, TTFT rises 2.84%, and acceptance falls 4.97 percentage points. GSM8K changes from 1270/1319 to 1264/1319; reported McNemar p=0.26318.",
+      "transfer_inference": "The mechanism is relevant to DP4, but the live adaptiveOFF configuration and graph occupancy require separate accounting. Concurrency 64 in this benchmark is not equivalent to max_num_seqs=64 per live rank.",
+      "limitations": "Acceptance shifts complicate causal attribution. Nonsignificant GSM8K differences do not prove equivalence or sampler correctness. Benchmark coverage of the final patch revision and H200 effect size are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61767:patch",
+      "quote": "block_size = world_size & -world_size",
+      "claim": "Observed implementation replaces CPU metadata SUM reductions with recursive doubling inside power-of-two blocks and a concurrent exchange between blocks.",
+      "relation": "supports",
+      "conditions": "Contiguous CPU tensors over the intended Gloo process group; group-local send/recv ranks support stateless groups. DP4 takes two recursive-doubling rounds without an inter-block exchange.",
+      "reported_result": "The supplied diff changes both worker padding synchronization and the engine-core state synchronization caller. It includes scratch allocation, explicit waits, reserved message tags, and a fallback for non-CPU or noncontiguous tensors.",
+      "transfer_inference": "This targets the installed CPU synchronization mechanism without changing the GPU AG/RS backend. It is a relatively direct implementation candidate if these calls contribute materially to iteration latency.",
+      "limitations": "The function is not shown installed locally. Concurrent-call ordering, reserved-tag compatibility, CPU contention across replicas, and local end-to-end benefit are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61767:live-page",
+      "quote": "ray backend not tested",
+      "claim": "Author-reported microbenchmarks support lower small-tensor CPU collective latency; they do not establish a serving speedup.",
+      "relation": "supports",
+      "conditions": "GB200 nodes, Gloo over Ethernet, one process per rank, 6×N int32 tensors, 5000 calls per method in randomized interleaving; metric is median across ranks of per-rank p50.",
+      "reported_result": "At four ranks on one node, reported p50 falls from 780 to 224 microseconds. The author reports exact-match tests across several group sizes, stateless-group coverage, and a passing DP4 multiprocessing integration test.",
+      "transfer_inference": "DP4 is directly represented in the benchmark shapes. The live benefit depends on exposed synchronization time and call frequency, rather than the largest reported multi-node speedup.",
+      "limitations": "H200 host CPUs, transport, scheduling interference, p99 latency, and serving impact are unknown. The engine-core two-int reduction and proposed delayer six-int reduction differ from the benchmark tensor shape."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59468:live-page",
+      "quote": "but neither drafts in the target batch.",
+      "claim": "The author identifies unnecessary target-budget charges for separately executed DFlash/DSpark draft passes and proposes a request cap that preserves drafter buffer bounds.",
+      "relation": "supports",
+      "conditions": "Reported experiment: one GB300 node, TP4, DeepSeek-V4.1-Flash, DSpark K=5, seq64, MBT512, prefix caching disabled; random 256-token inputs and 1536-token outputs with length variation.",
+      "reported_result": "The author reports maximum running requests increasing from 52 to 64 and output throughput from 1373 to 3390 tokens/s. The stated amplification mechanism is avoiding tiny prefill chunks that repeatedly prevent FULL decode graph execution.",
+      "transfer_inference": "The fix can remove accounting waste while retaining a cap based on actual draft query width. Scheduler and graph-mode interactions explain why admission gains need not scale linearly with request count.",
+      "limitations": "Current-revision serving results use one run per side. DFlash end-to-end validation was not run. Installed scheduler accounting is not supplied, and the small-MBT bottleneck differs sharply from the live configuration."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59468:live-page",
+      "quote": "K − 1 for DSpark",
+      "claim": "The live K=5, adaptiveOFF, seq64, MBT16384 configuration limits removal of DSpark draft reservations to at most 256 scheduler tokens per rank per step.",
+      "relation": "challenges",
+      "conditions": "Conditional on the live scheduler still charging K−1 slots per admitted request. The bound assumes all 64 request slots are occupied.",
+      "reported_result": "Arithmetic inference, not a measurement: (5−1)×64=256 tokens, or 1.5625% of MBT16384. For anchor layout, the proposed drafter cap is floor(16384/5)=3276, well above seq64; a K+1 layout cap is also nonbinding.",
+      "transfer_inference": "The saving may provide limited additional prefill headroom. It does not establish more admitted decode requests or any throughput improvement at the live settings.",
+      "limitations": "Actual reservation usage, mixed-prefill behavior, and token-budget saturation are unknown. The GB300 MBT512 speedup cannot be transferred to MBT16384."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:51199:live-page",
+      "quote": "This adds multiple extra tuning knobs and additional complexity to the scheduler.",
+      "claim": "The author proposes coordinating large prefills across DP ranks to reduce decode stalls; reviewer feedback explicitly challenges added policy complexity without comparison against the existing static interval.",
+      "relation": "challenges",
+      "conditions": "Described setup uses DeepSeek-V4, TP1/DP8/EP, MBT2048, and an asynchronous coordinator protocol with acknowledgments, release lead, and bounded fail-open behavior. GPU hardware is unknown.",
+      "reported_result": "Ten unit tests reportedly pass. Later numbers compare vLLM static intervals and SGLang delayer settings at concurrency 256 with 8K/1K inputs/outputs; they do not establish an end-to-end result for this vLLM implementation.",
+      "transfer_inference": "Use the existing scheduler, MBT choices, and static prefill interval as the comparator before adopting coordinated release policy. Selection depends on exposed cross-rank prefill skew and acceptable queueing delay.",
+      "limitations": "The PR's isolated serving gain is unknown. The reported comparisons span frameworks, and correctness of bounded progress does not establish latency or throughput value on live DP4."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61834:live-page",
+      "quote": "No GPU runs on this branch yet.",
+      "claim": "The author proposes synchronous prefill alignment plus protected decode steps, with earlier-branch evidence of improved interactivity and substantial TTFT tradeoffs.",
+      "relation": "supports",
+      "conditions": "Earlier development branch: DeepSeek-V4-Pro, eight MI355X GPUs, DP8/EP8, AgentX traffic, 1200-second runs. Comparator uses prefill-schedule-interval=32.",
+      "reported_result": "At concurrency 64, reported P90 interactivity rises from 16.65 to 45.54 tokens/s/user, while TTFT p50 rises from 3.76 to 8.63 seconds and total throughput changes only from 22.0K to 22.2K tokens/s/GPU. Upstream validation is CPU-only.",
+      "transfer_inference": "Aligning prefills may help when mixed steps dominate decode latency, but selection must evaluate queueing and TTFT jointly with interactivity against the existing static policy.",
+      "limitations": "Earlier implementation, different hardware and DP size, mostly single runs, and node differences at concurrency 128 limit transfer. There is no GPU result for the supplied upstream branch or live H200 deployment."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61834:live-page",
+      "quote": "On: one 6-int CPU all-reduce per step.",
+      "claim": "The proposed delayer adds synchronization and holds new and in-progress prefills; its policy can exchange lower decode interference for longer admission and completion delays.",
+      "relation": "challenges",
+      "conditions": "Per-step FIRE/HOLD decisions, protected decode steps, token-fill targets, high-KV release, and held-step bounds. It replaces the static interval and excludes elastic EP and custom schedulers.",
+      "reported_result": "Author-reported CPU simulation of eight ranks gives 2–4× fewer mixed steps and roughly half the mean decode latency versus #51199, while #51199 gives about three times lower TTFT. These are simulation results.",
+      "transfer_inference": "A cheaper CPU collective could reduce policy overhead, but it does not validate the policy. Four ranks, different arrival correlations, and MBT16384 can change alignment opportunities and waiting behavior.",
+      "limitations": "Step-based bounds do not provide a fixed wall-clock queueing guarantee. Live collective cost, fairness, chunk-delay tails, and incremental benefit over scheduler/MBT/static-interval tuning are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:52464:live-page",
+      "quote": "only when scores tie",
+      "claim": "The author attributes prefix misses to rotating tied requests across DP ranks and proposes a bounded prefix-affinity map that preserves lower-load routing decisions.",
+      "relation": "supports",
+      "conditions": "Key comprises cache_salt, LoRA identity, and first-block token IDs. Hardware evidence uses eight H100 GPUs, DP4+EP, API4, and a trace designed for 81.7% prefix reuse.",
+      "reported_result": "Eight CPU tests reportedly pass. At concurrency 1, cache hit rate increases from 37.6% to 61.5% and per-user output throughput from 69.5 to 73.6 tokens/s.",
+      "transfer_inference": "With live API2 and two replicas, useful locality must reach the final replica-and-DP-rank destination holding reusable KV. Replica affinity alone cannot ensure rank locality.",
+      "limitations": "This remembers prior assignment rather than proving cache residency. Benefit requires tied decisions, recoverable exact prefixes, and retained KV. Live tie frequency and reusable prefix work are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:52464:live-page",
+      "quote": "each frontend process has its own client and affinity map",
+      "claim": "Process-local affinity and inconsistent throughput results challenge treating the tie-break patch as a complete final-rank locality solution.",
+      "relation": "challenges",
+      "conditions": "Multiple API workers can receive successive connections from one session. The source tests API4; the live deployment uses API2 per replica.",
+      "reported_result": "Reported per-user throughput falls 23% at concurrency 16 and 5% at concurrency 64 despite small cache-hit increases. The author attributes the larger movement to variance, but supplies no confirming rerun. Low-load cache recovery remains below the older version-level baseline.",
+      "transfer_inference": "API2 retains the map-fragmentation mechanism. Shared affinity state or coordination at final dispatch is a design candidate only if recovered prefill work outweighs queue imbalance and coordination cost.",
+      "limitations": "The negative throughput measurements are stronger contrary evidence than the author's unverified variance explanation. External replica routing, actual worker/session distribution, eviction, and shared-map implementation cost are unknown."
+    },
+    {
+      "source_id": "fulltext:2608.19677",
+      "quote": "affinity can reduce capacity when the recoverable prefix work is small.",
+      "claim": "CacheRoute provides mechanism context for balancing prefix residency against load concentration, and explicitly reports workloads where affinity hurts capacity.",
+      "relation": "context",
+      "conditions": "Reported main setting is Llama-3.3-70B FP8 across 60 H100 GPUs with semi-synthetic traffic and a 3.5-second p99 SLO. Routing uses aggregate business-key rates and periodic placement.",
+      "reported_result": "The supplied conclusion reports 93.2% served KV hit rate and 2.3× capacity versus the strongest baseline. The appendix distinguishes roughly 90% preceding-turn tokens from only about 180 stable business-context tokens; 67% of pairs break exact prefixes at RAG.",
+      "transfer_inference": "Measure recoverable exact-prefix compute at the final live rank, rather than assuming multi-turn traffic implies reusable work. Placement must account for queue load as well as affinity.",
+      "limitations": "The supplied excerpt omits most algorithm and evaluation details. Negative-workload effect sizes are unknown. Abstract and conclusion claims do not establish a drop-in routing implementation for two DP4 replicas."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59849:live-page",
+      "quote": "Exact size gives the memory saving; the registered memory type gives the speed.",
+      "claim": "The author separates host-memory waste from lookup performance: exact allocation removes pinned-allocation rounding, while a different registration path accounts for the measured kernel speed.",
+      "relation": "supports",
+      "conditions": "CPU-offloaded Engram, CUDA, GB10 microbenchmarks, TP2/TP4 table shapes, 4 KiB pages. Registration failure falls back to pin_memory=True.",
+      "reported_result": "At TP4 and 32K tokens, reported host memory falls from 33.1 to 24.3 GiB; unsorted lookup falls from 41.4 to 22.7 ms. Exact cudaHostAlloc reduces memory but leaves lookup at 41.4 ms. The author reports 116 passing tests.",
+      "transfer_inference": "Consider exact sizing as a host-memory optimization if the live allocation actually incurs rounding. Do not describe it as GPU KV capacity savings or infer lookup speed from byte savings.",
+      "limitations": "GB200 and end-to-end cpu_offload validation were still outstanding. Live TP1/DP4 allocation ownership, rounding, registration type, host pressure, and H200 lookup effect are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59923:live-page",
+      "quote": "This PR keeps rows packed from the host table to",
+      "claim": "The author identifies redundant BF16 expansion, row all-gathers, and requantization, proposing packed FP8-plus-scale rows and one batched all-to-all exchange.",
+      "relation": "supports",
+      "conditions": "DP-sharded tables without DP-shared memory; TP1; head_dim divisible by 128; no LoRA; compatible F8_128x4 MXFP8 wkv kernel. Each packed head row carries 264 bytes instead of 512 BF16 bytes.",
+      "reported_result": "On four GB300 GPUs, Engram-only measurements show roughly twofold gains against THP plus all-gather at several shapes. The author reports 202 passing tests on four GB200 GPUs and bitwise-identical staged values and wkv outputs in specified cases.",
+      "transfer_inference": "Live TP1/DP4 matches part of the eligibility conditions, but embedding_across_dp does not establish that tables are privately sharded. Allocation mode and installed wkv support decide whether the optimization applies.",
+      "limitations": "Implementation code is not supplied beyond the PR description. Tests and exactness claims are author-reported. H200-compatible kernel selection, live row counts, and critical-path exposure are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59923:live-page",
+      "quote": "within noise end to end.",
+      "claim": "Small serving gains and hardware-specific peer exchange challenge transferring the packed Engram microbenchmark speedup to live decoding.",
+      "relation": "challenges",
+      "conditions": "Peer exchange requires SM100, CPU offload, and 2/4/8 fully connected GPUs, and serves fewer than 128 tokens per rank. Otherwise eligible configurations use all-to-all. Shared tables remain on the existing BF16 path.",
+      "reported_result": "GB300 DEP4 prefill results at MBT16384 and seq64 improve about 0–2% versus THP plus all-gather, described as roughly 1 ms per step within noise. Shared tables can already be slightly faster at small decode shapes. The supplied excerpt cuts off before decode results.",
+      "transfer_inference": "The SM100 peer results do not establish an H200 execution path; assess the all-to-all fallback conditionally. Seq64 is not a lookup-row count: K=5 verification can involve up to 384 target token rows before padding.",
+      "limitations": "H200 fallback effect size and end-to-end decode benefit are unknown. Allocation changes, packing, and exchange alternatives must be compared without adding their isolated gains together."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62359:live-page",
+      "quote": "Decode lookups already overlap on the side stream.",
+      "claim": "For shared Engram tables, the author proposes changing host backing to reduce GPU TLB misses, rather than exchanging privately owned shards.",
+      "relation": "supports",
+      "conditions": "GB200 DEP4 with NUMA binding. Shared registered /dev/shm tables use reported 64K GPU mappings; host-NUMA cuMem uses reported 2M mappings and FABRIC-handle import, with /dev/shm fallback.",
+      "reported_result": "Author-reported forward prefill reductions range from 3.7% to 10.3% on random tokens and dummy weights. Decode at 64 or 128 requests with 16K context shows 0% change. Tests report 27 passes and no mismatches in specified stress runs.",
+      "transfer_inference": "This establishes a distinct shared-allocation alternative to packed sharded exchange. The live cpu_offload plus embedding_across_dp arguments alone cannot resolve which allocation exists; effective defaults or backing evidence are missing.",
+      "limitations": "H200 host-NUMA/FABRIC eligibility, actual backing, NUMA placement, and sharing across the two replicas are unknown. Real-text gains may be smaller, and overlap can eliminate decode benefit despite faster lookups."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepEP:693:live-page",
+      "quote": "The non-NVLink path remains single-buffered.",
+      "claim": "The author proposes triple-buffered prefetch to overlap token preparation with remote stores in DeepEP direct-NVLink dispatch.",
+      "relation": "context",
+      "conditions": "Eight H100 GPUs; direct NVLink; GIN disabled; hybrid mode disabled; local traffic ignored. The change increases shared-memory staging and caps dispatch warps at 14.",
+      "reported_result": "Reported dispatch bandwidth rises from 250 to 280 GB/s, and from 203 to 220 GB/s with imbalance ratio 1.5. Combine bandwidth is unchanged.",
+      "transfer_inference": "This is evidence for a communication mechanism inside an alternative backend. Since the live backend is AG/RS rather than DeepEP, adopting it requires backend integration before this optimization can matter.",
+      "limitations": "Token counts, hidden dimensions, expert distribution, repetitions, and serving effect are unknown. Eight-GPU bandwidth results do not establish performance for EP4 or the live interconnect."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepEP:693:live-page",
+      "quote": "the count must exceed the number of distinct store groups",
+      "claim": "Review feedback identifies a buffer-lifetime invariant that can compromise correctness if host/device buffer counts or wait depth diverge.",
+      "relation": "challenges",
+      "conditions": "Triple-buffer reuse depends on outstanding remote-store groups and tma_store_wait<1>(); host shared-memory sizing and device buffering must agree.",
+      "reported_result": "Visible review comments request a shared source of truth or assertions for the invariant. Several comments are marked outdated; the supplied excerpt does not establish the final resolution.",
+      "transfer_inference": "Selection of DeepEP requires validating dispatch/combine integration, lifetime safety, shared-memory occupancy, and target token shapes against the current AG/RS implementation.",
+      "limitations": "This is review concern, not a reported corruption incident. Final patch safety, H200 EP4 occupancy effects, backend compatibility, and end-to-end advantage are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:56752:live-page",
+      "quote": "It is a deliberate approximation, not an equivalent reduction of work",
+      "claim": "Decoder SWA replay intentionally changes computation by restricting later-layer prefill to trailing-window rows; it is not a correctness-preserving activation.",
+      "relation": "challenges",
+      "conditions": "DeepSeek-V4.1-Flash layers 21–39 use the trailing 128 tokens while earlier layers process all tokens. DP support currently requires TP1 and additional compatibility gates. The live configuration explicitly disables bounded replay.",
+      "reported_result": "The author reports GB200 GSM8K results near baseline across TP4 and DP4/TP1/EP4 cold and prefix-hit passes. Acceptance length 3.28 versus 3.29 comes from an earlier revision. No speed measurement is supplied here.",
+      "transfer_inference": "Keep this in a separate quality lane with explicit acceptance criteria for approximation. Matching the live topology does not justify enabling it as a free systems optimization.",
+      "limitations": "The last hidden state is explicitly nonidentical. Evaluations combine encoder and decoder replay, use limited tasks, and do not establish long-context equivalence, sampler exactness, or H200 performance."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepSpec:48:live-page",
+      "quote": "Exactness is the core claim of speculative decoding",
+      "claim": "The author supplies evidence that sampler correctness requires agreement between actual proposals and declared draft probabilities; acceptance diagnostics cannot establish that agreement.",
+      "relation": "challenges",
+      "conditions": "DeepSpec CPU tests, torch 2.9.1, Python 3.10/3.12; statistical committed-token tests, independent numerical references, negative controls, and deterministic regressions.",
+      "reported_result": "The author reports seven passes and one expected failure for a proposal-distribution mismatch, approximately 10^-3 mismatches over 100K draws. Applying the referenced fix makes the regression pass.",
+      "transfer_inference": "For live DSpark probabilistic drafting and block rejection, per-position acceptance and accepted length are performance diagnostics. Correctness evidence must address the actual proposal distribution, conditional sampling, rejection/residual behavior, and committed-token distribution.",
+      "limitations": "This is a different repository and does not demonstrate a bug in installed vLLM. Source tests are not supplied as code. Exactness of the live sampler remains unknown from these sources."
+    },
+    {
+      "source_id": "fulltext:2404.15778",
+      "quote": "best achievable utilization during the incremental decoding phase is 15.8%",
+      "claim": "BASS provides context that batched speculation must improve execution efficiency as well as acceptance, while substantial incremental-decoding inefficiency can remain.",
+      "relation": "context",
+      "conditions": "The supplied abstract describes a 7.8B model, one A100, and batch size 8. Detailed attention algorithms, workload construction, and implementation are absent from the supplied excerpt.",
+      "reported_result": "The abstract claims 5.8 ms per token per sequence and 2.15× speedup over optimized regular decoding. The limitations section reports incremental-decoding utilization of 15.8%, versus context-encoding utilization above 70%.",
+      "transfer_inference": "Use BASS to motivate examining batched execution and attention costs alongside acceptance. It does not establish that its algorithm transfers to DSpark, DP4/EP4, or the installed attention backend.",
+      "limitations": "Despite the fulltext metadata label, the supplied content omits the mechanism sections. Abstract claims are not implementation evidence. Applicability and effect size on live H200 are unknown."
+    }
+  ],
+  "unanswered": [
+    "Does live drafter execution actually reuse padded target capacity, and how often would the real DP-wide request maximum select a smaller graph? Final patch coverage of idle ranks, capture, autoregressive callers, and metadata alignment is incomplete.",
+    "What fraction of iteration latency is exposed CPU metadata synchronization, including p99 and contention between replicas? The local transport, coordination frequency, and benefit of replacing each caller are unknown.",
+    "Does the installed scheduler still reserve K−1 DSpark slots? At MBT16384, is the at-most-256-token saving ever consequential for prefill fragmentation or graph selection?",
+    "How much decode delay comes from per-rank queue and prefill skew after comparing the existing scheduler, MBT settings, and static prefill interval? Which TTFT and interactivity limits determine whether deliberate waiting is acceptable?",
+    "Across external replica selection, API2 workers, and final DP rank, where is prefix locality lost? Tie frequency, exact reusable token counts, KV residency, eviction, and load concentration could reverse routing selection.",
+    "Are live Engram tables private DP shards or a node-shared allocation? Effective dp_shared_memory/use_thp defaults, allocation sizes, registration type, startup backing evidence, NUMA placement, and duplicate storage across replicas are absent.",
+    "Does the installed H200 wkv support the packed F8_128x4 path, and what are actual Engram row counts during speculative decode? The SM100 peer-path results cannot establish H200 fallback performance.",
+    "Would host-NUMA cuMem allocation and FABRIC sharing work on the live host, or fall back? Are host lookups exposed on the critical path, given the reported zero decode benefit when already overlapped?",
+    "What integration and performance costs would replacing current AG/RS with DeepEP introduce at EP4? Physical connectivity, dispatch shapes, combine costs, buffer lifetime, and final resolution of the reviewed safety invariant are unknown.",
+    "What evidence validates the installed DSpark proposal and rejection distributions? No supplied acceptance metric, GSM8K score, or nearby sampler test establishes live distributional correctness.",
+    "What separate quality criteria would permit approximate decoder replay, especially for long-context and agentic workloads? Its live speed, isolated quality effect, and acceptable degradation remain unknown.",
+    "No new GPU experiment supports any live speedup. Most PR descriptions and patches are partial snapshots; merge status, final revision validation, and omitted implementation details must remain unknown."
+  ]
+}

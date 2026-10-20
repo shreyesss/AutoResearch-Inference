@@ -1,0 +1,1403 @@
+Conversation
+StudyingShao
+commented
+Jun 26, 2026
+•
+edited by coderabbitai
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+📌 Description
+This PR updates the Hopper CUTLASS grouped MoE backend for mixed low-precision
+inputs. It improves the existing Hopper W4 grouped GEMM paths and adds a new
+MXFP4 weight + FP8 activation path:
+MXFP4xBF16: optimize the existing MXFP4 weight + BF16 activation path.
+INT4xFP8: optimize the existing INT4 weight + FP8 activation path.
+MXFP4xFP8: add MXFP4 weight + FP8 activation with pre-MMA E8M0 scale fusion and runtime
+per-token FP8 activation quantization.
+The MXFP4xFP8 path follows the high-level weight preprocessing and
+dequantization idea used by
+Humming
+:
+the MXFP4 weight scale is transformed into a bounded E8M0 exponent offset and
+folded into the FP8 operand before MMA. FlashInfer keeps this flow integrated
+with its fused MoE runtime, autotune, and CUTLASS extension backend.
+The implementation keeps the changes inside FlashInfer's CUTLASS extension
+layer rather than modifying vendored CUTLASS. The main changes are:
+Enable Hopper FP4 kernels without requiring CUDA native FP4 headers on SM90
+by using CUTLASS subbyte FP4 types.
+Add optimized mixed-input mainloops for post-MMA scaling and pre-MMA E8M0
+scale fusion.
+Precompute grouped GEMM work scheduling and TMA descriptor state before the
+main GEMM kernel.
+Use folded weight-scale storage so the weight-scale layout is independent of
+the profiled
+TileK
+.
+Add precomputed scheduler kernels for ping-pong and cooperative grouped GEMM
+schedulers.
+Add runtime activation expansion and per-token FP8 quantization support for
+the pre-MMA E8M0 scale-fusion path.
+Add per-token scale epilogue callbacks for the FP8 activation + MXFP4 weight
+path.
+Extend autotune and tactic validation so Hopper mixed-input tactics are
+checked for correctness before being selected.
+Add and update tests for Hopper MXFP4xBF16, INT4xFP8, and MXFP4xFP8 pre-MMA scale
+paths.
+🔍 Related Issues
+N/A
+Performance
+Benchmarks were run on NVIDIA H20 and H200 GPUs using MoE workload configurations matching DeepSeek-V3 (256 experts, top-8, hidden size 7168, intermediate size 2048) and DeepSeek-V4-Pro (384 experts, top-6, hidden size 7168, intermediate size 3072).
+https://huggingface.co/deepseek-ai/DeepSeek-V3
+https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
+The plots below summarize the PR performance results. Raw benchmark tables are intentionally not embedded in this PR text.
+INT4xFP8 and MXFP4xBF16 vs Same-Path Baseline
+The existing INT4xFP8 and MXFP4xBF16 paths generally improve over the same-path
+baseline after the Hopper mixed-input backend changes.
+|
+Current fused MoE speedup vs same-path baseline
+Current Paths vs Current FP8 Per-Tensor Baseline
+This compares the current fused MoE mixed-input paths against the current FP8
+per-tensor path.
+|
+Current fused MoE path speedup vs current FP8 per-tensor
+MXFP4xFP8 Pre-MMA Scale Path vs Upstream Humming (2026/06/23 commit f6241bb)
+The pre-MMA E8M0 scale-fusion path is compared against upstream Humming GEMM
+timings. Positive values mean FlashInfer is faster.
+|
+DS4 FlashInfer Humming GEMM speedup vs upstream Humming
+Implementation Notes
+The Hopper FP4 compatibility path uses CUTLASS FP4 storage on SM90 and keeps
+CUDA native FP4 as a toolkit-dependent feature instead of a Hopper
+requirement.
+The mixed-input grouped GEMM scheduler now supports a precomputed work map.
+This avoids doing grouped tile lookup and descriptor updates in the main GEMM
+hot path.
+The folded weight-scale layout decouples model preprocessing from the
+selected
+TileK
+, which lets autotune choose among multiple
+TileK
+values
+without requiring multiple prepacked weight-scale layouts.
+The pre-MMA E8M0 scale path fuses the weight scale into FP8 operands before
+WGMMA and applies the activation token scale in the epilogue.
+The MXFP4xFP8 pre-MMA scale path is inspired by Humming's weight
+preprocessing/dequantization flow:
+https://github.com/inclusionAI/humming
+The runtime FP8 activation quantization path computes per-token activation
+scales while expanding routed MoE rows.
+The autotune validation path now rejects tactics that fail correctness before
+timing and selection.
+🚀 Pull Request Checklist
+Thank you for contributing to FlashInfer! Before we review your pull request,
+please make sure the following items are complete.
+✅ Pre-commit Checks
+I have installed
+pre-commit
+by running
+pip install pre-commit
+(or used
+your preferred method).
+I have installed the hooks with
+pre-commit install
+.
+I have run the hooks manually with
+pre-commit run --all-files
+and fixed
+any reported issues.
+If you are unsure about how to set up
+pre-commit
+, see
+the pre-commit documentation
+.
+🧪 Tests
+Tests have been added or updated as needed.
+Hopper MXFP4xBF16 correctness and coverage tests were added/updated.
+Hopper INT4xFP8 correctness and autotune tests were added/updated.
+Hopper MXFP4xFP8 pre-MMA E8M0 scale-fusion correctness and autotune tests
+were added.
+All selectable Hopper mixed-input tactics are validated for correctness
+during autotune.
+Local validation focused on Hopper mixed-input MoE paths:
+pytest -q tests/moe/test_trtllm_cutlass_fused_moe.py::test_moe_bf16_mxfp4_hopper_correctness
+pytest -q tests/moe/test_trtllm_cutlass_fused_moe.py::test_moe_bf16_mxfp4_hopper_coverage
+pytest -q tests/moe/test_trtllm_cutlass_fused_moe.py::test_moe_w4a8_hopper_correctness
+pytest -q tests/moe/test_trtllm_cutlass_fused_moe.py::test_moe_w4a8_hopper_autotune
+pytest -q tests/moe/test_trtllm_cutlass_fused_moe.py::test_moe_fp8_mxfp4_humming_prescale_hopper_correctness
+Reviewer Notes
+The CUTLASS changes are intentionally placed under
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/
+; this PR does not modify
+vendored CUTLASS under
+3rdparty/
+.
+The pre-MMA E8M0 scale-fusion path has a distinct runtime path from the
+standard post-MMA scale paths because it changes where MXFP4 weight scaling is
+applied.
+The MXFP4xFP8 weight preprocessing and dequantization strategy is based on
+the Humming approach for fusing E8M0 scale offsets into the FP8 MMA operand:
+https://github.com/inclusionAI/humming
+Autotune now validates candidate Hopper mixed-input tactics against reference
+output before using their timing result for tactic selection.
+The benchmark figures above compare fused MoE or GEMM timing scopes as noted
+in each plot title.
+Summary by CodeRabbit
+Release Notes
+New Features
+Added SM90 “Humming” MXFP4→FP8 fused MoE with per-token FP8 quantization scaling.
+Extended the fused MoE API with
+use_wfp4afp8_humming
+and optional
+profile_ids
+to steer tactic selection.
+Added Humming-focused weight preprocessing/ interleaving utilities and exposed
+preprocess_moe_weights_for_sm90_mixed_gemm_humming
+.
+Bug Fixes
+Improved FP4 compatibility by using the project’s FP4-compatible type handling.
+Tests
+Added Hopper correctness tests for the SM90 Humming prescale and end-to-end path.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+4
+yuan-luo, huangzhilin-hzl, YconquestY, and MARD1NO reacted with thumbs up emoji
+👀
+1
+gemini-code-assist[bot] reacted with eyes emoji
+All reactions
+👍
+4 reactions
+👀
+1 reaction
+StudyingShao
+requested review from
+IwakuraRein
+,
+aleozlx
+,
+bkryu
+,
+cyx-6
+,
+dhiraj113
+,
+jiahanc
+,
+jimmyzho
+,
+kahyunnam
+,
+nv-yunzheq
+,
+qsang-nv
+,
+saltyminty
+,
+samuellees
+,
+sricketts
+,
+yongwww
+,
+yyihuang
+and
+yzh119
+as
+code owners
+June 26, 2026 12:05
+flashinfer-bot
+added
+op: gemm
+op: moe
+labels
+Jun 26, 2026
+coderabbitai
+Bot
+commented
+Jun 26, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Note
+Reviews paused
+It looks like this branch is under active development. To avoid overwhelming you with review comments due to an influx of new commits, CodeRabbit has automatically paused this review. You can configure this behavior by changing the
+reviews.auto_review.auto_pause_after_reviewed_commits
+setting.
+Use the following commands to manage reviews:
+@coderabbitai resume
+to resume automatic reviews.
+@coderabbitai review
+to trigger a single review.
+Use the checkboxes below for quick actions:
+▶️
+Resume reviews
+🔍 Trigger review
+📝 Walkthrough
+Walkthrough
+Adds Humming-style MXFP4×FP8 mixed-input support across CUTLASS and FlashInfer, including FP4 compatibility aliases, mixed-input scale-mode routing, precomputed scheduler/workspace plumbing, per-token FP8 scaling, preprocessing APIs, JIT generation, and correctness tests.
+Changes
+Humming mixed-input MoE path
+Layer / File(s)
+Summary
+FP4 compatibility and conversion contracts
+csrc/nv_internal/.../fp4_compat.h
+,
+csrc/nv_internal/.../mixed_input_utils.hpp
+,
+csrc/moe_utils_binding.cu
+,
+csrc/nv_internal/.../moeUtils.cu
+,
+csrc/nv_internal/.../moe_tma_warp_specialized_traits.h
+FP4 handling uses
+Fp4Type
+, while mixed-input conversion utilities add BF16/FP8 and preprocessed-sign conversion paths.
+SM90 mixed-input collectives and scheduling
+csrc/nv_internal/.../cutlass_extensions/...
+,
+csrc/nv_internal/.../*precomputed*.hpp
+,
+csrc/nv_internal/.../moe_gemm_tma_ws_mixed_input_*.h
+,
+csrc/nv_internal/.../gemm_configs.h
+Folded weight scales, pre-MMA E8M0 conversion, prebuilt TMA descriptors, work-tile maps, and precomputed schedulers are added for SM90 grouped GEMM.
+Runner and per-token FP8 execution
+csrc/fused_moe/cutlass_backend/cutlass_fused_moe_kernels.cuh
+,
+csrc/nv_internal/.../moe_kernels.h
+,
+csrc/nv_internal/.../moe_gemm/*
+Per-token FP8 scales are computed and threaded through expansion, activation, GEMM1, workspace setup, profiling, and runner dispatch.
+FlashInfer API and kernel generation
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+,
+flashinfer/fused_moe/core.py
+,
+flashinfer/fused_moe/prepare.py
+,
+flashinfer/jit/*
+,
+flashinfer/trace/templates/moe.py
+Humming mode, profile-id overrides, tactic filtering, weight preprocessing, interleaving, and mixed-input kernel generation are exposed.
+Validation and documentation
+tests/moe/test_trtllm_cutlass_fused_moe.py
+,
+docs/api/fused_moe.rst
+Humming preprocessing, payload rewriting, interleaving, routed-token scaling, and end-to-end correctness are tested and documented.
+Estimated code review effort:
+5 (Critical) | ~120 minutes
+Possibly related PRs
+flashinfer-ai/flashinfer#2020
+: Also updates explicit CUTLASS MoE runner instantiations and FP4/FP8 routing.
+flashinfer-ai/flashinfer#3014
+: Also changes
+expandInputRowsKernel
+and
+doActivationKernel
+.
+flashinfer-ai/flashinfer#3614
+: Also updates
+GemmProfilerBackend
+FP8 scaling and workspace handling.
+Suggested reviewers:
+aleozlx
+,
+djmmoss
+,
+yzh119
+,
+wenscarl
+,
+jiahanc
+🚥 Pre-merge checks | ✅ 4 | ❌ 1
+❌ Failed checks (1 warning)
+Check name
+Status
+Explanation
+Resolution
+Docstring Coverage
+⚠️
+Warning
+Docstring coverage is 11.15% which is insufficient. The required threshold is 80.00%.
+Write docstrings for the functions missing them to satisfy the coverage threshold.
+✅ Passed checks (4 passed)
+Check name
+Status
+Explanation
+Title check
+✅ Passed
+The title clearly summarizes the main SM90 mixed-input MoE optimizations and new MXFP4xFP8 CUTLASS support.
+Description check
+✅ Passed
+The description matches the template closely, covering description, issues, checklist, tests, performance, and reviewer notes.
+Linked Issues check
+✅ Passed
+Check skipped because no linked issues were found for this pull request.
+Out of Scope Changes check
+✅ Passed
+Check skipped because no linked issues were found for this pull request.
+✨ Finishing Touches
+🧪 Generate unit tests (beta)
+Create PR with unit tests
+Thanks for using
+CodeRabbit
+! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+❤️ Share
+X
+Mastodon
+Reddit
+LinkedIn
+Comment
+@coderabbitai help
+to get the list of available commands.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+gemini-code-assist
+Bot
+reviewed
+Jun 26, 2026
+View reviewed changes
+ghost
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Code Review
+This pull request adds support for a Humming-style MXFP4-weight x FP8-activation Hopper path with pre-MMA E8M0 scale fusion, introducing a precomputed tile scheduler, weight scale folding, and per-token FP8 quantization. The review feedback highlights several important issues: a critical bug in
+cutlass_fused_moe_kernels.cuh
+where pointer arithmetic for subbyte weight types lacks proper bit-width scaling, leading to out-of-bounds memory access; a performance bottleneck in the activation kernel due to redundant calls to
+compute_activation
+; and multiple compilation errors in
+flashinfer_cutlass_fused_moe_binding.cu
+where the
+Fp4Type
+alias is not fully qualified.
+Important
+The
+consumer version of Gemini Code Assist on GitHub
+is being sunset. Starting
+June 18, 2026
+, new organization installations will be blocked, and all code review activity will officially cease on
+July 17, 2026
+.
+For more details on the timeline and next steps, please review the
+Help Documentation
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/fused_moe/cutlass_backend/cutlass_fused_moe_kernels.cuh
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/fused_moe/cutlass_backend/cutlass_fused_moe_kernels.cuh
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+coderabbitai
+Bot
+reviewed
+Jun 26, 2026
+View reviewed changes
+ghost
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Actionable comments posted: 17
+Caution
+Some comments are outside the diff and can’t be posted inline due to platform limitations.
+⚠️
+Outside diff range comments (1)
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu (1)
+1518-1523
+:
+🩺 Stability & Availability
+|
+🟠 Major
+|
+⚡ Quick win
+Validate the interleave kernel shape preconditions before launch.
+All three interleave kernels process rows in 16-row groups and K in 64-element groups. Without
+n % 16 == 0
+and
+k % 64 == 0
+checks, small/misaligned inputs can silently skip tails or read past row bounds.
+Proposed fix
+int64_t const num_experts = weight.size(0);
+   int64_t const n = weight.size(1);
+   int64_t const k = weight.size(2) * 2;
++
+TVM_FFI_ICHECK_EQ(n % 16, 0)
++
+<< "weight n dimension must be divisible by 16 for SM90 mixed-gemm interleave";
++
+TVM_FFI_ICHECK_EQ(k % 64, 0)
++
+<< "logical K dimension must be divisible by 64 for SM90 mixed-gemm interleave";
+int64_t const per_expert_bytes = n * (k / 2);
+Also applies to: 1535-1537
+🤖 Prompt for AI Agents
+Verify each finding against current code. Fix only still-valid issues, skip the
+rest with a brief reason, keep changes minimal, and validate.
+
+In `@csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu`
+around lines 1518 - 1523, In the interleave kernel launch path, add explicit
+shape precondition validation before invoking the kernels: `weight.size(1)` must
+be divisible by 16 and `weight.size(2) * 2` must be divisible by 64. Update the
+checks near the existing `quant_type` validation in the fused MoE binding so
+`num_experts`, `n`, and `k` are only used after confirming these alignment
+requirements, and apply the same guard to the other interleave launch sites
+referenced by this block.
+🤖 Prompt for all review comments with AI agents
+Verify each finding against current code. Fix only still-valid issues, skip the
+rest with a brief reason, keep changes minimal, and validate.
+
+Inline comments:
+In `@csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu`:
+- Around line 914-922: Keep GEMM2 tactic IDs unambiguous:
+getValidTacticsForShape currently returns absolute GEMM2 IDs, but
+setRunnerProfiles still interprets any id2 less than mGemm2TacticCount as
+relative and applies an extra offset. Update the selection/normalization logic
+in setRunnerProfiles (and, if needed, the helper around getValidTacticsForShape)
+so GEMM2 IDs are consistently treated as either absolute or relative everywhere,
+preventing double-offsetting and incorrect profile selection.
+
+In
+`@csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm_configs.h`:
+- Line 120: The mixed-dtype MoE dispatch switch is missing a case for
+CutlassTileConfigSM90::CtaShape64x256x128B, so the SM90 heuristic can select a
+tile that falls through to the invalid-config default. Update
+moe_gemm_template_dispatch_tma_ws_mixed_dtype.h in the
+DISPATCH_MIXED_DTYPE_MOE_TILE switch to add the missing CtaShape64x256x128B
+branch alongside the other CtaShape64x... entries, matching the existing
+dispatch pattern used for the other tile shapes.
+
+In
+`@csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/sm90_mma_array_tma_gmma_rs_warpspecialized_mixed_input_prescale.hpp`:
+- Around line 365-368: The `UseInt4ToFP8LookupTable` constexpr check uses an
+invalid 4-bit type name, so update the `cute::is_same_v` comparison in this GEMM
+collective to use `cutlass::int4b_t` instead of `cutlass::int4_t`. Keep the rest
+of the condition unchanged so the lookup-table path still only applies for
+`ConversionMode::ConvertAndScale` with `ElementA` as the 4-bit integer type and
+`ElementB` as `cutlass::float_e4m3_t`.
+
+In
+`@csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_tile_scheduler_group_precomputed.hpp`:
+- Around line 97-100: The scheduler’s linear work index is being truncated
+because `WorkLinearIdx` is defined as `uint32_t`, while the precomputed map uses
+`uint64_t`; update `sm90_tile_scheduler_group_precomputed` so
+`current_work_linear_idx_` and `total_grid_size_` use a 64-bit type and keep all
+related arithmetic/indexing in `WorkLinearIdx` consistent. Review the affected
+logic in `sm90_tile_scheduler_group_precomputed` where the linear index is
+advanced and compared, and make sure any helpers or calculations that feed the
+map lookup also use the wider type so large routed-token/expert cases cannot
+wrap.
+- Around line 166-175: The SharedStorage::pipeline accessor is returning
+PipelineStorage by value, which can cause callers to work on a copy instead of
+the shared-memory synchronization state. Update the pipeline() method in
+SharedStorage to return the stored pipeline_ by reference so the scheduler built
+from it uses the actual shared storage; keep the existing throttle_pipeline()
+and data() accessors unchanged.
+
+In
+`@csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_launcher.inl`:
+- Around line 244-246: The precomputed scheduler check in
+moe_gemm_tma_ws_mixed_input_launcher rejects empty routed batches by requiring
+total_routed_tokens > 0; update the validation around total_routed_tokens so
+zero is accepted as a no-op case, and ensure the launcher path exits early or
+skips work when hopper_inputs.precomputed_scheduler_total_routed_tokens is 0
+instead of failing.
+
+In
+`@csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_prebuild.h`:
+- Around line 174-182: The precomputed work-tile map in make_work_tile_static is
+using only gemm_grid_x * gemm_grid_y for worker_id and sentinel sizing, which
+leaves gridDim.z inconsistent with the scheduler’s global indexing. Update the
+prebuild logic to either incorporate gemm_grid_shape.z / gemm_grid_z
+consistently wherever the map is built and partitioned, or add a strict
+assertion in the launcher path that gemm_grid_shape.z == 1 before calling this
+kernel. Make the same consistency fix in the other affected map-building sites
+referenced by the diff so the precomputed sentinels and worker indexing all
+agree with the full 3D grid shape.
+
+In
+`@csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_mixed_utils.cu`:
+- Line 52: The `moe_gemm_mixed_utils.cu` read of `fp4x2` in the mixed-utils path
+uses `reinterpret_cast<uint32_t*>`, which risks strict-aliasing and alignment
+UB. Replace that type-pun with an explicit 32-bit assembly of the four bytes
+into `fp4x8_raw` in the same scope so the `fp4x2` buffer is accessed safely
+regardless of alignment. Keep the fix local to the code that initializes
+`fp4x8_raw` and ensure no `uint32_t*` cast remains.
+
+In
+`@csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch_tma_ws_mixed_dtype.h`:
+- Around line 86-90: The mixed-dtype MOE GEMM launchers are still hardcoding
+KernelTmaWarpSpecialized* when Wfp4Afp8Mode resolves to
+MixedInputScaleMode::kPreMmaE8M0, which breaks the ptr-array-only path. Update
+the launcher selection logic in moe_gemm_template_dispatch_tma_ws_mixed_dtype.h
+to use the ptr-array schedule variants when IsArrayOfPointersGemm is true,
+including the pingpong path via KernelPtrArrayTmaWarpSpecializedPingpong, so the
+builder’s pre-MMA E8M0 requirement is matched correctly.
+- Around line 160-164: The size validation in the FP4 branch is using the wrong
+precedence and currently makes TLLM_CHECK ineffective; update the check in
+moe_gemm_template_dispatch_tma_ws_mixed_dtype.h so the expected activation size
+is computed explicitly instead of relying on the ambiguous ternary expression.
+Use the existing symbols WeightType, Fp4Type, and Wfp4Afp8Mode to distinguish
+FP4-weight/FP8-activation mode from other FP4 modes, and make the expected
+sizeof(T) 1 for Wfp4Afp8Mode and 2 for the other FP4 path. Keep the
+non-ENABLE_FP4 branch as a 1-byte check.
+
+In `@flashinfer/fused_moe/core.py`:
+- Around line 795-800: The Hopper-only Humming path is still reachable in the
+fused MoE wrapper before architecture checks, so add an early guard in the
+module-dispatch flow in fused_moe/core.py around the use_wfp4afp8_humming path
+to reject unsupported device_arch values before loading the extension. Use the
+existing fused_moe wrapper/module selection logic and the use_wfp4afp8_humming
+flag to fail fast with a clear unsupported-architecture error on non-Hopper
+devices (including SM100/SM120), and apply the same guard in the related
+duplicated block referenced by the same dispatch path.
+
+In `@flashinfer/fused_moe/prepare.py`:
+- Around line 170-177: The new public tensor APIs decorated with `@flashinfer_api`
+are missing TraceTemplate wiring, so add a trace=... argument to the decorator
+for preprocess_moe_weights_for_sm90_mixed_gemm_humming and the other affected
+public functions in this module. Use the existing trace template pattern used
+elsewhere in flashinfer/**/*.py for tensor-in/tensor-out APIs, and keep the
+exported API signatures unchanged while updating the `@flashinfer_api` annotations
+to enable benchmark-definition JSON generation.
+- Around line 268-272: The group_size validation in prepare() should happen
+before computing scale_groups_per_k128, since a zero value currently triggers
+ZeroDivisionError instead of the intended ValueError. Move the
+divisibility/positivity check ahead of the 128 // group_size calculation, and
+keep the existing validation message in the same prepare.py logic so invalid
+group_size values are rejected cleanly.
+- Around line 64-80: `prepare.py` currently allows `max_range` up to 255, but
+`prepare()` packs the offset with a 4-bit mask via `offset`, so larger values
+can wrap and corrupt the preprocessing. Tighten the validation near the existing
+`max_range` check to cap it at the 4-bit representable range used by `offset`
+(and keep the non-negative check), and make sure the computed
+`scale_range`/`scale_min_new` logic in `prepare()` only operates within that
+safe bound.
+- Around line 211-227: The preprocessing in the weight-scale path should reject
+invalid inputs earlier in prepare() before calling
+_preprocess_humming_e8m0_weight_scale and _process_humming_mxfp4_w4a8_payload.
+Add explicit validation that the K dimension used in expected_scale_shape is
+divisible by 32 instead of relying on floor division, and verify raw_scale and
+weight are on the same device (and compatible dtype/device context) before any
+tensor indexing or preprocessing. Use the existing prepare() shape check and the
+raw_scale/weight arguments to raise a clear ValueError at the API boundary when
+these conditions are not met.
+
+In `@flashinfer/jit/gemm/cutlass/generate_kernels.py`:
+- Around line 672-694: The FP4 dtype support list in generate_kernels.py is
+missing the existing FP16 activation W4A16 combo, which prevents SM90
+mixed-input grouped kernels from being generated for that path. Update
+supported_dtypes_fp4 to include the FP16 activation variant alongside the
+existing BF16 and FP8 entries, and make sure the kernel generation logic that
+consumes this list still emits the FP16 x MXFP4 W4A16 cases through the relevant
+dtype tuples and any associated filtering in the same generator code.
+
+In `@tests/moe/test_trtllm_cutlass_fused_moe.py`:
+- Around line 1790-1799: The W4A8 FC1 reference is still using per-expert
+input_scale.squeeze(-1), which does not match the flash path’s max-broadcast
+contract. Update the reference setup in the fused MoE test to build FC1 scales
+from the same w3_w1_input_scale_max behavior used by _run_w4a8_moe_hopper, and
+reuse that max-broadcast scale wherever the FC1 comparison is computed so both
+paths compare against the same quantization input.
+
+---
+
+Outside diff comments:
+In `@csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu`:
+- Around line 1518-1523: In the interleave kernel launch path, add explicit
+shape precondition validation before invoking the kernels: `weight.size(1)` must
+be divisible by 16 and `weight.size(2) * 2` must be divisible by 64. Update the
+checks near the existing `quant_type` validation in the fused MoE binding so
+`num_experts`, `n`, and `k` are only used after confirming these alignment
+requirements, and apply the same guard to the other interleave launch sites
+referenced by this block.
+🪄 Autofix (Beta)
+Fix all unresolved CodeRabbit comments on this PR:
+Push a commit to this branch (recommended)
+Create a new PR with the fixes
+ℹ️ Review info
+⚙️ Run configuration
+Configuration used
+: defaults
+Review profile
+: CHILL
+Plan
+: Pro
+Run ID
+:
+cb252d49-4f49-43a8-adcb-8b3c33ac3859
+📥 Commits
+Reviewing files that changed from the base of the PR and between
+647c52d
+and 96397d18b5801c4bae10931bb258de4a25c64270.
+📒 Files selected for processing (45)
+csrc/fused_moe/cutlass_backend/cutlass_fused_moe_instantiation.cu
+csrc/fused_moe/cutlass_backend/cutlass_fused_moe_kernels.cuh
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+csrc/moe_utils_binding.cu
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/detail/collective/mixed_input_utils.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/epilogue/collective/sm90_epilogue_array_tma_warpspecialized_mixed_input.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/epilogue/fusion/sm90_ptr_array_per_token_scale_callbacks_tma_warpspecialized.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/builders/sm90_gmma_builder_mixed_input.inl
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/collective_builder_mixed_input.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/collective_mma_array_mixed_input.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/sm90_mma_array_tma_gmma_rs_warpspecialized_mixed_input_.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/sm90_mma_array_tma_gmma_rs_warpspecialized_mixed_input_prescale.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_gemm_array_tma_warpspecialized_cooperative_precomputed.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_gemm_array_tma_warpspecialized_pingpong_precomputed.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_gemm_array_tma_warpspecialized_precomputed_decl.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_tile_scheduler_group_precomputed.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm_configs.h
+csrc/nv_internal/tensorrt_llm/kernels/cuteDslKernels/moeUtils.cu
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/cutlass_heuristic.cpp
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/cutlass_type_conversion.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/fp4_compat.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/include/moe_gemm_kernels.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/include/moe_kernels.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/include/moe_util_kernels.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_launcher.inl
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_launcher.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_launcher.inl
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_prebuild.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_kernels_bf16_fp4.cu
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_kernels_fp16_fp4.cu
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_kernels_fp4_fp4.cu
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_kernels_fp8_fp4.cu
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_mixed_utils.cu
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_mixed_utils.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch_tma_ws.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch_tma_ws_mixed_dtype.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_tma_warp_specialized_input.cu
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_tma_warp_specialized_traits.h
+flashinfer/fused_moe/__init__.py
+flashinfer/fused_moe/core.py
+flashinfer/fused_moe/prepare.py
+flashinfer/jit/fused_moe.py
+flashinfer/jit/gemm/cutlass/generate_kernels.py
+tests/moe/test_trtllm_cutlass_fused_moe.py
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm_configs.h
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+...tensions/gemm/collective/sm90_mma_array_tma_gmma_rs_warpspecialized_mixed_input_prescale.hpp
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+..._extensions/include/cutlass_extensions/gemm/kernel/sm90_tile_scheduler_group_precomputed.hpp
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+..._extensions/include/cutlass_extensions/gemm/kernel/sm90_tile_scheduler_group_precomputed.hpp
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+7 hidden conversations
+Load more…
+Comment thread
+flashinfer/fused_moe/prepare.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+flashinfer/fused_moe/prepare.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+flashinfer/fused_moe/prepare.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+flashinfer/jit/gemm/cutlass/generate_kernels.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+tests/moe/test_trtllm_cutlass_fused_moe.py
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+samuellees
+reviewed
+Jun 29, 2026
+View reviewed changes
+Comment thread
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+Outdated
+@@ -154,9 +172,29 @@ class FusedMoeRunner : public tvm::ffi::ModuleObj {
+}
+#endif
+#ifdef ENABLE_FP4
+if
+(isWMxfp4AMxfp8Quant() || isWMxfp4AFp8Quant()) {
+#
+if
+0
+ghost
+Jun 29, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+#if 0 removes the legacy FP8×MXFP4 runner selection from the shared SM100/SM120 binding. The existing Blackwell tests still pass FP8 activations, int64-packed MXFP4 weights, and use_mxfp8_act_scaling=true; no remaining constructor branch matches, so module.init throws.
+If Blackwell support is intentionally dropped, please remove the tests and document the breaking change; otherwise restrict this disable to Hopper.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ghost
+Jul 13, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Fixed and varified on B200.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+coderabbitai
+Bot
+reviewed
+Jun 29, 2026
+View reviewed changes
+ghost
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Actionable comments posted: 1
+Caution
+Some comments are outside the diff and can’t be posted inline due to platform limitations.
+⚠️
+Outside diff range comments (1)
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu (1)
+1253-1258
+:
+🎯 Functional Correctness
+|
+🟠 Major
+|
+⚡ Quick win
+Pass the validated
+fc2_act_global
+into Humming quant params.
+This branch validates
+fc2_act_global
+but then drops it by passing
+nullptr
+, so FC2 activation/global scaling is silently ignored for Humming-style MXFP4×FP8.
+Proposed fix
+return kernels::QuantParams::FP8MXFP4(
+           nullptr,
+           static_cast<TmaWarpSpecializedGroupedGemmInput::ElementSF*>(fc1_weight_block.data_ptr()),
+-
+static_cast<float const*>(fc1_token_scale.data_ptr()), nullptr,
++
+static_cast<float const*>(fc1_token_scale.data_ptr()),
++
+static_cast<float const*>(fc2_act_global.data_ptr()),
+static_cast<TmaWarpSpecializedGroupedGemmInput::ElementSF*>(fc2_weight_block.data_ptr()),
+-
+static_cast<float const*>(fc2_token_scale.data_ptr()), false, false);
++
+static_cast<float const*>(fc2_token_scale.data_ptr()), false, fc2_act_global.ndim() == 1);
+🤖 Prompt for AI Agents
+Verify each finding against current code. Fix only still-valid issues, skip the
+rest with a brief reason, keep changes minimal, and validate.
+
+In `@csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu`
+around lines 1253 - 1258, The Humming quant params path is validating
+fc2_act_global but then discarding it by passing a null value, so the FC2
+activation/global scale is ignored. Update the FP8MXFP4 construction in the
+fused MoE binding to pass the validated fc2_act_global through the same slot
+currently hardcoded as null, and keep the surrounding quant-parameter wiring in
+sync with the existing fc1_weight_block, fc1_token_scale, fc2_weight_block, and
+fc2_token_scale handling.
+🤖 Prompt for all review comments with AI agents
+Verify each finding against current code. Fix only still-valid issues, skip the
+rest with a brief reason, keep changes minimal, and validate.
+
+Inline comments:
+In
+`@csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_prebuild.h`:
+- Around line 452-462: When ChunkMajorWorkMap is enabled in
+moe_gemm_tma_ws_mixed_input_prebuild.h, the packing logic in the work-tile loop
+must use the chunk owner instead of recomputing worker ownership inside
+make_work_tile_static. Update the call site in the local_tile/global_tile loop
+so the worker index used for packing matches the storage_idx chunk owner derived
+from global_tile / tiles_per_worker, and pass that ownership information through
+make_work_tile_static or its inputs rather than deriving it from global_tile %
+total_grid_size. Keep the chunk-major storage mapping and the packed tile
+coordinates consistent in the ChunkMajorWorkMap path.
+
+---
+
+Outside diff comments:
+In `@csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu`:
+- Around line 1253-1258: The Humming quant params path is validating
+fc2_act_global but then discarding it by passing a null value, so the FC2
+activation/global scale is ignored. Update the FP8MXFP4 construction in the
+fused MoE binding to pass the validated fc2_act_global through the same slot
+currently hardcoded as null, and keep the surrounding quant-parameter wiring in
+sync with the existing fc1_weight_block, fc1_token_scale, fc2_weight_block, and
+fc2_token_scale handling.
+🪄 Autofix (Beta)
+Fix all unresolved CodeRabbit comments on this PR:
+Push a commit to this branch (recommended)
+Create a new PR with the fixes
+ℹ️ Review info
+⚙️ Run configuration
+Configuration used
+: defaults
+Review profile
+: CHILL
+Plan
+: Pro
+Run ID
+:
+279012e6-53d7-4b71-8784-63a90a432c1d
+📥 Commits
+Reviewing files that changed from the base of the PR and between 96397d18b5801c4bae10931bb258de4a25c64270 and 37bb2aa6d456eb6e9e023379c36c763bacf3d75b.
+📒 Files selected for processing (15)
+csrc/fused_moe/cutlass_backend/cutlass_fused_moe_kernels.cuh
+csrc/fused_moe/cutlass_backend/flashinfer_cutlass_fused_moe_binding.cu
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/epilogue/collective/default_epilogue_array_per_token_scale.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/sm90_mma_array_tma_gmma_rs_warpspecialized_mixed_input_prescale.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_gemm_array_tma_single_warpgroup_persistent.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_gemm_array_tma_warpspecialized_pingpong_precomputed.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_tile_scheduler_group_precomputed.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm_configs.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_launcher.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_launcher.inl
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_prebuild.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch.h
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch_tma_ws_mixed_dtype.h
+flashinfer/jit/gemm/cutlass/generate_kernels.py
+tests/moe/test_trtllm_cutlass_fused_moe.py
+🚧 Files skipped from review as they are similar to previous changes (10)
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_launcher.h
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/collective/sm90_mma_array_tma_gmma_rs_warpspecialized_mixed_input_prescale.hpp
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_tile_scheduler_group_precomputed.hpp
+flashinfer/jit/gemm/cutlass/generate_kernels.py
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_launcher.inl
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch_tma_ws_mixed_dtype.h
+csrc/nv_internal/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/kernel/sm90_gemm_array_tma_warpspecialized_pingpong_precomputed.hpp
+tests/moe/test_trtllm_cutlass_fused_moe.py
+csrc/nv_internal/tensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch.h
+csrc/fused_moe/cutlass_backend/cutlass_fused_moe_kernels.cuh
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+...nsorrt_llm/kernels/cutlass_kernels/moe_gemm/launchers/moe_gemm_tma_ws_mixed_input_prebuild.h
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+StudyingShao
+requested a review
+  from
+qiching
+as a
+code owner
+July 8, 2026 06:16
+huangzhilin-hzl
+reviewed
+Jul 8, 2026
+View reviewed changes
+Comment thread
+...ensorrt_llm/kernels/cutlass_kernels/moe_gemm/moe_gemm_template_dispatch_tma_ws_mixed_dtype.h
+switch (inputs.gemm_config.mainloop_schedule) {
+case tkc::MainloopScheduleType::COOPERATIVE:
+if constexpr (get<0>(CTAShape{}) < 128) {
+TLLM_THROW("COOPERATIVE is only enabled when tile M >= 128.");
+} else {
+if constexpr ((get<0>(CTAShape{}) == 128) && get<1>(CTAShape{}) == 128) {
+ghost
+Jul 8, 2026
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Just to confirm, why is the special-case path for the 128x128 CTA shape no longer needed here?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ghost
+Jul 9, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+The
+128x128xKtile
+config would cause register overflow in previous versions, resulting in compilation failure. New version does not have this issue.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Jiang Shao
+added
+5
+commits
+July 13, 2026 20:21
+fix(moe): enable Hopper FP4 kernels without native CUDA FP4
+…
+b343133
+Signed-off-by: Jiang Shao <91270701+StudyingShao@users.noreply.github.com>
+perf(moe): optimize Hopper MoE W4A16 CUTLASS backend
+…
+15d7c99
+Signed-off-by: Jiang Shao <91270701+StudyingShao@users.noreply.github.com>
+perf(moe): optimize Hopper MoE W4A8 CUTLASS backend
+…
+1e70bdc
+Signed-off-by: Jiang Shao <91270701+StudyingShao@users.noreply.github.com>
+perf(moe): precompute Hopper grouped GEMM scheduling
+…
+34255b0
+Signed-off-by: Jiang Shao <91270701+StudyingShao@users.noreply.github.com>
+fix(moe): harden Hopper grouped GEMM precompute path
+…
+6700035
+Signed-off-by: Jiang Shao <91270701+StudyingShao@users.noreply.github.com>
+80 hidden items
+Load more…
+huangzhilin-hzl
+mentioned this pull request
+Jul 16, 2026
+bench: add SM90 Humming MXFP4 x FP8 fused MoE variant
+#3997
+Open
+5 tasks done
+eugr
+mentioned this pull request
+Jul 16, 2026
+[Regression] NVFP4 MoE autotune crashes on SM121 after #3738 due to missing profiler workspaces
+#4003
+Closed
+yichengj0
+mentioned this pull request
+Jul 17, 2026
+fix(moe): unify the NVFP4 profiler workspace predicate and fix gated fc1 SF sizing
+#4010
+Merged
+5 tasks done
+kangbintNV
+mentioned this pull request
+Jul 17, 2026
+[API Diff] Legacy
+fused_moe.core
+imports for interleave MoE helpers were moved
+#4022
+Closed
+StudyingShao
+mentioned this pull request
+Jul 17, 2026
+fix(moe): restore legacy fused_moe.core imports for interleave helpers
+#4025
+Merged
+4 of 6 tasks
+jimmyzho
+mentioned this pull request
+Jul 21, 2026
+fix: Add missing nvfp4 sizing branch in getProfilerWorkspaces
+#4080
+Merged
+5 tasks
+dumko2001
+mentioned this pull request
+Jul 22, 2026
+[Bugfix] Gate FlashInfer FP4 MoE on kernel availability
+vllm-project/vllm#48695
+Closed
+3 of 4 tasks
+aleozlx
+mentioned this pull request
+Aug 7, 2026
+revert(moe): revert #3738 SM90 CUTLASS MoE backend (+ dependents #4025, #4080) on release-v0.6.17
+#4411
+Merged
+bkryu
+mentioned this pull request
+Aug 7, 2026
+revert(moe): revert #3738 SM90 CUTLASS MoE backend (+ dependents #4025, #4080) on release-v0.6.16
+#4412
+Merged
+5 tasks
+rishabhsinha17
+mentioned this pull request
+Aug 9, 2026
+fix(jit): warn when CUDA toolkit < 12.8 drops capability flags from JIT builds
+#4429
+Open
+5 tasks done
+elvischenv
+mentioned this pull request
+Aug 11, 2026
+Bump FlashInfer to 0.6.16.post4
+sgl-project/sglang#33092
+Closed
+2 of 5 tasks
+aleozlx
+mentioned this pull request
+Aug 11, 2026
+v0.6.17 release highlights draft
+#4471
+Closed
+yuan-luo
+mentioned this pull request
+Aug 15, 2026
+[MoE] Add FlashInfer SM90 MXFP4 W4A8 CUTLASS MoE
+sgl-project/sglang#34967
+Merged
+5 of 6 tasks
+coderabbitai
+Bot
+mentioned this pull request
+Sep 10, 2026
+feat(moe): add per-token per-block MXFP4A8 activation quantization on SM90.
+#4836
+Open
+5 tasks done
+This was referenced
+Sep 22, 2026
+[Bug] SM90 W4A16 MXFP4 CUTLASS fused MoE (0.6.10–0.6.15.post1) sporadically writes wrong tiles: in-place TMA descriptor update races with in-flight scale loads
+#5438
+Open
+[Bug] DeepSeek-V4-Flash-0731 on 2× H200: progressive output corruption under concurrency (dsv4 + DP attention)
+sgl-project/sglang#33397
+Open
+abcdabcd987
+mentioned this pull request
+Oct 16, 2026
+[Bug] cake_moe_grouped_gemm: weight gradient sporadically adds the next group's rows (in-place tensor-map rewrite races with in-flight TMA loads)
+#6570
+Closed
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+coderabbitai[bot]
+coderabbitai[bot] left review comments
+samuellees
+samuellees approved these changes
+jiahanc
+jiahanc approved these changes
+aleozlx
+Awaiting requested review from aleozlx
+aleozlx is a code owner
+yzh119
+Awaiting requested review from yzh119
+yzh119 is a code owner
+IwakuraRein
+Awaiting requested review from IwakuraRein
+IwakuraRein is a code owner
+nv-yunzheq
+Awaiting requested review from nv-yunzheq
+nv-yunzheq is a code owner
+sricketts
+Awaiting requested review from sricketts
+sricketts is a code owner
+yongwww
+Awaiting requested review from yongwww
+yongwww is a code owner
+cyx-6
+Awaiting requested review from cyx-6
+cyx-6 is a code owner
+saltyminty
+Awaiting requested review from saltyminty
+saltyminty is a code owner
+bkryu
+Awaiting requested review from bkryu
+bkryu is a code owner
+yyihuang
+Awaiting requested review from yyihuang
+yyihuang is a code owner
+kahyunnam
+Awaiting requested review from kahyunnam
+kahyunnam is a code owner
+jimmyzho
+Awaiting requested review from jimmyzho
+jimmyzho is a code owner
+dhiraj113
+Awaiting requested review from dhiraj113
+dhiraj113 is a code owner
+qsang-nv
+Awaiting requested review from qsang-nv
+qsang-nv is a code owner
+qiching
+Awaiting requested review from qiching
+qiching is a code owner
++2 more reviewers
+gemini-code-assist[bot]
+gemini-code-assist[bot] left review comments
+huangzhilin-hzl
+huangzhilin-hzl left review comments
+Reviewers whose approvals may not affect merge requirements
+Assignees
+No one assigned
+Labels
+op: gemm
+op: moe
+run-ci
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+5 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

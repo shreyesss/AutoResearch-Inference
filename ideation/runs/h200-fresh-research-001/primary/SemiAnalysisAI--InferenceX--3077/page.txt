@@ -1,0 +1,401 @@
+Conversation
+Oseltamivir
+commented
+Sep 13, 2026
+•
+edited by cursor
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Collaborator
+Rerun the unchanged H200 DeepSeek V4.1 Flash GPU-KV AgentX recipe at concurrency 1, 2, 4, 8, 16, 32, 64, and 128. The exact changelog key selects H200 only.
+使用未修改的 H200 DeepSeek V4.1 Flash GPU-KV AgentX 配方重新运行并发 1、2、4、8、16、32、64、128。精确 changelog key 仅选择 H200。
+Note
+Low Risk
+Changelog-only change that triggers a perf rerun; no runtime, auth, or recipe logic is altered.
+Overview
+Adds a
+perf-changelog
+entry for
+dsv41flash-fp4-h200-vllm-agentic-dspark
+so CI can rerun the existing H200 DeepSeek V4.1 Flash GPU-KV AgentX sweep. The recipe is unchanged (TP8, full trace, 1M context, DSpark5 AL 3.51); only concurrency levels
+1–128
+(1, 2, 4, 8, 16, 32, 64, 128) are exercised again under the agentic-coding scenario.
+No benchmark scripts, master config, or launcher logic are modified in this PR—the diff is the changelog row plus bilingual descriptions and PR
+3077
+link.
+Reviewed by
+Cursor Bugbot
+for commit
+58b220c
+. Bugbot is set up for automated code reviews on this repo. Configure
+here
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ci: rerun H200 DSv4.1 Flash GPU-KV sweep
+…
+30df96f
+重新运行 H200 DeepSeek V4.1 Flash GPU-KV AgentX sweep，并发为 1 至 128。
+Oseltamivir
+requested a review
+  from
+a team
+September 13, 2026 10:40
+github-project-automation
+Bot
+added this to
+InferenceX Board
+Sep 13, 2026
+github-actions
+Bot
+commented
+Sep 13, 2026
+Copy link
+Copy Markdown
+Contributor
+Thanks for the contribution! Please reach out to respective companies'
+CODEOWNER
+to fill in the latest
+PR_REVIEW_CHECKLIST.md
+before pinging core maintainer on Slack for review. In order for the signoff PR check bot to trigger, you must follow the PR_REVIEW_CHECKLIST.md template correctly, including the phrase
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+.
+For PR verification, add the
+full-sweep-fail-fast
+label (strongly recommended) to this PR — the benchmark sweep only runs on labeled PRs. Use
+full-sweep-enabled
+only if you need matrix jobs to keep running past a failure.
+PR authors are responsible for ensuring that after merging, all GitHub Action jobs fully pass.
+A lot of the time, failures are just flakes and simply re-running the failed jobs will fix it.
+See GitHub's docs on re-running failed jobs
+感谢你的贡献！请联系相应公司的
+CODEOWNER
+填写最新的
+PR_REVIEW_CHECKLIST.md
+，然后再在 Slack 上联系核心维护者进行审阅。为了触发 signoff PR 检查机器人，你必须正确遵循 PR_REVIEW_CHECKLIST.md 模板，包括保留英文语句
+As a PR reviewer and CODEOWNER, I have reviewed this and have
+。
+如需进行 PR 验证，请为此 PR 添加
+full-sweep-fail-fast
+标签（强烈推荐）— 基准测试 sweep 仅在带有标签的 PR 上运行。仅当需要矩阵任务在失败后继续运行时才使用
+full-sweep-enabled
+。
+PR 作者有责任确保合并后所有 GitHub Action 任务完全通过。
+很多时候失败只是偶发抖动（flake），重新运行失败的任务即可解决。
+参见 GitHub 关于重新运行失败任务的文档
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+chore: record PR 3077 in performance changelog
+…
+a2e5ee8
+在性能变更记录中填写 PR 3077 链接。
+Oseltamivir
+added
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+and removed
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+labels
+Sep 13, 2026
+claude
+Bot
+reviewed
+Sep 13, 2026
+View reviewed changes
+claude
+Bot
+left a comment
+Copy link
+Copy Markdown
+Contributor
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Looks good, straightforward changelog-only change.
+What was reviewed:
+Confirmed the diff is a pure append:
+git diff
+shows no historical bytes touched, and the new block sits after the last existing entry at EOF.
+Checked the new entry's structure (config-keys, scenario-type, description, pr-link) against neighboring entries — matches the established format.
+Checked
+pr-link: TBD
+— permitted as the pre-PR placeholder per docs/configuration-procedures.md, but note the merge/sweep-prep validator (
+compare_entries
+/
+canonicalize_appended_links
+) only accepts
+XXX
+or the canonical PR URL, not
+TBD
+, so it will need to be swapped for the real link before the sweep gate runs.
+Extended reasoning...
+Overview
+The diff touches exactly one file,
+perf-changelog.yaml
+, adding a single new entry at the physical end documenting a rerun of an existing H200 DeepSeek V4.1 Flash GPU-KV AgentX sweep across concurrencies 1–128, with no code, config, or script changes. This is the exact kind of data-only, append-only change the repository's changelog conventions expect for any performance-affecting rerun.
+Security risks
+None. The change is a YAML data addition to a changelog file; it contains no executable code, credentials, or logic that could introduce injection, auth, or data-exposure risk.
+Level of scrutiny
+Low. This is a mechanical, self-contained addition that follows the documented append-only, byte-preserving convention (verified via
+git diff
+: all prior bytes are untouched, the new block is appended after the last entry). No CODEOWNERS narrows scrutiny beyond the repo-wide
+@ InferenceX/core
+wildcard, and there is no complex logic or critical path involved.
+Other factors
+I traced the
+pr-link: TBD
+value through
+infx/workflows/validate_perf_changelog.py
+and
+infx/workflows/prepare_perf_changelog_merge.py
+.
+TBD
+is documented in
+docs/configuration-procedures.md:387
+as the permitted pre-PR-creation placeholder, but the actual
+PR_LINK_PLACEHOLDERS
+set used by
+compare_entries
+/
+canonicalize_appended_links
+(invoked from
+prepare_perf_changelog_merge.py
+, which
+run-sweep.yml
+calls with a real
+--pr-number
+at merge/sweep-prep time) only accepts
+"XXX"
+or the canonical
+.../pull/<number>
+URL — not
+"TBD"
+. This means the entry as written will fail that later validation step and must be updated to the real PR link before the sweep/merge gate runs; it does not block this review since it is a known, documented pre-merge step (and matches the "still has TBD when otherwise ready for sweep" stop condition already called out in the docs), so I flagged it only as a heads-up in the review body rather than as a bug.
+This review covers commit
+30df96f
+, which is no longer the latest commit on this pull request; later commits are not covered by it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+github-actions
+Bot
+commented
+Sep 13, 2026
+Copy link
+Copy Markdown
+Contributor
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/inference?unofficialRun=34752640343
+see unofficial run visualizer at
+https://inferencex.semianalysis.com/evaluation?unofficialRun=34752640343
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oseltamivir
+commented
+Sep 14, 2026
+Copy link
+Copy Markdown
+Collaborator
+Author
+/reuse-sweep-run
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Merge branch 'main' into ci/dsv41flash-h200-gpu-kv-rerun
+58b220c
+cursor
+Bot
+reviewed
+Sep 14, 2026
+View reviewed changes
+cursor
+Bot
+left a comment
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Cursor Bugbot has reviewed your changes using default effort and found 1 potential issue.
+❌ Bugbot Autofix is OFF. To automatically fix reported issues with cloud agents, enable autofix in the
+Cursor dashboard
+.
+Want higher recall?
+High effort
+reviews run extra passes and find more bugs. A team admin can switch effort levels in the
+Cursor dashboard
+.
+Reviewed by
+Cursor Bugbot
+for commit
+58b220c
+. Configure
+here
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+perf-changelog.yaml
+description:
+- "Rerun the existing H200 DeepSeek V4.1 Flash GPU-KV AgentX sweep at concurrency 1, 2, 4, 8, 16, 32, 64, 128 with the unchanged TP8, full-trace, 1M-context and DSpark5 AL 3.51 recipe"
+- "使用现有 TP8、完整轨迹、1M 上下文和 DSpark5 AL 3.51 配方，重新运行 H200 DeepSeek V4.1 Flash GPU-KV AgentX sweep，并发为 1、2、4、8、16、32、64、128"
+pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/3077
+cursor
+Bot
+Sep 14, 2026
+Copy link
+Copy Markdown
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+Changelog entry inserted mid-file
+High Severity
+The new
+dsv41flash-fp4-h200-vllm-agentic-dspark
+entry is inserted between existing records instead of at the end of
+perf-changelog.yaml
+. The file is append-only and compared by historical byte prefix and entry index, so a mid-file insert fails merge-with-reuse preparation and breaks chronological ordering.
+Reviewed by
+Cursor Bugbot
+for commit
+58b220c
+. Configure
+here
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Hide details
+View details
+Oseltamivir
+merged commit
+fe9cc67
+into
+main
+Sep 14, 2026
+35 checks passed
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oseltamivir
+deleted the
+ci/dsv41flash-h200-gpu-kv-rerun
+branch
+September 14, 2026 04:39
+github-project-automation
+Bot
+moved this to
+Done
+in
+InferenceX Board
+Sep 14, 2026
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+cursor[bot]
+cursor[bot] left review comments
+claude[bot]
+claude[bot] left review comments
+Assignees
+No one assigned
+Labels
+full-sweep-fail-fast
+Full sweep with canary gate; first failure cancels the rest of that matrix (recommended)
+Projects
+InferenceX Board
+Status: Done
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,417 @@
+Conversation
+yuyu5333
+commented
+Sep 14, 2026
+Copy link
+Copy Markdown
+Summary
+This PR adds an optimized SM90 build and runtime path for Hopper GPUs such as H20 and H100, while preserving the existing SM100/SM103 defaults.
+SM90 uses an 8-CTA cluster for small-batch, long-sequence BF16 Top-K workloads. The cluster path is enabled from a vocabulary size of 128K, based on measurements on an 8×H20 machine. SM100 and SM103 continue to use the existing 16-CTA cluster and 512K threshold.
+Changes
+Add
+DEEP_SELECT_CUDA_ARCHS
+to select
+90a
+,
+100a
+, and/or
+103a
+at build time.
+Keep the default build targets unchanged:
+sm_100a
+and
+sm_103a
+.
+Add eight SM90 cluster instantiations covering:
+int32
+and
+int64
+output indices
+sorted_index
+enabled and disabled
+return_value
+enabled and disabled
+Dispatch SM90 BF16 workloads to an 8-CTA cluster when:
+batch_size <= 6
+vocab_size >= 128K
+topk <= 1024
+Preserve the existing 16-CTA cluster and 512K threshold for SM100/SM103.
+Fall back to
+nvidia-smi -L
+for CUDA platform detection when
+lspci
+is unavailable in a container.
+Avoid the
+std::format
+dependency in the C++ binding so the extension builds with older host standard libraries commonly found in CUDA containers.
+Document the SM90 build command:
+DEEP_SELECT_CUDA_ARCHS=90a pip install -v
+.
+Performance
+Measured on NVIDIA H20 with BF16 input,
+batch_size
+1 and 6, and
+topk
+512 and 1024. Each result is the median of 100 cold-cache runs.
+The improvement column compares the new 8-CTA cluster with the existing single-CTA path compiled for SM90.
+Vocabulary size
+Improvement over single CTA
+Speedup over
+torch.topk
+128K
+25.2%–35.0%
+3.11×–3.83×
+256K
+36.5%–44.6%
+2.79×–3.57×
+512K
+52.4%–56.1%
+2.66×–3.75×
+1M
+61.5%–62.3%
+2.12×–4.11×
+Short-sequence and large-batch workloads continue to use the existing normal kernel. Their measured speedup over
+torch.topk
+remains 4.88×–6.27×.
+Validation
+Clean SM90 build with CUDA 13.0 and PyTorch 2.11.
+cuobjdump
+register-spill check passed with no spills.
+20/20 targeted correctness cases passed.
+Coverage included:
+normal and 8-CTA cluster paths
+BF16 and FP32 inputs
+int32
+and
+int64
+indices
+sorted_index
+optional value output
+variable row lengths through
+end
+per-row index offsets
+The final performance matrix passed Top-K value-set validation against
+torch.topk
+for every case.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Add optimized SM90 support
+382d62a
+yuyu5333
+mentioned this pull request
+Sep 14, 2026
+[DeepSeek V4.1] Add optional DeepSelect SM90 candidate block Top-K
+sgl-project/sglang#39421
+Closed
+5 tasks
+FC-Li
+mentioned this pull request
+Sep 23, 2026
+feat(dsa): select top-k rows on Hopper with a CuTe DSL DeepSelect kernel
+lightseekorg/tokenspeed#1737
+Merged
+yiakwy-xpu-ml-framework-team
+commented
+Sep 30, 2026
+Copy link
+Copy Markdown
+@yuyu5333
+have you compared with
+https://github.com/yiakwy-xpu-ml-framework-team/flash-float-jit-kernels
+I am going to update the kernel and extended top 512 and top 1024 support (previously top 2048 for dsv32). Thank you!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yiakwy-xpu-ml-framework-team
+commented
+Oct 1, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Correct way to build with cu13 SDK :
+export CUDA_HOME=/usr/local/cuda-13 # /root/venv-sgl/lib/python3.12/site-packages/nvidia/cu13
+
+pip install torch==2.11.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
+DEEP_SELECT_CUDA_ARCHS=90a DEEP_SELECT_DISABLE_REG_SPLILL_CHEDCK=1   pip install --no-build-isolation -v .
+NOTE :  sglang has added sm90 support in
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yiakwy-xpu-ml-framework-team
+commented
+Oct 1, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Here is the test result:
+bs
+k
+seq_len
+row_starts
+torch
+v3 (radix_2602)
+v2 (radix)
+DeepSelect (sm90a)
+speedup (v3/DS-select)
+1
+2048
+65536
+0
+0.07350
+0.02121
+0.03465
+0.02959
+1.40
+1
+2048
+65536
+1
+0.13139
+0.02533
+0.03506
+0.03126
+1.23
+1
+2048
+120000
+0
+0.08058
+0.03383
+0.05648
+0.04420
+1.31
+1
+2048
+120000
+1
+0.13827
+0.03533
+0.05684
+0.04462
+1.26
+2
+2048
+65536
+0
+0.07555
+0.02129
+0.03502
+0.03167
+1.49
+2
+2048
+65536
+1
+0.13456
+0.02475
+0.03537
+0.03041
+1.23
+2
+2048
+120000
+0
+0.08598
+0.03389
+0.05703
+0.04513
+1.33
+2
+2048
+120000
+1
+0.14259
+0.03544
+0.05725
+0.04647
+1.31
+4
+2048
+65536
+0
+0.07837
+0.02577
+0.03498
+0.03138
+1.22
+4
+2048
+65536
+1
+0.14499
+0.02537
+0.03552
+0.03029
+1.19
+4
+2048
+120000
+0
+0.08694
+0.03535
+0.05700
+0.04739
+1.34
+4
+2048
+120000
+1
+0.15466
+0.03535
+0.05728
+0.04627
+1.31
+8
+2048
+65536
+0
+0.08109
+0.02599
+0.03520
+0.03117
+1.20
+8
+2048
+65536
+1
+0.16410
+0.02533
+0.03583
+0.03088
+1.22
+8
+2048
+120000
+0
+0.09523
+0.03625
+0.05740
+0.04718
+1.30
+8
+2048
+120000
+1
+0.17792
+0.03544
+0.05756
+0.04604
+1.30
+I will figure out why DeepSelect is good at 512/1024. Grads to deepselect team.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yiakwy-xpu-ml-framework-team
+commented
+Oct 1, 2026
+Copy link
+Copy Markdown
+cc
+@interestingLSY
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yiakwy-xpu-ml-framework-team
+commented
+Oct 3, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+@interestingLSY
+@yuyu5333
+Some feedback after benchmark :
+In Top 512/1024, 1 or 2 round of Radix sort is enough, hence the intial cluster reduction and collection will count more in my implementation (though in top 2048, our previous algorithm is faster) in prologue stage.
+I am working on improving the prologue stage, we will see result soon.
+The full test has been updated in :
+yiakwy-xpu-ml-framework-team/flash-float-jit-kernels#36
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yiakwy-xpu-ml-framework-team
+commented
+Oct 4, 2026
+Copy link
+Copy Markdown
+Could you check with
+#25
+@yuyu5333
+@interestingLSY
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

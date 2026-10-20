@@ -1,0 +1,437 @@
+Conversation
+Chtholly-Boss
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Summary
+Replace
+fmaxf(x, 0)
+with
+x + fabsf(x)
+in the SM90 FP8 MQA logits epilogue, recovering the 2× throughput gap between FMNMX (half-rate) and FADD (full-rate) on Hopper. The factor-of-2 introduced by the identity is resolved by folding
+0.5f
+into the existing
+scale_kv
+multiply — zero extra instructions, bit-exact numerics.
+Background
+On SM90,
+fmaxf(x, 0)
+compiles to a single FMNMX, which issues at 64 ops/clk/SM — half the rate of FADD/FFMA (128 ops/clk/SM). Meanwhile
+x + |x|
+compiles to a single FADD with the absolute-value operand modifier, which is a free encoding bit in the instruction word:
+FADD R3, R3, |R3|    ; one instruction, full rate (cuobjdump, sm_90a)
+The relu executes once per
+(token, head, kv)
+score element in the MQA logits epilogue, so at 64 vs 128 ops/clk/SM the FMNMX form doubles the FP32 pipe time spent on relu alone.
+Since
+x + |x| = 2 · relu(x)
+holds exactly for all finite IEEE-754 floats (
++0
+for x ≤ 0), the doubled sum is simply halved by folding
+* 0.5f
+into the already-existing
+scale_kv
+multiplication (an exponent decrement, also exact):
+//
+Before:
+return
+fmaxf(shifted_accum[j],
+0
+) * weights[i][(j /
+4
+) *
+2
++ (j &
+1
+)];
+...
+float
+v_0 = (sum[
+0
+] + sum[
+1
+]) * scale_kv_0;
+//
+After:
+return
+(shifted_accum[j] + fabsf(shifted_accum[j])) * weights[i][(j /
+4
+) *
+2
++ (j &
+1
+)];
+...
+float
+v_0 = (sum[
+0
+] + sum[
+1
+]) * (scale_kv_0 *
+0
+.
+5f
+);
+The same technique is already used by the SM100 kernel (
+sm100_mqa_logits.cuh
+, packed
+FADD2
+variant); this PR brings it to SM90. Verified via
+cuobjdump -sass
+: zero FMNMX across all JIT-instantiated
+sm90_fp8_mqa_logits
+cubins.
+Performance (H200, 132 SMs, SM90A)
+Production indexer shapes, best of 3 reps, before → after:
+Shape
+Before
+After
+Gain
+H=32, D=128, SQ=512, SKV=140k, FP32 logits
+1018 TFLOPS
+1093 TFLOPS
++7.4%
+SQ=512, SKV=130560, H=64, BF16, CP=1
+1042 TFLOPS
+1126 TFLOPS
++8.1%
+SQ=512, SKV=130560, H=32, BF16, CP=0
+941 TFLOPS
+989 TFLOPS
++5.1%
+SQ=2048, SKV=8192, H=64, BF16, CP=1
+980 TFLOPS
+1027 TFLOPS
++4.8%
+Full
+tests/test_attention.py
+sweep (192 contiguous MQA cases on SM90):
+avg +3.7%
+(SK=65536 subset +4.4%, H=64 subset +5.5%, best case +11.3%). Gains scale with the relu's share of kernel time: larger SKV, more heads, smaller head dim → bigger win. Paged MQA logits (separate kernel, untouched) is unaffected.
+Correctness
+x + |x| = 2 · relu(x)
+exactly for all finite IEEE-754 floats (x > 0:
+x + x = 2x
+; x ≤ 0:
+x + (−x) = +0
+); the ÷2 via
+* 0.5f
+is an exact exponent decrement.
+All 192 SM90 cases in
+tests/test_attention.py
+pass (numeric diff vs simulated reference, 20× bitwise self-consistency, mask equality) — verified on H200.
+NaN semantics differ (
+x + |x|
+propagates NaN;
+fmaxf(NaN, 0)
+returns 0), but WGMMA accumulator outputs are finite in practice; this matches the SM100 kernel's existing behavior.
+Changes
+deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+— 3 lines modified (transform lambda + two
+* 0.5f
+folds).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Use full-rate FADD relu in SM90 FP8 MQA logits epilogue
+…
+ee53a16
+FMNMX (fmaxf(x, 0)) issues at 64 ops/clk/SM on SM90, half the rate of
+FADD/FFMA (128 ops/clk/SM), while the abs operand modifier is a free
+encoding bit on FADD. Since x + |x| == 2 * relu(x) exactly for finite
+floats, the compensating 0.5f is folded into the existing scale_kv
+multiply: zero extra instructions, bit-exact numerics.
+
+NaN semantics differ (x + |x| propagates NaN; fmaxf(NaN, 0) returns 0),
+matching the existing SM100 kernel (sm100_mqa_logits.cuh).
+
+Measured on H200: +7.4% on the production indexer shape
+(H=32, D=128, SQ=512, SKV=140k), avg +3.7% over the 192-case
+test_attention.py sweep.
+Chtholly-Boss
+changed the title
+Use full-rate FADD relu in SM90 FP8 MQA logits epilogue
+perf: Use full-rate FADD relu in SM90 FP8 MQA logits epilogue
+Sep 18, 2026
+ds-review-bot
+reviewed
+Sep 18, 2026
+View reviewed changes
+Comment thread
+deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+auto shifted_accum = accum + i * kNumAccumPerReduce;
+const auto transform = [&](const uint32_t& j) {
+return
+fmaxf
+(shifted_accum[j]
+, 0
+) * weights[i][(j / 4) * 2 + (j & 1)];
+return (shifted_accum[j]
++ fabsf(shifted_accum[j])
+) * weights[i][(j / 4) * 2 + (j & 1)];
+ds-review-bot
+Sep 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: Non-blocking:
+shifted_accum[j] + fabsf(shifted_accum[j])
+is a deliberately non-obvious spelling of
+2 * relu(x)
+, and the compensating
+0.5f
+lives ~12 lines away inside the
+scale_kv
+multiply. Please add a short comment here so a future refactor doesn't split the pair and silently double the logits, e.g.:
+//
+x + |x| == 2 * relu(x) exactly for finite floats. FADD with the |.| operand modifier is
+//
+full-rate on SM90 whereas FMNMX (fmaxf) is half-rate. The 2x is cancelled by the 0.5f
+//
+folded into scale_kv below. Note: NaN propagates here (fmaxf(NaN, 0) would return 0),
+//
+consistent with the SM100 kernel.
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+Comment thread
+deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh
+}
+float v_0 = (sum[0] + sum[1]) * scale_kv_0;
+float v_1 = (sum[2] + sum[3]) * scale_kv_1;
+float v_0 = (sum[0] + sum[1]) *
+(
+scale_kv_0
+* 0.5f)
+;
+ds-review-bot
+Sep 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+There was a problem hiding this comment.
+Choose a reason for hiding this comment
+The reason will be displayed to describe this comment to others.
+Learn more
+.
+Choose a reason
+Spam
+Abuse
+Off Topic
+Outdated
+Duplicate
+Resolved
+Low Quality
+Hide
+comment
+🔵
+suggestion
+: Non-blocking / stylistic: since
+scale_kv_0
+/
+scale_kv_1
+are only consumed here, consider folding the
+0.5f
+at the load site instead (L247-248, e.g.
+float scale_kv_0 = 0.5f * ptx::ld_shared(...)
+with a comment referencing the
+x + |x|
+transform). That makes the hoisting explicit rather than relying on the compiler, keeps the two
+v_0
+/
+v_1
+lines unchanged from before, and co-locates the explanation of the factor 2 with a single definition point. Generated code should be identical either way.
+🤖 v5
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+ds-review-bot
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Collaborator
+🤖 ds-review-bot Code Review
+v6
+已核对完整 epilogue、调用约束及 SM100 既有实现，未发现需要修复的回归；ReLU 倍增与两路缩放补偿一致。当前环境没有 CUDA 工具链或 GPU，未复跑测试或验证性能。
+v5
+LGTM — approve.
+The MR replaces
+fmaxf(x, 0)
+with
+x + fabsf(x)
+in the SM90 FP8 MQA logits epilogue (
+sm90_fp8_mqa_logits.cuh
+) and folds the compensating
+* 0.5f
+into the existing per-KV
+scale_kv
+multiply. The diff is exactly 3 lines and matches the description.
+Verified points:
+Numerics:
+x + |x| == 2*relu(x)
+is exact for all finite IEEE-754 floats (x>0: 2x; x<=0: exactly +0).
+scale_kv * 0.5f
+is an exact exponent decrement. Result is bit-identical to the previous path for finite accumulators.
+Placement of the
+0.5f
+fold is correct: applied once per output element after the intra-thread reduction
+(sum[0]+sum[1])
+/
+(sum[2]+sum[3])
+and before the
+__shfl_xor_sync
+inter-thread reduction, so each of the
+kNumHeads
+contributing terms is halved exactly once.
+scale_kv_0/1
+are loop-invariant across the
+BLOCK_Q
+loop, so
+scale_kv * 0.5f
+is hoisted by nvcc — genuinely zero extra instructions per element.
+NaN semantics:
+fmaxf(NaN, 0)
+returned 0, whereas
+NaN + |NaN|
+propagates NaN. This matches the SM100 kernel (
+sm100_mqa_logits.cuh
+L492-506 already uses the identical
+x + |x|
+trick via
+__fadd2_rn
+followed by
+/ 2
+), and WGMMA FP8 accumulators are finite in practice, so this is acceptable and consistent rather than new risk.
+Scope: the paged MQA logits kernel is untouched, as stated.
+No blocking issues. Performance claims (+3.7% avg, +7.4% on production shape, zero FMNMX in SASS) are plausible given FMNMX is half-rate on SM90 and the abs operand modifier is a free encoding bit on FADD; they were not re-measured here (no Hopper GPU in this environment). Two non-blocking, purely maintainability-oriented suggestions are left inline.
+v4
+Correct, low-risk SM90 micro-optimization. The MR replaces the half-rate
+fmaxf(x, 0)
+ReLU in the SM90 FP8 MQA logits epilogue with a full-rate FADD using the free absolute-value operand modifier (
+x + |x|
+), and compensates the resulting exact factor of 2 by folding
+* 0.5f
+into the already-present
+scale_kv
+multiply. I verified the change end to end: (1) for every finite IEEE-754 float,
+x + |x| == 2*relu(x)
+exactly (+0 for x <= 0, and
+x + x == 2x
+exactly for x > 0); (2) the factor-of-2 is uniform across the per-term weight multiply and across both the intra-thread and inter-thread (shuffle-xor) reductions, so it factors out exactly; (3)
+scale_kv * 0.5f
+is an exact power-of-two scaling for normal scales, so
+fl((2*sum) * (scale/2)) == fl(sum * scale)
+is bit-exact versus the previous
+fmaxf
+path. The change is local (3 lines in one file: line 286 transform plus the two
+* 0.5f
+folds at lines 297-298), preserves the kernel's dataflow/synchronization, and is consistent with the existing SM100
+sm100_mqa_logits.cuh
+implementation that already uses the same
+fabsf
++
+/2
+identity. The claimed SASS result (a single FADD with the abs operand modifier replacing FMNMX) is consistent with the documented SM90 issue rates. Verified caveats, none blocking: (a) only non-finite inputs differ, since
+fmaxf(NaN, 0) == 0
+while
+x + |x|
+propagates NaN and
+x == -inf
+gives
+NaN
+; WGMMA accumulator outputs are finite in practice and this matches the SM100 kernel, so it is acceptable; (b) the exactness of the halving relies on
+scale_kv
+being normal (subnormal halving could lose a bit, and the doubled accumulator could overflow only near FLT_MAX), which realistic FP8 dequant scales and attention logits never approach. No correctness, safety, API, or concurrency issues found, and no changes requested.
+Files reviewed
+: 1
+Issues found
+: 🔵 2 suggestion
+Inline comments posted
+: 2
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Chtholly-Boss
+commented
+Sep 18, 2026
+Copy link
+Copy Markdown
+Author
+@RayWang96
+@zheanxu
+friendly ping for review — tiny 3-line bit-exact perf fix, details in the PR description.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+ds-review-bot
+ds-review-bot left review comments
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+2 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

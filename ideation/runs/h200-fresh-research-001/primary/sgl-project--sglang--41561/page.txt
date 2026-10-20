@@ -1,0 +1,611 @@
+Conversation
+yuyu5333
+commented
+Sep 28, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Contributor
+Motivation
+PR
+#41364
+adds
+topk_page_transform
+, which combines DeepSelect Top-K selection with the page-table transform in its epilogue.
+DeepSeek V4.1 on Hopper still uses:
+torch.topk
+  -> sort raw indices
+  -> gather physical KV slots
+This PR connects the new DeepSelect operator to that runtime path.
+Modifications
+Use
+topk_page_transform
+for the SM90 full-topk decode path.
+Write transformed int32 KV slots directly into the existing output buffer.
+Preserve raw-index ordering with
+sorted_index=True
+.
+Keep the existing Torch path when raw indices are also required.
+Keep SM100 and newer architectures on the existing DeepGEMM path.
+Add CPU dispatch/fallback tests and an H20 runtime integration test.
+Accuracy Tests
+Validated on NVIDIA H20:
+Test
+Result
+DeepSelect kernel tests
+10/10 passed
+Related indexer unit tests
+28/28 passed
+New runtime integration tests
+5/5 passed
+_torch_decode
+statement coverage
+90%
+Coverage includes short contexts where
+width < topk
+, variable row lengths, page-table mapping, sorted output, and the raw-index fallback.
+Speed Tests and Profiling
+The replaced region was benchmarked on NVIDIA H20 with CUDA 13.0 and PyTorch 2.13. Each complete run used 20 warmup iterations followed by 5 groups of 100 measurements. The table reports the mean of the medians from two complete runs.
+The measured regions were:
+Before:
+torch.topk -> raw-index sort -> slot gather -> output copy
+
+After:
+DeepSelect top-k -> sorted-index epilogue -> page-table transform
+Rows
+Width
+Top-K
+Before
+After
+Speedup
+1
+32K
+512
+163.264 us
+31.744 us
+5.14x
+8
+32K
+512
+163.992 us
+31.592 us
+5.19x
+32
+32K
+512
+163.664 us
+31.456 us
+5.20x
+1
+128K
+1024
+162.864 us
+31.760 us
+5.13x
+8
+128K
+1024
+164.960 us
+32.480 us
+5.08x
+This is a microbenchmark of the replaced Top-K and transform region, not an end-to-end serving throughput claim.
+Checklist
+Format your code according to the
+Format code with pre-commit
+.
+Add unit tests according to the
+Run and add unit tests
+.
+Update documentation according to
+Write documentations
+.
+Provide accuracy and speed benchmark results according to
+Test the accuracy
+and
+Benchmark the speed
+.
+Follow the SGLang code style
+guidance
+.
+Review and Merge Process
+Ping Merge Oncalls to start the process. See the
+PR Merge Process
+.
+Get approvals from
+CODEOWNERS
+and other reviewers.
+Trigger CI tests with
+comments
+or contact authorized users to do so.
+Common commands include
+/tag-and-rerun-ci
+,
+/tag-run-ci-label
+,
+/rerun-failed-ci
+After green CI and required approvals, ask Merge Oncalls or people with Write permission to merge the PR.
+CI States
+Latest PR Test (Base): ❌
+Run #38216945155
+Latest PR Test (Extra): ❌
+Run #38216944922
+Latest PR Test (AMD ROCm 10): ❌
+Run #38216945054
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+yuyu5333
+requested review from
+BBuf
+,
+DarkSharpness
+,
+Fridge003
+,
+HaiShaw
+,
+HydraQYH
+,
+Qiaolin-Yu
+,
+celve
+,
+hebiao064
+,
+ispobock
+,
+merrymercy
+and
+yuan-luo
+as
+code owners
+September 28, 2026 10:57
+github-actions
+Bot
+added
+documentation
+Improvements or additions to documentation
+jit-kernel
+labels
+Sep 28, 2026
+DarkSharpness
+reviewed
+Sep 28, 2026
+View reviewed changes
+Comment thread
+python/sglang/srt/layers/attention/dsv4/v41_indexer/full_topk.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+perf(dsv4): use DeepSelect for Hopper full top-k
+0aabd3b
+yuyu5333
+force-pushed
+the
+feature/deep-select-runtime-integration
+branch
+    from
+6626be7
+to
+0aabd3b
+Compare
+September 29, 2026 08:03
+yuyu5333
+and others
+added
+2
+commits
+September 29, 2026 18:00
+perf(dsv4): skip index sorting in DeepSelect decode
+09dca13
+Merge branch 'main' into feature/deep-select-runtime-integration
+9317547
+Oasis-Git
+mentioned this pull request
+Oct 2, 2026
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+Open
+17 of 56 tasks
+yuyu5333
+added
+2
+commits
+October 9, 2026 10:48
+Merge branch 'main' into feature/deep-select-runtime-integration
+5ac729e
+fix test
+44f83ba
+yuyu5333
+requested review from
+Jiminator
+,
+alphabetc1
+,
+hnyls2002
+,
+hzh0425
+,
+kpham-sgl
+,
+ping1jing2
+,
+pyc96
+,
+rainj-me
+and
+slin1237
+as
+code owners
+October 9, 2026 02:49
+71 hidden items
+Load more…
+yuyu5333
+requested review from
+1am9trash
+,
+Alisehen
+,
+AniZpZ
+,
+BowenBao
+,
+ByronHsu
+,
+CatherineSue
+,
+ClawSeven
+,
+Duyi-Wang
+,
+Edwardf0t1
+,
+Lzy17
+,
+OrangeRedeng
+,
+YAMY1234
+,
+billishyahao
+,
+hubertlu-tw
+,
+iforgetmyname
+,
+rwang5203
+,
+yeahdongcn
+and
+yichiche
+as
+code owners
+October 9, 2026 02:49
+yuyu5333
+and others
+added
+3
+commits
+October 9, 2026 10:57
+Merge upstream main ancestry into feature/deep-select-runtime-integra…
+…
+277bc6e
+…tion
+Merge branch 'main' into feature/deep-select-runtime-integration
+6af4dc9
+Merge branch 'main' into feature/deep-select-runtime-integration
+557c998
+DarkSharpness
+reviewed
+Oct 9, 2026
+View reviewed changes
+Comment thread
+test/registered/unit/layers/test_dsv4_nonpaged_indexer.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Comment thread
+test/registered/kernels/ops/attention/test_deep_select.py
+Outdated
+Show resolved
+Hide resolved
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+yuyu5333
+and others
+added
+2
+commits
+October 10, 2026 14:32
+test(dsv4): drop the mocked DeepSelect decode tests
+…
+b49e63d
+Review flagged test_constructor_enables_deep_select_only_without_deep_gemm
+and test_decode_uses_fused_page_transform as testing no real functionality:
+the decode test stubs topk_page_transform, the function this change wires
+in, so its output assertion is tautological and the remaining asserts
+restate the _torch_decode call site; the constructor test mirrors the
+one-line gating expression. Real coverage runs the kernel through the same
+call site against a torch.topk reference in
+test/registered/kernels/ops/attention/test_deep_select.py
+(test_page_transform_matches_reference, test_full_topk_decode_runtime_integration).
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+test(dsv4): drop the mocked full-topk decode runtime test
+…
+3bb8cc1
+Review flagged test_full_topk_decode_runtime_integration with the same
+rationale as the CPU wiring tests: it hand-assembles FullTopKIndexer via
+object.__new__ and stubs decode_scores, so beyond the direct kernel tests
+it only pins the _torch_decode call site's argument plumbing -- and with
+bs == rows even the [:bs] slices it purports to check are no-ops. The
+kernel's behavior stays covered by test_page_transform_matches_reference
+and the other topk tests here, which call the real kernel directly.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+DarkSharpness
+approved these changes
+Oct 10, 2026
+View reviewed changes
+Merge branch 'main' into feature/deep-select-runtime-integration
+214dd73
+BBuf
+approved these changes
+Oct 14, 2026
+View reviewed changes
+This was referenced
+Oct 14, 2026
+[CI] test_fp4_indexer.py::test_hopper_indexer_backends_replay fails on main: AttributeError 'SimpleNamespace' has no attribute 'page_table'
+#44183
+Closed
+[Test] dsv4: Fix Hopper indexer replay test after DeepSelect decode (#41561)
+#44193
+Merged
+yuyu5333
+mentioned this pull request
+Oct 15, 2026
+[DeepSeek-V4.1][SM90] Port DeepSelect full top-k decode support
+bytedance-iaas/sglang#838
+Merged
+12 tasks done
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+BBuf
+BBuf approved these changes
+DarkSharpness
+DarkSharpness approved these changes
+merrymercy
+Awaiting requested review from merrymercy
+merrymercy is a code owner
+Fridge003
+Awaiting requested review from Fridge003
+Fridge003 is a code owner
+ispobock
+Awaiting requested review from ispobock
+ispobock is a code owner
+Qiaolin-Yu
+Awaiting requested review from Qiaolin-Yu
+Qiaolin-Yu is a code owner
+hebiao064
+Awaiting requested review from hebiao064
+hebiao064 is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+celve
+Awaiting requested review from celve
+HydraQYH
+Awaiting requested review from HydraQYH
+yuan-luo
+Awaiting requested review from yuan-luo
+hzh0425
+Awaiting requested review from hzh0425
+Jiminator
+Awaiting requested review from Jiminator
+hnyls2002
+Awaiting requested review from hnyls2002
+kpham-sgl
+Awaiting requested review from kpham-sgl
+pyc96
+Awaiting requested review from pyc96
+alphabetc1
+Awaiting requested review from alphabetc1
+ping1jing2
+Awaiting requested review from ping1jing2
+slin1237
+Awaiting requested review from slin1237
+rainj-me
+Awaiting requested review from rainj-me
+Jialin
+Awaiting requested review from Jialin
+sherlockwu
+Awaiting requested review from sherlockwu
+alexnails
+Awaiting requested review from alexnails
+ishandhanani
+Awaiting requested review from ishandhanani
+yizhang2077
+Awaiting requested review from yizhang2077
+FlamingoPg
+Awaiting requested review from FlamingoPg
+liusy58
+Awaiting requested review from liusy58
+JustinTong0323
+Awaiting requested review from JustinTong0323
+Ying1123
+Awaiting requested review from Ying1123
+whybeyoung
+Awaiting requested review from whybeyoung
+fzyzcjy
+Awaiting requested review from fzyzcjy
+sufeng-buaa
+Awaiting requested review from sufeng-buaa
+mickqian
+Awaiting requested review from mickqian
+yhyang201
+Awaiting requested review from yhyang201
+yctseng0211
+Awaiting requested review from yctseng0211
+adarshxs
+Awaiting requested review from adarshxs
+ch-wan
+Awaiting requested review from ch-wan
+b8zhong
+Awaiting requested review from b8zhong
+mmangkad
+Awaiting requested review from mmangkad
+huangtingwei9988
+Awaiting requested review from huangtingwei9988
+stmatengss
+Awaiting requested review from stmatengss
+xiezhq-hermann
+Awaiting requested review from xiezhq-hermann
+hanming-lu
+Awaiting requested review from hanming-lu
+sundar24295s
+Awaiting requested review from sundar24295s
+ShangmingCai
+Awaiting requested review from ShangmingCai
+lifuhuang
+Awaiting requested review from lifuhuang
+yushengsu-thu
+Awaiting requested review from yushengsu-thu
+jybsuper
+Awaiting requested review from jybsuper
+kkHuang-amd
+Awaiting requested review from kkHuang-amd
+yichiche
+Awaiting requested review from yichiche
+hubertlu-tw
+Awaiting requested review from hubertlu-tw
+1am9trash
+Awaiting requested review from 1am9trash
+BowenBao
+Awaiting requested review from BowenBao
+Edwardf0t1
+Awaiting requested review from Edwardf0t1
+AniZpZ
+Awaiting requested review from AniZpZ
+OrangeRedeng
+Awaiting requested review from OrangeRedeng
+Alisehen
+Awaiting requested review from Alisehen
+YAMY1234
+Awaiting requested review from YAMY1234
+iforgetmyname
+Awaiting requested review from iforgetmyname
+yeahdongcn
+Awaiting requested review from yeahdongcn
+CatherineSue
+Awaiting requested review from CatherineSue
+ClawSeven
+Awaiting requested review from ClawSeven
+rwang5203
+Awaiting requested review from rwang5203
+Duyi-Wang
+Awaiting requested review from Duyi-Wang
+Lzy17
+Awaiting requested review from Lzy17
+billishyahao
+Awaiting requested review from billishyahao
+ByronHsu
+Awaiting requested review from ByronHsu
+sogalin
+Awaiting requested review from sogalin
+Oasis-Git
+Awaiting requested review from Oasis-Git
+AgainstEntropy
+Awaiting requested review from AgainstEntropy
+kevin-mii
+Awaiting requested review from kevin-mii
+niehen6174
+Awaiting requested review from niehen6174
+yingluosanqian
+Awaiting requested review from yingluosanqian
+wisclmy0611
+Awaiting requested review from wisclmy0611
+zijiexia
+Awaiting requested review from zijiexia
+Kangyan-Zhou
+Awaiting requested review from Kangyan-Zhou
+bingxche
+Awaiting requested review from bingxche
+Assignees
+No one assigned
+Labels
+amd
+apple-silicon
+blackwell
+SM100/SM120
+deepseek
+dependencies
+Pull requests that update a dependency file
+diffusion
+SGLang Diffusion
+documentation
+Improvements or additions to documentation
+hicache
+Hierarchical Caching for SGLang
+jit-kernel
+lora
+memory-pool
+model-gateway
+mthreads
+Multi-modal
+multi-modal language model
+npu
+piecewise-cuda-graph
+quant
+LLM Quantization
+rust-renderer
+sgl-kernel
+speculative-decoding
+unified-radix-cache
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

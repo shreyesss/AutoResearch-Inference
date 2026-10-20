@@ -1,0 +1,351 @@
+Conversation
+LiRunGuo
+commented
+Sep 22, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Problem
+deep_jit::cuda::Device::get_prop()
+calls
+cudaFree(nullptr)
+once to make sure the CUDA context exists.
+cudaFree
+is prohibited while a stream is being captured in the global or thread-local mode. If the first device query happens inside a capture, it fails with
+cudaErrorStreamCaptureUnsupported
+(900), DeepJIT panics, and the capture is invalidated (
+cudaErrorStreamCaptureInvalidated
+, 901, at
+cudaStreamEndCapture
+).
+Libraries hit this through lazy initialization: the runtime created by
+create_lazy_jit
+queries the device on first use. With DeepGEMM
+main
+(which pins DeepJIT
+e5bdee2
+), the first DeepGEMM call in a process fails if it happens inside
+torch.cuda.graph
+with the default capture mode:
+Panic error (third-party/deep_jit/include/deep_jit/backend/cuda/device.hpp:15): cudaFree(nullptr) failed with CUDA error 900 (cudaErrorStreamCaptureUnsupported): operation not permitted when stream is capturing
+  #0 deep_jit::cuda::Device::get_prop() at third-party/deep_jit/include/deep_jit/backend/cuda/device.hpp:15
+  #1 deep_jit::cuda::CompilerOptions::default_options(deep_jit::Env const&, deep_jit::cuda::Device&) at third-party/deep_jit/include/deep_jit/backend/cuda/device.hpp:62
+  #2 ... deep_gemm::init_jit(...)::{lambda} ...
+  #3 deep_jit::LazyInit<deep_jit::Runtime<deep_jit::CUDA> >::operator->()
+This is the only blocker I found. Once the runtime has been initialized, compiling and loading a new kernel during a global-mode capture already works.
+Fix
+Add a small RAII guard that switches the calling thread to
+cudaStreamCaptureModeRelaxed
+with
+cudaThreadExchangeStreamCaptureMode
+, and use it only around the one-time initialization in
+get_prop()
+. The previous mode is restored when the guard goes out of scope. This is the same mechanism as PyTorch's
+c10::cuda::CUDAStreamCaptureModeGuard
+, kept local so that
+device.hpp
+does not depend on c10.
+Test
+Adds a
+CUDA device during graph capture
+case to the CUDA test project:
+A fresh
+Device
+is queried for the first time inside a global, thread-local and relaxed capture.
+A runtime from
+create_lazy_jit
+is used for the first time inside a global capture.
+Each case checks that the capture is still valid when it ends, and that the thread's capture mode is restored.
+Testing
+Diagnosis on H200
+(SM90, CUDA 13.0, PyTorch 2.11.0+cu130), DeepGEMM
+main
+78b6900 with DeepJIT
+e5bdee2
+, before this change. Each case runs in a fresh process. "Cold" starts from an empty disk cache, "warm" from a cache filled by another process. APIs:
+fp8_gemm_nt
+,
+bf16_gemm_nt
+,
+m_grouped_fp8_gemm_nt_masked
+,
+k_grouped_fp8_gemm_nt_contiguous
+.
+Case
+global
+thread_local
+relaxed
+First DeepGEMM call inside the capture, cold or warm
+fails (900 in
+get_prop
+, then 901)
+fails
+works, replay bitwise equal to eager
+Runtime already initialized, new shape compiled and loaded inside the capture (
+fp8_gemm_nt
+,
+bf16_gemm_nt
+only)
+works
+works
+not tested
+So relaxing the mode for this one call is enough, and kernel compilation and loading do not need it.
+This branch on A800
+(SM80, same toolchain),
+python tests/test_cuda.py
+:
+Commit
+New test
+Tests passed
+cba802d
+(
+main
+)
+not present
+14
+a281f40
+(test only)
+fails with
+cudaFree(nullptr) failed with CUDA error 900 (cudaErrorStreamCaptureUnsupported)
+14
+ec6f84d
+(fix)
+passes
+15
+On all three commits, the suite then stops at
+TMA driver wrapper and kernel argument
+, because
+cuTensorMapEncodeTiled
+needs SM90. So the A800 run only covers the tests up to that point.
+SM90:
+the full suite passes on H200, and DeepGEMM end to end works with this branch. See the results in the comment below.
+This came up while checking
+deepseek-ai/DeepGEMM#443
+on current DeepGEMM
+main
+. DeepGEMM would pick up the fix with a submodule bump.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+LiRunGuo
+commented
+Sep 22, 2026
+Copy link
+Copy Markdown
+Author
+SM90 results, now that my H200 machine is back (CUDA 13.0, PyTorch 2.11.0+cu130).
+DeepGEMM end to end.
+DeepGEMM
+main
+(78b6900), with the first DeepGEMM call of a fresh process made inside
+torch.cuda.graph
+. The APIs are
+fp8_gemm_nt
+,
+bf16_gemm_nt
+,
+m_grouped_fp8_gemm_nt_masked
+and
+k_grouped_fp8_gemm_nt_contiguous
+, each with a cold and a warm disk cache. The table counts passing cases:
+DeepJIT submodule
+global
+thread_local
+relaxed
+cba802d
+(
+main
+)
+0 / 8
+0 / 8
+8 / 8
+ec6f84d
+(this PR)
+8 / 8
+8 / 8
+8 / 8
+Every passing case replays bitwise equal to an eager call. With this branch as the DeepGEMM submodule, DeepGEMM's
+tests/test_fp8_fp4.py
+and
+tests/test_bf16.py
+also pass.
+DeepJIT suite.
+python tests/test_cuda.py
+on the H200, with one visible GPU:
+Commit
+Result
+Passed
+Skipped
+cba802d
+(
+main
+)
+pass
+50
+1
+ec6f84d
+(this PR)
+pass
+51
+1
+The extra passing case is the new
+CUDA device during graph capture
+test. The skipped case on both commits is
+multiple device runtimes
+, which needs two visible GPUs.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+LiRunGuo
+commented
+Sep 22, 2026
+Copy link
+Copy Markdown
+Author
+@LyricZhao
+@guyan364
+Could you take a look when you have time? The first DeepGEMM call in a process fails inside
+torch.cuda.graph
+, because
+Device::get_prop()
+calls
+cudaFree(nullptr)
+during the capture. This change relaxes the capture mode only around that one-time initialization. The A800 and H200 results are in the description and in the comment above. Thanks!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+LiRunGuo
+added
+2
+commits
+September 29, 2026 13:44
+Add a test for first CUDA device query during graph capture
+…
+a329481
+Signed-off-by: RunguoLi <li19107254665@gmail.com>
+Allow the first CUDA device query during graph capture
+…
+362b384
+`Device::get_prop()` calls `cudaFree(nullptr)` once to make sure the CUDA
+context exists. `cudaFree` is prohibited while a stream is captured in the
+global or thread-local mode, so if the first query happens inside a capture
+(e.g., the first library call under `torch.cuda.graph`), it fails with
+cudaErrorStreamCaptureUnsupported and invalidates the whole capture.
+
+Temporarily switch the calling thread to the relaxed capture mode for this
+one-time initialization, and restore the previous mode afterwards.
+
+Signed-off-by: RunguoLi <li19107254665@gmail.com>
+LiRunGuo
+force-pushed
+the
+fix-capture-safe-device-init
+branch
+    from
+ec6f84d
+to
+362b384
+Compare
+September 29, 2026 19:00
+LiRunGuo
+commented
+Sep 29, 2026
+Copy link
+Copy Markdown
+Author
+Rebased onto
+main
+(
+442f34e
+). The only conflict was in
+tests/test_cuda_proj/main.cpp
+, where
+#20
+added its new driver-wrapper tests in the same two places; I kept those and put the capture test after them.
+Re-ran
+python tests/test_cuda.py
+on an H200 (CUDA 13.0, one visible GPU):
+Commit
+Result
+Passed
+Skipped
+442f34e
+(
+main
+)
+pass
+52
+1
+362b384
+(this PR)
+pass
+53
+1
+The extra passing case is
+CUDA device during graph capture
+; the skipped one on both is
+multiple device runtimes
+, which needs two visible GPUs. The new
+CUDA driver device wrappers
+and
+CUDA driver stream batch mem op wrapper
+tests from
+#20
+pass in both runs.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

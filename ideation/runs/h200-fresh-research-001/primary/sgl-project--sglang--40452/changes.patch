@@ -1,0 +1,1885 @@
+From 5e356aa930bba9ccb6eb0f2908fe36c80489f55c Mon Sep 17 00:00:00 2001
+From: Leoyzen <leoyzen@gmail.com>
+Date: Fri, 18 Sep 2026 22:11:34 +0800
+Subject: [PATCH 1/2] [Quantization] Add 8 novel H200 [32,32] fp8_w8a8 tuned
+ configs
+
+Add tuned block-FP8 [32,32] tables for 8 H200 (SM90) shapes that had no
+config on main, so the tuned kernel path can be selected for them:
+
+  - N=512,K=5120
+  - N=1280,K=5120
+  - N=1536,K=5120
+  - N=32768,K=1280
+  - N=5120,K=8192
+  - N=5120,K=15360
+  - N=4608,K=5120
+  - N=5120,K=2304
+
+All 8 files are new; none of the existing H200 [32,32] tables are
+modified. Tables come from a local tuning sweep on the H200 SM90 part.
+---
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 130 ++++++++++++++++++
+ 8 files changed, 1040 insertions(+)
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=1280,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=1536,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=32768,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=4608,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=512,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=5120,K=15360,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=5120,K=2304,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+ create mode 100644 python/sglang/kernels/ops/quantization/configs/N=5120,K=8192,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=1280,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=1280,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..160db0bc8399
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=1280,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "24": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "96": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "128": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "256": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "512": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=1536,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=1536,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..4f782c373e05
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=1536,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "24": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "96": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "128": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "256": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "512": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=32768,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=32768,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..07937fed6a02
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=32768,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 256,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "24": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "96": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "512": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=4608,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=4608,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..7405a2959ad8
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=4608,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "24": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "96": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "512": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=512,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=512,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..180abc43f690
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=512,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "24": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "96": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "128": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "256": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "512": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    }
++}
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=5120,K=15360,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=5120,K=15360,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..c3a73c63a29a
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=5120,K=15360,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "24": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "96": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "512": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=5120,K=2304,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=5120,K=2304,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..1e4b7c154659
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=5120,K=2304,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "24": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "96": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "512": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    }
++}
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=5120,K=8192,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=5120,K=8192,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+new file mode 100644
+index 000000000000..0b6924c1b816
+--- /dev/null
++++ b/python/sglang/kernels/ops/quantization/configs/N=5120,K=8192,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -0,0 +1,130 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "24": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "32": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "64": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "96": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "512": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 4,
++        "num_stages": 4
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 4,
++        "num_stages": 3
++    }
++}
+
+From 5ecff7bb5230ff798cd08b020680e6338075531f Mon Sep 17 00:00:00 2001
+From: Leoyzen <leoyzen@gmail.com>
+Date: Sun, 20 Sep 2026 15:06:32 +0800
+Subject: [PATCH 2/2] [Quantization] Extend H200 [32,32] fp8_w8a8 tuned configs
+ with more M buckets
+
+The 7 existing H200 [32,32] block-FP8 tables only covered M=1 and M=2.
+Extend them with M buckets 4, 6, 8, 12, 16, 32, 64, 128, 256, 1024 and
+2048 so the tuned kernel path is also selected for those batch sizes:
+
+  - N=1152,K=5120
+  - N=1792,K=5120
+  - N=25600,K=6144
+  - N=4096,K=1280
+  - N=5120,K=2048
+  - N=5120,K=576
+  - N=8192,K=1280
+
+The added tiers come from a local H200/L20X tuning sweep. L20X is the
+OEM name of the same SM90 part as H200, so all tables are filed under
+NVIDIA_H200. The M=1 and M=2 entries of the existing files are
+unchanged.
+---
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 94 +++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 94 +++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 91 ++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 94 +++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 94 +++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 94 +++++++++++++++++++
+ ...0,dtype=fp8_w8a8,block_shape=[32, 32].json | 94 +++++++++++++++++++
+ 7 files changed, 655 insertions(+)
+
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=1152,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=1152,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index 80ed75f24e63..314704fd9da3 100644
+--- a/python/sglang/kernels/ops/quantization/configs/N=1152,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/quantization/configs/N=1152,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -16,5 +16,99 @@
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+         "num_stages": 3
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "6": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 16
++    },
++    "12": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "16": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "32": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
+     }
+ }
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index fb5b60cdfb87..e66be79b43fb 100644
+--- a/python/sglang/kernels/ops/quantization/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/quantization/configs/N=1792,K=5120,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -16,5 +16,99 @@
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+         "num_stages": 3
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "6": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "12": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "16": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "32": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
+     }
+ }
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index 91b3ff0dff75..1b1c3dc2817c 100644
+--- a/python/sglang/kernels/ops/quantization/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/quantization/configs/N=25600,K=6144,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -15,5 +15,96 @@
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+         "num_stages": 3
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true
++    },
++    "6": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true
++    },
++    "12": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "16": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "32": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
+     }
+ }
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index 5d34539e4f05..54aa61337f4f 100644
+--- a/python/sglang/kernels/ops/quantization/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/quantization/configs/N=4096,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -16,5 +16,99 @@
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+         "num_stages": 3
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "6": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "12": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "16": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "32": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
+     }
+ }
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=5120,K=2048,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=5120,K=2048,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index fb5b60cdfb87..e66be79b43fb 100644
+--- a/python/sglang/kernels/ops/quantization/configs/N=5120,K=2048,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/quantization/configs/N=5120,K=2048,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -16,5 +16,99 @@
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+         "num_stages": 3
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "6": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 8
++    },
++    "12": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "16": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "32": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
+     }
+ }
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=5120,K=576,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=5120,K=576,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index 5d34539e4f05..54aa61337f4f 100644
+--- a/python/sglang/kernels/ops/quantization/configs/N=5120,K=576,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/quantization/configs/N=5120,K=576,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -16,5 +16,99 @@
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+         "num_stages": 3
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "6": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 4
++    },
++    "12": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "16": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "32": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
+     }
+ }
+diff --git a/python/sglang/kernels/ops/quantization/configs/N=8192,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json b/python/sglang/kernels/ops/quantization/configs/N=8192,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json
+index b6c1003553ff..e94708d67f66 100644
+--- a/python/sglang/kernels/ops/quantization/configs/N=8192,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
++++ b/python/sglang/kernels/ops/quantization/configs/N=8192,K=1280,device_name=NVIDIA_H200,dtype=fp8_w8a8,block_shape=[32, 32].json	
+@@ -16,5 +16,99 @@
+         "GROUP_SIZE_M": 32,
+         "num_warps": 4,
+         "num_stages": 3
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 2
++    },
++    "6": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 2
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 4,
++        "SWAP_AB": true,
++        "SPLIT_K": 2
++    },
++    "12": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "16": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "32": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "64": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "128": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "256": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 64,
++        "BLOCK_SIZE_N": 32,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 32,
++        "num_warps": 4,
++        "num_stages": 3
+     }
+ }

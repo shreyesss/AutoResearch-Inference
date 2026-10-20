@@ -1,0 +1,285 @@
+Conversation
+interestingLSY
+commented
+Sep 10, 2026
+Copy link
+Copy Markdown
+Collaborator
+No description provided.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+👍
+4
+awgu, ou524u, flower418, and TuLa-1031 reacted with thumbs up emoji
+All reactions
+👍
+4 reactions
+interestingLSY
+added
+2
+commits
+September 9, 2026 22:40
+Add DeepSeek-V4.1 attention kernels
+…
+2b66310
+- Restructure csrc into csrc/kernels (per-architecture / per-operation tree) with
+  hierarchical namespaces and a .cpp API layer, and rename MODEL1 to DeepSeek-V4.
+- Sync the vendored kerutils library with the upstream version.
+- Add the sm100 sparse prefill kernels (h_q = 64 / 128, d_qk = 512 / 576).
+- Add the sm100 sparse decode kernel for h_q = 64 with the DeepSeek-V4.1 KV cache
+  formats (V41 fp8 and the V41_FP4 extra cache) and the shared dequantization helpers.
+- Add the fused norm + RoPE + attn + RoPE + cast operator and its permute kernels.
+- Build sm_100a / sm_103a targets and register the new sources.
+- Extend the tests with the V4.1 KV cache layouts and the fused kernel test, and
+  document the new KV cache formats in the README and the Python API.
+Update README.md
+4f38f29
+interestingLSY
+merged commit
+07a1089
+into
+main
+Sep 10, 2026
+zyongye
+mentioned this pull request
+Sep 10, 2026
+Sync DeepSeek upstream through V4.1 kernels (#221)
+vllm-project/FlashMLA#20
+Merged
+zyongye
+added a commit
+        to zyongye/FlashMLA
+      that referenced
+      this pull request
+Sep 10, 2026
+Sync DeepSeek upstream through V4.1 kernels (
+deepseek-ai#221
+)
+…
+02137a4
+Sync deepseek-ai/FlashMLA main through commit
+07a1089
+, including the DeepSeek V4.1
+kernels from
+deepseek-ai#221
+and the reorganized csrc/kernels tree.
+
+The upstream history is represented as one commit because the target repository's
+DCO check requires a valid sign-off on every commit in the pull request.
+
+Signed-off-by: Yongye Zhu <zyy1102000@gmail.com>
+lucifer1004
+added a commit
+        to lucifer1004/flashinfer
+      that referenced
+      this pull request
+Sep 10, 2026
+feat(sm120): DeepSeek-V4.1 (DSV4_1) sparse MLA cache format support
+…
+2c71fb6
+DeepSeek-V4.1-Flash stores each KV token as 528B: 512B of FP8 E4M3 covering
+the full 512-wide K (rope lanes quantized, no BF16 rope segment) plus a 16B
+footer of 16 UE8M0 scales over 32-wide groups (the
+deepseek-ai/FlashMLA#221
+layout, SM100-only there). Add ModelType::DSV4_1 on top of the ScaleSpec
+groundwork: GLM53_NOPE-style geometry (D_ROPE=0) composed with a 32-wide
+UE8M0 footer.
+
+Kernel side the format is simpler than DSV4 (one 512B bulk per row, a single
+unified block-scaled FP8 QK pass, no rope MMA paths). The two new mechanics:
+
+- the 16B footer row generalizes the scale gather from one uint64_t to a
+  width-selected load (uint4) in both the prefill IO helper and the decode
+  kernel's staged gather;
+- the 32-wide groups constrain the XV W-fold (one scale group per W buffer),
+  so an 8-warp XV split would floor NT_PER_WARP_XV to 0: decode runs a
+  4-math-warp tile at BI=64 (the DOTS3_SWA halving precedent) and prefill is
+  SG-only on the BI=32 producer/consumer tile. The ComputeTraits/SmemLayout
+  aliases now take the XV warp count so the NT_PER_WARP_XV assert evaluates at
+  the warp count the XV MMA actually runs at.
+
+Selection is explicit everywhere (d_qk=512 collides with DSV4, the 528B
+payload with GLM53_NOPE): the functional API gains kv_scale_format=
+"ue8m0_g32", the TRTLLM-compat entry kv_cache_format="fp8_dsv41", and the
+decode-dsv4 FFI takes an explicit model_type (-1 keeps the legacy width
+inference, matching the paged-entry kAuto convention). Dual-cache decode is
+supported like DSV4; dual-cache prefill (MG_DUAL) is intentionally not
+instantiated. Calibration keys a new dsv4_1 family at topk 512.
+
+Tests: decode matrix (dedicated/runtime-H heads, partial-tail topk, sinks),
+SG prefill, dual-cache through the TRTLLM entry, poisoned-slot-0 NaN safety
+on both gather paths, dispatch/plan/envelope coverage. 666 passed on RTX PRO
+6000 (SM120).
+
+Signed-off-by: lucifer1004 <13583761+lucifer1004@users.noreply.github.com>
+lucifer1004
+mentioned this pull request
+Sep 10, 2026
+feat(sm120): runtime KV row stride + canonical 528B GLM53_NOPE rows + NaN-safe masked gathers in sparse MLA
+flashinfer-ai/flashinfer#5075
+Merged
+zyongye
+added a commit
+        to vllm-project/FlashMLA
+      that referenced
+      this pull request
+Sep 10, 2026
+Sync DeepSeek upstream through V4.1 kernels (
+deepseek-ai#221
+) (
+#20
+)
+…
+c112cc1
+* Sync DeepSeek upstream through V4.1 kernels (
+deepseek-ai#221
+)
+
+Sync deepseek-ai/FlashMLA main through commit
+07a1089
+, including the DeepSeek V4.1
+kernels from
+deepseek-ai#221
+and the reorganized csrc/kernels tree.
+
+The upstream history is represented as one commit because the target repository's
+DCO check requires a valid sign-off on every commit in the pull request.
+
+Signed-off-by: Yongye Zhu <zyy1102000@gmail.com>
+
+* Restore stable ABI after upstream sync
+
+Signed-off-by: Yongye Zhu <zyy1102000@gmail.com>
+
+* Restore NVFP4 compatibility after upstream sync
+
+Port the V3.2 NVFP4 cache path alongside upstream's generalized V4.1 kernels. Restore optional output forwarding and add quantization and API regression coverage.
+
+Signed-off-by: Yongye Zhu <zyy1102000@gmail.com>
+
+* Restore api.cpp comments and document the vLLM fork's changes
+
+Address review on
+#20
+: keep the FLASH_MLA_ENABLE_DENSE_BWD and
+PyInit__flashmla_C comments that the upstream sync dropped from
+csrc/api/api.cpp, and add a README section summarizing what this fork
+carries on top of deepseek-ai/FlashMLA (stable ABI, registered
+operators, optional output buffers, SM90 dense FP8 extension, NVFP4 KV
+cache, robustness fixes, tests).
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: Yongye Zhu <zyy1102000@gmail.com>
+
+* Add a detailed per-file diff against upstream to the README
+
+Extend the "Changes in the vLLM fork" section with a per-area table of
+every file that differs from
+deepseek-ai/FlashMLA@
+07a1089
+and what
+changed in it, plus the full diffstat and the command to regenerate it.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: Yongye Zhu <zyy1102000@gmail.com>
+
+---------
+
+Signed-off-by: Yongye Zhu <zyy1102000@gmail.com>
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+zyongye
+mentioned this pull request
+Sep 10, 2026
+[Perf] Deepseek V41 Attention MegaKernel
+vllm-project/vllm#56344
+Closed
+FrankMinions
+pushed a commit
+        to FrankMinions/FlashMLA
+      that referenced
+      this pull request
+Sep 15, 2026
+Merge upstream/main (DeepSeek v4.1 kernels) into the SGLang fork
+…
+d8f91b0
+Merges deepseek-ai/FlashMLA main (
+07a1089
+"Add kernels for DeepSeek v4.1
+(
+deepseek-ai#221
+)") into the sgl-project/FlashMLA rebase branch.
+
+Upstream restructured csrc/ into csrc/kernels/<arch>/<op>/, turned the
+csrc/api/*.h header-only interfaces into .cpp translation units with their
+own pybind registration, replaced the per-kernel format constants with a
+KVCacheFormat<ModelType> descriptor, and renamed MODEL1 to DeepSeek-V4.
+The fork's changes were carried onto that structure:
+
+* libtorch build: dropped the csrc/flashmla_utils.h shim -- upstream's
+  includes are now "kernels/utils.h", which no longer collides with
+  sgl-kernel's bare utils.h. csrc/api/common.h keeps Python-free headers
+  under FLASH_MLA_LIBTORCH_ONLY, and the register_* functions that upstream
+  moved into csrc/api/*.cpp are guarded by the same macro, so a libtorch-only
+  build still compiles the interface TUs without Python.
+  csrc/python_api.cpp declares the three interfaces extern instead of
+  including the (now non-header) api files.
+
+* B200 V3.2 accuracy: upstream still narrows V3.2's inline fp32 KV scales to
+  1-byte ue8m0 in the index warp, which drops the mantissa. The bf16-scale
+  fix is ported into the generic KVBlockDequantizer through one new format
+  constant, KVCacheFormat::SCALE_SMEM_BYTES (2 for the V3.2 formats, 1
+  otherwise). NUM_INDEX_BUFS stays 2 for V3.2, keeping the scale smem
+  footprint identical to upstream.
+
+* V32_NO_ROPE: expressed as a KVCacheFormat (d_qk 512, no RoPE, V3.2's
+  inline fp32 scales) instead of ad-hoc constants, so the sm100 head64 kernel
+  reuses the D_BF16 == 0 path upstream added for V4.1. NOTE V3.2-no-RoPE and
+  V4.1 are both 528 B per token with d_qk 512, so the shape alone can no
+  longer identify the format: sparse_decode_fwd / flash_mla_with_kvcache take
+  a new optional kv_format argument, and auto-detection reads 528 B as
+  V3.2-no-RoPE so that callers written before V4.1 keep working.
+
+* sm90 dense decode HEAD_DIM_K=512 and the decode-meta low-smem fallback
+  carried over with no semantic change.
+
+Deleted csrc/kernels/sm90/decode/sparse/components/config.h: nothing includes
+it any more and its hardcoded V3.2 constants are misleading.
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+No reviews
+Assignees
+No one assigned
+Labels
+None yet
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+1 participant
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

@@ -1,0 +1,586 @@
+Conversation
+YJR722
+commented
+Sep 23, 2026
+•
+edited by github-actions
+Bot
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Motivation
+Enable candidate-only indexer scoring on SM90 for DeepSeek-V4.1, following
+#40574
+.
+The current protocol already publishes compact candidate block IDs, but Hopper consumers still traverse the full logical score space before selecting among the candidates. This PR uses those block IDs during scoring, so consumers produce compact scores directly instead of a context-width score matrix.
+The Triton implementation reads candidate K positions directly, avoiding a per-query
+[queries, candidates, head_dim]
+K tensor.
+Modifications
+Reuse the existing
+DenseBlocksBackend
+,
+BlockIds
+, and
+publish_*
+/
+consume_*
+interfaces.
+Prefill:
+score candidate positions directly from shared BF16 index K with Triton. Per-request K retrieval/dequantization remains unchanged; no per-query candidate K tensor is materialized. Retain the independent Torch reference and fallback for unsupported shapes.
+Decode/verify:
+add
+fp4_index_logits_candidates
+, reusing the upstream FP4 scoring tile. Address candidate K through the request-to-token table without constructing a context-sized slot map or candidate mask for compact consumers.
+Selection:
+keep scores compact through ragged/paged Top-K v2. Reuse
+finish_paged_indexer_topk
+for compact-to-logical mapping, invalid-position filtering, sorting, and output mapping. Preserve causal bounds, padding, and prefill tail slicing.
+CUDA graphs:
+enable the existing length-based variants on SM90: four for ordinary decode and two for DSPARK target verify.
+Preserve upstream source-layer scoring, the FullTopK DeepSelect path, 128B paged-score row alignment, and conditional Top-K v2 plan generation. SM100 backend selection remains unchanged.
+Accuracy Tests
+GPQA Diamond
+DeepSeek-V4.1-Flash, real 1P1D, 8×H20-3e per node, TP8/EP8/DP1/CP1. GPQA Diamond via
+sgl-eval
+: 198 questions, one sample each, concurrency 16, thinking enabled,
+reasoning_effort=max
+, temperature 1.0, top_p 0.95,
+max_tokens=65536
+, seed 1. Both P and D use the corresponding revision, with DSPARK block5 and decode CUDA graphs.
+Metric
+Baseline
+Candidate
+Correct / total
+180 / 198
+180 / 198
+Accuracy
+90.91%
+90.91%
+Truncated at max_tokens
+3
+6
+Request errors
+0
+0
+Speed Tests and Profiling
+Same model and 1P1D hardware configuration as above.
+Prefill TTFT
+D is fixed; only P switches between A/B. Chunked prefill=1024, BS1, OSL1, fixed input IDs and cache flushes. Values below are mean streaming TTFT from three measured requests per length after warmup.
+ISL
+Baseline TTFT (s)
+Candidate TTFT (s)
+Reduction
+32K
+6.101
+5.790
+5.09%
+64K
+13.910
+12.234
+12.05%
+128K
+34.299
+27.209
+20.67%
+256K
+100.155
+72.486
+27.63%
+16K was effectively unchanged in a dedicated repeat check: 3.345 s baseline versus 3.359 s candidate.
+DSPARK decode/verify
+P is fixed; only D switches between A/B. DSPARK block5, full CUDA graphs, steady-state BS8.
+ISL
+Baseline throughput (tok/s)
+Candidate throughput (tok/s)
+Throughput gain
+Baseline effective TPOT (ms)
+Candidate effective TPOT (ms)
+16K
+1427.71
+1543.44
+8.11%
+5.607
+5.191
+32K
+1358.83
+1528.88
+12.51%
+5.888
+5.234
+64K
+1193.78
+1411.98
+18.28%
+6.704
+5.667
+128K
+523.30
+680.07
+29.96%
+15.454
+12.027
+Checklist
+Run local formatting and static checks on changed files.
+Add kernel, protocol, and graph regression tests.
+Provide model accuracy and performance results.
+Pass upstream CI for the current head.
+CI States
+Latest PR Test (Base): ❌
+Run #38712574203
+Latest PR Test (Extra): ❌
+Run #38712574178
+Latest PR Test (AMD ROCm 10): ❌
+Run #38712574238
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+All reactions
+YJR722
+requested review from
+BBuf
+,
+DarkSharpness
+,
+Fridge003
+,
+HaiShaw
+,
+HydraQYH
+,
+Qiaolin-Yu
+,
+celve
+,
+hebiao064
+,
+ispobock
+,
+merrymercy
+and
+yuan-luo
+as
+code owners
+September 23, 2026 05:54
+github-actions
+Bot
+added
+deepseek
+jit-kernel
+labels
+Sep 23, 2026
+yuan-luo
+commented
+Sep 23, 2026
+Copy link
+Copy Markdown
+Collaborator
+Please fix the lint first.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+YJR722
+force-pushed
+the
+YJR722/dsv41-sm90-triton-candidate-indexer
+branch
+    from
+22056a5
+to
+c2c2e2d
+Compare
+September 23, 2026 06:47
+Frank-whw
+commented
+Sep 24, 2026
+Copy link
+Copy Markdown
+Thanks for this work. I prepared two small follow-up commits on top of the current PR head:
+775ab53e1a54d5574b4106476951944f5ead5465
+fixes compact top-k metadata so valid candidate positions are ordered before
+-1
+padding.
+170214f81ae37fa95dcfcdadb9f5377680d4b009
+adds a regression test for compact int32 prefill candidate-block metadata across score tiles, guarding against a return to full-width mask concatenation.
+Branch:
+https://github.com/Frank-whw/sglang/tree/test-dsv41-h200-prefill-memory
+Would you be willing to cherry-pick them in this order?
+git fetch https://github.com/Frank-whw/sglang.git test-dsv41-h200-prefill-memory
+git cherry-pick 775ab53e1a54d5574b4106476951944f5ead5465 170214f81ae37fa95dcfcdadb9f5377680d4b009
+I can provide the detailed validation notes privately if useful.
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+YJR722
+commented
+Sep 24, 2026
+Copy link
+Copy Markdown
+Author
+@Frank-whw
+Thanks for preparing these follow-up patches!
+For
+775ab53
+, the CandidateIndexer prefill interface explicitly permits unordered output, and _low_ratio_index_topk_torch already sorts valid positions ahead of padding before mapping them to KV slots. Adding another sort in _write_topk appears redundant for the current path, so I’d prefer not to cherry-pick this commit as-is. If you have a failing case that exposes a gap in the existing handling, I’d be happy to take a closer look.
+For
+170214f
+, the goal of protecting compact int32 candidate metadata across score tiles makes sense. I’d like to review the test coverage a bit further, particularly whether the blanket torch.cat prohibition is the right guard against full-width mask accumulation. I’ll consider this test independently of the sorting change.
+Any reproducer or validation notes you can share would be helpful. Thanks again for reviewing the PR!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Frank-whw
+commented
+Sep 24, 2026
+Copy link
+Copy Markdown
+@YJR722
+Thanks for the careful review. I agree:
+publish_prefill
+permits unordered positions, and the backend sorts valid positions before KV-slot mapping. The ordering expectation behind
+775ab53
+was too strong, so please disregard that commit.
+I prepared a clean standalone replacement test on top of the current PR head, without
+775ab53
+:
+b00d103a28537e8570c9c66327650397ec05c629
+https://github.com/Frank-whw/sglang/tree/test-dsv41-prefill-candidate-metadata
+It removes the blanket
+torch.cat
+prohibition. The test now checks the API-level contract only: score rows are processed tile by tile under a constrained score budget, and the source publishes compact
+[rows, topk_blocks]
+int32 block metadata with the documented 16K-row bound.
+If this coverage looks useful, the standalone commit can be fetched with:
+git fetch https://github.com/Frank-whw/sglang.git test-dsv41-prefill-candidate-metadata
+git cherry-pick b00d103a28537e8570c9c66327650397ec05c629
+Thanks again!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+YJR722
+force-pushed
+the
+YJR722/dsv41-sm90-triton-candidate-indexer
+branch
+    from
+b670c59
+to
+528619e
+Compare
+September 28, 2026 07:17
+YJR722
+commented
+Sep 28, 2026
+Copy link
+Copy Markdown
+Author
+Rebased onto the latest main and adapted the SM90 implementation to the new
+v41_indexer
+interfaces. Updated the PR description with H20 correctness tests, GPQA Diamond results, and prefill TTFT / DSPARK decode performance benchmarks. Ready for another review—thanks!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Oasis-Git
+mentioned this pull request
+Oct 2, 2026
+[Roadmap] DeepSeek V4.1 Optimization
+#42170
+Open
+17 of 56 tasks
+yuan-luo
+commented
+Oct 7, 2026
+Copy link
+Copy Markdown
+Collaborator
+Thanks for implementing SM90 candidate indexers. Could you resolve the conflicts after rebasing main?
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+YJR722
+force-pushed
+the
+YJR722/dsv41-sm90-triton-candidate-indexer
+branch
+    from
+528619e
+to
+1875c52
+Compare
+October 8, 2026 02:26
+YJR722
+mentioned this pull request
+Oct 10, 2026
+[Perf] dsv41: Score only candidate blocks in paged decode consumer layers
+#43401
+Open
+4 of 5 tasks
+Li-brua
+added a commit
+        to Li-brua/sglang
+      that referenced
+      this pull request
+Oct 11, 2026
+perf(pdmux): adapt SM90 candidate indexers from
+sgl-project#40860
+…
+e6fb12a
+Score compact candidate blocks in prefill and decode/verify through
+the current Selection protocol. Keep CPU request geometry, batch-owned
+candidates and logical-to-slot mapping, including tails and padding.
+Combine full scoring with
+sgl-project#42365
+and gate compact SM90 dispatch behind
+a startup flag. Exclude upstream graph-variant expansion and preserve
+the existing DSPARK block and PDMux lane/collective schedule.
+
+Add compact/dense replay, score-coordinate, admission, host-sync and
+independent-stream cache-sharing coverage, with opt-in/runbook details.
+
+Upstream-PR:
+sgl-project#40860
+Upstream-Commit:
+f983aca
+Validation: main CPU regression 470 passed, 309 subtests, 91 skipped;
+env/kernel inventory 77 passed, one missing-Triton subprocess check
+failed identically on baseline
+a64f33f
+. Ruff, isort, AST, test
+registration and whitespace checks passed. CUDA accuracy, graph
+replay, multi-rank liveness and throughput remain unverified.
+YJR722
+commented
+Oct 12, 2026
+•
+edited
+Loading
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Copy link
+Copy Markdown
+Author
+Hi
+@yuan-luo
+, following up on your rebase request: the PR has been rebased and adapted to the updated paged indexer implementation, and currently shows no merge conflicts. The latest commit also reuses ragged Top-K v2 and the shared finalizer for compact prefill selection, replacing the separate Torch postprocessing path.
+Could you please take another look when you have time and help enable CI? Here are the latest completed H20 validation results.
+End-to-end performance
+DeepSeek-V4.1-Flash, 1P1D with 8×H20-3e per node, TP8/EP8/DP1/CP1.
+Prefill: BS1, OSL1, fixed D, three measured requests per length.
+ISL
+Baseline TTFT
+Candidate TTFT
+Reduction
+32K
+6.101 s
+5.790 s
+5.09%
+64K
+13.910 s
+12.234 s
+12.05%
+128K
+34.299 s
+27.209 s
+20.67%
+256K
+100.155 s
+72.486 s
+27.63%
+16K was effectively unchanged in a dedicated repeat check: 3.345 s baseline vs 3.359 s candidate.
+Decode/verify: DSPARK block5, full CUDA graphs, fixed P, steady-state BS8; three-run averages.
+ISL
+Baseline throughput
+Candidate throughput
+Gain
+Effective TPOT, baseline → candidate
+16K
+1427.71 tok/s
+1543.44 tok/s
+8.11%
+5.607 → 5.191 ms
+32K
+1358.83 tok/s
+1528.88 tok/s
+12.51%
+5.888 → 5.234 ms
+64K
+1193.78 tok/s
+1411.98 tok/s
+18.28%
+6.704 → 5.667 ms
+128K
+523.30 tok/s
+680.07 tok/s
+29.96%
+15.454 → 12.027 ms
+Accuracy and correctness
+GPQA Diamond: 198 questions, single sample, concurrency 16, thinking enabled, reasoning_effort=max, temperature=1.0, top_p=0.95, max_tokens=65536, seed=1. Both P and D run the corresponding revision.
+Metric
+Baseline
+Candidate
+Correct
+180/198
+180/198
+Accuracy
+90.91%
+90.91%
+Truncated at max_tokens
+3
+6
+Request errors
+0
+0
+Thanks for your time!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+YJR722
+added
+2
+commits
+October 15, 2026 15:12
+[DSv4.1] Score SM90 indexer candidates with Triton
+…
+e1edaec
+Reuse the v41_indexer publish/consume protocols and compact block metadata. Score prefill candidates directly from shared BF16 K, and add candidate block addressing to the paged FP4 decode/verify scorer. Preserve the dense source path and independent Torch reference.
+
+Enable length-based candidate CUDA graph variants on SM90 and add scorer, protocol, and graph-selection regression coverage.
+[DSv4.1] Reuse Top-K v2 and fused finalization for compact prefill
+…
+6f19c12
+Replace compact prefill Torch selection and postprocessing with ragged Top-K v2 and the shared paged finalizer. Support raw-only outputs and explicit destination rows while preserving decode padding semantics.
+YJR722
+force-pushed
+the
+YJR722/dsv41-sm90-triton-candidate-indexer
+branch
+    from
+f983aca
+to
+6f19c12
+Compare
+October 15, 2026 07:34
+[DSv4.1] Clarify compact candidate dispatch and extend regression cov…
+…
+b96b21b
+…erage
+
+Rename use_triton_candidates to use_compact_candidates and centralize compact prefill scorer support checks while retaining the dense fallback.
+
+Cover unsupported prefill configurations and dense/compact decode replay with DeepSelect enabled and disabled.
+YJR722
+commented
+Oct 15, 2026
+Copy link
+Copy Markdown
+Author
+Hi
+@yuan-luo
+, could you help trigger CI for this PR when you have a chance? Thanks!
+All reactions
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+This branch has not been deployed
+No deployments
+Sign up for free
+to join this conversation on GitHub
+.
+    Already have an account?
+Sign in to comment
+Reviewers
+merrymercy
+Awaiting requested review from merrymercy
+merrymercy is a code owner
+Fridge003
+Awaiting requested review from Fridge003
+Fridge003 is a code owner
+ispobock
+Awaiting requested review from ispobock
+ispobock is a code owner
+Qiaolin-Yu
+Awaiting requested review from Qiaolin-Yu
+Qiaolin-Yu is a code owner
+hebiao064
+Awaiting requested review from hebiao064
+hebiao064 is a code owner
+HaiShaw
+Awaiting requested review from HaiShaw
+HaiShaw is a code owner
+DarkSharpness
+Awaiting requested review from DarkSharpness
+DarkSharpness is a code owner
+BBuf
+Awaiting requested review from BBuf
+BBuf is a code owner
+celve
+Awaiting requested review from celve
+celve is a code owner
+HydraQYH
+Awaiting requested review from HydraQYH
+HydraQYH is a code owner
+yuan-luo
+Awaiting requested review from yuan-luo
+yuan-luo is a code owner
+At least 1 approving review is required to merge this pull request.
+Assignees
+No one assigned
+Labels
+deepseek
+jit-kernel
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+3 participants
+Add this suggestion to a batch that can be applied as a single commit.
+This suggestion is invalid because no changes were made to the code.
+Suggestions cannot be applied while the pull request is closed.
+Suggestions cannot be applied while viewing a subset of changes.
+Only one suggestion per line can be applied in a batch.
+Add this suggestion to a batch that can be applied as a single commit.
+Applying suggestions on deleted lines is not supported.
+You must change the existing code in this line in order to create a valid suggestion.
+Outdated suggestions cannot be applied.
+This suggestion has been applied or marked resolved.
+Suggestions cannot be applied from pending reviews.
+Suggestions cannot be applied on multi-line comments.
+Suggestions cannot be applied while the pull request is queued to merge.
+Suggestion cannot be applied right now. Please check back later.

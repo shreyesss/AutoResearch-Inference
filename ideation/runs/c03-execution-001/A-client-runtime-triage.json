@@ -1,0 +1,102 @@
+{
+  "captured_utc": "2026-10-20T17:01:58.751650+00:00",
+  "run": "/home/ubuntu/Deepseek_serve-c03/results/h200/vllm/c03/production/mooncake-median/c03-A-exposure-median-0p5x/20261020-163428",
+  "aiperf_version": "0.13.0",
+  "source_root": "/home/ubuntu/Deepseek_serve/.venv-aiperf/lib/python3.12/site-packages/aiperf",
+  "sources": {
+    "timing/strategies/fixed_schedule.py": {
+      "sha256": "7b22e0b68f245044e1e71e4e72dbad433e18b99c9d4aa3c7ebe37c6eb32b6159",
+      "lines": [
+        67,
+        119,
+        138
+      ]
+    },
+    "workers/inference_client.py": {
+      "sha256": "fe64c6ced0383376297474f54e29151795330174c55e652b193b502b7a08f647",
+      "lines": [
+        271
+      ]
+    },
+    "metrics/types/replay_sched_lag_metrics.py": {
+      "sha256": "977309635059195e0cf282529b303513c312c6c382b106ddb749b30cde3b3305",
+      "lines": [
+        100,
+        106
+      ]
+    },
+    "metrics/replay_sched_lag_analyzer.py": {
+      "sha256": "21fdabef5b5a206cc8a17eb7af57b7ef501abdeb3dfdeff7ed1d00d1ea028857",
+      "lines": [
+        51,
+        77,
+        93
+      ]
+    },
+    "metrics/accumulator.py": {
+      "sha256": "84207cd087a01d0f82466222269f4e544fa1ee53035fa6990e792b3585585a7d",
+      "lines": [
+        512,
+        517,
+        695
+      ]
+    },
+    "server_metrics/manager.py": {
+      "sha256": "56f6bd495ce1d163c26cfe7a1910f8f44429edebb89c2da38791b4e6a402906d",
+      "lines": [
+        831,
+        840,
+        856,
+        877
+      ]
+    }
+  },
+  "trace": "/home/jl_fs/datasets/aiperf/mooncake/scaled/0p5x/median.jsonl",
+  "trace_sha256": "91fb37aac45c4aafc4c8c04e42d92bb0654f68eebd4f02b09adeee5449c5e1e1",
+  "export": "/home/ubuntu/Deepseek_serve-c03/results/h200/vllm/c03/production/mooncake-median/c03-A-exposure-median-0p5x/20261020-163428/artifacts/profile_export.jsonl",
+  "export_sha256": "7f1bde456ea6447860f8af0905b8853da1c88677e1379738e52a0bf4bbc0ceb1",
+  "method": "For each phase_kind separately, join metadata.conversation_id session_NNNNNN to trace row N, compute integer offset_ns=request_start_ns-int(trace.timestamp*1e6), subtract minimum offset in that phase, divide by 1e6, NumPy linear percentiles. This independently reconstructs the analyzer formula using exported request start metadata; AIPerf internal record timestamp produces sub-microsecond differences in final score.",
+  "phase_reconstruction": {
+    "warmup": {
+      "rows": 52,
+      "anchored_send_lag_ms": {
+        "p50": 45556.494154,
+        "p90": 93644.8385303,
+        "p99": 104095.50844386,
+        "max": 104203.467087
+      }
+    },
+    "profiling": {
+      "rows": 4004,
+      "anchored_send_lag_ms": {
+        "p50": 2.040059,
+        "p90": 2.865398500000001,
+        "p99": 5.861525499999991,
+        "max": 12.160918
+      }
+    }
+  },
+  "final_score": {
+    "replay_schedule_lag_p99_ms": 5.861754880000001,
+    "replay_degraded": 0.0
+  },
+  "export_finalization": {
+    "A": {
+      "requests_complete": "16:56:51.147",
+      "parquet_complete": "16:59:39.424",
+      "rows": 11548835,
+      "requests_to_parquet_seconds": 168.277,
+      "status_complete": "17:00:23.047",
+      "requests_to_status_seconds": 211.9
+    },
+    "historical_145417": {
+      "requests_complete": "15:16:43.927",
+      "parquet_complete": "15:19:37.126",
+      "rows": 11574757,
+      "requests_to_parquet_seconds": 173.199,
+      "status_complete": "15:20:27.573",
+      "requests_to_status_seconds": 223.646
+    }
+  },
+  "conclusion": "The alarming console lag warning comes from warmup, which uses concurrency_burst while retaining dataset timestamps. Profiling fixed-schedule replay is healthy by its final phase-scoped replay metrics. Server-metric export completed normally after a 30s RPC timeout and duration is comparable to historical baseline. This diagnosis does not change evaluator expectations or SLO verdicts."
+}

@@ -1,0 +1,218 @@
+diff --git a/lib/serve_recipe.py b/lib/serve_recipe.py
+index 1052b1b..fc800f3 100644
+--- a/lib/serve_recipe.py
++++ b/lib/serve_recipe.py
+@@ -2,6 +2,7 @@
+ from __future__ import annotations
+ 
+ import argparse
++import hashlib
+ import json
+ import os
+ import shlex
+@@ -18,6 +19,94 @@ import jsonschema
+ import yaml
+ 
+ ROOT = Path(__file__).resolve().parents[1]
++C03_PACKAGE_ROOT = "/usr/local/lib/python3.12/dist-packages"
++C03_IMAGE = (
++    "vllm/vllm-openai@sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c"
++)
++C03_SOURCE_PATHS = frozenset(
++    f"vllm/v1/worker/gpu/{name}"
++    for name in (
++        "dp_utils.py",
++        "model_runner.py",
++        "cudagraph_utils.py",
++        "spec_decode/speculator.py",
++        "spec_decode/dflash/speculator.py",
++        "spec_decode/dflash/cudagraph.py",
++        "spec_decode/dspark/speculator.py",
++        "spec_decode/autoregressive/speculator.py",
++        "c03_diagnostic.py",
++    )
++)
++C03_DIAGNOSTIC_HELPER = "vllm/v1/worker/gpu/c03_diagnostic.py"
++
++
++def load_c03_source_manifest(path: Path, image: str) -> dict[str, Any]:
++    """Validate reviewed, per-file overlays without importing serving code."""
++    c03_root = (ROOT / "c03").resolve()
++    path = path.resolve()
++    if not path.is_relative_to(c03_root):
++        raise ValueError("C03 manifest must be inside this worktree's c03 directory")
++    payload = json.loads(path.read_text())
++    if payload.get("schema_version") != 1:
++        raise ValueError("unsupported C03 source manifest schema")
++    if image != C03_IMAGE or payload.get("image") != image:
++        raise ValueError("C03 requires the attested existing image digest")
++    snapshot = json.loads((c03_root / "source/snapshot-manifest.json").read_text())
++    if snapshot.get("image") != image:
++        raise ValueError("C03 source snapshot has a different image")
++    originals = {item["path"]: item["sha256"] for item in snapshot["files"]}
++    files = payload.get("files")
++    if not isinstance(files, list):
++        raise ValueError("C03 files must be a list")
++    mounts = []
++    seen: set[str] = set()
++    for item in files:
++        destination = item.get("path")
++        if destination not in C03_SOURCE_PATHS or destination in seen:
++            raise ValueError(f"unapproved or duplicate C03 destination: {destination!r}")
++        seen.add(destination)
++        source = (path.parent / item["source"]).resolve()
++        if not source.is_relative_to(c03_root) or not source.is_file():
++            raise ValueError("C03 source must be a file inside this worktree's c03 directory")
++        if any(char in str(source) for char in (",", "\n", "\r", "\x00")):
++            raise ValueError("C03 source path cannot contain mount separators")
++        if hashlib.sha256(source.read_bytes()).hexdigest() != item.get("sha256"):
++            raise ValueError(f"C03 source hash mismatch: {destination}")
++        if destination == C03_DIAGNOSTIC_HELPER:
++            if item.get("base_sha256") is not None or destination in originals:
++                raise ValueError("C03 diagnostic helper must be a new module")
++        else:
++            original = c03_root / "source/base" / destination
++            expected = originals.get(destination)
++            if (
++                not expected
++                or item.get("base_sha256") != expected
++                or hashlib.sha256(original.read_bytes()).hexdigest() != expected
++            ):
++                raise ValueError(f"C03 baseline hash mismatch: {destination}")
++        mounts.append(
++            f"type=bind,src={source},dst={C03_PACKAGE_ROOT}/{destination},readonly"
++        )
++
++    environment = payload.get("environment", {})
++    allowed_env = {"C03_DIAGNOSTIC", "C03_DIAGNOSTIC_EPOCH", "C03_DIAGNOSTIC_DIR"}
++    if not isinstance(environment, dict) or set(environment) - allowed_env:
++        raise ValueError("unapproved C03 environment override")
++    if any(not isinstance(value, str) or "\x00" in value for value in environment.values()):
++        raise ValueError("C03 environment values must be strings without NUL bytes")
++    if environment:
++        if set(environment) != allowed_env or environment["C03_DIAGNOSTIC"] != "1":
++            raise ValueError("C03 diagnostic settings must specify enabled, epoch and output")
++        epoch = environment["C03_DIAGNOSTIC_EPOCH"]
++        epoch_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
++        if not epoch or any(char not in epoch_chars for char in epoch):
++            raise ValueError("invalid C03 diagnostic epoch")
++        if environment["C03_DIAGNOSTIC_DIR"] != f"/profiles/c03/{epoch}":
++            raise ValueError("C03 diagnostic output must match its epoch under /profiles/c03")
++        if C03_DIAGNOSTIC_HELPER not in seen:
++            raise ValueError("enabled C03 diagnostics require the reviewed helper")
++    return {"mounts": mounts, "environment": environment,
++            "manifest_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+ 
+ 
+ def load_yaml(path: Path) -> dict[str, Any]:
+@@ -144,6 +233,8 @@ def common_docker(
+     extra_env: dict[str, str],
+     engine_args: list[str],
+     nsys_output: str | None,
++    c03_sources: dict[str, Any] | None = None,
++    replica_id: int | None = None,
+ ) -> list[str]:
+     storage = Path(os.environ["MODEL_STORAGE_ROOT"])
+     hf_home = Path(os.environ["HF_HOME"])
+@@ -187,6 +278,17 @@ def common_docker(
+     ]
+     if os.environ.get("HF_TOKEN"):
+         command.extend(["-e", "HF_TOKEN"])
++    if c03_sources is not None:
++        if engine != "vllm" or image != C03_IMAGE or replica_id is None:
++            raise ValueError("C03 overlays require the attested vLLM replica")
++        for mount in c03_sources["mounts"]:
++            command.extend(["--mount", mount])
++        # A new container has no cache here, so installed .pyc files cannot
++        # silently shadow bind-mounted source. Identical for baseline/treatment.
++        command.extend(["-e", "PYTHONPYCACHEPREFIX=/tmp/c03-pycache"])
++        command.extend(["-e", f"C03_REPLICA_ID={replica_id}"])
++        for key, value in sorted(c03_sources["environment"].items()):
++            command.extend(["-e", f"{key}={value}"])
+     for key, value in sorted(extra_env.items()):
+         command.extend(["-e", f"{key}={value}"])
+     executable = "vllm" if engine == "vllm" else "sglang"
+@@ -500,8 +602,22 @@ def main() -> None:
+     parser.add_argument("--validate", action="store_true")
+     parser.add_argument("--stop", action="store_true")
+     parser.add_argument("--nsys-output")
++    parser.add_argument("--backends-only", action="store_true",
++                        help="leave the independently managed router untouched")
++    parser.add_argument("--c03-source-manifest", type=Path,
++                        help="reviewed C03 per-file source overlay manifest")
+     args = parser.parse_args()
+ 
++    if args.c03_source_manifest and (
++        args.hardware != "h200" or args.engine != "vllm"
++        or args.profile != "latency-2xdep4-sla" or not args.backends_only
++        or args.experiment or args.nsys_output
++    ):
++        parser.error(
++            "C03 requires h200/vllm latency-2xdep4-sla, --backends-only, "
++            "and no extra experiments/profiler"
++        )
++
+     engine_root = ROOT / "serving" / args.hardware / args.engine
+     base = load_yaml(engine_root / "base.yaml")
+     images = load_yaml(engine_root / "images.yaml")
+@@ -522,12 +638,16 @@ def main() -> None:
+     if args.stop:
+         subprocess.run(["docker", "rm", "-f", *names], check=False)
+         return
++    image = image_for(args.engine, images)
++    c03_sources = (
++        load_c03_source_manifest(args.c03_source_manifest, image)
++        if args.c03_source_manifest else None
++    )
+     if not args.dry_run and os.environ.get("SKIP_PREFLIGHT", "0") != "1":
+         subprocess.run(
+             ["bash", str(ROOT / "ops/preflight.sh"), args.hardware], check=True
+         )
+ 
+-    image = image_for(args.engine, images)
+     commands: list[list[str]] = []
+     backends: list[str] = []
+     for index, replica in enumerate(profile["replicas"]):
+@@ -560,6 +680,8 @@ def main() -> None:
+                 extra_env=engine_env,
+                 engine_args=engine_args,
+                 nsys_output=args.nsys_output,
++                c03_sources=c03_sources,
++                replica_id=index,
+             )
+         )
+         backends.append(f"http://127.0.0.1:{port}")
+@@ -572,7 +694,7 @@ def main() -> None:
+         "--backends",
+         *backends,
+     ]
+-    if len(backends) > 1:
++    if len(backends) > 1 and not args.backends_only:
+         try:
+             public_port = int(os.environ.get("PORT", "8000"))
+         except ValueError as exc:
+@@ -585,7 +707,7 @@ def main() -> None:
+     if args.dry_run:
+         for command in commands:
+             print(shlex.join(command))
+-        if len(commands) > 1:
++        if len(commands) > 1 and not args.backends_only:
+             print(shlex.join(router_command))
+         return
+ 
+@@ -609,10 +731,14 @@ def main() -> None:
+     signal.signal(signal.SIGTERM, handle_signal)
+     try:
+         for command in commands:
++            if args.c03_source_manifest:
++                # Refuse changed source between review/render and process start.
++                if load_c03_source_manifest(args.c03_source_manifest, image) != c03_sources:
++                    raise ValueError("C03 source manifest changed during launch")
+             processes.append(subprocess.Popen(command))
+         for backend in backends:
+             wait_ready(backend, processes)
+-        if len(commands) > 1:
++        if len(commands) > 1 and not args.backends_only:
+             processes.append(subprocess.Popen(router_command))
+         exit_code = 0
+         while True:

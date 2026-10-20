@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "arm": "A",
+  "status": "pass",
+  "counts": {
+    "vectors": 384,
+    "rank_calls": 3072,
+    "full": 1532,
+    "eager": 1532,
+    "all_zero": 8,
+    "draft_sync_reuse_without_collective": 2231,
+    "wrong_capacity_negative_control_rejected": 1
+  },
+  "examples": [
+    {
+      "logical_counts": [
+        5,
+        5,
+        5,
+        5
+      ],
+      "target": {
+        "mode": "FULL",
+        "requests": 6,
+        "tokens": 36,
+        "query_width": 6,
+        "num_ubatches": 1,
+        "active_loras": 0,
+        "max_query_len": null
+      },
+      "sync_requests": 6,
+      "draft": {
+        "mode": "FULL",
+        "requests": 7,
+        "tokens": 35,
+        "query_width": 5,
+        "num_ubatches": 1,
+        "active_loras": 0,
+        "max_query_len": null
+      }
+    }
+  ],
+  "source_sha256": {
+    "dp_utils": "f38356a8fb2853538d90f1f5a5c2283a649d3da8506aa30b424419b90acc0806",
+    "shared_speculator": "3eba83a88928a1df1a9b3de152255d024df0ed566eef4b8480e6d546a3cfbf31"
+  },
+  "actual_production_functions_executed": [
+    "dispatch_cg_and_sync_dp",
+    "sync_cudagraph_and_dp_padding",
+    "DraftModelSpeculator._build_uniform_batch_dp_sync"
+  ],
+  "scope": "actual production CPU count/dispatch functions; controlled collective and capture-manager doubles",
+  "real_distributed_collective_tested": false,
+  "gpu_tested": false,
+  "candidate_correctness_qualified": false,
+  "remaining": [
+    "actual online dummy clamp/preparation",
+    "GPU valid-row and KV behavior",
+    "real all-rank collective participation",
+    "startup capture",
+    "autoregressive caller"
+  ]
+}

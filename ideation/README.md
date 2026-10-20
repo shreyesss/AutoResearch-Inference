@@ -1,5 +1,13 @@
 # Inference ideation workbench
 
+## Hypotheses and results
+
+Start with the [hypothesis register](hypotheses/README.md): one short record per idea, linking its builder/PR/research origin, execution history, key results and detailed logs. It covers the 33 consolidated families and the new C24 timing lead and the 66 original audit cards; [saved generations](hypotheses/GENERATIONS.md) retain earlier proposals and review revisions. [C03](hypotheses/C03.md) includes the completed H200 screen and its unfavorable result.
+
+Browse [execution, analysis and meta-learning](records/README.md), including the [complete C03 evidence archive](evidence/c03-20261020/README.md).
+
+Use the [simple recording workflow](hypotheses/WORKFLOW.md) and [record template](hypotheses/TEMPLATE.md) for subsequent ideas and tests. Existing raw artifacts stay in their run directories.
+
 ## B200 PR audit and experiment explanations
 
 - [PR evaluation audit and reconstruction guide](runs/pr-evaluation-audit-001/README.md): source pins, frozen inputs, archive map, offline rebuild steps, 18 conditional performance plans and five correctness gates. No GPU experiments from this audit have run.

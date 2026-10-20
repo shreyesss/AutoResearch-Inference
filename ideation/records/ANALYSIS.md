@@ -1,0 +1,10 @@
+# Analysis records
+
+| Question | Finding | Evidence |
+| --- | --- | --- |
+| Was C03 a real mechanism, and why did it disappoint? | Yes: it removes a second draft-padding step. Only 6.30% of recorded online diagnostic events used smaller draft graphs; same-shape capacity fell 3.87% within supported FULL draft events. Neither quantity establishes elapsed-time savings. The exact service-regression cause remains unmeasured. | [Mechanism review](../runs/c03-mechanism-review-001/REPORT.md), [accounting and source hashes](../runs/c03-mechanism-review-001/ACCOUNTING.json) |
+| Were A and B comparable, and what changed besides headline latency? | All 4,004 workload keys match; 4,003 common successful requests have identical input/output lengths. Realized cache counts and warmup completion counts differ; those differences may themselves result from the implementation. | [Paired context](../runs/c03-execution-001/SCREEN_PAIR_CONTEXT.md) |
+| What can DeepInfer teach this runtime? | Confidence-budgeted target verification is relevant. The released SM100 engine is not a drop-in H200 service, and an upstream result is not a local measurement. | [Comparison](../runs/deepinfer-comparison-001/REPORT.md), [overlap mapping](../runs/deepinfer-comparison-001/OVERLAP.csv) |
+| What should precede the remaining two attempts? | Measure exposed cost before selecting another winner. Adaptive verification at k5 is a provisional lead because it can reduce target verification work while retaining draft width. | [C24 record](../hypotheses/C24.md), [timing diagnostic](../runs/av-k5-timing-001/) |
+
+Source-reading correction: checkpoint `dspark_block_size=5` is an observed default, not proof that explicit k3 is prohibited. The reviewed DeepSeek source did not establish an equality guard; a separate Qwen-specific guard must not be applied to DeepSeek. Shorter drafting remains unqualified for this non-causal proposal model. There is no authorization here to alter checkpoint metadata or bypass correctness checks.

@@ -1,0 +1,35 @@
+{
+  "reviews": [
+    {
+      "id": "H1",
+      "gates": {
+        "evidence_entails_claims": true,
+        "distinct_from_prior_art": false,
+        "mechanism_plausible": true,
+        "test_discriminates_alternatives": true,
+        "feasible_within_constraints": true
+      },
+      "scores": {
+        "performance_value": 2,
+        "mechanistic_evidence": 2,
+        "feasibility": 3,
+        "novelty": 1,
+        "testability": 4
+      },
+      "objections": [
+        "Observed code: the supplied staging kernel sets padded routing IDs to -1 and weights to zero. It does not show the target dispatcher, active GEMM path, or TPOT bottleneck.",
+        "Author-reported result: PR #57977 gives C1 TPOT of 6.58 ms versus 6.50 ms while reporting GPU busy time of 7.64 ms versus 6.85 ms. That PR changes activation quantization and dense consumers; its numbers do not measure a shape-aware expert GEMM selector.",
+        "Author claim and prior art: EPS-MoE describes “switching from GroupedGemm to DenseGemm at a certain token number.” PR #46063 describes a small-M dispatcher on AMD. Scientific novelty is weak; implementation novelty in the target vLLM path is unknown. The possible B200 DeepSeek workload adaptation remains untested.",
+        "Transfer inference: low routed rows could change the best eligible GEMM path, but target per-expert row counts and the share of TPOT spent in GEMM are unknown. PR #49271 explicitly says a faster raw grouped GEMM can lose end to end to a fused path.",
+        "Systems correctness: routed rows per expert are produced by routing during the step. Selecting a captured path on the host from those rows may require synchronization; the proposal must specify how selection works without adding that cost. PR #46238 reports SM100 low-M autotune alignment faults, so candidate warmup and replay need validation.",
+        "The proposed full-path measurements and current-versus-best-static controls can distinguish a serving gain from a kernel-only gain. A later bounded B200 experiment is permitted by the no-GPU-execution constraint; no GPU result is claimed here."
+      ],
+      "required_revision": "Identify the exact checkpoint, format, topology, graph mode, current dispatch rule, and eligible paths. Trace C1/C4 decode before implementing the policy. Define selection using information available without a costly synchronization, then compare it with current dispatch and the best eligible static path under matched graph, staging, and warmup conditions. Report repeated TPOT, full MoE attribution, routed-row distributions, correctness, replay, and startup cost."
+    }
+  ],
+  "global_gaps": [
+    "Target B200 DeepSeek checkpoint, quantization, topology, graph mode, active backend, workload, bottleneck, effect size, and limitations are unknown.",
+    "The supplied PR measurements are author reports on specific configurations; none measures H1 on the target setup.",
+    "The supplied staging code does not establish the current GEMM selection rule. Bounded prior-art search cannot establish absence of another selector."
+  ]
+}

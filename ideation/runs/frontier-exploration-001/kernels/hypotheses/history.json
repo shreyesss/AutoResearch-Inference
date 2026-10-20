@@ -1,0 +1,226 @@
+[
+  {
+    "card": {
+      "id": "H1",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Test a decode-sized MegaMoE workspace for DeepSeek-V4.1-Flash on the eight-B200 node, conditional on the deployed engine selecting FlashInfer CuTeDSL MegaMoE and supporting the required workspace API. PR #62073 describes a capacity of `max_num_seqs × (1 + num_speculative_tokens)` per sequence-parallel rank, selected only when every data-parallel rank fits because peer offsets depend on shared capacity. A smaller active workspace might reduce decode address or capacity overhead, but its extra allocation and warmup could take memory from KV cache and reduce useful concurrency. The PR reports no decode gain; its measured throughput claim concerns Beam prefill on GB300. Establish backend inclusion and the actual DSpark verification token bound first, then compare full serving behavior and correctness against a fixed-workspace control. The B200 decode bottleneck and effect size are unknown.",
+      "observed_bottleneck": "Unknown. The supplied B200 aggregate reports serving outcomes, not MegaMoE workspace overhead.",
+      "mechanism": "Select a smaller workspace for eligible decode batches while preserving identical peer buffer offsets across ranks; any saved active capacity may reduce MegaMoE overhead, while the additional allocation may reduce KV capacity.",
+      "proposed_change": "First inspect the deployed image and runtime to establish engine, precision, selected MoE backend, FlashInfer API availability, and whether decode workspace selection is already active. If eligible and absent, adapt #62073's workspace selection with global capacity agreement and a safe fixed-workspace fallback.",
+      "code_surface": "vLLM FlashInfer MoE-EP adapter and workspace allocation/selection in `vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py`; deployed FlashInfer `create_workspace` API.",
+      "applicability": "Conditional on active `flashinfer_moe_ep_cutedsl`, required FlashInfer APIs, and a verified DSpark token bound. Applicability to archived R7b and R10 runs is unknown.",
+      "predicted_direction": "Possible lower decode TPOT or higher throughput; KV capacity, TTFT, and cost per token could worsen. No numerical B200 effect is predicted.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "The deployed backend already selects the smaller workspace.",
+          "distinguishing_test": "Inspect resolved backend and trace workspace allocation and selection in the exact image before implementing."
+        },
+        {
+          "explanation": "MegaMoE workspace overhead is too small to affect serving, or extra allocation reduces KV capacity enough to offset it.",
+          "distinguishing_test": "Compare workspace bytes, KV capacity and occupancy, MegaMoE decode time, TPOT, and SLO goodput with otherwise identical runs."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:62073",
+          "quote": "It is used when every DP rank's batch fits, since peer buffer offsets depend on the capacity.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62073",
+          "quote": "The MegaMoE runtime paths still need CI or a nightly-FlashInfer machine.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:57604",
+          "quote": "decode/draft are essentially unchanged.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62541",
+          "quote": "On B200, DSpark verifies the full 5-token block (`enable_adaptive_verification:false`)",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "No novelty claim.",
+        "implementation": "Conditional activation or adaptation of an existing, open PR's workspace mechanism.",
+        "workload": "DeepSeek-V4.1-Flash agent-style decode on a single eight-B200 node; actual cache-hit rate is unknown.",
+        "nearest_prior_art": "vLLM PR #62073.",
+        "specific_delta": "Evaluate decode workspace selection against the deployed fixed-workspace path, including its KV memory cost and DSpark correctness contract."
+      },
+      "prior_art_query": "MegaMoE decode workspace capacity",
+      "experiment": {
+        "control": "The resolved deployed backend with its existing fixed or automatic workspace policy; retain the static fixed-workspace option as a comparator. Match R7b two DEP4 at concurrency 256/384/512 and R10 DEP8 at 1024 within each layout.",
+        "treatment": "Decode-sized workspace selection with a fixed-workspace fallback when any rank exceeds the common capacity.",
+        "metrics": "TTFT, TPOT/ITL, throughput, separately defined custom and AIPerf strict SLO goodput, cost per token, quality, MegaMoE decode time, workspace bytes, KV capacity and occupancy, and collective hangs/errors.",
+        "supports_if": "The path is eligible and absent from control, rank and DSpark contracts pass, and paired serving runs improve TPOT or throughput without material loss of KV capacity, goodput, cost, or quality. Any performance threshold must be chosen before testing.",
+        "rejects_if": "The active path is ineligible, the token or peer-offset contract fails, correctness fails, or paired serving results show no useful net benefit after KV capacity is included.",
+        "inconclusive_if": "The active image or flags cannot be recovered, cache-hit rates or request streams differ, the path is already active without a separable control, or measurement uncertainty masks the delta.",
+        "held_out_condition": "Unequal and zero-token rank batches under CUDA graph replay, plus a held-out arrival trace with measured cache hits and a different concurrency mix.",
+        "correctness": "Require global capacity agreement, collective participation by idle ranks, no deadlock, bit-exact eligible outputs against the fixed path, and a verified maximum number of MegaMoE tokens entering each DSpark verification step.",
+        "cost": "Read-only presence and eligibility inspection first; then targeted multi-rank correctness tests and paired eight-B200 serving runs. No GPU execution is available in this session."
+      },
+      "revision_reason": "Historical novelty objections do not veto this deployment experiment; incremental value remains conditional on the presence check."
+    },
+    "global_id": "hypothesis:e4f2843d5a7873fb39c4533c1eeb4d18758ebadc01bff67d8fc4cfc9235693fd",
+    "review": {
+      "id": "H1",
+      "criteria": {
+        "improvement_path": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "A cheap inspection can establish whether the deployed backend selects FlashInfer CuTeDSL MegaMoE and whether decode workspace selection is already active. If eligible, measuring MegaMoE decode time alongside KV capacity gives a testable path to serving value. The B200 bottleneck and effect size are unknown."
+        },
+        "legal_correct_integration": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The proposed global capacity agreement, fixed-workspace fallback, idle-rank participation, unequal and zero-rank tests, and DSpark token-bound check address the stated hazards. The active backend, required FlashInfer APIs, actual token bound, and complete workspace implementation are not established."
+        },
+        "source_support": {
+          "verdict": "fail",
+          "score": 2,
+          "rationale": "PR #62073 makes the author claim that the smaller workspace is used when “every DP rank's batch fits,” and reports a Beam prefill result on four GB300s. H1 incorrectly says that PR reports no decode gain. “decode/draft are essentially unchanged” comes from PR #57604 about different staging and gather changes. The supplied code excerpt does not show the workspace branch."
+        },
+        "controlled_experiment": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The design compares within R7b two DEP4 at 256/384/512 and R10 DEP8 at 1024, includes a fixed-workspace comparator, and measures service metrics and KV capacity. It keeps custom and AIPerf strict goodput separate. Paired runs still need an explicit freeze of the request stream, cache hits, checkpoint, precision, flags, image digest, and DSpark state; proposed acceptance thresholds must be set before testing."
+        }
+      },
+      "factual_support": "fail",
+      "objections": [
+        "PR #62073 does not report a decode performance result; absence of a result cannot be stated as a reported no-gain finding.",
+        "PR #62073 says the decode workspace adds an allocation and warmup, but the B200 KV capacity cost is unknown.",
+        "The archived `dspark_config=off` and refreshed k5 recipe conflict; neither is an established control configuration."
+      ],
+      "required_revision": "Replace “The PR reports no decode gain” with “PR #62073 reports no decode performance measurement.” Label its workspace behavior as an author claim until the complete implementation and deployed backend are inspected. Specify the frozen run configuration and separately report R7b custom goodput 6.6288 and AIPerf strict goodput 4.6727."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "rejected",
+      "score": 67.0,
+      "reasons": [
+        "Critic: factual claims unsupported or contradicted",
+        "Task rubric needs paper full-text evidence",
+        "legal_correct_integration: The proposed global capacity agreement, fixed-workspace fallback, idle-rank participation, unequal and zero-rank tests, and DSpark token-bound check address the stated hazards. The active backend, required FlashInfer APIs, actual token bound, and complete workspace implementation are not established.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:8838a120ff289909220b47311fd1f9ec0de4a5dc81461c0c0199bcebaf0204ae",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  },
+  {
+    "card": {
+      "id": "H2",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Investigate launch-time selection of communication CTA count or compute/communication SM resources for shared-expert and combine overlap on the B200 deployment. The cited paper describes such selection for COMET on four A100 GPUs and reports prefill gains; it explicitly leaves newer architectures and decode for future work. A separate DeepEP v2 report shows that shared-expert GEMMs can overlap combine in a GB300 deployment, but it does not establish a legal resource-selection knob in the active B200 backend. First inspect the resolved backend and profile whether combine and shared-expert work overlap or contend for resources. Only if a legal knob exists, compare a small, capture-compatible launch-time policy with the strongest fixed resource setting and the current serving baseline. B200 contention, decode benefit, and effect size remain unknown.",
+      "observed_bottleneck": "Unknown. The supplied B200 aggregate does not isolate combine time, overlap, CTA residency, or SM contention.",
+      "mechanism": "Choose communication and compute resources before launch so both sides of a legal overlap path make progress without excessive contention.",
+      "proposed_change": "Inspect the active combine backend for a supported CTA/SM concurrency control and its valid range. If present, build a bounded launch-time policy from measured B200 occupancy and split dependencies; preserve capture behavior and a fixed-setting fallback.",
+      "code_surface": "The active MoE combine and shared-expert path, to be identified from the deployed image. PR #52781's DeepEP v2 overlap gate is relevant only if that backend is selected.",
+      "applicability": "Conditional on a legal resource knob and actual shared-expert/combine overlap in the active B200 backend. Neither is established by the supplied material.",
+      "predicted_direction": "Possible lower TPOT or higher throughput if resource contention limits overlap. No A100 or GB300 speedup is transferred numerically to B200.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "There is no legal resource knob, or the backend does not use the overlap path.",
+          "distinguishing_test": "Inspect backend selection, implementation controls, and traces before coding; stop this hypothesis if either precondition fails."
+        },
+        {
+          "explanation": "Latency changes come from synchronization or launch differences rather than improved overlap.",
+          "distinguishing_test": "Compare the policy with a fixed best setting and an overlap-disabled or early-join control while tracing concurrent kernel intervals."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "fulltext:2609.07536",
+          "quote": "it selects the communication-CTA count and the compute/communication resource partition before kernel launch.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "fulltext:2609.07536",
+          "quote": "Future work will evaluate the analytical model on newer GPU architectures",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:52781",
+          "quote": "each combine kernel overlapped by shared-expert GEMMs ~9.7 us on average with the flag ON vs exactly 0 OFF.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:54683",
+          "quote": "the expert kernel accepts one per-tensor scale for the complete gathered tensor.",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "No novelty claim.",
+        "implementation": "Conditional transfer of a published resource-selection mechanism to an eligible B200 backend.",
+        "workload": "DeepSeek-V4.1-Flash agent-style serving on a single eight-B200 NVLink/NVSwitch node; paper evidence concerns A100 prefill and the overlap PR concerns GB300 DeepSeek-R1.",
+        "nearest_prior_art": "arXiv:2609.07536 and vLLM PR #52781.",
+        "specific_delta": "Tune a legal communication resource setting for measured B200 shared-expert/combine overlap, if exposed, and compare it with the best static setting."
+      },
+      "prior_art_query": "MoE communication CTA resource selection",
+      "experiment": {
+        "control": "Resolved deployed configuration plus the best legal fixed CTA/SM setting found on a tuning subset; include an overlap-disabled or early-join diagnostic where supported. Compare within R7b two DEP4 at 256/384/512 and R10 DEP8 at 1024.",
+        "treatment": "A capture-compatible launch-time resource policy based on measured workload and residency constraints, using only documented legal settings.",
+        "metrics": "TTFT, TPOT/ITL, throughput, custom and AIPerf strict SLO goodput reported separately, cost per token, quality, combine and shared-expert timing, overlap interval, CTA residency, SM occupancy, and KV capacity.",
+        "supports_if": "A legal knob and resource contention are demonstrated, correctness passes, and paired full-serving results beat the best fixed setting on service metrics without material goodput, cost, KV, or quality regression.",
+        "rejects_if": "No legal knob or overlap path exists, traces show no relevant contention, correctness fails, or the best fixed setting matches or beats the policy.",
+        "inconclusive_if": "Backend state or runtime controls remain unknown, graph modes differ, traces cannot resolve overlap, or paired results are too noisy to distinguish the policy from the static comparator.",
+        "held_out_condition": "A held-out request trace with measured cache hits, different rank skew and concurrency from policy tuning, including zero and unequal rank work.",
+        "correctness": "Preserve collective order, stream/event dependencies, graph replay safety, and output equality or an agreed numerical tolerance. Do not infer a NVIDIA pre-dispatch quantization change from the AMD MoRI result; PR #54683 shows that scale semantics can forbid it.",
+        "cost": "Read-only backend and knob inspection, then short profiling and bounded static tuning before paired eight-B200 serving tests. No GPU execution is available in this session."
+      },
+      "revision_reason": "The earlier generic overlap rejection is addressed by making backend eligibility, a legal knob, and a best-static comparison explicit; it remains a conditional transfer."
+    },
+    "global_id": "hypothesis:d6a6e253d7a287c7e1d05febf6ddd4c5bce5e576bb03685997c73ede6f53e78d",
+    "review": {
+      "id": "H2",
+      "criteria": {
+        "improvement_path": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Backend and knob inspection is a cheap eligibility check. If a legal control exists and profiling shows contention during shared-expert/combine overlap, comparison with the best fixed setting can test deployment value. An unmeasured bottleneck is an appropriate first falsification question."
+        },
+        "legal_correct_integration": {
+          "verdict": "unknown",
+          "score": 2,
+          "rationale": "The proposed collective-order, stream-dependency, and graph-replay checks are appropriate, but no supplied evidence identifies the active B200 combine backend or establishes a legal CTA/SM resource knob. The paper's COMET control cannot establish that precondition for this backend."
+        },
+        "source_support": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The supplied paper conclusion says it “selects the communication-CTA count and the compute/communication resource partition before kernel launch” and places its evaluation on four A100 GPUs; its future-work passage expressly leaves newer GPUs and decode untested. PR #52781 reports about 9.7 µs of overlap on GB300. These are author reports, while B200 benefit is explicitly a transfer inference. The excerpted paper text and PR do not provide active-backend engineering evidence or a legal knob."
+        },
+        "controlled_experiment": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The design includes the specified R7b and R10 points, a best-legal-fixed-setting comparator, an overlap diagnostic where supported, serving metrics, quality, and KV capacity. Tuning and held-out traces are separated. The historical flags and image must be recovered or the baselines rerun under frozen, matched controls."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "The supplied paper passage supports launch-time resource selection in COMET on A100, not a B200 shared-expert/combine implementation.",
+        "PR #52781 reports overlap on a GB300 DeepEP v2 deployment; it does not identify the active B200 backend or expose a CTA/SM knob.",
+        "The paper extract has gaps, so detailed method and limitations beyond the quoted conclusion remain unknown."
+      ],
+      "required_revision": "Keep H2 conditional. Before implementation, document the resolved B200 backend, the exact supported resource control and range, and evidence that shared-expert/combine work overlaps and contends for resources. Freeze matched baseline controls, then compare with the best fixed legal setting."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 66.0,
+      "reasons": [
+        "legal_correct_integration: The proposed collective-order, stream-dependency, and graph-replay checks are appropriate, but no supplied evidence identifies the active B200 combine backend or establishes a legal CTA/SM resource knob. The paper's COMET control cannot establish that precondition for this backend.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:8838a120ff289909220b47311fd1f9ec0de4a5dc81461c0c0199bcebaf0204ae",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  }
+]

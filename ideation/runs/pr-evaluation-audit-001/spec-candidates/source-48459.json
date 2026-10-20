@@ -1,0 +1,103 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:48459",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/48459",
+    "title": "[Bugfix] Exclude DSpark draft-model KV-cache group from core prefix-cache lookup veto",
+    "body": "Fixes #48455\n\n### Purpose\n\nSplit out from #47891 per review feedback there: this PR is the core-only\nhalf of that fix, the offloading connector's PR will be rebased to align\nwith this once it merges.\n\n`HybridKVCacheCoordinator.find_longest_cache_hit()`\n(`vllm/v1/core/kv_cache_coordinator.py`) requires every KV-cache group of a\nhybrid model to independently report a nonzero hit before confirming any\nprefix reuse for a request, on the GPU tier. When serving DeepSeek-V4 with\nDSpark speculative decoding, the draft-model KV-cache group can never\nsatisfy this, so it incorrectly vetoes reuse of the target model's own\nKV-cache groups (SWA, compressed C4A/C128A, indexer) even when those groups\ngenuinely still hold valid, resident GPU blocks for a matching prefix. A\nfollow-up request sharing a prefix with GPU blocks still resident from a\nprevious request, or a request resumed after preemption, gets treated as\nhaving zero reusable prefix and is fully recomputed from scratch.\n\n### What this PR changes\n\n- `SpeculativeConfig.has_ephemeral_draft_context()` (new,\n  `vllm/config/speculative.py`): a predicate on the speculative method\n  itself, following the same pattern as the existing `use_dflash()` and\n  `use_dspark()`. Returns `True` for `\"dspark\"`. Identifies methods whose\n  draft-model KV-cache group is rebuilt from the target model's auxiliary\n  hidden states at generation time, rather than accumulated incrementally\n  through the draft's own attention (EAGLE/EAGLE3/MTP).\n- `KVCacheGroupSpec.eagle_group_is_veto_exempt` (new,\n  `vllm/v1/kv_cache_interface.py`): a plain boolean field, computed once\n  from the predicate above wherever `is_eagle_group` is already set\n  (`vllm/v1/core/kv_cache_utils.py`).\n- `HybridKVCacheCoordinator.find_longest_cache_hit()`\n  (`vllm/v1/core/kv_cache_coordinator.py`, the primary fix): when a\n  veto-exempt eagle group reports zero hit blocks in a round, that group is\n  dropped from the round instead of zeroing the whole request's confirmed\n  hit length. It still participates normally in every other round,\n  including any round where it reports a nonzero hit.\n\nNeither `find_longest_cache_hit()` nor `find_longest_cache_hit_per_group()`\ncontains a single method-name string comparison; the exemption is derived\nonce from `KVCacheGroupSpec.eagle_group_is_veto_exempt` and consumed as a\nplain boolean.\n\n### `eagle_group_is_veto_exempt` does not mean \"excluded from the lookup\"\n\nA veto-exempt group's hit length is still computed every round exactly like\nany other group's. The exemption only changes what happens when that\ncomputed hit length is zero: normally a zero from any group vetoes\n(truncates to zero) every other group's independently confirmed hit; for a\ngroup whose KV has no request-independent, stable meaning, a zero is not\ninformative about whether the target model's own groups have a real,\nreusable hit, so it is left unconfirmed for that round instead of zeroing\neveryone else. A nonzero hit from the same group participates in the\nAND-convergence exactly like before, with no special casing.\n\n### Why this has no downside for DSpark, unlike EAGLE/EAGLE3/MTP\n\nEAGLE/EAGLE3/MTP's draft model runs its own causal self-attention over\ntokens it has itself drafted. Once a draft token's KV is computed, it stays\nvalid for the rest of the request and is genuinely reusable across requests\nthat share a prefix.\n\nDSpark's draft context KV works differently.\n`DSparkDeepseekV4Model.precompute_and_store_context_kv`\n(`vllm/models/deepseek_v4/nvidia/dspark.py`) derives each draft layer's\ncontext KV directly from the target model's own auxiliary hidden states at\nthat exact decode step, and writes it into that layer's context slots. This\nruns once per drafting round: the target produces real hidden states,\nDSpark writes fresh context KV from them, the draft model attends over that\nfreshly written context to produce this round's speculative tokens, and the\nnext round overwrites those same slots again from the target's next hidden\nstates. It is a write-then-immediately-consume-within-round buffer, not an\nincrementally accumulated cache. There is no window in which reusing it\nwould be meaningful, so this PR does not forfeit any reuse opportunity\nDSpark had. It never had one to begin with.\n\n### Scope\n\nTwo independent scope boundaries.\n\n**Speculative method: DSpark only, DFlash is a follow-up.** DFlash's\ndrafter builds its context KV from the target model's auxiliary hidden\nstates the same way DSpark's does, so `has_ephemeral_draft_context()` could\nmechanically be extended to cover `\"dflash\"` with a one-line change. This\nPR deliberately does not do that: DFlash has not been validated end to end\nin a live server (blocked on an unrelated attention-backend /\nKV-cache-dtype compatibility gap for the DeepSeek-V4 target, plus a\ncheckpoint-architecture mismatch for the specific community DFlash\ncheckpoint available), so claiming the fix for DFlash here would be a claim\nwithout evidence.\n\n**Model architecture: the whole DeepSeek-V4 family (Flash, Pro, and any\nother size variant), not size-specific.** `eagle_group_is_veto_exempt` is\nonly ever set inside `_annotate_eagle_groups_deepseek_v4` (pre-existing\ncode, `vllm/v1/core/kv_cache_utils.py`), which is itself hard-scoped to\n`model_version == \"deepseek_v4\"`. That value is set in exactly one place,\n`vllm/models/deepseek_v4/attention.py`, shared by the whole\n`DeepseekV4ForCausalLM` architecture regardless of size variant. Every\nother model architecture falls back to a different, pre-existing path that\nflags all groups as `is_eagle_group` uniformly and never touches this new\nfield, so this PR has no effect there.\n\nLive serving validation of this mechanism, via #47891 which shares the\nsame core fix, was on the Flash size variant.\n\n### Testing\n\n| Suite | Result |\n|---|---|\n| `tests/v1/core/test_prefix_caching.py` | included in full run below |\n| `tests/v1/core/` (full directory, 2 GPUs) | 423 passed, 0 failed |\n\nRun inside an isolated throwaway container (source `.py` tree synced over\nan installed `vllm` build to avoid needing a full rebuild), on this\nbranch alone, with no dependency on the offloading connector changes in\n#47891.\n",
+    "created_at": "2026-07-13T03:56:17Z",
+    "updated_at": "2026-09-01T04:13:17Z",
+    "fetched_at": "2026-10-19T23:05:03Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 48459,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7614859318,
+          "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+          "name": "needs-rebase",
+          "color": "d4c5f9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8068298936,
+          "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+          "name": "v1",
+          "color": "9810B3",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777489391,
+          "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+          "name": "kv-cache-manager",
+          "color": "d065a7",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 9,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "8e92248f79814bc12a195f5d2529cc245768017c",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/dspark-core-veto-exempt",
+        "sha": "bbabf3143ac16271fd671b9f12f49b5572748e5f",
+        "label": "phamduchuy1892004-gif:fix/dspark-core-veto-exempt"
+      },
+      "merge_commit_sha": null,
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:05:03Z"
+    },
+    "content_hash": "80540c524cfce3254f2c91f07d2046cf015d54b81dcbf78f96dbd270252d49cf"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

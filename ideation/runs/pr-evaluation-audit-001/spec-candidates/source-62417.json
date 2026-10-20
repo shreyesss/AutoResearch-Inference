@@ -1,0 +1,67 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62417",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/vllm-project/vllm/issues/62417",
+    "title": "[Bug][Spec Decode] DSpark corrupts thinking/chat outputs on DeepSeek-V4.1-Flash-1017 (all k; both v0.32.0 and nightly; clean without speculation)",
+    "body": "## Environment\n\n- Hardware: 8x RTX PRO 6000 Blackwell Server Edition 96G (SM120), single node, TP8 + EP\n- vLLM: **0.32.0 release** and **0.32.1rc1.dev24** (latest nightly) \u2014 both reproduce\n- torch: 2.13.0+cu132 (release env) / 2.14.0+cu132 (nightly env) \u2014 both reproduce\n- FlashInfer: 0.7.1rc5 (python + jit-cache; cubin 0.7.0.post1)\n- Checkpoint: `deepseek-ai/DeepSeek-V4.1-Flash-1017` (site copy, 48 shards)\n- Local patch: #60762 (SM120 uniform-64 block-size declaration only \u2014 2 files, declaration-level; symptom is identical with/without it)\n- Flags: `--tokenizer-mode deepseek_v41 --trust-remote-code --enable-expert-parallel --block-size 64 --kv-cache-dtype fp8 --attention-config '{\"backend\":\"FLASHINFER_MLA_SPARSE_DSV41\",\"indexer_kv_dtype\":\"fp8\"}' --engram-config '{\"cpu_offload\":true}' --enable-auto-tool-choice --tool-call-parser deepseek_v41 --reasoning-parser deepseek_v41 --max-model-len 1048576 --max-num-seqs 128 --speculative-config '{\"method\":\"dspark\",\"num_speculative_tokens\":N}'`\n\n## Symptom\n\nWith DSpark enabled, `/v1/chat/completions` in thinking mode returns degenerate loops in the reasoning stream (e.g. `\"to invoketo invoke...\"`, `\"*75*75*75...\"`) and no structured tool calls are produced. Plain-text `/v1/completions` is **not** affected: a 25-tier benchmark suite (1K ladder c1-c128, long-context 32K-1M, 64K/64K ramp) ran with speculation on, all zero failures, and a 256-prompt needle-retrieval task scored 99.6% coherent \u2014 so the corruption is specific to the chat/thinking format.\n\n## Isolation (every variable tested on the same box)\n\n| Configuration | chat/thinking output |\n|---|---|\n| 1017 + DSpark k=3, vLLM nightly (torch 2.14) | degenerate loops |\n| 1017 + DSpark k=3, vLLM 0.32.0 (torch 2.13) | degenerate loops |\n| 1017 + DSpark k=4 / k=5 / k=7 | degenerate loops |\n| **1017, no speculation (same boot, same parsers)** | **clean**: reasoning/content correctly separated (`17*19` -> reasoning \"We need answer only number...\" + content `323`); tools -> structured `tool_calls` (`get_gpu_alert({\"node\":\"gpu-03\"})`); 12-turn tools-API agent session 12/12, 0 errors |\n| Original `DeepSeek-V4.1-Flash` + DSpark k=3, same hardware/config family | clean (prior deployment records on this box: 26-32 structured tool calls, 0 errors) |\n\nAlso ruled out: tokenizer files (byte-identical between the two checkpoints), template rendering (vLLM's built-in `deepseek_v41` template output is byte-identical to the official `encoding/encoding.py` reference for single-turn chat), tokenization (`/tokenize` parses the special tokens into their single IDs correctly), sampling temperature (0.0 and 1.0 both corrupt), and the parser flags (no-spec run uses the same three flags and is clean).\n\n## Repro (minimal)\n\n```bash\nvllm serve <DeepSeek-V4.1-Flash-1017> --tensor-parallel-size 8 --tokenizer-mode deepseek_v41 \\\n  --kv-cache-dtype fp8 --block-size 64 \\\n  --attention-config '{\"backend\":\"FLASHINFER_MLA_SPARSE_DSV41\",\"indexer_kv_dtype\":\"fp8\"}' \\\n  --engram-config '{\"cpu_offload\":true}' \\\n  --speculative-config '{\"method\":\"dspark\",\"num_speculative_tokens\":3}' \\\n  --enable-auto-tool-choice --tool-call-parser deepseek_v41 --reasoning-parser deepseek_v41\n\ncurl .../v1/chat/completions -d '{\"messages\":[{\"role\":\"user\",\"content\":\"17*19=? answer with the number only\"}],\"max_tokens\":512,\"temperature\":0}'\n# with spec: reasoning = repetitive token loops; without --speculative-config: reasoning \"...\" + content \"323\"\n```\n\n## Context\n\n- The encoder/renderer sync PRs #62199 / #62196 / #62200 address the tool-result turn encoding delta from DeepSeek's `314113f` encoding fix \u2014 a separate problem. Our corruption is single-turn, reproduces on the current encoder, and flips solely on speculation.\n- #58485 reports a related class (spec decode x thinking markers) on another model family.\n- 1017 is a weight-only update of V4.1-Flash (config/tokenizer unchanged; the release notes describe shortened outputs/agent tuning), so the delta is in the fine-tuned `mtp.*` draft heads or their interaction with the verifier in thinking-format contexts.\n\n## Impact / workaround\n\nChat or agent serving on the 1017 checkpoint should disable DSpark speculation until this is fixed (plain-text completion workloads are unaffected). Happy to run any follow-up experiment on this box.\n",
+    "created_at": "2026-10-19T07:40:01Z",
+    "updated_at": "2026-10-19T18:14:48Z",
+    "fetched_at": "2026-10-20T08:03:07Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "b200",
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 62417,
+      "labels": [
+        {
+          "id": 8509281801,
+          "node_id": "LA_kwDOI7xefs8AAAAB-zFWCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/tool-calling",
+          "name": "tool-calling",
+          "color": "C1E8F1",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 1,
+      "state_reason": null
+    },
+    "content_hash": "0cb817fb518ff1fdb6dbe176ff41a5da75ca7f348e5eb40beead91569a569861"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

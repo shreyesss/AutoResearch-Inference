@@ -1,0 +1,175 @@
+{
+  "hypotheses": [
+    {
+      "id": "H01",
+      "title": "Coordinate prefill chunks across expert-parallel ranks using decode deadlines",
+      "classification": "adaptation",
+      "mechanism": "At each scheduling step, choose a graph-compatible prefill chunk using the earliest active decode deadline and a predicted iteration cost based on the slowest participating rank. Coordinate the choice across the expert-parallel group so one rank's prefill does not delay another rank's decode collective. This is an untested adaptation of deadline-aware chunking to the candidate DEP8 or DEP4 layouts.",
+      "nearest_prior_art": "SLOWeave selects prefill chunks against decode deadlines; P-PAS adapts vLLM's token budget to prefill pressure. The earlier B200 decision already shortlisted a fixed DP-aligned prefill cadence.",
+      "new_adaptation": "Use group-wide rank state and graph-compatible chunk choices, with explicit collective participation by idle ranks. A fixed cadence or direct paper port does not supply that coordinated decision.",
+      "code_surface": "vLLM scheduler prefill budgeting, DP/EP rank coordination and iteration timing, compilation graph-bucket selection, and per-rank tracing. The resolved DeepSeek-V4.1-Flash backend at the pinned image has not been established from the supplied sources.",
+      "online_policy": "Observable state: active decode deadlines, queued prefill tokens, each participating rank's batch size and recent iteration time, plus available graph buckets. Decision: choose the largest compatible chunk whose predicted slowest-rank iteration meets the earliest deadline; require a minimum useful chunk and a bounded prediction margin. Action: schedule that chunk consistently across ranks. Overhead: rank-state exchange and prediction each iteration, with possible smaller GEMMs and extra launches. Fallback: the qualified fixed prefill interval and token budget when timing data is stale, coordination fails, or no chunk fits. Strongest static comparator: best measured fixed chunk/token budget and the recipe's fixed prefill interval at the same topology and concurrency.",
+      "strongest_objection": "The workload may have too few simultaneous cache misses and decodes for chunk choice to matter. Existing fixed cadence and graph capture may already handle interference; per-step coordination could add synchronization and worsen TTFT or TPOT.",
+      "novelty": {
+        "deployment": "Untested on the specified B200 workload; active backend, DEP8/DEP4 configuration, and baseline inclusion are unknown.",
+        "implementation": "The proposed group-wide deadline rule is distinct from the supplied fixed recipe and paper abstracts, but no source inspection establishes absence from the pinned implementation.",
+        "publication": "Unestablished. SLOWeave, P-PAS, and earlier DP-cadence work substantially narrow the claim."
+      },
+      "confidence": "Moderate mechanism plausibility; low workload-specific benefit confidence.",
+      "readiness": "Trace gate before implementation. No GPU result or bottleneck diagnosis is supplied.",
+      "evidence": [
+        {
+          "source_id": "arxiv:2609.07883",
+          "quote": "selects the largest prefill chunk predicted to finish before the earliest active decode deadline",
+          "relation": "supports",
+          "claim": "Deadline-based chunk selection has prior art; this abstract does not establish transfer to B200 DP/EP serving."
+        },
+        {
+          "source_id": "arxiv:2608.15171",
+          "quote": "no single static MBT performs best across load regimes",
+          "relation": "supports",
+          "claim": "Changing scheduling pressure can justify testing an online budget."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62541:files:recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml",
+          "quote": "sets `--prefill-schedule-interval 48` at c96 and c128",
+          "relation": "context",
+          "claim": "A qualified fixed DEP4 setting is an essential comparator, not a new mechanism."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62073:files:vllm/model_executor/layers/fused_moe/modular_kernel.py",
+          "quote": "idle ranks must participate",
+          "relation": "supports",
+          "claim": "The supplied stacked PR identifies a collective-safety condition relevant to uneven rank batches; its availability in the target baseline is unproved."
+        },
+        {
+          "source_id": "hf:2602.16603",
+          "quote": "reducing chunk size improves response latency but degrades computational efficiency",
+          "relation": "challenges",
+          "claim": "Small adaptive chunks may increase launch and compute overhead."
+        }
+      ],
+      "rubric": {
+        "value": "Possible TPOT tail protection during mixed miss/decode steps, with TTFT and throughput tradeoffs; no gain estimated.",
+        "mechanism": "Concrete group-wide scheduling decision with a safe fixed-policy fallback.",
+        "evidence": "Paper abstracts and a recipe diff motivate the test; none measures the proposed B200 transfer.",
+        "integration": "Scheduler, rank coordination, timing, and graph-bucket compatibility make this medium to high effort.",
+        "correctness": "Keep token order, decode deadlines, collective participation, and graph shape validity; compare generated outputs with the same precision and sampling setup.",
+        "experiment": "First establish mixed-step and rank-skew incidence; then run matched fixed and adaptive arms.",
+        "cost": "CPU trace analysis first; implementation and serving setup cost unknown. No GPU work performed.",
+        "distinctness": "Distinct from the earlier fixed DP cadence through per-step deadline and slowest-rank decisions.",
+        "research_contribution": "Potential systems adaptation; publication novelty unestablished."
+      },
+      "experiment": {
+        "control": "Same pinned model, precision, requests, cache preparation, concurrency, eight-GPU budget, and active backend using the best qualified fixed chunk/token budget and recipe cadence. Evaluate DEP8 and two DEP4 only after each layout is independently configured and matched.",
+        "treatment": "Group-coordinated deadline chunk policy with the same graph repertoire and memory budget.",
+        "measurements": "Per-rank prefill/decode timing, collective wait, graph-bucket choice, queue age, cache misses, TTFT, TPOT, throughput, cost per token, peak memory, and answer quality for approximately 8K/1K agent requests across load levels.",
+        "reject_if": "No material mixed-step rank skew exists, prediction/coordination overhead consumes the available slack, or matched TTFT/TPOT/throughput and cost do not beat the strongest fixed setting.",
+        "correctness": "Check unequal and empty rank batches, cancellation, cache hits and misses, graph replay, token ordering, and output agreement under identical precision and sampling.",
+        "cost": "Trace and CPU replay before any proposed GPU experiment; actual build, capture, and runtime costs remain unknown."
+      },
+      "revision_after_critique": "Narrowed from generic adaptive prefill, already covered by SLOWeave and P-PAS, to collective-aware scheduling. Benefit is conditional on measured mixed-step rank skew."
+    },
+    {
+      "id": "H02",
+      "title": "Evict idle agent histories in bounded tail chunks",
+      "classification": "adaptation",
+      "mechanism": "Under KV pressure, rotate among idle agent trajectories and reclaim a bounded tail of each cached prefix while retaining its reusable beginning. Keep exact prefix-block ownership and all required hybrid-model state aligned. Returning agents recompute only the missing suffix. This is an untested adaptation to the target model's cache layout and DEP routing.",
+      "nearest_prior_art": "RR-EVICT already uses round-robin tail eviction. CacheWise combines agent-aware scheduling and eviction in vLLM. A separate trace study reports that ordinary LRU remains strong for active sessions.",
+      "new_adaptation": "Integrate tail eviction with DeepSeek-V4.1-Flash's actual cache-block and hybrid-state dependencies, and coordinate session placement when comparing DEP8 with two DEP4 replicas. The supplied evidence does not establish that this integration is absent or beneficial in the pinned backend.",
+      "code_surface": "vLLM KV block manager and prefix index, session-to-prefix metadata, exact-token router affinity for two DEP4 engines, and hybrid-state invalidation/recompute path. The active backend and cache representation require source qualification.",
+      "online_policy": "Observable state: free KV blocks, idle-session prefix trees, retained depth, prior reuse, session age, and per-engine placement. Decision: only below a memory watermark, rotate through idle sessions with reclaimable tails and remove a bounded suffix per pass while preserving a minimum exact reusable prefix; leave active requests intact. Action: release suffix blocks and invalidate dependent hybrid state atomically. Overhead: per-session bookkeeping, prefix-tree walks, and possible suffix recomputation. Fallback: existing LRU eviction or no special action when there is no pressure or no safe partial boundary. Strongest static comparator: current LRU plus a tuned fixed partial-eviction granularity at the same memory limit.",
+      "strongest_objection": "The stated 75% cacheability is a target, not a measured hit rate or evidence of eviction pressure. Production-trace research finds little benefit from sophisticated replacement over LRU, and hybrid-state constraints may make safe tail reclamation expensive.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DeepSeek-V4.1-Flash. No measured cache churn, avoidable misses, or per-engine locality is supplied.",
+        "implementation": "RR-EVICT already implements the core policy in SGLang; novelty could only reside in a qualified vLLM/model-specific adaptation and is not established without source inspection.",
+        "publication": "Unestablished; RR-EVICT and CacheWise are close prior art."
+      },
+      "confidence": "Moderate mechanism plausibility under sustained KV pressure; low benefit confidence for this workload.",
+      "readiness": "Request-level cache trace and cache-layout correctness gate required before code work.",
+      "evidence": [
+        {
+          "source_id": "arxiv:2609.32278",
+          "quote": "evicts a tail chunk from each, preserving reusable prefixes",
+          "relation": "supports",
+          "claim": "Round-robin partial eviction is existing prior art."
+        },
+        {
+          "source_id": "arxiv:2609.28870",
+          "quote": "sophisticated policies designed for traditional caches provide little benefit over LRU",
+          "relation": "challenges",
+          "claim": "LRU is a strong comparator and may erase the proposed benefit."
+        },
+        {
+          "source_id": "fulltext:2606.16824",
+          "quote": "requests from the same session frequently have high prefix overlap",
+          "relation": "supports",
+          "claim": "Agent-session continuity can create reuse opportunities; this is evidence from another workload."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62541:files:recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml",
+          "quote": "add vLLM's native CPU KV offloading",
+          "relation": "context",
+          "claim": "The supplied guide offers an existing memory-pressure alternative for a different DEP2 regime."
+        },
+        {
+          "source_id": "arxiv:2609.19657",
+          "quote": "cache pressure erodes them",
+          "relation": "context",
+          "claim": "A prefix-reuse benchmark abstract identifies cache pressure as a possible limit, without establishing it on B200."
+        }
+      ],
+      "rubric": {
+        "value": "Potentially reduces returning-agent TTFT outliers if idle histories are evicted wholesale; extra recomputation and bookkeeping can raise cost.",
+        "mechanism": "Concrete pressure-triggered, bounded, exact-prefix tail reclamation.",
+        "evidence": "Close policy prior art and counterevidence are supplied; target workload cache pressure is unknown.",
+        "integration": "High, due to hybrid state, cache-block ownership, and replica routing.",
+        "correctness": "Never reuse partial or mismatched prefixes; invalidate all dependent state and compare outputs against uncached execution.",
+        "experiment": "Trace gate, CPU eviction replay, then matched serving only if replay predicts avoidable recomputation.",
+        "cost": "Trace/replay is cheaper than implementation; engineering and memory overhead are unknown. No GPU work performed.",
+        "distinctness": "Distinct from the earlier one-use probationary admission idea and from router-only prefix placement.",
+        "research_contribution": "Model-specific integration question; publication novelty unestablished."
+      },
+      "experiment": {
+        "control": "Same engine layout, model precision, requests, routing, KV capacity, and cache preparation with current LRU; include fixed partial eviction and native CPU KV offload where applicable.",
+        "treatment": "Bounded round-robin idle-history tail eviction with exact prefix and hybrid-state invalidation.",
+        "measurements": "Per-request actual cache hits, evicted and recomputed blocks, session return gaps, KV occupancy, TTFT tail, TPOT, throughput, cost per token, peak memory, and output quality; report DEP8 and two DEP4 separately.",
+        "reject_if": "The trace shows no meaningful idle-history eviction/recompute pattern, LRU or a fixed policy matches the replay, or matched serving increases tail latency or cost.",
+        "correctness": "Test shared ancestors, concurrent descendants, partial blocks, cancellation, cross-engine routing, and each hybrid-state dependency against uncached outputs.",
+        "cost": "CPU trace join and replay first; implementation, startup, and GPU experiment costs remain unknown."
+      },
+      "revision_after_critique": "Restricted to pressure-triggered idle-session tails and an explicit LRU comparator because the supplied trace study challenges elaborate eviction policies. No claim of benefit follows from the cacheability target."
+    }
+  ],
+  "comparators": [
+    "Unchanged pinned vLLM and DeepSeek serving configuration, with resolved backend, MTP/DSpark state, precision, graph capture, and cache policy recorded before comparison.",
+    "The earlier B200 decision's fixed DP-aligned prefill cadence, bounded replay, conditional EPLB, router placement, fixed backend choice, and DP-coordinated adaptive DSpark k are prior shortlisted ideas; they are not counted again.",
+    "PR #62541 is open, targets main at base aa3564ceefbd605f1d28238fa0fbbb964201c6b8, and has head 64d4d308b50432449b25fdd4f73576f98b5ae5a5. Its guide-only settings are a static configuration comparator; open status and a main base do not establish inclusion in historical commit ac9126e58aa7bbab1856ba6593ba4d5003fea516.",
+    "PR #62073 is open, has base branch woosuk/beam-fused-allreduce at 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea and head 86a5bbe75a7971275952477bb1ce03e715bcc339. It is stacked on #62366, concerns Beam, requires FlashInfer nightly paths, and reports unresolved validation; its MegaMoE workspace and deferred-finalize code are existing work, not a new DeepSeek-V4.1-Flash result.",
+    "Fixed MTP/DSpark depth and no speculation are required controls if speculation is later investigated; an existing activation or unchanged upstream port does not fill the hypothesis count."
+  ],
+  "rejected_leads": [
+    "Speculative speculative decoding: the supplied full text places its drafter on distinct hardware, while the target is one eight-GPU node. Maintainer comments question value for MTP/EAGLE-style serving and identify substantial scheduler/KV redesign; the issue closed for inactivity. It is not a defensible transfer card here.",
+    "Generic adaptive speculative length: vLLM RFC #4565, FASER, and the earlier B200 DP-coordinated DSpark-k shortlist already cover the central policy; no target acceptance or draft/verify trace supports another card.",
+    "Porting PR #62073's Beam MegaMoE deferred finalize or decode workspace unchanged: this is upstream code on an open stacked branch, with Beam-specific validation and nightly dependencies, and is a comparator or qualification task.",
+    "Mixed expert precision: AlphaQ and MxMoE provide close prior art, but the supplied sources do not establish DeepSeek-V4.1-Flash expert sensitivity, active FP4 backend support for mixed formats, conversion cost, or quality.",
+    "Comet-style communication overlap: the paper establishes a mechanism elsewhere, while the active DeepSeek backend and rank-level communication bottleneck are unverified; an unchanged overlap port would not be a new mechanism."
+  ],
+  "gaps": [
+    "No supplied checkout or source trace proves what historical vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and deepseek_serve 2e6fa287d90adf7318ad314de27aa2f595aac821 contain. Historical pin, refreshed recipe, PR main-branch availability, and runtime activation must remain separate.",
+    "No request, rank, kernel, cache, acceptance, memory, or quality trace is supplied for the approximately 8K input / 1K output workload. The 75% cacheability target is not a measured cache-hit rate.",
+    "The resolved active MoE backend, MTP/DSpark state, precision conversion path, CUDA graph shapes, KV/hybrid-state representation, and DEP8 versus two DEP4 memory fit are unknown.",
+    "The supplied PR #62073 validation is on Beam and GB200/GB300, with nightly FlashInfer paths still needing validation; it cannot establish B200 DeepSeek transfer.",
+    "Paper abstracts establish research directions and reported results on other settings, not implementation availability or measured benefit on this target."
+  ],
+  "search_queries": [
+    "Inspect pinned vLLM ac9126e58aa7 and deepseek_serve 2e6fa287 for DeepSeek-V4.1-Flash resolved MoE backend, precision, MTP/DSpark, graph settings, and KV manager",
+    "Trace PR #62541 and InferenceX #3837 branch ancestry, exact recipe head, merge state, and whether any configuration was imported into the pinned serving image",
+    "Trace PR #62073, parent #62366 and #62074, FlashInfer nightly API dependency, merge state, and applicability to DeepSeek-V4.1-Flash versus Beam",
+    "Find DEP8 and two DEP4 B200 request/rank traces for mixed prefill-decode steps, collective waits, graph buckets, and cache misses at approximately 8K/1K",
+    "Find DeepSeek-V4.1-Flash hybrid KV and recurrent-state prefix-block invalidation rules for partial tail eviction",
+    "Find matched B200 DeepSeek-V4.1-Flash fixed prefill interval and chunk-budget sweeps across concurrency before implementing an online scheduler",
+    "Find actual agent-session prefix reuse, cache eviction, CPU-offload traffic, and per-engine locality under the target workload",
+    "Find fixed DSpark/MTP acceptance length, draft time, verify time, quality, and memory traces on the pinned B200 backend before revisiting speculation"
+  ]
+}

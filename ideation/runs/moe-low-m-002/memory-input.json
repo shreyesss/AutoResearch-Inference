@@ -1,0 +1,67 @@
+[
+  {
+    "at": "2026-10-19T22:06:55Z",
+    "event": "proposal",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/three-tools-002/hypotheses",
+    "id": "H01",
+    "fingerprint": "bbb9df2fde9f7193ecd77f38d9bdb4b3d4096db7cfa07a351135534c4047ac60",
+    "mechanism": "Prepare a bounded set of possible next drafts during verification, reuse a matching continuation, and invalidate unmatched or stale state.",
+    "change": "Add a trace-gated branch budget, request/KV epochs, expiry and preemption handling, plus a fixed-MTP fallback.",
+    "assessment": {
+      "eligible": false,
+      "score": null,
+      "reasons": [
+        "Critic gate: evidence_entails_claims",
+        "Critic gate: distinct_from_prior_art",
+        "Critic gate: test_discriminates_alternatives",
+        "Critic gate: feasible_within_constraints"
+      ],
+      "meaning": "Eligible for experiment design, not scientifically validated or guaranteed novel"
+    }
+  },
+  {
+    "at": "2026-10-19T22:42:23Z",
+    "event": "proposal",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/moe-low-m-001-analysis/hypotheses",
+    "id": "H1",
+    "fingerprint": "9aeb5dde2ab791fd22eaf7c414c6ff9c4cf0e936cc135aa122a27e6f0461a8e6",
+    "mechanism": "Small per-expert M can change the relative cost of grouped GEMM, dense GEMM, routing, and staging. A batch-shape bucket can select an eligible captured backend without changing allocations during graph replay.",
+    "change": "After profiling and contract checks, add a small, predeclared batch-shape selection table using existing eligible backends and capture each selected path with stable buffers.",
+    "assessment": {
+      "eligible": false,
+      "score": null,
+      "reasons": [
+        "Critic gate: evidence_entails_claims",
+        "Critic gate: distinct_from_prior_art"
+      ],
+      "meaning": "Eligible for experiment design, not scientifically validated or guaranteed novel"
+    },
+    "critique": {
+      "id": "H1",
+      "gates": {
+        "evidence_entails_claims": false,
+        "distinct_from_prior_art": false,
+        "mechanism_plausible": true,
+        "test_discriminates_alternatives": true,
+        "feasible_within_constraints": true
+      },
+      "scores": {
+        "performance_value": 2,
+        "mechanistic_evidence": 2,
+        "feasibility": 3,
+        "novelty": 1,
+        "testability": 4
+      },
+      "objections": [
+        "Observed in supplied code: the NVFP4 staging kernel masks padded routing IDs and weights. Its use, cost, and expert GEMM share in the target B200 DeepSeek decode path remain unknown.",
+        "Author claims: EPS-MoE describes “switching from GroupedGemm to DenseGemm at a certain token number.” PR #54520 reports throughput for GB300 running GLM-5.2; that does not establish B200 DeepSeek TPOT or backend eligibility. PR #49271 says a faster raw grouped GEMM can lose end-to-end to a fused path.",
+        "The quoted “C1 ×3 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms” and the claimed GPU-time-versus-TPOT comparison do not appear in the supplied excerpt of PR #57977. Its full PR may contain them, but existence of a source does not support an absent passage.",
+        "Transfer inference: small per-expert M could change the best eligible backend, but neither a target bottleneck nor a static current dispatch rule is established. EPS-MoE and the small-M dispatcher described in PR #46063 limit scientific and implementation novelty; that PR’s AMD results do not transfer to B200.",
+        "Selecting a graph by batch-shape bucket is plausible with stable buffers, but routed rows per expert can vary within a bucket. PR #46238 also reports SM100 low-M autotune faults, so correctness and warmup checks are necessary before treating a backend as eligible.",
+        "The proposed comparison against current dispatch and the best eligible static backend, with full-path and host timing, can distinguish a serving gain from a kernel-only gain. Match graph mode, warmup, and capture costs across controls; report results by routed-row distribution as well as batch bucket.",
+        "No GPU jobs are permitted in this research session. The proposed later bounded B200 experiment remains feasible in principle; checkpoint, dtype, topology, graph mode, eligible backends, workload, effect size, and limitations are unknown."
+      ],
+      "required_revision": "Remove the unsupported PR #57977 numerical quote and GPU-time claim unless the supporting passage is supplied. First identify the target configuration, actual dispatch rule, eligible backends, and a low-concurrency full-path trace. State the delta as a conditional B200 workload adaptation of existing shape-dependent selection. In a later bounded experiment, compare graph-matched current and best static controls with the bucket policy, validate output and repeated replay, and report TPOT, host time, full MoE time, routed-row distributions, and capture cost."
+    }
+  }
+]

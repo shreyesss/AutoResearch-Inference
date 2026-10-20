@@ -1,0 +1,68 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:59096",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/59096",
+    "title": "[Bugfix][KV Offload] Do not let mark_miss() flip a pending or in-flight async lookup probe",
+    "body": "## Purpose\n\nWhen a slow KV offload tier (the filesystem or object-store tier) fails to load a block, it records \"this block is not really there\" so the scheduler stops retrying it. That note is written against whatever lookup currently exists for the block. If the request that started the load was cancelled in the meantime, and another request has since asked about the same block, the note lands on the newer, unfinished lookup, and the engine crashes on an internal consistency check. The trigger is ordinary traffic: a client disconnects while its cached prefix is being loaded, and another request shares that prefix. The result is that the whole engine goes down, not just one request. This PR makes the note apply only to lookups that have already finished.\n\nConcretely, `AsyncLookupManager.mark_miss()` (`vllm/v1/kv_offload/tiering/async_lookup.py:216-224`) forces a cached lookup entry to `RESOLVED`/`False` without checking its phase. If the entry belongs to a newer probe that is still `PENDING` or `IN_FLIGHT`, that probe's own result later trips the phase asserts on the scheduler thread (`drain_results()` at `:204`, or `flush()` at `:181`), and the engine core dies.\n\nHow it happens with the FS tier (the OBJ tier calls `mark_miss` the same way, `obj/manager.py:400`):\n\n1. Request A looks up key K and gets a hit. The tier starts a promotion (load job) for K.\n2. A is aborted or finishes while the load is still in flight. `on_request_finished` calls `cleanup(\"A\")`, which deletes the `RESOLVED` entry for K.\n3. Request B looks up K. This creates a new `PENDING` entry, and `flush()` at the end of the step moves it to `IN_FLIGHT`.\n4. A's load fails (file evicted, truncated or unreadable). `get_finished_jobs()` calls `mark_miss([K])` (`fs/manager.py:306`), which flips B's `IN_FLIGHT` entry to `RESOLVED`/`False`.\n5. B's next `lookup()` drains the probe result and hits `assert state.phase is LookupPhase.IN_FLIGHT`. If step 4 lands while the entry is still `PENDING`, `flush()` asserts instead.\n\nNeeded: a client disconnect during a promotion, a failed load, and another request that shares the prefix.\n\n**Fix:** `mark_miss()` now overrides only `RESOLVED` entries. A `PENDING` or `IN_FLIGHT` entry belongs to a newer probe, and that probe returns its own verdict. The #49176 livelock guard is unchanged: if the block is still bad, the next failed load marks the resolved entry `False` exactly as before, and the request stops re-issuing the promotion. One side effect: a newer probe that read the file before the failure can still return `True` once, which costs one more failed load. It does not loop.\n\n**Not a duplicate:** I checked the open PRs that touch `async_lookup.py`: #57474 (draft, per-request-group result publishing), #58168 (draft, manager `lock()`/`unlock()`) and #52103 (draft, provenance). None of them changes `mark_miss` or the phase handling. `mark_miss` itself came in with #49328; #55823, #54872 and #55075 are the neighbouring merged fixes.\n\n## Test Plan\n\n```\npython -m pytest tests/v1/kv_offload/tiering/test_async_lookup.py tests/v1/kv_offload/tiering/test_fs_tier.py -q -k \"mark_miss or failed_load\"\npython -m pytest tests/v1/kv_offload/tiering/ -q\npre-commit run --from-ref origin/main --to-ref HEAD\n```\n\nNew tests:\n\n- `test_async_lookup.py::test_mark_miss_skips_newer_unresolved_probe[in_flight|pending]`: the unit sequence above, for both phases.\n- `test_fs_tier.py::test_failed_load_after_abort_does_not_break_newer_probe`: the same sequence end to end on `FileSystemTierManager`, with a load that really fails.\n\n## Test Result\n\nWith the fix (macOS arm64, CPU, rebased on `32cc3f1ea`):\n\n```\ntests/v1/kv_offload/tiering/test_async_lookup.py + test_fs_tier.py -k \"mark_miss_skips_newer or failed_load_after_abort\" ... 3 passed\ntests/v1/kv_offload/tiering/ ... 436 passed, 1 skipped\n```\n\nOn `main` (fix reverted, new tests kept): all 3 new tests fail on the engine asserts:\n\n```\nvllm/v1/kv_offload/tiering/async_lookup.py:204: AssertionError   (in_flight)\nvllm/v1/kv_offload/tiering/async_lookup.py:181: AssertionError   (pending)\nvllm/v1/kv_offload/tiering/async_lookup.py:204: AssertionError   (FS tier end to end)\n3 failed\n```\n\npre-commit (`--from-ref origin/main --to-ref HEAD`) and `mypy-3.12` (manual stage): clean.\n\nThis is a scheduler-side control-path change; model outputs are unaffected, so no evals are needed.\n\n**Related:** one of a few independent fixes from an audit of the KV transfer paths (CPU offload, NIXL, P2P): #59099, #59102, #59325, #59329. None depends on another; they can be reviewed and merged in any order.\n\n## AI assistance\n\nI used an AI coding assistant (Claude) to audit this code path, write the fix and write the tests. I reviewed every changed line and ran the tests above myself. The commit carries a `Co-authored-by` trailer, as `AGENTS.md` asks.\n",
+    "created_at": "2026-09-28T22:05:44Z",
+    "updated_at": "2026-10-15T07:57:47Z",
+    "fetched_at": "2026-10-19T23:21:20Z",
+    "state": "merged",
+    "merged_at": "2026-10-15T07:57:47Z",
+    "parent": null,
+    "tags": [
+      "speculation"
+    ],
+    "metadata": {
+      "number": 59096,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 4,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "c5f8adc0b1944b9142a31d85cfbc6a61973d0b3a",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/async-lookup-mark-miss-inflight",
+        "sha": "57d9cc1adaa0929828a32a6e818575c16c589df6",
+        "label": "sohom-cs:fix/async-lookup-mark-miss-inflight"
+      },
+      "merge_commit_sha": "fc8e08a2a607968226376c53a30cfa6337578f79",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:21:20Z"
+    },
+    "content_hash": "132058da54d83f1e44ab025875b2772ce0cc90fd68b1364b832d65fc185ea9ab"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

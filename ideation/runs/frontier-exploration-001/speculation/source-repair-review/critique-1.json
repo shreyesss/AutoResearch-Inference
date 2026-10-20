@@ -1,0 +1,76 @@
+{
+  "reviews": [
+    {
+      "id": "R1",
+      "criteria": {
+        "task_value": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The proposed read-only flag inspection can resolve whether adaptive verification is a deployment change: the supplied brief says “CSV dspark_config off contradicts profile on; runtime flags not inspected.” Same-topology comparisons make the cost and latency hypothesis testable. Target benefit and bottleneck remain unknown. The reported R7b and R10 results do not isolate speculation."
+        },
+        "correctness_and_safety": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The design retains draft k5 and gates activation on sampling, KV rollback, and graph-safe mixed-prefill checks. Safety is unresolved: issue #59970 reports “IMA within 1 min at c96 (4/4)” on B300, while PR #59986 says its B300 reproducer was “Not run.” Neither establishes safety on the target B200 deployment."
+        },
+        "causal_test": {
+          "verdict": "pass",
+          "score": 5,
+          "rationale": "It compares adaptive k5 with static k5, static k2, and no speculation on the same topology and fixed traces, with both scorers, latency tails, ITL cohorts, and correctness checks. It isolates the adaptive toggle from a safety patch and calibrator. The proposed 5% threshold is a decision rule, not an observed gain."
+        },
+        "implementation_evidence": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The supplied pinned-code excerpt shows an adaptive graph-mode resolver, and the issue and PR bodies describe relevant paths. The effective launch flags, DeepSeek builder behavior, patch lineage, and container have not been inspected. PR #62541 reports that its qualified B200 lanes use “enable_adaptive_verification:false”; that is adverse deployment evidence, not a measured adaptive comparison."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "Reported observation, not reproduced here: #59970 says throughput with adaptive verification disabled was “the same within noise” as adaptive verification with FULL_DECODE_ONLY on its B300 workload. The proposal should name this negative result explicitly.",
+        "Author claim: #62541 describes a qualified B200 full-k5 setting and reports a successful sweep, but supplies no same-topology adaptive-versus-static effect for this target.",
+        "Transfer inference: reducing verification work might improve 8×B200 SLO-qualified cost-throughput. Its sign and effect size are unknown; B300 safety results and GLM/B300 gains do not establish them."
+      ],
+      "required_revision": "Explicitly carry forward #59970’s reported no-gain result and #62541’s fixed-k5 qualification as counterevidence. Inspect effective flags and freeze checkout, patch, and container; qualify mixed-prefill graph safety before any activation test."
+    },
+    {
+      "id": "R2",
+      "criteria": {
+        "task_value": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "A cheap inspection can establish whether mixed-tail profiling is absent and adaptive verification is eligible. Issue #54046 reports a concrete shape mismatch for B200 at k7, but whether the target k5 deployment reaches the mismatch, changes policy decisions, or improves cost and latency is unknown. This is a valid first falsification question."
+        },
+        "correctness_and_safety": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The design keeps draft k5, acceptance and rollback rules, and captured decode shapes, and makes R1’s safety qualification a prerequisite. PR #54077 claims the change “does not modify sampling or verification kernels,” but also says “A full DSpark model-serving evaluation was not run.” Target correctness and graph safety remain unverified."
+        },
+        "causal_test": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The staged test checks code presence, reachable shapes, cost estimates, and policy decisions before a bounded serving sweep. It isolates calibration from adaptive activation and graph changes, then uses fixed traces, both scorers, latency tails, ITL cohorts, and correctness. Its rejection rule needs correction: reachable relevant shapes are a reason to continue testing, not to reject."
+        },
+        "implementation_evidence": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "Issue #54046 explains the reported profiling mismatch, and PR #54077 describes a mixed-batch implementation and RTX 5090 regression tests. These are source reports, not inspection of the pinned runtime. Equivalent upstream behavior, the target k5 decode ceiling, and actual scheduled shapes remain unknown."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "Reported observation: #54046’s “Anything the profiler measures above 1024 tokens cannot be decode” applies to its seq128, k7 configuration; the target k5 ceiling must be calculated from effective settings.",
+        "Author claim: #54077 says it profiles tails as schedulable mixed batches. Its reported 54 passing tests are on RTX 5090; target DeepSeek/B200 serving performance and effect size are unknown.",
+        "The quoted EVICT limitation concerns estimator robustness, and DScale’s quoted result is for A100 TP1. Neither quoted passage establishes this calibration’s implementation or benefit on 8×B200.",
+        "The proposal is conditional on R1 eligibility and safety. No deployed-code inspection yet justifies selecting or implementing it."
+      ],
+      "required_revision": "After R1’s flag and safety gates, inspect the pinned profiler and scheduler paths for equivalent behavior. Correct the rejection rule concerning reachable shapes. Proceed only if relevant tail shapes are misprofiled, the change alters decisions, and the isolated serving test supports value."
+    }
+  ],
+  "global_gaps": [
+    "Effective DSpark and adaptive flags, checkout modifications, and container identity are unknown.",
+    "No supplied measurement isolates adaptive verification or calibration on the specified 8×B200 fixed traces. Target bottleneck, gain sign, effect size, and latency impact are unknown.",
+    "B300 issue results, GLM/B300 results, A100 DScale results, and RTX 5090 tests have unproven transfer to this model, topology, and workload.",
+    "The supplied EVICT and speculative-decoding excerpts do not identify hardware, workload, effect size, or implementation applicable to these proposals; those details are unknown from the quoted passages.",
+    "Neither proposal clears all required gates yet: R1 awaits safety qualification, and R2 awaits eligibility, deployed-code inspection, and R1’s safety result."
+  ]
+}

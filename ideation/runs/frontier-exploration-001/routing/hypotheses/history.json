@@ -1,0 +1,229 @@
+[
+  {
+    "card": {
+      "id": "B200-R7b-RANK-ROUTE-1",
+      "parents": [],
+      "operation": "generate",
+      "statement": "For the two TP1/DP4/EP4 engines, first inspect the effective image, router policy, API2 request path, and internal DP rank selection to establish whether rank-aware prefix routing is already active. If absent, test a bounded policy that prefers a rank holding an exact reusable prefix only while its estimated queue load stays within a chosen skew limit; otherwise it falls back to load-only routing. API2 must preserve or convey the rank choice through the internal DP4 decision, since replica affinity alone cannot guarantee a local cache hit. The 75% cacheability figure is a target, not an observed hit rate. Shadow routing should first determine whether avoidable rank-local misses exist. Predict better goodput only where saved prefill work outweighs skew and routing cost.",
+      "observed_bottleneck": "Unknown. The supplied R7b closed-loop results are 27.69 req/s and 18.30s E2E p95 at c384, and 33.76 req/s and 19.49s at c512; they do not identify routing or cache misses as the bottleneck.",
+      "mechanism": "Exact rank-local prefix reuse can avoid recomputation, while a load-skew cap and load-only fallback limit affinity-induced queueing.",
+      "proposed_change": "After the presence gate, add or configure API2-to-DP-rank prefix-aware selection with an explicit skew cap, deterministic compatible hashes, and load-only fallback. Change routing alone before combining it with scheduler changes.",
+      "code_surface": "API2 router, rank identity and targeting, V1 internal DP load balancer, prefix block hashing, routing telemetry.",
+      "applicability": "Potentially useful for repeated exact prefixes resident on a DP rank; benefit is unknown for the B200 workload and can reverse when recoverable prefix work is small.",
+      "predicted_direction": "Conditional increase in SLO goodput and served rank-local KV hits, with no unacceptable E2E p95 or cost per successful request regression; no effect size predicted.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "The desired cacheability may not produce resident exact-prefix hits, so routing cannot save meaningful prefill work.",
+          "distinguishing_test": "In shadow replay, compare cacheability labels with actual eligible exact-block residency and counterfactual rank-local hits."
+        },
+        {
+          "explanation": "Affinity may overload a hot rank, offsetting saved prefill.",
+          "distinguishing_test": "Vary only the skew cap and inspect per-rank queue delay, served hits, and tail latency."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:43483",
+          "quote": "Disabled by default.",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:43483",
+          "quote": "Only supports internal/local DP load balancing.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:58757",
+          "quote": "This is a documentation-only change (no code paths affected).",
+          "relation": "context"
+        },
+        {
+          "source_id": "fulltext:2608.19677v1",
+          "quote": "affinity can reduce capacity when the recoverable prefix work is small",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "No novelty claim; bounded cache affinity is established prior work.",
+        "implementation": "The possible delta is verified API2-to-internal-rank targeting and a bounded fallback in this deployment; current presence is unknown.",
+        "workload": "Two engines with internal DP4 and agent-f75 plus Mooncake replay; actual prefix hits and rank skew are unknown.",
+        "nearest_prior_art": "vLLM PR 43483 proposes internal DP prefix-aware routing; PR 58757 describes individual-engine affinity; CacheRoute discusses affinity versus load.",
+        "specific_delta": "Conditionally connect exact-rank affinity to the R7b API2 path with a measurable skew bound, if inspection shows the capability is absent."
+      },
+      "prior_art_query": "prefix affinity rank routing",
+      "experiment": {
+        "control": "LAT-2XDEP4-R7b as actually running, plus the strongest tuned static routing policy selected on a calibration split, including load-only and fixed affinity candidates.",
+        "treatment": "Bounded rank-aware prefix routing, with all engine and scheduler settings fixed.",
+        "metrics": "Frozen length-aware SLO goodput; cost per successful request; E2E and TTFT p95; ITL p95 by output-length cohort; completed throughput; served exact rank-local KV hits; per-rank load and skew.",
+        "supports_if": "On held-out replay, actual served rank-local hits rise and frozen SLO goodput improves over both controls without violating the predeclared skew and latency bounds.",
+        "rejects_if": "Eligible exact-prefix hits are negligible, or load skew and queue delay erase the gain, or either strong control has better frozen SLO goodput.",
+        "inconclusive_if": "The effective baseline policy or rank targeting cannot be established, cache-hit instrumentation is unreliable, or the replay lacks enough repeated resident prefixes.",
+        "held_out_condition": "Mooncake median, burst, and cache-heavy traces with unseen skew and prefix distributions and request lengths, preserving output-length cohorts.",
+        "correctness": "Verify compatible block hashes, exact rank identity, deterministic routing where required, and unchanged generated outputs. Do not infer a cache hit from routing choice alone.",
+        "cost": "First inspect configuration and route decisions, then run a CPU-only shadow replay; GPU replay is a later test and is not requested now."
+      },
+      "revision_reason": ""
+    },
+    "global_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+    "review": {
+      "id": "B200-R7b-RANK-ROUTE-1",
+      "criteria": {
+        "required_improvement": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is “Disabled by default,” but that does not establish this deployment’s state."
+        },
+        "causal_test": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "CPU-only shadow replay first asks whether eligible, resident exact prefixes are being missed. The later one-factor replay compares routing against R7b and a tuned static policy on held-out distributions, measuring served rank-local hits, skew, latency, and frozen length-aware goodput. The 75% cacheability target is correctly kept separate from observed hits."
+        },
+        "integration_and_bounds": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The proposed API2-to-DP4 rank decision and load-only fallback address the required integration. Actual rank targeting is unverified. “Chosen skew limit” needs an explicit queue-load measure and enforcement rule before the bound is reviewable."
+        },
+        "claim_discipline": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The c384 and c512 figures are identified as supplied baseline results, not evidence of cache misses. The PR author says the path “Only supports internal/local DP load balancing”; that is an author claim, not verified running behavior. CacheRoute’s warning that “affinity can reduce capacity when the recoverable prefix work is small” supports a transfer risk, not a B200 effect estimate."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "Effective image, router policy, API2 rank propagation, and exact resident-prefix hit rate are unknown.",
+        "The supplied routing PR body and documentation PR do not establish deployed code or serving gains.",
+        "A routing choice alone is not a served cache hit; the proposed instrumentation must verify residency and use."
+      ],
+      "required_revision": "Inspect the effective deployment first. Define the skew metric, cap, and load-only trigger; then retain the proposed shadow and held-out one-factor comparisons."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 68.0,
+      "reasons": [
+        "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is “Disabled by default,” but that does not establish this deployment’s state.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  },
+  {
+    "card": {
+      "id": "B200-R7b-PREFILL-ADMIT-1",
+      "parents": [],
+      "operation": "generate",
+      "statement": "First inspect the effective scheduler commit and runtime settings to establish whether adaptive prefill admission already exists. If absent, test a scheduler-local prefill budget that decreases when active decodes approach their measured iteration deadlines and increases when decode pressure eases. Keep the global token budget fixed; bound each prefill request’s waiting time so decode protection cannot starve TTFT. This transfers the pressure-dependent budget mechanism described by P-PAS, while adding an explicit deadline and waiting bound for the R7b objective. The source reports results on other model and GPU configurations, so neither a B200 crossover nor an effect size is known. A cheap trace analysis should first test whether prefill-bearing iterations coincide with decode deadline misses before any GPU replay.",
+      "observed_bottleneck": "Unknown. The R7b baseline gives throughput and E2E p95, but no measured prefill interference, decode deadline misses, TTFT, or starvation.",
+      "mechanism": "Limit admitted prefill work during decode pressure to reduce long mixed iterations, while releasing the cap when pressure falls or a prefill wait bound is reached.",
+      "proposed_change": "After the presence gate, add an optional V1 scheduler admission budget using current decode deadline slack and prefill pressure, with a maximum wait bound and fixed-budget fallback. Test this factor independently of routing.",
+      "code_surface": "V1 scheduler prefill admission, per-iteration timing telemetry, decode deadline estimate, per-request wait accounting.",
+      "applicability": "Potentially useful if mixed prefill-decode iterations cause deadline misses in the target; the B200 response and safe admission bounds are unknown.",
+      "predicted_direction": "Conditional reduction in decode ITL deadline misses and higher SLO goodput, while TTFT and starvation remain within chosen bounds; no numerical gain predicted.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "Decode delays may mainly reflect KV pressure, preemption, or another source rather than prefill admission.",
+          "distinguishing_test": "Attribute missed decode deadlines in traces to prefill-bearing iterations, preemption events, and queueing before implementing the controller."
+        },
+        {
+          "explanation": "A single well-tuned static token budget or cadence may already achieve the same tradeoff.",
+          "distinguishing_test": "Compare against the best static budget and eligible fixed cadence chosen on a calibration split, then evaluate on held-out load regimes."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:52906",
+          "quote": "The global scheduler token budget remains unchanged.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:52906",
+          "quote": "reduced average end-to-end latency by 8.5% relative to fixed MBT 2k",
+          "relation": "context"
+        },
+        {
+          "source_id": "fulltext:2608.15171v1",
+          "quote": "its magnitude depends on the model–hardware configuration",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "fulltext:2609.07883v1",
+          "quote": "starvation and admission control deserve separate study",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:56848",
+          "quote": "at the cost of higher prefill TTFT / lower prefill throughput",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "No novelty claim; adaptive prefill budgets and deadline-aware chunking are prior work.",
+        "implementation": "The possible delta is a deadline and wait-bounded admission policy in the verified R7b scheduler, if absent.",
+        "workload": "Long-input agent-f75 and Mooncake mixed-load replay; actual decode interference and B200 effect are unknown.",
+        "nearest_prior_art": "P-PAS RFC and paper propose pressure-adaptive prefill budgets; the deadline-aware chunking paper and decode-priority cadence PR identify related tradeoffs.",
+        "specific_delta": "Tie prefill admission to observed decode deadline slack and an explicit per-request waiting bound, then compare with the strongest static setting."
+      },
+      "prior_art_query": "adaptive prefill deadline admission",
+      "experiment": {
+        "control": "LAT-2XDEP4-R7b as actually running, plus the strongest static max_num_batched_tokens or eligible fixed cadence selected on a calibration split under the same scorer.",
+        "treatment": "Deadline-aware adaptive prefill admission with a predeclared maximum wait bound; routing and other factors held fixed.",
+        "metrics": "Frozen length-aware SLO goodput; cost per successful request; E2E and TTFT p95; ITL p95 by output-length cohort; completed throughput; decode deadline misses; prefill wait tail and starvation count.",
+        "supports_if": "Held-out mixed-load replay shows fewer decode deadline misses and better frozen SLO goodput than both controls while respecting the predeclared TTFT and waiting bounds.",
+        "rejects_if": "The cheap trace check finds no association between prefill admission and deadline misses, or the strongest static control matches or exceeds goodput, or TTFT and waiting bounds fail.",
+        "inconclusive_if": "Runtime policy presence is unknown, timing traces cannot separate interference from preemption, or the held-out replay lacks mixed prefill-decode pressure.",
+        "held_out_condition": "Mooncake median and burst traces plus unseen prompt and output-length mixes, including low-pressure periods and sustained prefill queues.",
+        "correctness": "Confirm each admitted request progresses within the wait bound and generated outputs remain unchanged; measure whole-trace inter-token gaps separately from per-request TPOT.",
+        "cost": "First inspect scheduler configuration and analyze existing traces without GPU execution; later conduct one-factor replay and a bounded static-policy sweep."
+      },
+      "revision_reason": ""
+    },
+    "global_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+    "review": {
+      "id": "B200-R7b-PREFILL-ADMIT-1",
+      "criteria": {
+        "required_improvement": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question."
+        },
+        "causal_test": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The cheapest check asks whether prefill-bearing iterations coincide with decode deadline misses and separates preemption as an alternative. Association alone would not establish cause; the proposed one-factor held-out replay against R7b and tuned static controls provides the causal comparison. It includes TTFT, waiting, starvation, and output-length cohort metrics."
+        },
+        "integration_and_bounds": {
+          "verdict": "unknown",
+          "score": 3,
+          "rationale": "Scheduler-local admission, a fixed global token budget, a maximum wait, and fixed-budget fallback are plausible. The RFC author states, “The global scheduler token budget remains unchanged.” The actual V1 scheduler path is unverified, and the proposal must define how forced prefill progress interacts with a simultaneous decode deadline before its bounds are assessable."
+        },
+        "claim_discipline": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "The RFC’s “reduced average end-to-end latency by 8.5%” is presented as an author report from other configurations, with no B200 speedup prediction. The supplied paper says the effect “depends on the model–hardware configuration,” and another flags that “starvation and admission control deserve separate study.” Neither passage verifies this deployment’s implementation."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "Adaptive feature presence, decode deadline misses, TTFT, starvation, and B200 effect size are unknown.",
+        "A trace association is only a falsification screen; preemption and KV pressure remain alternative causes.",
+        "The static comparator should be chosen under the same frozen scorer and stated eligibility rules; the wait bound and fallback priority need precise definitions."
+      ],
+      "required_revision": "Inspect the effective scheduler and timing telemetry. Specify the maximum wait, decode deadline rule, and conflict fallback; then compare independently with the strongest eligible static policy on held-out replay."
+    },
+    "assessment": {
+      "eligible": false,
+      "status": "deferred",
+      "score": 68.0,
+      "reasons": [
+        "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  }
+]

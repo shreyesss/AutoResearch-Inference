@@ -1,0 +1,80 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62206",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62206",
+    "title": "[Bugfix][Core] Keep the EAGLE-reachable SWA tail at a shared-prefix junction",
+    "body": "\r\n\r\n## Overview\r\n\r\nThis PR fixes cross-request prefix reuse for sliding-window groups under EAGLE/MTP with sparse prefix-cache retention. The shared-prefix junction pin from #47782 kept a sliding-window tail one block too high, so requests that share only a prefix got no prefix-cache hit at all. The fix also pins the tail one block lower, which is where an EAGLE sibling's hit actually lands.\r\n\r\n## Claims\r\n\r\n- Under sparse retention, a sibling request that shares only a prefix now gets a prefix-cache hit when the drafter's groups are sliding-window and the full-attention groups are not EAGLE groups. On Step-5-Preview with MTP, the GSM8K 5-shot prefix goes from 0 hit tokens to a hit on every request after the first two.\r\n- Nothing changes without EAGLE, or when every group is flagged as an EAGLE group. In those cases the junction already sits one block lower, because the full-attention group drops its block too.\r\n- The cost is one extra cached block per sliding-window group for each request that registers a junction.\r\n\r\n## Validation\r\n\r\n**Unit test.** `test_swa_shared_prefix_reuse_under_zero_retention` gets a `use_eagle` case that flags only the SWA group, as https://github.com/vllm-project/vllm/pull/61455 does for drafters. It fails on main (0 instead of 48 hit tokens) and passes with the fix.\r\n\r\n```\r\npytest tests/v1/core/test_prefix_caching.py tests/v1/core/test_single_type_kv_cache_manager.py \\\r\n  tests/v1/core/test_kv_cache_utils.py tests/v1/core/prefix_cache \\\r\n  tests/v1/kv_connector/unit/test_mooncake_store_coordinator.py \\\r\n  tests/v1/kv_connector/unit/test_mooncake_store_scheduler.py\r\n620 passed, 2 errors\r\n```\r\n\r\nThe 2 errors are `test_hybrid_prefix_cache_hit_rate`, which needs a GPU and a model checkpoint (the run was CPU-only). On a wider set (`tests/v1/core`, Mooncake Store and offloading connector unit tests), the failure set with and without this PR is identical (GPU- or model-dependent tests), apart from the new case.\r\n\r\n**End to end.** Step-5-Preview (MTP layers are sliding-window, the target also has full-attention DSA layers), 4x GB300, TP4 + EP, MTP k=3. Prefix caching runs with `--prefix-cache-retention-interval 1024`. The test runs on the Step5 preview branch of https://github.com/vllm-project/vllm/pull/61727, with this change applied.\r\n\r\n12 GSM8K 5-shot prompts are sent one at a time. They share a 565-token prefix, and every prompt is shorter than 1024 tokens.\r\n\r\n| | request 1 | request 2 | requests 3\u201312 |\r\n|---|---|---|---|\r\n| no MTP | 0 | 0 | 560 each |\r\n| MTP k=3, without this PR | 0 | 0 | **0** |\r\n| MTP k=3, this PR | 0 | 0 | 544 each |\r\n\r\nRequest 2 detects the junction, so later requests can hit. 544 is one block below the 560-token junction, which is the deepest hit an EAGLE lookup can verify.\r\n\r\nFull GSM8K (1319 questions, concurrency 64, MTP k=3, Mooncake Store connector on):\r\n\r\n| | without this PR | this PR |\r\n|---|---|---|\r\n| local prefix-cache hit tokens / queried | 0 / 839,793 | 737,520 / 839,793 (87.8%) |\r\n| accuracy | 0.933 | 0.935 |\r\n| Mooncake Store replay vs GPU-cache replay | 64/64 bit-identical | 64/64 bit-identical |\r\n\r\n## Details\r\n\r\n**Root cause.**\r\n1. Request A runs alone.\r\n2. Request B shares a prefix with A, but under sparse retention only A's full-attention blocks are still cached. `get_computed_blocks` reports the junction J as the full-attention hit length (B's shared prefix floored to a block), and B pins J.\r\n3. The sliding-window mask keeps the `need`-block tail at J. Under EAGLE, that tail is shifted one block right, to include the block past J as the lookahead (#44082). This is right for a replay of the same prompt.\r\n4. The block past J holds B's own tokens, so for request C it is not shared. C's SWA lookup must verify one block past its hit, so its best hit is J \u2212 block_size. That hit needs the window one block lower than the pinned tail, and the lowest block was never kept.\r\n5. C gets no hit and pins the same J again, so no later request ever hits.\r\n\r\nWhen every group takes the EAGLE drop (no group flagged), the full-attention hit is already one block lower, so J lands where the SWA hit can verify. The bug therefore shows only when a sliding-window group is an EAGLE group and the full-attention group that reports the junction is not. Step5 MTP already met this under the older \"group holding the last registered layer\" rule. https://github.com/vllm-project/vllm/pull/61455 makes per-group flags the general rule: drafters whose layers are sliding-window now flag only those groups.\r\n\r\n**Fix.** Under EAGLE, `cache_blocks` registers both J and J \u2212 block_size as reachable boundaries. The masks overlap, so this keeps one extra block. Replay boundaries are unchanged, because they already account for the EAGLE drop (#54713, #61012). Mamba checkpointing reads `shared_prefix_boundary` directly and is unaffected.\r\n\r\n**Not covered.** `OffloadingConnector` builds its own reachable boundaries from `shared_prefix_boundary` and is not changed here.\r\n\r\n---\r\n\r\n<details>\r\n<summary> Pull Request Checklist </summary>\r\n\r\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\r\n- [x] AI assistance was used during the creation of this PR.\r\n\r\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\r\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\r\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\r\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\r\n</details>\r\n\n",
+    "created_at": "2026-10-17T17:27:18Z",
+    "updated_at": "2026-10-19T12:38:19Z",
+    "fetched_at": "2026-10-20T08:05:54Z",
+    "state": "merged",
+    "merged_at": "2026-10-19T12:38:19Z",
+    "parent": null,
+    "tags": [
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 62206,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777489391,
+          "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+          "name": "kv-cache-manager",
+          "color": "d065a7",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 7,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "6af1e0ae273442d7cc19e60eed5b414ce299cb91",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/swa-eagle-junction-pin",
+        "sha": "bbc8745372e00776cf3ebab9f24a3bf11a184cd8",
+        "label": "JaredforReal:fix/swa-eagle-junction-pin"
+      },
+      "merge_commit_sha": "a608b6e6e05f4b309f77981f010e93c2caa1c677",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:05:54Z"
+    },
+    "content_hash": "0eb68dc6591a94870e01e9996d3f284ea114b1734efbc565db9317fbc642c4c3"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

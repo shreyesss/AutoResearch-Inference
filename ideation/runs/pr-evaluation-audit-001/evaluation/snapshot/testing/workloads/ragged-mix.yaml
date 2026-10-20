@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "name": "ragged-mix",
+  "description": "One seeded, weighted case that interleaves prefill, decode, mixed text, reasoning, tools, prefixes, near-1M context, and images in the same closed-loop workload.",
+  "minimum_requests": 256,
+  "mix_weights_percent": {
+    "prefill": 10,
+    "decode": 16,
+    "mixed_text": 34,
+    "reasoning_and_tools": 20,
+    "prefix": 10,
+    "vision": 10
+  },
+  "defaults": {
+    "temperature": 0,
+    "category": "chat",
+    "thinking": false,
+    "reasoning_effort": "low",
+    "prefix_mode": "none",
+    "prefix_tokens": 0,
+    "reuse_percent": 0,
+    "prefix_pool_size": 16,
+    "image_share": 0,
+    "image_count": 1,
+    "image_resolution": 512,
+    "image_detail": "auto"
+  },
+  "cases": [
+    {
+      "name": "ragged-mix",
+      "variants": [
+        {
+          "name": "prefill-128",
+          "weight": 4,
+          "shape": "prefill",
+          "isl": 128,
+          "max_tokens": 1
+        },
+        {
+          "name": "prefill-8k",
+          "weight": 3,
+          "shape": "prefill",
+          "isl": 8192,
+          "max_tokens": 1
+        },
+        {
+          "name": "prefill-32k",
+          "weight": 3,
+          "shape": "prefill",
+          "isl": 32768,
+          "max_tokens": 1
+        },
+        {
+          "name": "decode-128-128",
+          "weight": 8,
+          "shape": "decode",
+          "isl": 128,
+          "max_tokens": 128
+        },
+        {
+          "name": "decode-128-2k",
+          "weight": 8,
+          "shape": "decode",
+          "isl": 128,
+          "max_tokens": 2048
+        },
+        {
+          "name": "chat-512-256",
+          "weight": 8,
+          "shape": "mixed",
+          "category": "chat",
+          "isl": 512,
+          "max_tokens": 256
+        },
+        {
+          "name": "mixed-2k-1k",
+          "weight": 8,
+          "shape": "mixed",
+          "isl": 2048,
+          "max_tokens": 1024
+        },
+        {
+          "name": "mixed-8k-512",
+          "weight": 7,
+          "shape": "mixed",
+          "isl": 8192,
+          "max_tokens": 512
+        },
+        {
+          "name": "mixed-32k-256",
+          "weight": 5,
+          "shape": "mixed",
+          "isl": 32768,
+          "max_tokens": 256
+        },
+        {
+          "name": "mixed-128k-128",
+          "weight": 4,
+          "shape": "mixed",
+          "isl": 131072,
+          "max_tokens": 128
+        },
+        {
+          "name": "near-1m-16",
+          "weight": 2,
+          "shape": "mixed",
+          "isl": 1040000,
+          "max_tokens": 16
+        },
+        {
+          "name": "reasoning-2k-1k",
+          "weight": 10,
+          "shape": "reasoning",
+          "category": "code-reasoning",
+          "isl": 2048,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high"
+        },
+        {
+          "name": "agentic-tools-8k-1k",
+          "weight": 10,
+          "shape": "agentic",
+          "category": "agentic",
+          "isl": 8192,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "tools": true
+        },
+        {
+          "name": "prefix-hot-8k",
+          "weight": 6,
+          "shape": "prefix",
+          "category": "long-doc",
+          "isl": 10240,
+          "max_tokens": 256,
+          "prefix_mode": "hot",
+          "prefix_tokens": 8192,
+          "reuse_percent": 50
+        },
+        {
+          "name": "prefix-zipf-8k",
+          "weight": 4,
+          "shape": "prefix",
+          "category": "long-doc",
+          "isl": 10240,
+          "max_tokens": 256,
+          "prefix_mode": "zipf",
+          "prefix_tokens": 8192,
+          "reuse_percent": 50
+        },
+        {
+          "name": "vision-1x1024",
+          "weight": 10,
+          "shape": "multimodal",
+          "category": "multimodal",
+          "isl": 512,
+          "max_tokens": 128,
+          "image_share": 100,
+          "image_count": 1,
+          "image_resolution": 1024
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:57604",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/57604",
+    "title": "[Perf][DSV4.1] Optimize MegaMoE staging and NVFP4 cache gathers",
+    "body": "## Purpose\n\nReduce DeepSeek V4.1 MegaMoE/MegaAttention prefill overhead: tile multiple tokens\nper MegaMoE staging program for sufficiently large inputs, and size the NVFP4\ngather grid by request count and output capacity. Keep conservative launch\nchoices for small inputs. Both transformations preserve the existing arithmetic\nand add no persistent buffers.\n\nDispatch uses eight-token staging tiles from 64 tokens, otherwise one token.\nOn GB200 at H5120, forced eight-token tiles regress 2\u201316-token kernels, tie at\n32, and improve from 64 onward (both scale layouts):\n\n| Tokens | Native staging us | Eight-token tile us |\n| --- | ---: | ---: |\n| 16 | 2.400 | 2.752 |\n| 32 | 2.880 | 2.816 |\n| 64 | 3.328 | 3.136 |\n| 128 | 4.672 | 3.296 |\n| 8192 | 175.616 | 32.416 |\n| 16384 | 348.993 | 60.736 |\n\nNVFP4 gathers retain 128 workers for short rows and chunks of >=16 requests.\nOtherwise use `min(2048 // num_reqs, max(128, compressed_capacity))` workers.\nAt 100K gathered rows, 1/2/4/8-request kernel latency falls by 88%/76%/50%/18%;\n16/32 requests are unchanged. The caller passes a view of the compressed region\nso SWA workspace does not inflate its capacity. No allocation, device-to-host\nsynchronization or actual-KV decode dispatch is added.\n\nKernel sweeps use CUPTI, CUDA graphs and cold L2, checking bitwise equality\nbefore timing. Final branch boundary/stride checks are recorded below.\n\n## Performance and validation\n\nGB200\u00d74, DEP4/MegaMoE/MegaAttention, model revision\n`dba1be0a40aa45a94ad051997016db3960a90277`, FlashInfer 0.6.18.post1.\nEarlier paired ten-sample fixed-forward confirmations with matching tuned GEMMs:\n\n| Workload per DP rank | Baseline ms | Candidate ms | Reduction |\n| --- | ---: | ---: | ---: |\n| Q16K, KV100K | 415.559 | 400.955 | 3.51% |\n| B31Q1 + B1Q8K, KV100K | 224.438 | 207.711 | 7.45% |\n\nMixed baseline SD 9.124 ms versus candidate 0.697 ms; all samples retained.\nThe earlier three-sample mixed screen improved 6.14%. B8Q2K improves 1.73%;\ndecode/draft are essentially unchanged. No new model or workspace buffers.\nThese are synthetic fixed-forward GPU timings, not serving throughput.\n\nMatched full real-weight GSM8K: 1272\u21921271 /1319 (96.44\u219296.36% flexible extraction;\n7 improve, 8 regress). DSpark acceptance length 3.8281\u21923.8289. Real-prefill\ntraces confirm both changed paths execute. Both accuracy arms carry the separate\nsparse-remap correctness guard, which is not included in this PR.\n\nGPU validation at `e2a2356a6229`: **29 staging tests and 24 gather tests pass**.\nThe gather cases cover 1/8/32 requests, 70/128/129/2051 rows, partial gathers,\nnon-contiguous request strides, untouched bounds, and CUDA-graph replay after\nchanging lengths in persistent buffers.\n\n```bash\n.venv/bin/python -m pytest tests/models/test_deepseek_v4_mega_moe.py \\\n  -k 'fused_input_staging or stages_shared_scale_tma_layout' -q -rs\n.venv/bin/python -m pytest tests/kernels/test_compressor_kv_cache.py \\\n  -k v41_nvfp4_gather_matches_insert -q -rs\n```\n\nAll pre-commit hooks pass. The follow-up removes only benchmark scripts;\nproduction code and correctness tests retain the validated contents. Final dispatched-kernel checks preserve short gathers\nand small staging inputs. At H5120/N64, the final staging comparison is\n3.360\u21923.264 us; the gain near the boundary is modest. At H7168/N64,\n3.712\u21923.168 us supports the same cutoff. Large-input gains remain intact.\nThe earlier real-weight quality evaluation is reused: this dispatch refinement\npreserves the evaluated arithmetic; the narrower view changes launch bounds only.\n\nValidation commit `e2a2356a6229` full-model checks pass with finite outputs and zero\neager/graph, changed-input and restored-input replay errors:\n\n- Q16K: 400.490 ms (three samples), consistent with the earlier confirmation.\n- DEP B32 adaptive verification, draft length 5 and seeded lengths 1\u20136:\n  112 total tokens; same-instance original/automatic staging measures\n  **18.310\u219218.285 ms (0.14%)**, with matched inputs, KV and GEMM tactics.\n  A post-timing trace confirms all 40 staging calls: summed kernel time\n  144.00\u2192112.16 us; MegaMoE time remains 11.703 ms in both arms.\n\nAn earlier unpaired B32 check measured 30.287 ms with high spread. It is retained\nas an unexplained slow run, not used to estimate the staging effect. The paired\ncheck above isolates staging and does not reproduce that regression. Compilation\nis excluded from timing and guarded against during timed work.\n\n## Duplicate-work check\n\nNo open PR found for tiled DeepSeek MegaMoE staging or CUDA NVFP4 gather sizing.\n#56720 sizes a ROCm FP8 gather grid and explicitly preserves CUDA dispatch;\nthis change targets the separate CUDA NVFP4 branch. #43592 targets MiniMax-M2\nprepared-input fusion rather than this DeepSeek staging kernel. #55109 fixes\nblock-table strides; #57489 adds gfx950 FP4 attention. Neither implements these\nCUDA launch heuristics.\n\nAI assistance was used to implement, benchmark and test this change.\n",
+    "created_at": "2026-09-18T17:29:50Z",
+    "updated_at": "2026-09-18T19:57:22Z",
+    "fetched_at": "2026-10-19T23:18:57Z",
+    "state": "merged",
+    "merged_at": "2026-09-18T19:57:20Z",
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "moe",
+      "throughput",
+      "performance",
+      "speculation",
+      "nvfp4"
+    ],
+    "metadata": {
+      "number": 57604,
+      "labels": [
+        {
+          "id": 5471987301,
+          "node_id": "LA_kwDOI7xefs8AAAABRifmZQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/performance",
+          "name": "performance",
+          "color": "3DDD26",
+          "default": false,
+          "description": "Performance-related issues",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10799676958,
+          "node_id": "LA_kwDOI7xefs8AAAACg7X-Hg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4",
+          "name": "DSv4",
+          "color": "be3bfa",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 4,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "71fc70d3ae1df53300a23ec69f6d97b7207a109f",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "woosuk/dsv41-staging-gather-upstream",
+        "sha": "08d438b242c192861c7c3d0e5c02dac30a220649",
+        "label": "vllm-project:woosuk/dsv41-staging-gather-upstream"
+      },
+      "merge_commit_sha": "50d812b66a697c464a9964b3a061b47583b83e34",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:18:57Z"
+    },
+    "content_hash": "9f41da6541cc1d75a78b5445f7437a6888b65640e51d645ccfb696411237e7f9"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

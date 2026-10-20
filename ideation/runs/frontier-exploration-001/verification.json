@@ -1,0 +1,144 @@
+{
+  "at": "2026-10-19T23:37:02Z",
+  "subagents": 3,
+  "recorded_keyword_queries": {
+    "routing": {
+      "seed": 20261020,
+      "count": 10,
+      "artifact": "routing/search-results.json"
+    },
+    "speculation": {
+      "seed": 2026102003,
+      "count": 6,
+      "artifact": "speculation/searches.json"
+    },
+    "speculation-random": {
+      "seed": 2026102004,
+      "count": 8,
+      "artifact": "speculation/randomized-keyword-searches.json"
+    },
+    "kernels": {
+      "seed": 20261020,
+      "count": 8,
+      "artifact": "kernels/search.json"
+    }
+  },
+  "query_count": 32,
+  "distinct_fulltexts": [
+    "fulltext:2601.11580",
+    "fulltext:2605.00342",
+    "fulltext:2608.15171v1",
+    "fulltext:2608.19677v1",
+    "fulltext:2609.07536",
+    "fulltext:2609.07883v1",
+    "fulltext:2609.37532"
+  ],
+  "evidence_quote_checks": [
+    {
+      "path": "routing/evidence/packet.json",
+      "sources": 7,
+      "claims": 11,
+      "quote_errors": []
+    },
+    {
+      "path": "speculation/model-run/evidence/packet.json",
+      "sources": 10,
+      "claims": 10,
+      "quote_errors": []
+    },
+    {
+      "path": "speculation/supplemental-packet.json",
+      "sources": 12,
+      "claims": 10,
+      "quote_errors": []
+    },
+    {
+      "path": "kernels/evidence/packet.json",
+      "sources": 10,
+      "claims": 11,
+      "quote_errors": []
+    },
+    {
+      "path": "kernels/repair-input/packet.json",
+      "sources": 11,
+      "claims": 12,
+      "quote_errors": []
+    }
+  ],
+  "designs": [
+    {
+      "design_id": "R1",
+      "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+      "status": "deferred",
+      "score": 68.0,
+      "reasons": [
+        "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ]
+    },
+    {
+      "design_id": "R2",
+      "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "status": "deferred",
+      "score": 68.0,
+      "reasons": [
+        "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ]
+    },
+    {
+      "design_id": "SPEC-2",
+      "hypothesis_id": "hypothesis:c021e734349347e1c9c3a46e9b5691ef7412fd36272d377b1fc1b0ea3590b5d5",
+      "status": "deferred",
+      "score": 64.0,
+      "reasons": [
+        "task_value: A cheap inspection can establish whether mixed-tail profiling is absent and adaptive verification is eligible. Issue #54046 reports a concrete shape mismatch for B200 at k7, but whether the target k5 deployment reaches the mismatch, changes policy decisions, or improves cost and latency is unknown. This is a valid first falsification question.",
+        "correctness_and_safety: The design keeps draft k5, acceptance and rollback rules, and captured decode shapes, and makes R1\u2019s safety qualification a prerequisite. PR #54077 claims the change \u201cdoes not modify sampling or verification kernels,\u201d but also says \u201cA full DSpark model-serving evaluation was not run.\u201d Target correctness and graph safety remain unverified.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ]
+    },
+    {
+      "design_id": "SPEC-1",
+      "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+      "status": "deferred",
+      "score": 76.0,
+      "reasons": [
+        "correctness_and_safety: The design retains draft k5 and gates activation on sampling, KV rollback, and graph-safe mixed-prefill checks. Safety is unresolved: issue #59970 reports \u201cIMA within 1 min at c96 (4/4)\u201d on B300, while PR #59986 says its B300 reproducer was \u201cNot run.\u201d Neither establishes safety on the target B200 deployment."
+      ]
+    },
+    {
+      "design_id": "K1",
+      "hypothesis_id": "hypothesis:cbaa74a8a3a2661e1ff93b400266631b5b89638f89512ba6cc4f6193551f3957",
+      "status": "deferred",
+      "score": 58.0,
+      "reasons": [
+        "Task rubric needs paper full-text evidence",
+        "legal_correct_integration: The newer adapter says, \u201cEvery EP rank must use the same capacity,\u201d and the proposal plans a fallback and zero-rank tests. The active backend, required API, DSpark verification token bound, and multi-rank correctness remain unverified. PR #62073 says, \u201cThe MegaMoE runtime paths still need CI or a nightly-FlashInfer machine.\u201d",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ]
+    },
+    {
+      "design_id": "K2",
+      "hypothesis_id": "hypothesis:d6a6e253d7a287c7e1d05febf6ddd4c5bce5e576bb03685997c73ede6f53e78d",
+      "status": "deferred",
+      "score": 66.0,
+      "reasons": [
+        "legal_correct_integration: The proposed collective-order, stream-dependency, and graph-replay checks are appropriate, but no supplied evidence identifies the active B200 combine backend or establishes a legal CTA/SM resource knob. The paper's COMET control cannot establish that precondition for this backend.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ]
+    }
+  ],
+  "consolidated_planned_tests": 6,
+  "previous_routing_draft_plans_preserved": 2,
+  "gpu_experiments": 0,
+  "test_results_for_these_hypotheses": 0,
+  "live_baseline_access": "Both configured bitlane-n4/n5 EC2 targets terminated",
+  "memory_stats": {
+    "hypotheses": 104,
+    "events": 306,
+    "tests": 8,
+    "nodes": 624,
+    "edges": 1339
+  },
+  "meaning": "No measured gains; deferred hypotheses with planned CPU prerequisites and conditional evaluation contracts"
+}

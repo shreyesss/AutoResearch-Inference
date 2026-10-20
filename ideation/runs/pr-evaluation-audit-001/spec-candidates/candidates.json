@@ -1,0 +1,1381 @@
+{
+  "scope": "B200 DeepSeek-V4.1-Flash, current8GPUDEP4/DEP8 DSparkk5 native synthetic agent-f75 andMooncake replay",
+  "catalog_rows_scanned": 5532,
+  "broad_family_triage_rows": 1899,
+  "source_notes": "All CSV fields scanned; complete Markdown parsed for provenance; 28 shortlisted PR bodies substantively reviewed, plus excluded and issue records. This is not a claim to have reviewed all 5,532 full bodies.",
+  "live_pr_proof_requests": 12,
+  "pinned_code_requests": 4,
+  "ranking_semantics": "Engineering inspection priority, not a predicted gain or approval to cherry-pick. Correctness prerequisites are separate from performance benefit.",
+  "baseline_gate": "deepseek_serve commit2e6fa287d90adf7318ad314de27aa2f595aac821 isnotvLLMSHA; historicalvLLMac9126e58aa7bbab1856ba6593ba4d5003fea516 differsv0.32catalog. Pinactualdirtysource,image,model,draft,tokenizer,runtimeflags first.",
+  "candidates": [
+    {
+      "rank": 1,
+      "repo": "vllm-project/vllm",
+      "number": 61161,
+      "title": "[Bugfix][Spec Decode] Avoid reusing random draws across block verification rounds",
+      "url": "https://github.com/vllm-project/vllm/pull/61161",
+      "family": "sampling-validity",
+      "role": "correctness prerequisite",
+      "rationale": "Fresh random draws across block-verification rounds; matches probabilistic DSpark/block sampling",
+      "first_inspection": "Resolve rejection_sample_method and source implementation; compare fresh per-round RNG semantics with pinned source.",
+      "existing_evaluation_requirements": "Existing correctness suite needs multi-round distribution regression and seeded ordering/split-batch checks; native/Mooncake scores alone cannot expose sampling bias.",
+      "dependencies_and_limits": "Bundle61114; alternative61153, prefer reviewed merged61161. Standard probabilistic token sequences can legitimately change; do not demand byte equality across corrected samplers.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Fixes #61114. Give block verification fresh acceptance and draft random draws when an uncommitted position is revisited in a later",
+        "record_file": "current-pr-61161.json",
+        "body_sha256": "0c9242c3bc0c97568348dc3ccf3ba7da7d7b48d930194e50fd0b1c1eb947f10f",
+        "state": "merged",
+        "updated_at": "2026-10-15T21:46:39Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "97b07665bc38d52772a18f546241ee8abb3302da"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61161",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-12",
+        "closed_or_merged": "2026-10-15",
+        "group": "spec-decode",
+        "affects_us": "yes: dspark draft_sample_method probabilistic + rejection_sample_method block (exactly our config); output distribution biased in v0.32.0",
+        "action": "cherry-pick - correctness of sampling distribution on our exact spec config; main-only",
+        "url": "https://github.com/vllm-project/vllm/pull/61161",
+        "title": "[Bugfix][Spec Decode] Avoid reusing random draws across block verification rounds"
+      },
+      "catalog_markdown_lines": [
+        19,
+        353,
+        354,
+        355,
+        1157,
+        1213,
+        1600
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Check actual sampler. Toy distribution tests matter; aggregate accuracy or golden NLL alone cannot prove unbiased generation"
+    },
+    {
+      "rank": 2,
+      "repo": "vllm-project/vllm",
+      "number": 62535,
+      "title": "[Bugfix][Worker] Keep prefill-bearing batches out of FULL (decode-only) cudagraphs",
+      "url": "https://github.com/vllm-project/vllm/pull/62535",
+      "family": "graph-safety",
+      "role": "correctness prerequisite",
+      "rationale": "Keep prefill-bearing batches out of FULL decode graphs",
+      "first_inspection": "Check actual dispatch allows FULL for a prefill-bearing descriptor; reproduce dispatch trace before applying source change.",
+      "existing_evaluation_requirements": "Use existing synthetic short-prompt/mixed-load lane plus existing chat/tool correctness probes; record first-token logits and graph descriptors against eager reference.",
+      "dependencies_and_limits": "Bundle62417; overlapping59986 changes attention capability not identical abstraction. Do not blindly stack or declare substitutable without path coverage. Reported8xSM120 k3, notB200 k5.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Fixes the DSpark speculative-decoding output corruption reported in #62417 (and any other model where a prefill-bearing batch can land in",
+        "record_file": "current-pr-62535.json",
+        "body_sha256": "80d3412cc9295da18a14b1bf025f0efea52d37a73c8c4e4bd8303e9c0cf32fab",
+        "state": "open",
+        "updated_at": "2026-10-19T18:15:02Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "111bf7f0c5f8c833465175eaa3cb93cd5a10a93b"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62535",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-19",
+        "closed_or_merged": "",
+        "group": "cudagraph",
+        "affects_us": "",
+        "action": "auto",
+        "url": "https://github.com/vllm-project/vllm/pull/62535",
+        "title": "[Bugfix][Worker] Keep prefill-bearing batches out of FULL (decode-only) cudagraphs"
+      },
+      "catalog_markdown_lines": [
+        20,
+        230,
+        1158,
+        1212
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Open; SM120 evidence. Trace actual B200 dispatch and compare mixed-load outputs with eager reference"
+    },
+    {
+      "rank": 3,
+      "repo": "vllm-project/vllm",
+      "number": 61174,
+      "title": "[Bugfix][Spec Decode] Clear stale shared block-table rows",
+      "url": "https://github.com/vllm-project/vllm/pull/61174",
+      "family": "graph-safety",
+      "role": "correctness prerequisite",
+      "rationale": "Clear stale shared block-table rows when batches shrink",
+      "first_inspection": "Check BlockTables shared-row clearing in actual source; distinguish stale rows from stale SWA columns.",
+      "existing_evaluation_requirements": "Existing synthetic concurrency sweep needs shrink/grow/drain phases and cross-request correctness; Mooncake burst trace exposes churn.",
+      "dependencies_and_limits": "Separate from60767 columns; H20/GLM serving validation is notDSv4.1 B200 validation.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "A larger MTP decode graph can read stale shared block-table rows after the target batch shrinks, allowing padded work to",
+        "record_file": "source-61174.json",
+        "body_sha256": "070f069833c71f0a8a83e2163750ab6358794de60717f682eaee899b1b526b6e",
+        "state": "merged",
+        "updated_at": "2026-10-17T08:25:03Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "779e5a14a92f32c89ef6d09ca2d1879484e64300"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61174",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-12",
+        "closed_or_merged": "2026-10-17",
+        "group": "crash",
+        "affects_us": "maybe: MRV2 + dspark + FULL_AND_PIECEWISE graphs with shrinking batches; linked #61160 (DSv4.1 cross-request crosstalk) not reproduced on main and likely fixed by #59103",
+        "action": "cherry-pick - small defensive fix for cross-request KV reads in padded graphs; main-only",
+        "url": "https://github.com/vllm-project/vllm/pull/61174",
+        "title": "[Bugfix][Spec Decode] Clear stale shared block-table rows"
+      },
+      "catalog_markdown_lines": [
+        27,
+        223,
+        1162,
+        1601
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "H20/GLM validation; verify DSv4.1 path and shrinking/draining batches"
+    },
+    {
+      "rank": 4,
+      "repo": "vllm-project/vllm",
+      "number": 59559,
+      "title": "[DP] Engines own wave wake-ups; drop the front-end FIRST_REQ",
+      "url": "https://github.com/vllm-project/vllm/pull/59559",
+      "family": "dp-api-liveness",
+      "role": "correctness prerequisite",
+      "rationale": "API2/DP wake-up race can leave idle or paused ranks hanging",
+      "first_inspection": "Resolve API2 andDP engine wave code; ensure frontend andengine builtfromsameversion.",
+      "existing_evaluation_requirements": "Existing replay with idle-to-burst andpause/resume phases; record completedrequests, timeouts, per-rankheartbeat andTTFT, notonlysuccessfulrequestlatency.",
+      "dependencies_and_limits": "12files,+226/-531 reported; not tinyone-linepatch. Engine/frontendprotocolchange mustshiptogether; normalsteadystatetputgainnotclaimed.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Fix a DP hang and simplify DP wave control. After this change, the engines alone start DP waves, and the",
+        "record_file": "current-pr-59559.json",
+        "body_sha256": "335f5e2d2f433a76c82d21d1ef27ebcf505773eeb9b7ba929f30d289de5b2196",
+        "state": "merged",
+        "updated_at": "2026-10-16T23:41:55Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "0b9041fb118a047fee6d48b98a69d9bf78966e6e"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "59559",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-01",
+        "closed_or_merged": "2026-10-16",
+        "group": "dp-ep",
+        "affects_us": "yes: DEP4/DEP8 with api-server-count 2 can hang in DP collective after idle/pause",
+        "action": "cherry-pick - DP hang matches our layout; check pause/resume use",
+        "url": "https://github.com/vllm-project/vllm/pull/59559",
+        "title": "[DP] Engines own wave wake-ups; drop the front-end FIRST_REQ"
+      },
+      "catalog_markdown_lines": [
+        25,
+        670,
+        1165,
+        1573
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Frontend and engines must move together; this is a 12-file protocol change, not a tiny local patch"
+    },
+    {
+      "rank": 5,
+      "repo": "vllm-project/vllm",
+      "number": 60767,
+      "title": "[Bugfix][V1] Null sliding-window block-table entries below the window",
+      "url": "https://github.com/vllm-project/vllm/pull/60767",
+      "family": "graph-safety",
+      "role": "correctness prerequisite",
+      "rationale": "Mask freed SWA pages that can leak NaNs through tiled attention",
+      "first_inspection": "Verify MRV2 SlidingWindowSpec path, CP disabled, blocksize/window andzeroednullblock; actualbackendmaydiffer.",
+      "existing_evaluation_requirements": "Existing long-session/burst replay plus acceptance andNaN counters; matchsameprompts andquality beforemeasuringgoodput.",
+      "dependencies_and_limits": "ObservedDFlash2/B300, CPexcluded. Avoidcalling reportedacceptancerestore genericDSpark speedup.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "The sliding-window KV manager frees blocks once they fall wholly outside a request's window, but the worker's persistent block table",
+        "record_file": "source-60767.json",
+        "body_sha256": "836af1d17c1874b121a42d79e320ec5f43ba2233aeabb0587591ff6ca4928a8b",
+        "state": "merged",
+        "updated_at": "2026-10-19T20:25:37Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "d84163379a073954485ae5f6115a8f28fb795690"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "60767",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-09",
+        "closed_or_merged": "2026-10-19",
+        "group": "crash",
+        "affects_us": "maybe: MRV2 + DSv4 SWA layers + prefix caching; depends on whether FlashMLA SWA tiles read below-window pages; check DSpark acceptance at c>=32",
+        "action": "cherry-pick - MRV2 SWA NaN path; main only",
+        "url": "https://github.com/vllm-project/vllm/pull/60767",
+        "title": "[Bugfix][V1] Null sliding-window block-table entries below the window"
+      },
+      "catalog_markdown_lines": [
+        27,
+        224,
+        1175,
+        1593
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "MRV2 SlidingWindowSpec, no CP; validate the null block and actual group types"
+    },
+    {
+      "rank": 6,
+      "repo": "vllm-project/vllm",
+      "number": 62199,
+      "title": "[Bugfix][Frontend] Match DeepSeek-V4.1 encoder to the 1017 reference encoding",
+      "url": "https://github.com/vllm-project/vllm/pull/62199",
+      "family": "agent-encoding",
+      "role": "correctness prerequisite",
+      "rationale": "Correct tool-result turn encoding and preserved reasoning",
+      "first_inspection": "Diff actualPython deepseek_v41 encoder with pinnedmodelreference; checkpointrevisionandencodingmustbeexplicit.",
+      "existing_evaluation_requirements": "Existingchat/toolgoldens shouldcompareprompttokenIDs andtoolresultturns; newtokenization changes require newbaseline, notsameworkloadperformancecomparison.",
+      "dependencies_and_limits": "Applieslaunchand1017reference perauthor; mergedOct19. Pythonfrontendonly, Rust62200different. Coordinateoverlapping62196.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Match the Python DeepSeek V4.1 encoder to the updated reference [`encoding/`](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/encoding). Rust counterpart: #62200.",
+        "record_file": "current-pr-62199.json",
+        "body_sha256": "1ef31acb9691946eb7b1f1181517f1692a5a7286b248126ec6307d29733a1287",
+        "state": "merged",
+        "updated_at": "2026-10-19T15:08:42Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "2a20d84234a2e9ec7012f4318cf20a572b870396"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62199",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-17",
+        "closed_or_merged": "2026-10-19",
+        "group": "api",
+        "affects_us": "yes: tokenizer-mode deepseek_v41, multi-turn agentic tool calls drop reasoning today",
+        "action": "cherry-pick - prompt mismatch vs reference on tool turns; also changes prefix cache keys",
+        "url": "https://github.com/vllm-project/vllm/pull/62199",
+        "title": "[Bugfix][Frontend] Match DeepSeek-V4.1 encoder to the 1017 reference encoding"
+      },
+      "catalog_markdown_lines": [
+        21,
+        906,
+        1161,
+        1189,
+        1219,
+        1622
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Changes prompt token IDs and cache keys. Establish a new encoding baseline, not a misleading same-input speedup"
+    },
+    {
+      "rank": 7,
+      "repo": "vllm-project/vllm",
+      "number": 58984,
+      "title": "[Perf][Spec Decode] Avoid target request padding in DP drafter",
+      "url": "https://github.com/vllm-project/vllm/pull/58984",
+      "family": "draft-padding",
+      "role": "performance candidate",
+      "rationale": "Use logical DP request count for draft graph dispatch",
+      "first_inspection": "Trace logicalrequests,targetcapacity,draftrows/replaybucket perrank andconfirmoversizing underactualadaptiveoffconfiguration.",
+      "existing_evaluation_requirements": "Existing syntheticc sweep andMooncakeburst; reportdraftphaseGPU/CPUms,acceptedtokens,quality,TTFT/TPOT andgoodput.",
+      "dependencies_and_limits": "Bundle61806/61807; reportedH20DP8 run adaptiveON, measuredgainsnotB200/adaptiveOFF. Sourcefix mayhelpwithoutAV onlyifpadleaktraceprovesit.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "When a target FULL CUDA graph pads its request count, `DPSyncState.num_reqs` describes graph capacity rather than the number of scheduled",
+        "record_file": "current-pr-58984.json",
+        "body_sha256": "86b3985fcf58e7fe3d3cea97298b3db2b4afce2c0d8318892bb6e853afcf3d13",
+        "state": "merged",
+        "updated_at": "2026-10-20T00:06:58Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "8b1fc99ee51cf708e8ce3d2790bfa216e5b86cba"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "58984",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-09-28",
+        "closed_or_merged": "2026-10-20",
+        "group": "spec-decode",
+        "affects_us": "yes: DEP layouts + dspark drafter on MRV2; acceptance numbers swing, gain measured on H20 only",
+        "action": "cherry-pick - decode gain for DEP+dspark; verify GSM8K on B300",
+        "url": "https://github.com/vllm-project/vllm/pull/58984",
+        "title": "[Perf][Spec Decode] Avoid target request padding in DP drafter"
+      },
+      "catalog_markdown_lines": [
+        356,
+        367,
+        1178,
+        1555
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Trace target-capacity inflation of draft rows. Author H20 measurements used adaptive verification **on**; our off configuration needs separate eligibility proof"
+    },
+    {
+      "rank": 8,
+      "repo": "vllm-project/vllm",
+      "number": 62040,
+      "title": "[Bugfix][Spec Decode] Keep a full uniform-decode batch reachable by FULL graphs",
+      "url": "https://github.com/vllm-project/vllm/pull/62040",
+      "family": "graph-reachability",
+      "role": "performance candidate",
+      "rationale": "Retain a FULL graph for the largest uniform draft batch",
+      "first_inspection": "Enumerate actualtargetanddraftgraphdescriptors atseq128 andcap512/1024; establishunreachablefullbatchfirst.",
+      "existing_evaluation_requirements": "Existing synthetichighconcurrencylane; collectdraftFULL/eagerfractions andhostlaunchtime alongsideendtoendmetrics.",
+      "dependencies_and_limits": "Open; GB200DEP4seq72 proof,+4.4%authorclaim, acceptance~.99longoutputs. Notproofseq128affected. Textconflict61882,orthogonal56136; do notblindcopyladder.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "A full `max_num_seqs` uniform-decode batch can end up with no FULL CUDA graph when the manager's query length does not",
+        "record_file": "current-pr-62040.json",
+        "body_sha256": "b31dca00154fdd441d36ebfc9d11bf29b0fb09f4e57e58ba98f6267b8c4a826c",
+        "state": "open",
+        "updated_at": "2026-10-16T16:45:38Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "9ae4c357e691580172d69502c437a1ccc166695e"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62040",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-16",
+        "closed_or_merged": "",
+        "group": "spec-decode",
+        "affects_us": "",
+        "action": "auto",
+        "url": "https://github.com/vllm-project/vllm/pull/62040",
+        "title": "[Bugfix][Spec Decode] Keep a full uniform-decode batch reachable by FULL graphs"
+      },
+      "catalog_markdown_lines": [],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Enumerate q6 target and q5 draft descriptors. GB200 seq72 proof does not establish that seq128 has the same hole"
+    },
+    {
+      "rank": 9,
+      "repo": "vllm-project/vllm",
+      "number": 59468,
+      "title": "[Spec Decode] Don't reserve DFlash/DSpark draft slots in the scheduler token budget",
+      "url": "https://github.com/vllm-project/vllm/pull/59468",
+      "family": "scheduler-budget",
+      "role": "performance candidate",
+      "rationale": "Stop charging separate draft work against the target token budget",
+      "first_inspection": "Count perstep schedulerbudget-limitedadmission anddraftcharges atactual16K,seq128,k5; ifnotbindingdeprioritize.",
+      "existing_evaluation_requirements": "Existing syntheticagent-f75 plusburstyMooncake withsamecachepreparation; logprefillchunk sizes,admittedrequests,graphmode andTTFT tails.",
+      "dependencies_and_limits": "512budgetGB300largegainnottransferable; max512targettokens freed at128requests,k5 (~3.125%of16K). Preserve draftbuffercap floor(budget/lookahead),donotjustdeletecharges.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "DFlash and DSpark reserve `max_num_new_slots_for_drafting` draft slots per request in the scheduler token budget (K for DFlash, K \u2212 1",
+        "record_file": "current-pr-59468.json",
+        "body_sha256": "eaaaedc4052c50cf114d6d1e3ad807c9df97273c2bbbb06c7ab08afb035225f0",
+        "state": "merged",
+        "updated_at": "2026-10-15T17:24:23Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "c6b0746d0d289cc14a888c7984bf377c44b24f7b"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "59468",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-09-30",
+        "closed_or_merged": "2026-10-15",
+        "group": "spec-decode",
+        "affects_us": "maybe: dspark k5 at 16384 batched tokens, 128 seqs/rank frees ~512 tokens/step for prefill chunks; cap 3276 does not bind; gain far smaller than at budget 512",
+        "action": "cherry-pick - small config/scheduler change; measure TTFT under mixed load",
+        "url": "https://github.com/vllm-project/vllm/pull/59468",
+        "title": "[Spec Decode] Don't reserve DFlash/DSpark draft slots in the scheduler token budget"
+      },
+      "catalog_markdown_lines": [
+        357,
+        421,
+        1181,
+        1567
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Show budget-bound mixed steps at actual 16K. At 128 requests, removing four charges each frees at most 512 target-budget tokens, not the author's 512-budget regime"
+    },
+    {
+      "rank": 10,
+      "repo": "vllm-project/vllm",
+      "number": 61767,
+      "title": "[Perf] Low-latency CPU all-reduce for DP metadata syncs",
+      "url": "https://github.com/vllm-project/vllm/pull/61767",
+      "family": "dp-metadata",
+      "role": "performance candidate",
+      "rationale": "Faster tiny CPU collectives for DP metadata",
+      "first_inspection": "Profile whethergloosync oncriticalpath inlocalDEP4/DEP8; exacttransport/NUMAandCPUtopology matter.",
+      "existing_evaluation_requirements": "Existing synthc sweep andMooncakeburst, recordingCPUcollectivewalltime,rankwait,endtoendtails andgoodput.",
+      "dependencies_and_limits": "MicrobenchmarkonGB200/Ethernet only,noDSv4.1E2Egain; stateful/statelessgroupscorrectnessandfailuresemanticsrequireexistingdistributedtests.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "This is a refactored version of https://github.com/vllm-project/vllm/pull/60267 from @hjjq.",
+        "record_file": "source-61767.json",
+        "body_sha256": "0419ef24c5f19ff47d0d53a348c8636e6bb1b4d90af8b428a433e1e3b6c69596",
+        "state": "merged",
+        "updated_at": "2026-10-15T22:30:35Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "e8bd9541db6547b8568a0f3f057c2c62348a1d53"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61767",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-15",
+        "closed_or_merged": "2026-10-15",
+        "group": "dp-ep",
+        "affects_us": "yes: DEP4/DEP8 per-step DP padding sync under MRV2; e2e gain not measured",
+        "action": "cherry-pick - per-step latency on DP path, Python only",
+        "url": "https://github.com/vllm-project/vllm/pull/61767",
+        "title": "[Perf] Low-latency CPU all-reduce for DP metadata syncs"
+      },
+      "catalog_markdown_lines": [
+        669,
+        1179,
+        1616
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "CPU sync must be on the critical path; reported collective microbench speedups are not end-to-end serving gains"
+    },
+    {
+      "rank": 11,
+      "repo": "vllm-project/vllm",
+      "number": 48459,
+      "title": "[Bugfix] Exclude DSpark draft-model KV-cache group from core prefix-cache lookup veto",
+      "url": "https://github.com/vllm-project/vllm/pull/48459",
+      "family": "prefix-correctness",
+      "role": "conditional performance candidate",
+      "rationale": "Prevent a draft group's zero hit from vetoing GPU prefix reuse",
+      "first_inspection": "CRITICAL: PRsetsflagonlymodel_version deepseek_v4. VerifyDSv4.1annotationpathbeforeport; observegroup-levelvetoanddraftKVvalidity.",
+      "existing_evaluation_requirements": "Existingcache-heavyMooncake andtwo-turn/siblingprefixprobes; comparecached_tokens,computedprefill,acceptance,TTFT andquality.",
+      "dependencies_and_limits": "Opencorehalfof47891; do notblindlyexemptdraftgroup. DSv4.1applicationnotprovedbycatalog yesflag; newexplicitdrafttags61455mayoverlap.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Split out from #47891 per review feedback there: this PR is the core-only",
+        "record_file": "current-pr-48459.json",
+        "body_sha256": "aaee315b30a05e4b85413875faee6ff84c2264409f37e9766190edb391a6409d",
+        "state": "open",
+        "updated_at": "2026-09-01T04:13:17Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "bbabf3143ac16271fd671b9f12f49b5572748e5f"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "48459",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-07-13",
+        "closed_or_merged": "",
+        "group": "kv-offload",
+        "affects_us": "yes: prefix caching + dspark; GPU-tier reuse",
+        "action": "cherry-pick - only if block shows cached_tokens loss with dspark",
+        "url": "https://github.com/vllm-project/vllm/pull/48459",
+        "title": "[Bugfix] Exclude DSpark draft-model KV-cache group from core prefix-cache lookup veto"
+      },
+      "catalog_markdown_lines": [
+        32,
+        722,
+        723,
+        1184,
+        1916
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "**Current PR annotates only `model_version == deepseek_v4`.** DSv4.1 applicability needs adaptation/inspection, not a catalog \u201cyes\u201d"
+    },
+    {
+      "rank": 12,
+      "repo": "vllm-project/vllm",
+      "number": 47926,
+      "title": "[Bugfix][Spec Decode] Mask prefix-cache-restored tokens out of the DFlash/DSpark draft context",
+      "url": "https://github.com/vllm-project/vllm/pull/47926",
+      "family": "prefix-correctness",
+      "role": "conditional performance candidate",
+      "rationale": "Hide restored-but-unwritten draft context from draft attention",
+      "first_inspection": "Lookforacceptancecollapse specificallyoncachehits, confirmactualdraftercontextbuildandmissingvalidity; inspectequivalentlaterfixes.",
+      "existing_evaluation_requirements": "Existingtwo-turncache-heavyreplay withcold/warm/APCoff controls; recordhitlength,perpositionacceptance,quality andTPOT.",
+      "dependencies_and_limits": "ActualB200butGLM5.2k7 ratherthanDeepSeekk5. In-placeblocktable/unalignedtailsemantics needreview; hidingcachedcontextdoesnotproveallreuseddraftKVephemeral.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "DFlash/DSpark drafters build their context KV from the target's auxiliary hidden states, which only exist for tokens that flow through",
+        "record_file": "current-pr-47926.json",
+        "body_sha256": "d9f7e94cfb37e2877a3116aafcb754094c2c59f473a9450062e65dbb73a139ce",
+        "state": "open",
+        "updated_at": "2026-08-19T22:27:56Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "36ca8e5a1de06c86c68c1076a58d47df680f8788"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "47926",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-07-07",
+        "closed_or_merged": "",
+        "group": "spec-decode",
+        "affects_us": "yes: dspark k5 + prefix caching on; DSpark acceptance gate",
+        "action": "test on block - compare acceptance with 2-turn cached prompts; check if a later fix already in v0.32.0",
+        "url": "https://github.com/vllm-project/vllm/pull/47926",
+        "title": "[Bugfix][Spec Decode] Mask prefix-cache-restored tokens out of the DFlash/DSpark draft context"
+      },
+      "catalog_markdown_lines": [
+        32,
+        362,
+        1906
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Show cache-hit-dependent acceptance collapse. B200 evidence is GLM5.2 k7; validate DeepSeek k5 and unaligned boundaries"
+    },
+    {
+      "rank": 13,
+      "repo": "vllm-project/vllm",
+      "number": 61455,
+      "title": "[Core][Spec Decode] Replace EAGLE group heuristics with explicit draft-layer tags",
+      "url": "https://github.com/vllm-project/vllm/pull/61455",
+      "family": "prefix-correctness",
+      "role": "conditional prerequisite",
+      "rationale": "Explicit draft-layer ownership for prefix groups",
+      "first_inspection": "Compareactualgroupdraftflags/ownership; checkeffectonallgroups andlaterjunctionhandling.",
+      "existing_evaluation_requirements": "Existingtwo-turncacheheavy/branchingprobes; groupflags,cachedtokens,acceptedtokens,outputquality;repeatconnectorrestoreonlyifconfigured.",
+      "dependencies_and_limits": "Introducesorchangesjunctionbehavior addressed62206/62278. AuthorsQwenreplaynohit/acceptancegain. Ownershipcorrectnessnotautomaticperfwin.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "`is_eagle_group` decides which KV cache groups take the EAGLE last-block drop. The planner used to guess these groups from `non_causal_multi_token_decode`",
+        "record_file": "source-61455.json",
+        "body_sha256": "40b172fc69e3730b5ac4ee4bc5d5f9a207dce0372b5c1bb376aa4e6a4106179c",
+        "state": "merged",
+        "updated_at": "2026-10-17T08:22:35Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "693983d6565438ab018819b567943bd2ee72e9ad"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61455",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-13",
+        "closed_or_merged": "2026-10-17",
+        "group": "kv-offload",
+        "affects_us": "maybe: dspark k5 + prefix caching + -kvtier OffloadingConnector; before, only the DSpark group holding the last layer took the drop",
+        "action": "test on block - check DSpark acceptance on 2nd-turn prefix hits and after fs-tier reload; cherry-pick if it drops",
+        "url": "https://github.com/vllm-project/vllm/pull/61455",
+        "title": "[Core][Spec Decode] Replace EAGLE group heuristics with explicit draft-layer tags"
+      },
+      "catalog_markdown_lines": [
+        746,
+        1182,
+        1609
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Inspect actual flags and downstream junction semantics; correct ownership does not itself guarantee a gain"
+    },
+    {
+      "rank": 14,
+      "repo": "vllm-project/vllm",
+      "number": 62278,
+      "title": "[Bugfix][Core] Treat a shared-prefix junction as a set of positions under EAGLE",
+      "url": "https://github.com/vllm-project/vllm/pull/62278",
+      "family": "prefix-correctness",
+      "role": "conditional performance candidate",
+      "rationale": "Preserve both reachable shared-prefix junction positions",
+      "first_inspection": "RequiresdroppingEAGLEgroup participatinginlookup; actualDSparkflagbehavior61455/57110first; checkretentionpolicy.",
+      "existing_evaluation_requirements": "ExistingprefixrepetitionorMooncakebranchingtrace mustinclude siblingdivergence nearblockboundary; cachedtokens andquality.",
+      "dependencies_and_limits": "Openalternative62206, broaderjunctionconsumers includingOffloadingConnector. GB200DeepSeekV4MTPnotDSv4.1DSpark. MooncakeStoreconnector62400 isNOT Mooncakeworkload replay.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Fixes the shared-prefix junction under per-group EAGLE flags (#61455): with a dropping EAGLE group in the lookup, siblings that share",
+        "record_file": "source-62278.json",
+        "body_sha256": "92230f8f3992f828c9526fddf05e87b3ce67cc99c20b5083b38672e6840771d3",
+        "state": "open",
+        "updated_at": "2026-10-19T12:54:50Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "0e0508e77be5e17dcdde334dc3d8b9f3df1de886"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62278",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-18",
+        "closed_or_merged": "",
+        "group": "spec-decode",
+        "affects_us": "",
+        "action": "auto",
+        "url": "https://github.com/vllm-project/vllm/pull/62278",
+        "title": "[Bugfix][Core] Treat a shared-prefix junction as a set of positions under EAGLE"
+      },
+      "catalog_markdown_lines": [],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Conditional on dropping draft groups and retention behavior; alternative to narrower #62206"
+    },
+    {
+      "rank": 15,
+      "repo": "vllm-project/vllm",
+      "number": 57110,
+      "title": "[Bugfix][Spec Decode] Separate DSpark from EAGLE prefix-cache block drop",
+      "url": "https://github.com/vllm-project/vllm/pull/57110",
+      "family": "prefix-correctness",
+      "role": "conditional performance candidate",
+      "rationale": "Stop unintended DSpark tail-block drop",
+      "first_inspection": "Verifytaildropcausesmeasurablelosthit onactualDSparkcheckpointandthatdraftcontext remainsvalid.",
+      "existing_evaluation_requirements": "Existingwarmtwo-turnprefixprobes +nativeagent-f75; cachedtokens,computedprefill,perpositionacceptance,KVcapacity andcorrectness.",
+      "dependencies_and_limits": "OpenPRalsochanges heterogeneousKVpageallocation,logicalblocksizeandadmission; NOTsimpleflagchange. CPUtests only. Conflicts/alternativeapproach61455/62278needreconcile.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Fix a DSpark prefix-cache regression caused by sharing EAGLE's hidden-state scheduling path.",
+        "record_file": "source-57110.json",
+        "body_sha256": "fd16633fc4ad1810c0db60ddd93f5da7cf8a73e59131ff73ce7d6fefa0a3c7f6",
+        "state": "open",
+        "updated_at": "2026-10-01T10:13:17Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "bfbfc0e7efcd0972271e5c6b626f867dd051fb00"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "57110",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-09-16",
+        "closed_or_merged": "",
+        "group": "kv-offload",
+        "affects_us": "yes: prefix caching + dspark; lowers cached_tokens per turn (ENG-W3, L3 2-turn)",
+        "action": "test on block - check cached_tokens equals prompt minus one block on 2-turn; watch PR",
+        "url": "https://github.com/vllm-project/vllm/pull/57110",
+        "title": "[Bugfix][Spec Decode] Separate DSpark from EAGLE prefix-cache block drop"
+      },
+      "catalog_markdown_lines": [
+        32,
+        731,
+        1232,
+        2104
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "**Also changes heterogeneous page allocation and admission.** Do not treat its title as a one-flag patch"
+    },
+    {
+      "rank": 16,
+      "repo": "vllm-project/vllm",
+      "number": 59986,
+      "title": "[Bugfix][Attention] Keep DSV4.1 sparse prefill out of FULL cudagraphs",
+      "url": "https://github.com/vllm-project/vllm/pull/59986",
+      "family": "graph-safety",
+      "role": "conditional prerequisite",
+      "rationale": "DSv4.1 graph capability restrictions for safe mixed prefill",
+      "first_inspection": "Resolveattentionbackendandactualmetadata builders; inspectoverlap62535/generic59751 beforedesigningqualifiedpatch.",
+      "existing_evaluation_requirements": "Existingmixedprefill/concurrentdecode stress andcorrectness;graphmode,errors,outputquality beforeadaptiveperftrial.",
+      "dependencies_and_limits": "OpenupdatedOct2003:33Znewhead; CPU82tests, authorB300E2Enotrun. Adaptiveverificationcurrentlyoff; nomandatoryactivation.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Fixes #59970. The five DSV4.1-specific sparse metadata builders declare `AttentionCGSupport.ALWAYS`, so with `cudagraph_mode=FULL_AND_PIECEWISE` prefill and mixed batches get FULL-graph captured",
+        "record_file": "current-pr-59986.json",
+        "body_sha256": "fc6e66d1e34eff736e51b05bd675981d2b3e2fcbf7848694f2633b1b657ce459",
+        "state": "open",
+        "updated_at": "2026-10-20T03:33:07Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "d29af5185c295a0df21ded0573a379b0531237aa"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "59986",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-04",
+        "closed_or_merged": "",
+        "group": "cudagraph",
+        "affects_us": "yes: FLASHMLA_MEGA_ATTN_DSV41 + FULL_AND_PIECEWISE; may also bear on #62417 prefill-in-FULL-graph corruption",
+        "action": "cherry-pick - small; needs B300 e2e before relying on it; would allow adaptive verification test",
+        "url": "https://github.com/vllm-project/vllm/pull/59986",
+        "title": "[Bugfix][Attention] Keep DSV4.1 sparse prefill out of FULL cudagraphs"
+      },
+      "catalog_markdown_lines": [
+        20,
+        29,
+        629,
+        1158,
+        1202,
+        1212,
+        2165
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false,
+      "qualifier_summary": "Conditional safety work, especially before adaptive verification; CPU tests only, no author B300 end-to-end run"
+    },
+    {
+      "rank": 17,
+      "repo": "vllm-project/vllm",
+      "number": 47891,
+      "title": "[Bugfix] Exclude DSpark draft KV-cache group from OffloadingConnector lookup poisoning",
+      "url": "https://github.com/vllm-project/vllm/pull/47891",
+      "family": "kv-offload",
+      "role": "conditional performance candidate",
+      "rationale": "OffloadingConnector prefix-veto counterpart to #48459; active connector and model annotation must be confirmed",
+      "first_inspection": "OnlyifOffloadingConnectoractuallyconfigured; nativeprefixcache/Mooncakereplayalone doNOTimplyconnector. Resolve48459DSv4scopeanddraftKVvalidity.",
+      "existing_evaluation_requirements": "Existingconfiguredtiercache/restartlane; externalhitcounters,loadlatency,correctness; cacheheavyreplayforendtoendbenefit.",
+      "dependencies_and_limits": "Open,+569catalogroughsize; sharescorefix48459,notindependentcherrypick. AuthorTP4hitgainnotB200DSv4.1proof.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "When serving **DeepSeek-V4-Flash-DSpark** with the native `OffloadingConnector`",
+        "record_file": "current-pr-47891.json",
+        "body_sha256": "e9a6d17c5a2fbbd639b0cd7f675b2cec360f6948bc0ff2cfd2409b61bfd209ff",
+        "state": "open",
+        "updated_at": "2026-10-13T03:42:09Z",
+        "freshness": "cached/live GitHub REST checked this audit",
+        "head_sha": "a9eb2db3460fc10c30b0b9bcc49252b87ae35e7b"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "47891",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-07-07",
+        "closed_or_merged": "",
+        "group": "kv-offload",
+        "affects_us": "yes: -kvtier files with dspark (OffloadingConnector + TieringOffloadingSpec)",
+        "action": "cherry-pick - if block test shows 0 external hits; pair with core-side #48459",
+        "url": "https://github.com/vllm-project/vllm/pull/47891",
+        "title": "[Bugfix] Exclude DSpark draft KV-cache group from OffloadingConnector lookup poisoning"
+      },
+      "catalog_markdown_lines": [
+        32,
+        723,
+        1184,
+        1904
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 18,
+      "repo": "vllm-project/vllm",
+      "number": 62041,
+      "title": "[MRV2] Collect KV transfer results before the drafter runs",
+      "url": "https://github.com/vllm-project/vllm/pull/62041",
+      "family": "kv-offload",
+      "role": "conditional performance candidate",
+      "rationale": "Collect KV transfer results before drafting; trace actual load-notification delay; no PR serving measurement",
+      "first_inspection": "RequiresactiveKVconnectorandMRV2speculator; trace whetherdrafterdelaysloadreporting.",
+      "existing_evaluation_requirements": "Existingtierloadreplay measuring load-completion-to-admission gap,TTFT,goodputandcorrectsave/metadatafinalization.",
+      "dependencies_and_limits": "NoE2EmeasurementinPR; separatefinalize_stepmustretainwait_for_saveandmetadataordering.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "With a speculator, collect the KV connector's transfer results right after sampling and defer only `wait_for_save()` and `clear_connector_metadata()` until after",
+        "record_file": "source-62041.json",
+        "body_sha256": "463ce33a8800f64456c67d518d83c5ff04780f4faa48b255031920bfc555724a",
+        "state": "merged",
+        "updated_at": "2026-10-17T17:28:01Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "c98766f90fd47b74dc757347fc72bf21bfb1cd3f"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62041",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-16",
+        "closed_or_merged": "2026-10-17",
+        "group": "kv-offload",
+        "affects_us": "yes: -kvtier OffloadingConnector + dspark on MRV2",
+        "action": "cherry-pick - latency of tier loads with spec decode; no measurement in PR",
+        "url": "https://github.com/vllm-project/vllm/pull/62041",
+        "title": "[MRV2] Collect KV transfer results before the drafter runs"
+      },
+      "catalog_markdown_lines": [
+        26,
+        717,
+        1166,
+        1620
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 19,
+      "repo": "vllm-project/vllm",
+      "number": 59096,
+      "title": "[Bugfix][KV Offload] Do not let mark_miss() flip a pending or in-flight async lookup probe",
+      "url": "https://github.com/vllm-project/vllm/pull/59096",
+      "family": "kv-offload",
+      "role": "conditional correctness prerequisite",
+      "rationale": "Filesystem-tier disconnect/load race; fault probe and engine survival, not a throughput claim",
+      "first_inspection": "Requiresfstierasync lookup; baselinewithoutfstiernotexposed.",
+      "existing_evaluation_requirements": "Existingtierfault/abort/restarttest; cancelrequestduringload thenreuseprefix; checkenginehealth andnoinfinitefailedloadloop.",
+      "dependencies_and_limits": "Safetyonly,nopromisedgoodput. Bundle47890prefixvalidationandtierfaultcontract.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "When a slow KV offload tier (the filesystem or object-store tier) fails to load a block, it records \"this block",
+        "record_file": "source-59096.json",
+        "body_sha256": "97f73e7d606f2869b453a5b982c7dca6b637de4eaf23f69f183adde1fd09bf29",
+        "state": "merged",
+        "updated_at": "2026-10-15T07:57:47Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "57d9cc1adaa0929828a32a6e818575c16c589df6"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "59096",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-09-28",
+        "closed_or_merged": "2026-10-15",
+        "group": "kv-offload",
+        "affects_us": "yes: -kvtier fs tier; client disconnect during prefix load + failed file load kills the engine (L3-L8)",
+        "action": "cherry-pick - engine crash on ordinary traffic with fs tier",
+        "url": "https://github.com/vllm-project/vllm/pull/59096",
+        "title": "[Bugfix][KV Offload] Do not let mark_miss() flip a pending or in-flight async lookup probe"
+      },
+      "catalog_markdown_lines": [
+        26,
+        718,
+        819,
+        1164,
+        1225,
+        1559
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 20,
+      "repo": "vllm-project/vllm",
+      "number": 59140,
+      "title": "[Bugfix][KV Offload] Fix inaccurate proportional store dropping",
+      "url": "https://github.com/vllm-project/vllm/pull/59140",
+      "family": "kv-offload",
+      "role": "conditional correctness prerequisite",
+      "rationale": "Correct secondary-tier store drop fraction under pressure; affects optional writes, **not request admission**",
+      "first_inspection": "Requiressecondarytierbackpressureactive; confirmintendeddroprateversusobservedstores.",
+      "existing_evaluation_requirements": "Existingtierpressurelane; recorddrops,submissions,pinrelease,diskqueue,andrequestSLOs.",
+      "dependencies_and_limits": "Unit106tests,noservingbenchmark. Itcontrolsoptionalcachewrites NOTrequestadmission; no automaticlatencyclaim.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "`ThrottledDropPolicy` calculates what fraction of store attempts should be dropped based on pressure. This PR fixes how it applies that",
+        "record_file": "source-59140.json",
+        "body_sha256": "0e5f6147fb2face721f5eec412a435e107581824a7369e8ce050f56dcc8aa407",
+        "state": "merged",
+        "updated_at": "2026-10-14T14:05:23Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "68c63d9e2567b4f321dd5eecf1064ad7d0d624c4"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "59140",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-09-29",
+        "closed_or_merged": "2026-10-14",
+        "group": "kv-offload",
+        "affects_us": "maybe: -kvtier only under secondary-tier write pressure",
+        "action": "cherry-pick - small, tier write accounting",
+        "url": "https://github.com/vllm-project/vllm/pull/59140",
+        "title": "[Bugfix][KV Offload] Fix inaccurate proportional store dropping"
+      },
+      "catalog_markdown_lines": [
+        26,
+        728,
+        1167,
+        1562
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 21,
+      "repo": "vllm-project/vllm",
+      "number": 61375,
+      "title": "[Bugfix][KV Offload] Store the chunk of a loaded partial tail",
+      "url": "https://github.com/vllm-project/vllm/pull/61375",
+      "family": "kv-offload",
+      "role": "conditional performance candidate",
+      "rationale": "Persist a loaded partial-tail chunk; requires observed partial-tail stalls with the configured groups",
+      "first_inspection": "Requiresconnectorpartialtailhits andmatchedgroup/chunksizes; inspectactualnext_stored_chunk_idx.",
+      "existing_evaluation_requirements": "Existingtierwarmturnreplay; partialtailboundaries,cachedtokens,computedprefill,TTFT andoutputquality.",
+      "dependencies_and_limits": "GLMMLA+KDA/H200MTP evidence; notgenericDSv4.1proof. Separatefrom61019handoff.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "After a load that ends in a partial tail, the OffloadingConnector scheduler never stores the chunk that holds the tail.",
+        "record_file": "source-61375.json",
+        "body_sha256": "fa6d0ec029ae41164165d5bc03121159953d3f4132af2f6923416b943b82bbaa",
+        "state": "open",
+        "updated_at": "2026-10-13T19:07:29Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "fada48bb2a199d278a36e95532441e31375d1e68"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61375",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-13",
+        "closed_or_merged": "",
+        "group": "kv-offload",
+        "affects_us": "maybe: -kvtier multi-turn cached_tokens (L3); depends on whether DSv4 group/chunk sizes produce partial tails",
+        "action": "cherry-pick - small scheduler fix; verify with L3 2-turn cached_tokens",
+        "url": "https://github.com/vllm-project/vllm/pull/61375",
+        "title": "[Bugfix][KV Offload] Store the chunk of a loaded partial tail"
+      },
+      "catalog_markdown_lines": [
+        726,
+        740,
+        2190
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 22,
+      "repo": "vllm-project/vllm",
+      "number": 61961,
+      "title": "[KV Offload] Load small CPU-tier hits synchronously within the step",
+      "url": "https://github.com/vllm-project/vllm/pull/61961",
+      "family": "kv-offload",
+      "role": "conditional performance candidate",
+      "rationale": "Optional synchronous small CPU-tier hits; measure step delay saved against whole-batch copy blocking",
+      "first_inspection": "Measureactualcopymsversusmissedstepdelay; activeOffloadingConnectorrequired; wholebatchwaitcostmustcount.",
+      "existing_evaluation_requirements": "ExistingCPUcachehitlanewithsmall/largehitcohorts; sameMooncakearrivals,TTFTtailsandunrelatedrequestlatency.",
+      "dependencies_and_limits": "Defaultoff; H100Qwen/GLM evidence. Sweepthresholdonlyinexistingevalconfig; donotimport4096asoptimalB200value.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "On wide-EP MoE prefill (such as GLM-5.3), a step takes 0.3 to 0.5 s. Almost every request has a small",
+        "record_file": "source-61961.json",
+        "body_sha256": "550ef8645e45f63c86368258c2ae51c829ca54d24f142bcf9062aa8e47a01ea9",
+        "state": "open",
+        "updated_at": "2026-10-20T06:45:41Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "473da74c6e5d42ac1ceb3f613271b735be012b9f"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61961",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-16",
+        "closed_or_merged": "",
+        "group": "kv-offload",
+        "affects_us": "maybe: -kvtier with DEP; small CPU hits on multi-turn could add a step or two of TTFT (L3, L6)",
+        "action": "cherry-pick - opt-in, default off; A/B TTFT on L3",
+        "url": "https://github.com/vllm-project/vllm/pull/61961",
+        "title": "[KV Offload] Load small CPU-tier hits synchronously within the step"
+      },
+      "catalog_markdown_lines": [
+        724,
+        2197
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 23,
+      "repo": "vllm-project/vllm",
+      "number": 61724,
+      "title": "[Perf][Core] Skip the null head of sliding-window block tables",
+      "url": "https://github.com/vllm-project/vllm/pull/61724",
+      "family": "scheduler-cpu",
+      "role": "conditional performance candidate",
+      "rationale": "Skip null SWA block-table head in Python; useful mainly with long contexts and high turnover, not assumed for 8K native traffic",
+      "first_inspection": "Profilelongpromptrequestturnover andschedulercriticalpath; 8Knativeworkloadmaynotbenefit.",
+      "existing_evaluation_requirements": "ExistingMooncakelongcontextcohorts andnativebaseline; CPUfree/admitms,rankwait,goodput.",
+      "dependencies_and_limits": "DEP16GB300169Kauthor+1.5%, GraceCPU microbench; x86B200DEP4/8transferunknown. Preservesfreeorderingtestsneeded.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "A sliding-window KV group keeps one null block per out-of-window block, so a long request's block table is almost all",
+        "record_file": "source-61724.json",
+        "body_sha256": "eb298a9a75842bdcb44ac68d3204ac47b56a1c719865f5f73c15cdb169231401",
+        "state": "merged",
+        "updated_at": "2026-10-15T23:14:52Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "e076e3f15992420893322578a63af1a50a09a10c"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61724",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-15",
+        "closed_or_merged": "2026-10-15",
+        "group": "kv-offload",
+        "affects_us": "maybe: scheduler CPU at long prompts (512K max-model-len) in DEP4; gain measured at DEP16 GB300",
+        "action": "cherry-pick - small Python-only scheduler CPU win for long SWA prompts",
+        "url": "https://github.com/vllm-project/vllm/pull/61724",
+        "title": "[Perf][Core] Skip the null head of sliding-window block tables"
+      },
+      "catalog_markdown_lines": [
+        725,
+        1180,
+        1614
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 24,
+      "repo": "vllm-project/vllm",
+      "number": 61261,
+      "title": "[Spec Decode] Add draft_context_window to bound DFlash/DSpark draft attention",
+      "url": "https://github.com/vllm-project/vllm/pull/61261",
+      "family": "draft-context",
+      "role": "conditional performance candidate",
+      "rationale": "Bound draft context if acceptance collapses beyond its training range; Kimi/B300 evidence does not prove DeepSeek applicability",
+      "first_inspection": "Observeacceptancelengthbycontextbucketindependentofprefixhit/restoration; draftercheckpointtrainingrangeandRoPEmustbechecked.",
+      "existing_evaluation_requirements": "Existinglongagenticreplaywithsamecontextdistribution; acceptance,TPOT,quality,endtoendgoodput; shortcontextnegativecontrol.",
+      "dependencies_and_limits": "KimiK3B300k3 evidence notDeepSeekk5; oneuninvestigatedrepeated-tailflag inauthorssoak. Noexpectedgainfor8Knative.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Adds an opt-in `draft_context_window` to `--speculative-config` for DFlash and DSpark (MRV2). When set, the drafter only attends to the last",
+        "record_file": "source-61261.json",
+        "body_sha256": "34cf89ad5a51c79e4cc3d7b03eb775b47ce255ce7b3b2d7d1bb1daf8b6c8be25",
+        "state": "open",
+        "updated_at": "2026-10-19T23:04:51Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "5b64da60ce2c81ee4bb853ea13e56714362e88e2"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "61261",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-12",
+        "closed_or_merged": "",
+        "group": "spec-decode",
+        "affects_us": "maybe: dspark at 128K-512K contexts (ENG-S2, agentic long sessions); check DSpark AL by context on block",
+        "action": "watch - test DSpark AL vs context length on block; cherry-pick if DSv4.1 drafter collapses too",
+        "url": "https://github.com/vllm-project/vllm/pull/61261",
+        "title": "[Spec Decode] Add draft_context_window to bound DFlash/DSpark draft attention"
+      },
+      "catalog_markdown_lines": [
+        32,
+        368,
+        1233,
+        2188
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 25,
+      "repo": "vllm-project/vllm",
+      "number": 62062,
+      "title": "[Bugfix][Spec Decode] Keep data_parallel_index in DFlash/DSpark draft configs",
+      "url": "https://github.com/vllm-project/vllm/pull/62062",
+      "family": "restart-correctness",
+      "role": "conditional correctness prerequisite",
+      "rationale": "Preserve replica identity in draft compile caches; inspect independent-instance cache layout before warm-restart testing",
+      "first_inspection": "Inspect2xDEP4replica cache directories/DPindices; independentsdenseDPH200reported, notnecessarilyDEP4layout.",
+      "existing_evaluation_requirements": "Existingwarmrestartlane; restartone replica,verifydistinctcachekeys/startup andpostrestartquality.",
+      "dependencies_and_limits": "Onlyifsymptom/pathpresent; alreadymeasuredsuccessfulB200restartdoesnotproveallcachelayouts safe.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "With dense (independent) data parallelism, every DFlash/DSpark drafter on a node shares one torch.compile cache directory, so a cached restart",
+        "record_file": "source-62062.json",
+        "body_sha256": "39ef04d64fff63fff27a2a99b9ffde616f762c639104b37681fb8f3406a38991",
+        "state": "open",
+        "updated_at": "2026-10-18T12:56:39Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "db602db1792fda04b1ad1dc468252714ad38178d"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62062",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-16",
+        "closed_or_merged": "",
+        "group": "crash",
+        "affects_us": "maybe: restart with warm caches; check whether our DEP ranks write separate dspark_head cache dirs",
+        "action": "test on block - warm restart; cherry-pick if rank_0_0/dspark_head is shared",
+        "url": "https://github.com/vllm-project/vllm/pull/62062",
+        "title": "[Bugfix][Spec Decode] Keep data_parallel_index in DFlash/DSpark draft configs"
+      },
+      "catalog_markdown_lines": [
+        237,
+        1188,
+        1236,
+        2203
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 26,
+      "repo": "vllm-project/vllm",
+      "number": 62259,
+      "title": "[Tool Parser] Fix truncated/unclosed DSML parameters and add incremental DSML arg streaming",
+      "url": "https://github.com/vllm-project/vllm/pull/62259",
+      "family": "agent-parser",
+      "role": "conditional correctness/performance candidate",
+      "rationale": "Valid truncated DSML JSON and incremental argument streaming; existing tool-conformance workload, not random-token throughput",
+      "first_inspection": "ConfirmactualPythonparser usesaffectedsharedconverter andupstreamdependencies62027/62035; avoidoverlappingparserpatches.",
+      "existing_evaluation_requirements": "Existingtoolstreamingconformancewithlongwrite_filearguments andmax_tokens truncation; parserCPUms,validJSON,TTFT/endtoendmetrics.",
+      "dependencies_and_limits": "NoGPUkernels; productiongoodputcouldimproveCPUboundtooltraffic butnotrandomtokenbench. Prompt/outputcontractmuststayfixed.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Part of #62051 (the truncated/unclosed-parameter rows only; the block with no invoke, the cut inside a tool name, and the",
+        "record_file": "source-62259.json",
+        "body_sha256": "0978bf2c68e8ca05013861d8c3090699588389864843f98b34ed0db707a927f9",
+        "state": "open",
+        "updated_at": "2026-10-19T15:57:46Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "13bccc834928150c2e0457adae024a5d63b7f60d"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62259",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-10-18",
+        "closed_or_merged": "",
+        "group": "api",
+        "affects_us": "yes: tool-call-parser deepseek_v41 streaming in agentic traffic",
+        "action": "cherry-pick - approved by reviewer; parser-only",
+        "url": "https://github.com/vllm-project/vllm/pull/62259",
+        "title": "[Tool Parser] Fix truncated/unclosed DSML parameters and add incremental DSML arg streaming"
+      },
+      "catalog_markdown_lines": [
+        904,
+        1189,
+        2210
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 27,
+      "repo": "vllm-project/vllm",
+      "number": 62206,
+      "title": "[Bugfix][Core] Keep the EAGLE-reachable SWA tail at a shared-prefix junction",
+      "url": "https://github.com/vllm-project/vllm/pull/62206",
+      "family": "prefix-correctness",
+      "role": "alternative prerequisite",
+      "rationale": "Narrow SWA shared-prefix junction fix; compare against broader #62278, do not stack automatically",
+      "first_inspection": "Inspectactualretentionanddraftflags; compare62278broaderalternative insteadstackingboth.",
+      "existing_evaluation_requirements": "Existingbranchingprefixprobes atalignmentboundary andoutputquality,thenMooncakecacheheavyifpresent.",
+      "dependencies_and_limits": "MergedbutonlySWAmaskfix;62278claimsbroadconsumersstillwrong. OthermodelStep5MTPGB300reported; qualifyDSv4.1.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "This PR fixes cross-request prefix reuse for sliding-window groups under EAGLE/MTP with sparse prefix-cache retention. The shared-prefix junction pin from",
+        "record_file": "source-62206.json",
+        "body_sha256": "a1dc29e70aabf54c72450ecd2be51b0b2262721333534817f272925e7b7f3e8d",
+        "state": "merged",
+        "updated_at": "2026-10-19T12:38:19Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "bbc8745372e00776cf3ebab9f24a3bf11a184cd8"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "62206",
+        "type": "pr",
+        "state": "merged main",
+        "created": "2026-10-17",
+        "closed_or_merged": "2026-10-19",
+        "group": "kv-offload",
+        "affects_us": "maybe: only with --prefix-cache-retention-interval and SWA drafter groups; check DSv4.1 + dspark prefix hits",
+        "action": "test on block - verify sibling-prefix cached_tokens with dspark; cherry-pick if hits are 0",
+        "url": "https://github.com/vllm-project/vllm/pull/62206",
+        "title": "[Bugfix][Core] Keep the EAGLE-reachable SWA tail at a shared-prefix junction"
+      },
+      "catalog_markdown_lines": [
+        745,
+        1623
+      ],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    },
+    {
+      "rank": 28,
+      "repo": "vllm-project/vllm",
+      "number": 54077,
+      "title": "[Bugfix][Spec Decode] Profile adaptive verification tails as mixed batches",
+      "url": "https://github.com/vllm-project/vllm/pull/54077",
+      "family": "adaptive-calibration",
+      "role": "deferred conditional candidate",
+      "rationale": "Schedulable mixed-tail profiling; **deferred while adaptive verification is off**. Both calibration arms must share the same qualified adaptive-on configuration",
+      "first_inspection": "Adaptiveverificationmustbeenabledandsafetyqualified; inactivecosttablecannotaffectbaseline. Inspectactualprofilingshapes first.",
+      "existing_evaluation_requirements": "Existingprofilingdiagnosticpluspairedsame-adaptive-on replay; do notcreditactivationgainstocalibration.",
+      "dependencies_and_limits": "Open; B200issue54046k7,RTX5090regressionsnoDSparkfullserving. Currentadaptiveoff=>deferbehind59986/62535.",
+      "source_basis": {
+        "kind": "primary PR author description; not reproduced",
+        "quote": "Adaptive verification profiles token counts beyond the cudagraph capture limit by distributing them across dummy requests. With `max_num_seqs=128` and seven",
+        "record_file": "source-54077.json",
+        "body_sha256": "7f4bd98dc530a3f9b3b0144ba72dbedc7feb151a3375e8d9bebb6318716127d9",
+        "state": "open",
+        "updated_at": "2026-09-13T17:58:47Z",
+        "freshness": "local corpus snapshot; not refreshed this audit",
+        "head_sha": "a04a99637b0b5b4ccb4f7018245149153f7f8d24"
+      },
+      "catalog_row": {
+        "repo": "vllm-project/vllm",
+        "number": "54077",
+        "type": "pr",
+        "state": "open",
+        "created": "2026-08-27",
+        "closed_or_merged": "",
+        "group": "spec-decode",
+        "affects_us": "no: adaptive verification off",
+        "action": "irrelevant",
+        "url": "https://github.com/vllm-project/vllm/pull/54077",
+        "title": "[Bugfix][Spec Decode] Profile adaptive verification tails as mixed batches"
+      },
+      "catalog_markdown_lines": [],
+      "presence_in_actual_serving_runtime": "UNKNOWN; release membership and merge date are insufficient",
+      "disposition": "inspect_then_evaluate_if_missing_and_applicable",
+      "gpu_executed": false
+    }
+  ],
+  "excluded_or_delegated": [
+    {
+      "number": 61827,
+      "reason": "Primary fix StandaloneARSpeculator draft_model, notDSpark; DSpark touchonlyunuseddynamicSDcapture. Fixedk5nojustifiedbenefit."
+    },
+    {
+      "number": 61911,
+      "reason": "Explicitly excludesDFlash/DSparkfromautomaticblock-dropdisable; GLM MambaMTP gainsnotours."
+    },
+    {
+      "number": 61589,
+      "reason": "ExperimentalEAGLElookaheadhashing requiresoneprefilllookaheadtoken andnoKVtransfer; DSparkeligibilityunproved; GPUtestsnotrerunsplitPR. Prefernarrowerdiagnosticsfirst."
+    },
+    {
+      "number": 56734,
+      "reason": "AR/MTPdummydecoderfix notautomaticallyDSpark; retainasregressioncheck/inclusiongate, notperfproposal."
+    },
+    {
+      "number": 61807,
+      "reason": "Supersededby58984; do notstackduplicatefix."
+    },
+    {
+      "number": 61153,
+      "reason": "AlternativeRNGfix supersededpreferredmerged61161; donotdoublepick."
+    },
+    {
+      "number": 60320,
+      "reason": "Context-tailoptimization gatingexcludesconnectors andcacheableprefixconfigurations; inspectpathonlyifbaselinequalifies."
+    },
+    {
+      "number": 56966,
+      "reason": "Sourceexplicitlyexcludesspeculativequerylayouts; DSparkk5noteligible."
+    },
+    {
+      "number": 56611,
+      "reason": "Excludesspecdecode andtargetsTP8; TP1DEP4/8DSparklayoutnoteligible."
+    },
+    {
+      "number": 57281,
+      "reason": "DP1,no-spec,no-APCscope conflictsbaseline."
+    },
+    {
+      "number": 61553,
+      "reason": "PCPnotcurrentTP1DEPlayout."
+    },
+    {
+      "number": 61555,
+      "reason": "PCPonly,notcurrentTP1DEPlayout."
+    },
+    {
+      "number": 62200,
+      "reason": "Rustfrontendnotconfirmedactive; Python62199correctscope."
+    },
+    {
+      "number": 60468,
+      "reason": "Relevantfirst-requestwarmup; kernelagentownsreviewtoavoiddoublecount."
+    },
+    {
+      "number": 61039,
+      "reason": "Relevantindexerlengthcost; kernelagentownsreviewtoavoiddoublecount."
+    }
+  ],
+  "configuration_candidate": {
+    "id": "GRAPH-CAPTURE-AUDIT",
+    "family": "graph-reachability",
+    "proposal": "Enumerate targetq6 anddraftq5 capturedescriptors atseq128. A512tokencap cannotcovertarget768 or draft640 rowfullbatchesifthoseareeffectivelimits; testcaptureceiling>=768target and>=640draft aftermemorybudget/correctnessaudit. Usernamedg1024is aconfigurationlabel;1024notdivisibleby6,largestmultiple6belowitis1020. Do not blindlydeclarecap1024providesvalidfullbatchdescriptor.",
+    "dependency": "62535/59986safety,62040reachablefullbatch,liveallocationKVtradeoff",
+    "evaluation": "Useexistingnativec sweepandMooncakebursts;graphfallback,padding,KVbytes,throughput/tails; parentevalagentbindsactualcommands."
+  },
+  "historical_source_observations": [
+    {
+      "file": "vllm/config/speculative.py",
+      "lines": "1882-1914;1944-1946",
+      "observation": "DSpark K-1 slot accounting and EAGLE block-drop predicate remain; draft_context_window field absent.",
+      "relevant_prs": [
+        59468,
+        57110,
+        61261
+      ]
+    },
+    {
+      "file": "vllm/v1/worker/gpu/cudagraph_utils.py",
+      "lines": "103-130;314-322",
+      "observation": "No allow_full argument; rounded uniform graph candidates exceeding max requests are skipped without the proposed full-batch clamp. Call chain and runtime identity still require inspection.",
+      "relevant_prs": [
+        62535,
+        62040
+      ]
+    },
+    {
+      "file": "vllm/v1/core/kv_cache_utils.py",
+      "observation": "No eagle_group_is_veto_exempt or old _annotate_eagle_groups_deepseek_v4 helper; port must adapt actual DSv4.1 annotation path.",
+      "relevant_prs": [
+        48459,
+        47891
+      ]
+    },
+    {
+      "file": "vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py",
+      "lines": "547-569",
+      "observation": "Request seed and position feed tl_rand32(seed,pos); no step_seed helper. Inspect full round-seeding path before asserting reachable bug.",
+      "relevant_prs": [
+        61161
+      ]
+    }
+  ],
+  "historical_source_sha": "ac9126e58aa7bbab1856ba6593ba4d5003fea516"
+}

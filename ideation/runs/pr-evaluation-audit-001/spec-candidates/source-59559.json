@@ -1,0 +1,83 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:59559",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/59559",
+    "title": "[DP] Engines own wave wake-ups; drop the front-end FIRST_REQ",
+    "body": "## Purpose\n\nFix a DP hang and simplify DP wave control. After this change, the engines alone start DP waves, and the front-end no longer sends `FIRST_REQ`.\n\n**The bug.** Before this change, a front-end sent `FIRST_REQ` whenever it believed the engines were idle. The coordinator then broadcast `START_DP_WAVE`, and the rank that received the request assumed its peers had been woken. That assumption fails when a peer is still paused, because a paused rank drops `START_DP_WAVE`. With two API servers A and B and two ranks X and Y, all paused:\n\n1. B sends an ADD to X and a `FIRST_REQ` to the coordinator.\n2. The coordinator sends `START_DP_WAVE` to Y. Y is still paused and drops it.\n3. A resumes both ranks. Neither rank has work, so both stay idle.\n4. B's ADD reaches X. Its wave is current, so X does not announce, steps alone, and blocks in the DP collective forever.\n\nNothing orders these three sockets (B\u2192X, coordinator\u2192Y, A\u2192X/Y). The same false assumption (\"a sent wake took effect\") was removed from the coordinator in #51481.\n\n**The fix, from first principles.** Only the rank that is about to step knows it is about to step. So an idle, unpaused rank that receives a request now always announces `start_wave`. The coordinator already deduplicates these announcements and broadcasts to the other ranks. With that in place, the front-end wake carries no correctness role and only adds an optimistic running flag that can go stale. This PR removes it.\n\n## Change\n\n- **Engine** (`DPEngineCoreProc.add_request`): an idle, unpaused rank always announces the wave. Previously it announced only for a stale wave.\n- **Python front-end** (`DPAsyncMPClient`): no longer sends `FIRST_REQ` and no longer sets `engines_running` optimistically. The PAIR socket now carries only elastic EP scale notices, so it is renamed `scale_*`.\n- **Python coordinator**: the front-end wake handler is removed.\n- **Rust front-end**: removes `CoordinatorCommand::FirstRequest`, `notify_first_request`, the command channel, and the external wakeup message. The in-process coordinator now relays only engine `StartWave` and `WaveComplete`.\n- **Unchanged**:\n  - `ignore_start_dp_wave`, so a paused rank still drops `START_DP_WAVE`. A new unit test pins this.\n  - Rank 0's `start_wave` after the collective, which covers waves started by resume with queued work or by an elastic EP switch.\n  - The request `current_wave` stamp and the coordinator's deduplication.\n- **Messages per idle\u2192busy transition**:\n  - Before: `FIRST_REQ`, one broadcast, and rank 0's mirror.\n  - After: one announcement, one broadcast, and rank 0's mirror.\n- **Compatibility**: a new front-end needs engines that include this change. The front-end and engine ship together, so a normal deployment always meets this. An old Rust front-end still works with new engines; the coordinator logs and ignores its wake message.\n\nNet diff: 12 files, +226/\u2212531.\n\n## Why not a duplicate\n\nNo open PR changes this. #54762 (wave-0 bootstrap) and #55229 (idempotent resume) touch DP wave state but not the wake path. This came out of review of #51488. #51488 now builds on this PR instead of adding a request field.\n\n## Test Plan\n\nAll GPU tests ran in the `vllm/vllm-openai:nightly` image with this change mounted, on H200, unless noted.\n\n- **Unit tests**: `test_engine_core.py -k dp_rank` covers the announcement (current, stale, and newer wave; running; paused) and that a paused rank ignores `START_DP_WAVE`. Rust: `cargo test -p vllm-engine-core-client -p vllm-server`. `cargo fmt` and `clippy` are clean.\n- **DP**: `tests/v1/distributed/test_async_llm_dp.py`, with the mp and Ray backends. It includes a new e2e reproduction: hold the ADD on the client across pause and resume, then release it.\n- **LB modes with multiple API servers**: `test_internal_lb_dp.py`, `test_external_lb_dp.py`, `test_hybrid_lb_dp.py`.\n- **Launchers**: `test_multi_api_servers.py`, `test_dp_supervisor.py`.\n- **Other DP configurations**: `test_pp_dp_v2.py` and `test_dense_dp_world_size.py`.\n- **Elastic EP**: `tests/distributed/test_elastic_ep.py` on 4 GPUs, using DeepSeek-V2-Lite with the accuracy threshold lowered because only the base checkpoint was cached locally.\n- **HTTP e2e, DP=2 MoE with EP, PowerMoE-3b**. Three front-ends:\n  - `vllm serve --api-server-count 2`\n  - standalone `vllm-rs serve` (Rust in-process coordinator)\n  - `vllm serve` with `VLLM_USE_RUST_FRONTEND` (Python coordinator)\n\n  Each front-end ran 10 cold starts, 3 bursts of 16 requests from idle, and four pause/resume cycles (abort, wait, keep, abort) with requests in flight, sent while paused, and sent right after resume. The Python front-end also ran sleep/wake. Every request had to complete.\n- **Idle TTFT at scale, against main.**\n  - Model and image: Qwen3-30B-A3B with EP, same nightly image (77154ca61), default `vllm serve` settings.\n  - Request: streaming `/v1/completions` with `max_tokens=1`.\n  - Sizes: DP=2, DP=8 on one node, and DP=16 across two nodes. For DP=16, one node runs the API servers, the coordinator, and ranks 0\u20137; the other runs ranks 8\u201315 headless.\n  - Load patterns:\n    - single request after 1 s idle, pinned to a rank with `X-data-parallel-rank`\n    - burst of DP requests from idle\n    - open-loop Poisson at 1 and 4 req/s\n  - Ordering: DP=16 ran ABBA, then BAAB, to cancel drift.\n  - Locating the cost: one round per side added timestamps to the engine, the coordinator, and the DP all-reduce.\n\n## Test Result\n\nA/B e2e on main vs this PR (DP=2 MoE, real engines). Each case is a stale \"wake was sent\" assumption on main:\n\n| Case | main | this PR |\n|---|---|---|\n| ADD held across pause/resume, so the wake reaches a still-paused peer and is dropped (`test_dp_request_reaching_rank_after_resume_wakes_peers`) | hangs | passes |\n| Python front-end: request sent while paused, cancelled before resume, next request right after resume | hangs in round 1 (front-end believed running) | 20/20 rounds pass |\n| Standalone `vllm-rs serve`: request sent while paused, client disconnects, resume, wait 10 s, then cold requests | first request hangs (45 s timeout) until another request reaches the peer rank | 3/3 pass |\n\n| Test | Result |\n|---|---|\n| Unit (Python) | 7 passed |\n| Rust `vllm-engine-core-client` / `vllm-server` | 121 / 437 passed |\n| `test_async_llm_dp.py`, mp + Ray | all pass (the new repro hangs on main) |\n| LB DP (internal / external / hybrid) | 25 passed |\n| Multi API server + DP supervisor | 22 passed |\n| PP+DP / dense DP | 6 / 1 passed |\n| Elastic EP (5 cases) | 5 passed |\n| HTTP e2e (3 front-ends) | 3 passed |\n\n**Idle TTFT.** p50 in ms, measured on a single request after the engines were idle. DP=8 and DP=16 cells have ~120 samples each.\n\n| | target rank | main | this PR | \u0394 |\n|---|---|---|---|---|\n| DP=2 | rank0 / rank1 | 18.94 / 19.41 | 17.88 / 18.17 | \u22121.1 / \u22121.2 |\n| DP=8 | rank0 / rank7 | 25.81 / 25.56 | 26.04 / 26.16 | +0.2 / +0.6 |\n| DP=16 | rank0, rank7 (coordinator's node) | 52.98 / 53.08 | 53.04 / 52.95 | +0.1 / \u22120.1 |\n| DP=16 | rank8, rank15 (remote node) | 51.93 / 52.75 | 52.53 / 52.32 | +0.6 / \u22120.4 |\n\nAll of these differences are smaller than the 1\u20132 ms spread between rounds.\n\n**Under Poisson load at 4 req/s** (`max_tokens=16`, wakes are frequent):\n- DP=16: this PR is consistently 1.5\u20132 ms slower at p50. It measured 76.2 vs 74.6 ms over the BAAB rounds and 77.7 vs 75.5 ms over the ABBA rounds, and pinning the target rank gave the same result.\n- DP=8: no difference (25.95 vs 25.92 ms).\n\n**Where the cost comes from.** The table shows target-rank time from ADD to the end of the first DP sync, p50 in ms over ~70 wakes per cell. Each duration is measured on one host's clock.\n\n| request lands on | main | this PR |\n|---|---|---|\n| coordinator's node | 8.28 | 8.26 |\n| remote node | 8.35 | 9.68 |\n\n- On the coordinator's node, the PR adds one in-node hop (rank \u2192 coordinator) before the peers wake. The cross-node sync hides it.\n- On the remote node, the cost is real. On main, the front-end's `FIRST_REQ` wakes peers in parallel with the ADD. With this PR, the target first notifies the coordinator across the network, and the coordinator then wakes the remote peers back across it. That adds about two cross-node one-way trips.\n\nThe cost is paid once per idle\u2192running transition. Only the first request after idle pays it, and only when it lands on a remote-node rank. It does not grow with DP size, and it is zero while the engines are running.\n\nTwo pre-existing observations from the same traces:\n- The first cross-node DP all-reduce after idle takes 6\u20137 ms even after every rank has reached it. That is most of the idle wake time, in both versions.\n- Main broadcasts `START_DP_WAVE` twice per wake (360 broadcasts for 180 wakes), because the front-end's running flag lags and a second `FIRST_REQ` goes out. With this PR, each wake broadcasts once.\n\nFailures seen in the same runs also occur on main with identical results, so they are unrelated to this change:\n- `test_async_llm.py::test_multi_abort[DELTA]` fails on main too, 3 of 3 runs on each side.\n- Tests that need a model not cached offline, or that fork CUDA, fail on both sides.\n\nAI assistance (Claude, Codex, Kimi) was used for the analysis, the change, the tests, and two rounds of adversarial review. I reviewed every changed line and ran the tests above.\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n\n",
+    "created_at": "2026-10-01T07:04:11Z",
+    "updated_at": "2026-10-16T23:41:55Z",
+    "fetched_at": "2026-10-19T23:22:01Z",
+    "state": "merged",
+    "merged_at": "2026-10-16T23:41:55Z",
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "moe",
+      "ttft",
+      "performance",
+      "communication"
+    ],
+    "metadata": {
+      "number": 59559,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11025346078,
+          "node_id": "LA_kwDOI7xefs8AAAACkSluHg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/rust",
+          "name": "rust",
+          "color": "a83c09",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 26,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "8a6c0449b36e7aba29c2a6b1720ca3c08cfafa32",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "dp-announce-on-idle-add",
+        "sha": "0b9041fb118a047fee6d48b98a69d9bf78966e6e",
+        "label": "aoshen02:dp-announce-on-idle-add"
+      },
+      "merge_commit_sha": "a94c3157119e52adacb4d580d4e950983d14e353",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:22:01Z"
+    },
+    "content_hash": "63115c681b2ec041301c2411e54fffa084d6d60f302b2e1b01cef97460e52852"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

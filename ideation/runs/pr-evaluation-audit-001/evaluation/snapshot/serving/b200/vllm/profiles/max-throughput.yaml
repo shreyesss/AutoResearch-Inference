@@ -1,0 +1,26 @@
+schema_version: 1
+name: max-throughput
+topology:
+  tp: 1
+  dp: 8
+  ep: 8
+  expert_parallel: true
+replicas:
+  - gpu_ids: "0,1,2,3,4,5,6,7"
+    port: 8000
+scheduler:
+  max_model_len: 1048576
+  max_num_seqs: 1024
+  max_num_batched_tokens: 16384
+  cuda_graph_max_bs: 1024
+  chunked_prefill_size: 16384
+  max_prefill_tokens: 16384
+features:
+  dspark: false
+  prefix_caching: false
+  bounded_replay: false
+  engram_host: true
+  mm_processor_cache_gb: 0
+  hicache: false
+extra_args: [--api-server-count, "16"]
+notes: "Uncached DEP8 for maximum sustained req/s: latency is unconstrained, batching is limited only by max_num_seqs (KV holds ~87M tokens per rank)."

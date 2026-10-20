@@ -1,0 +1,25 @@
+schema_version: 1
+name: latency-tp8
+topology:
+  tp: 8
+  dp: 1
+  ep: 1
+  expert_parallel: false
+replicas:
+  - gpu_ids: "0,1,2,3,4,5,6,7"
+    port: 8000
+scheduler:
+  max_model_len: 1048576
+  max_num_seqs: 160
+  max_num_batched_tokens: 8192
+  cuda_graph_max_bs: 512
+  chunked_prefill_size: 8192
+  max_prefill_tokens: 8192
+features:
+  dspark: false
+  prefix_caching: true
+  bounded_replay: false
+  engram_host: true
+  mm_processor_cache_gb: 8
+  hicache: false
+notes: "Experimental single TP8 engine. The seq160 control keeps DSpark-k2 steps (about three tokens per request) within a graph cap of 512 when that experiment flag is applied."

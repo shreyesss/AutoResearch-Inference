@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "name": "default-mix",
+  "description": "Fixed production-shaped mix: chat 35%, agentic 20%, long-document 15%, code/reasoning 20%, and multimodal 10%. Weights are request shares and intentionally do not form a Cartesian grid.",
+  "mix_weights_percent": {
+    "chat": 35,
+    "agentic": 20,
+    "long-doc": 15,
+    "code/reasoning": 20,
+    "multimodal": 10
+  },
+  "defaults": {
+    "temperature": 0,
+    "prefix_mode": "none",
+    "prefix_tokens": 0,
+    "reuse_percent": 0,
+    "image_share": 0,
+    "thinking": false,
+    "reasoning_effort": "low"
+  },
+  "cases": [
+    {
+      "name": "default-mix",
+      "variants": [
+        {
+          "name": "chat",
+          "weight": 35,
+          "category": "chat",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low"
+        },
+        {
+          "name": "agentic",
+          "weight": 20,
+          "category": "agentic",
+          "isl": 8192,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "tools": true
+        },
+        {
+          "name": "long-doc",
+          "weight": 15,
+          "category": "long-doc",
+          "isl": 32768,
+          "max_tokens": 512,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "hot",
+          "prefix_tokens": 8192,
+          "reuse_percent": 50
+        },
+        {
+          "name": "code/reasoning",
+          "weight": 20,
+          "category": "code-reasoning",
+          "isl": 2048,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high"
+        },
+        {
+          "name": "multimodal",
+          "weight": 10,
+          "category": "multimodal",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "image_share": 100,
+          "image_count": 1,
+          "image_resolution": 1024,
+          "image_detail": "auto"
+        }
+      ]
+    }
+  ]
+}

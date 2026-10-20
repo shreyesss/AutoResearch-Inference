@@ -1,0 +1,1562 @@
+{
+  "scope": "Kernel/MLA/TopK/MoE/Engram/quant/startup review subset, notall5532items",
+  "hardware": "8xB200 SM100; sourceCSVassumesB300+v0.32 andmustnotbetrustedforinclusion",
+  "source_counts": {
+    "local_vllm_full_bodies": 28,
+    "upstream_primary_pull_objects": 17
+  },
+  "executed_gpu_experiments": 0,
+  "candidates": [
+    {
+      "rank": 1,
+      "repo": "vllm-project/vllm",
+      "number": 61039,
+      "url": "https://github.com/vllm-project/vllm/pull/61039",
+      "title": "[Perf][DSv4.1] Length-aware candidate block selection in the decode indexer",
+      "class": "performance",
+      "experiment_family": "length_aware_indexer",
+      "decision": "shortlist",
+      "mechanism": "Score only each row's live context instead of the full max_model_len allocation; pass row ends to DeepSelect and test BF16 logits separately.",
+      "b200_eligibility_and_dependencies": "Exact sparse indexer/candidate consumer present; DeepSelect supported; DCPoff forBF16 leg. #61149 changes logits API, so rebase rather than paste old wrapper. Separate length-awareness from BF16 ablation.",
+      "existing_evaluation_fit": "Existing nativeagent8K/1K atR7b256/384/512 plus existing text-grid longcontexts; Mooncake p95ITL/strictgoodput, profiler indexer time.",
+      "source_quote": "This PR makes candidate selection length-aware.",
+      "source_quote_exact": true,
+      "state": "merged",
+      "merged_at": "2026-10-14T20:15:59Z",
+      "head_sha": "5e952d607749297e28d96050e2023fc3a6295b5f",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "61039",
+          "type": "pr",
+          "state": "merged main",
+          "created": "2026-10-11",
+          "closed_or_merged": "2026-10-14",
+          "group": "perf-decode",
+          "affects_us": "yes: max-model-len 524288 + indexer_sparse_logits (DeepSelect path) -> ~0.8 ms/step saved per decode step at short contexts; SL-1 TPOT",
+          "action": "cherry-pick - main only; measured on GB300, recheck on B300",
+          "url": "https://github.com/vllm-project/vllm/pull/61039",
+          "title": "[Perf][DSv4.1] Length-aware candidate block selection in the decode indexer"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/61039",
+          "quote": "This PR makes candidate selection length-aware.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Exact sparse indexer/candidate consumer present; DeepSelect supported; DCPoff forBF16 leg. #61149 changes logits API, so rebase rather than paste old wrapper. Separate length-awareness from BF16 ablation.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing nativeagent8K/1K atR7b256/384/512 plus existing text-grid longcontexts; Mooncake p95ITL/strictgoodput, profiler indexer time.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P1 direct performance or startup"
+    },
+    {
+      "rank": 2,
+      "repo": "vllm-project/vllm",
+      "number": 60468,
+      "url": "https://github.com/vllm-project/vllm/pull/60468",
+      "title": "[Perf] Warm up DeepGEMM MegaMoE kernels before serving",
+      "class": "startup",
+      "experiment_family": "jit_readiness",
+      "decision": "shortlist",
+      "mechanism": "Compile MegaMoE, MegaGate and staging specializations before reporting server readiness.",
+      "b200_eligibility_and_dependencies": "Actual deep_gemm_mega_moe backend and unrepresented shapes; persist DG_JIT_CACHE_DIR; no steady-state speedup claim.",
+      "existing_evaluation_fit": "Existing run startup logs/JITmonitor and same synthetic prompt-grid coldvswarm firstrequests; reportstartupwalltime andTTFT.",
+      "source_quote": "A warm restart takes the same time as before.",
+      "source_quote_exact": true,
+      "state": "merged",
+      "merged_at": "2026-10-13T12:17:49Z",
+      "head_sha": "71c61dc99458813c0af72a17eaed3138f1f5b2db",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "60468",
+          "type": "pr",
+          "state": "merged main",
+          "created": "2026-10-07",
+          "closed_or_merged": "2026-10-13",
+          "group": "startup",
+          "affects_us": "yes: moe_backend deep_gemm_mega_moe; first-request TTFT and cold compile time gate",
+          "action": "cherry-pick - removes serving-time JIT stalls hitting SL-1 TTFT; persist DG_JIT_CACHE_DIR",
+          "url": "https://github.com/vllm-project/vllm/pull/60468",
+          "title": "[Perf] Warm up DeepGEMM MegaMoE kernels before serving"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/60468",
+          "quote": "A warm restart takes the same time as before.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Actual deep_gemm_mega_moe backend and unrepresented shapes; persist DG_JIT_CACHE_DIR; no steady-state speedup claim.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing run startup logs/JITmonitor and same synthetic prompt-grid coldvswarm firstrequests; reportstartupwalltime andTTFT.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P1 direct performance or startup"
+    },
+    {
+      "rank": 3,
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 478,
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/478",
+      "title": "Fix mega_mhc split barriers under CUDA graph replay",
+      "class": "correctness_gate",
+      "experiment_family": "graph_epoch",
+      "decision": "inspect_before_perf",
+      "mechanism": "Use an execution epoch instead of a reused CUDA graph grid ID for mega_mhc split barriers.",
+      "b200_eligibility_and_dependencies": "Exact installed JITheaders and mega_mhc captured path; B200repro exists. Vendorpatchonlyifabsent; preservedependencyversion.",
+      "existing_evaluation_fit": "Existing graph correctness/changedinputreplay and golden-output probes; add only targeted upstream repro if replaystalenessnotobservable inexisting probes.",
+      "source_quote": "A CUDA graph kernel node keeps the same `%gridid` on every replay.",
+      "source_quote_exact": true,
+      "state": "closed",
+      "merged_at": "2026-10-20T05:07:07Z",
+      "head_sha": "dd9cd5f7064e72c15ff043b4f7ed7b8cc97448cb",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "deepseek-ai/DeepGEMM",
+          "number": "478",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-19",
+          "closed_or_merged": "",
+          "group": "cudagraph",
+          "affects_us": "maybe: yes if vLLM DSv4.1 uses DeepGEMM mega_mhc on SM100/SM103 under FULL graphs; silent wrong output",
+          "action": "cherry-pick - check whether v0.32.0 calls mega_mhc; if so patch JIT headers and verify golden NLL on block",
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/478",
+          "title": "Fix mega_mhc split barriers under CUDA graph replay"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/478",
+          "quote": "A CUDA graph kernel node keeps the same `%gridid` on every replay.",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "Exact installed JITheaders and mega_mhc captured path; B200repro exists. Vendorpatchonlyifabsent; preservedependencyversion.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing graph correctness/changedinputreplay and golden-output probes; add only targeted upstream repro if replaystalenessnotobservable inexisting probes.",
+        "additional_upstream_repro_only_if_existing_observation_missing": true
+      },
+      "priority": "P0 correctness eligibility"
+    },
+    {
+      "rank": 4,
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 451,
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/451",
+      "title": "[Bugfix] Reset MegaMoE combine readiness for CUDA graph replay",
+      "class": "correctness_gate",
+      "experiment_family": "graph_epoch",
+      "decision": "inspect_before_perf",
+      "mechanism": "Reset stale MegaMoE peer-readiness flags before the existing pull barrier.",
+      "b200_eligibility_and_dependencies": "DeepGEMMFP8xFP4/BF16MegaMoE graphs; exactpin audit. vLLM60936 is NOTthispinupdate.",
+      "existing_evaluation_fit": "Existing graphreplay and unequal/emptyrank upstream tests; Mooncake error/correctness notspeed.",
+      "source_quote": "Reset local peer-readiness flags before the existing pull barrier in both FP8/FP4 and BF16 kernels.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "7e924a8c4be7458d5f18175bf00da8644be17c04",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "deepseek-ai/DeepGEMM",
+          "number": "451",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-09-17",
+          "closed_or_merged": "",
+          "group": "cudagraph",
+          "affects_us": "yes: deep_gemm_mega_moe + FULL_AND_PIECEWISE graphs on B300 DEP; silent wrong output risk",
+          "action": "cherry-pick - via vLLM DeepGEMM pin (vllm#60936 open); verify our pin; test on block with golden NLL",
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/451",
+          "title": "[Bugfix] Reset MegaMoE combine readiness for CUDA graph replay"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/451",
+          "quote": "Reset local peer-readiness flags before the existing pull barrier in both FP8/FP4 and BF16 kernels.",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "DeepGEMMFP8xFP4/BF16MegaMoE graphs; exactpin audit. vLLM60936 is NOTthispinupdate.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing graphreplay and unequal/emptyrank upstream tests; Mooncake error/correctness notspeed.",
+        "additional_upstream_repro_only_if_existing_observation_missing": true
+      },
+      "priority": "P0 correctness eligibility"
+    },
+    {
+      "rank": 5,
+      "repo": "vllm-project/vllm",
+      "number": 60613,
+      "url": "https://github.com/vllm-project/vllm/pull/60613",
+      "title": "[Bugfix][DSv4.1] Seed the -1 sentinel in the prefill sparse index workspace",
+      "class": "correctness_gate",
+      "experiment_family": "sparse_sentinel",
+      "decision": "inspect_before_perf",
+      "mechanism": "Initialize the unused tail of caller-provided sparse index buffers to the required -1 sentinel.",
+      "b200_eligibility_and_dependencies": "DeepSeekV4.1 MegaAttn exactcopiedcombinefunction, includingfreshshortrows andboundedreplaystart; provefixabsent.",
+      "existing_evaluation_fit": "Existing mixedshortprefill/prefix workloads and correctness; targeted poisonedworkspace upstreamrepro onlyifexistingtests missstaleness.",
+      "source_quote": "One line, identical to the #55299 fix in `deepseek_v4`.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "a54f4d52ae960f44352d1e49b40a322ab218b558",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "60613",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-08",
+          "closed_or_merged": "",
+          "group": "crash",
+          "affects_us": "yes: FLASHMLA_MEGA_ATTN_DSV41 prefill, rows after SWA bounded-replay start, fresh prompts <128 tokens",
+          "action": "cherry-pick - one line, port of #55299 for deepseek_v4",
+          "url": "https://github.com/vllm-project/vllm/pull/60613",
+          "title": "[Bugfix][DSv4.1] Seed the -1 sentinel in the prefill sparse index workspace"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/60613",
+          "quote": "One line, identical to the #55299 fix in `deepseek_v4`.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "DeepSeekV4.1 MegaAttn exactcopiedcombinefunction, includingfreshshortrows andboundedreplaystart; provefixabsent.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing mixedshortprefill/prefix workloads and correctness; targeted poisonedworkspace upstreamrepro onlyifexistingtests missstaleness.",
+        "additional_upstream_repro_only_if_existing_observation_missing": true
+      },
+      "priority": "P0 correctness eligibility"
+    },
+    {
+      "rank": 6,
+      "repo": "vllm-project/vllm",
+      "number": 57977,
+      "url": "https://github.com/vllm-project/vllm/pull/57977",
+      "title": "[Perf][DSv4.1] Keep activations MXFP8 between DeepGEMM kernels",
+      "class": "performance",
+      "experiment_family": "packed_activation_chain",
+      "decision": "shortlist_conditional",
+      "mechanism": "Keep activations and scales in MXFP8 between mHC, projection and MoE consumers, avoiding conversion kernels.",
+      "b200_eligibility_and_dependencies": "Sourcevalidated4B200TP4+SP; desiredTP1DEP differs and may exposeadditionalleg. Consumerlayout andpostloadkernelmustmatch; includeJIT warmup.",
+      "existing_evaluation_fit": "Existing nativeagent+Mooncake, kernelquantlaunchcount andGPUbusy; fixedDSparkrealacceptance, fullquality.",
+      "source_quote": "No new flag.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "55c6d6cbb26eb3ee4b26db5809b93a39cce881d7",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "57977",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-09-21",
+          "closed_or_merged": "",
+          "group": "perf-decode",
+          "affects_us": "maybe: mega_mhc + deep_gemm_mega_moe on our path; gains measured on TP4 SP, not TP1 DEP",
+          "action": "watch",
+          "url": "https://github.com/vllm-project/vllm/pull/57977",
+          "title": "[Perf][DSv4.1] Keep activations MXFP8 between DeepGEMM kernels"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/57977",
+          "quote": "No new flag.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Sourcevalidated4B200TP4+SP; desiredTP1DEP differs and may exposeadditionalleg. Consumerlayout andpostloadkernelmustmatch; includeJIT warmup.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing nativeagent+Mooncake, kernelquantlaunchcount andGPUbusy; fixedDSparkrealacceptance, fullquality.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P1 direct performance or startup"
+    },
+    {
+      "rank": 7,
+      "repo": "vllm-project/vllm",
+      "number": 60802,
+      "url": "https://github.com/vllm-project/vllm/pull/60802",
+      "title": "[Perf] Prefer DeepSelect over persistent_topk for large indexer top-k batches on SM100/SM103",
+      "class": "performance",
+      "experiment_family": "topk_backend",
+      "decision": "shortlist_conditional",
+      "mechanism": "Choose DeepSelect for eligible large verification batches instead of persistent TopK.",
+      "b200_eligibility_and_dependencies": "Checkcurrentauto mayalreadydeep_select; sourceperformance GLMnotDeepSeek; bootvariance12-25% underminessmalleffects.",
+      "existing_evaluation_fit": "Existing synthetic andMooncake; expose backendreceipt andcandidate indicesquality; ablateexplicitdeep_select vsauto onmatchingtrace.",
+      "source_quote": "Measured on GLM-5.3-Flash only;",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "9c178152a15e5c26eef267e0ff531e209648af1d",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "60802",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-09",
+          "closed_or_merged": "",
+          "group": "kernels",
+          "affects_us": "maybe: dspark k5 x 128 seqs/rank = 768 verify rows lands on persistent_topk; persistent_topk has bin-drop (#51782) and OOB (#62466) history",
+          "action": "test on block - A/B auto vs deep_select top-k on V4.1; 1-file change",
+          "url": "https://github.com/vllm-project/vllm/pull/60802",
+          "title": "[Perf] Prefer DeepSelect over persistent_topk for large indexer top-k batches on SM100/SM103"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/60802",
+          "quote": "Measured on GLM-5.3-Flash only;",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Checkcurrentauto mayalreadydeep_select; sourceperformance GLMnotDeepSeek; bootvariance12-25% underminessmalleffects.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing synthetic andMooncake; expose backendreceipt andcandidate indicesquality; ablateexplicitdeep_select vsauto onmatchingtrace.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P1 direct performance or startup"
+    },
+    {
+      "rank": 8,
+      "repo": "deepseek-ai/FlashMLA",
+      "number": 227,
+      "url": "https://github.com/deepseek-ai/FlashMLA/pull/227",
+      "title": "\u4f18\u5316 FlashMLA 64 \u5934\u878d\u5408\u6ce8\u610f\u529b\u5185\u6838\u7684 Prefill \u4e0e FP8 Decode \u6027\u80fd",
+      "class": "performance",
+      "experiment_family": "fused_attention_pipeline",
+      "decision": "shortlist_conditional",
+      "mechanism": "Overlap KV prefetch and conversion, release TMEM earlier and reduce repeated mask work in the B200 fused attention specialization.",
+      "b200_eligibility_and_dependencies": "ExactH64D512TopK640; prefillBF16eligible; reporteddecode allFP8KV, notmixedFP4. Rebaseagainst#229interleavedlayout/vendorpin.",
+      "existing_evaluation_fit": "Existing synthetic longcontext+agent native/Mooncake; upstreamkernelchecksfirst, profilematchedpath thenservingtails.",
+      "source_quote": "\u4f18\u5316\u5165\u53e3\u9650\u5b9a B200\uff08148 SM\uff09\u3002",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "2e388e7389f14aadfc74f6bb553b62d86ef911dc",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "deepseek-ai/FlashMLA",
+          "number": "227",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-09-24",
+          "closed_or_merged": "",
+          "group": "kernels",
+          "affects_us": "maybe: V4.1 sparse attn on SM100/B300; base is pre-#229 (main ba89a34), gated to 148-SM B200, not B300",
+          "action": "watch - kernel-only gain, B200-gated, conflicts with #229 reorg",
+          "url": "https://github.com/deepseek-ai/FlashMLA/pull/227",
+          "title": "\u4f18\u5316 FlashMLA 64 \u5934\u878d\u5408\u6ce8\u610f\u529b\u5185\u6838\u7684 Prefill \u4e0e FP8 Decode \u6027\u80fd"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/deepseek-ai/FlashMLA/pull/227",
+          "quote": "\u4f18\u5316\u5165\u53e3\u9650\u5b9a B200\uff08148 SM\uff09\u3002",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "ExactH64D512TopK640; prefillBF16eligible; reporteddecode allFP8KV, notmixedFP4. Rebaseagainst#229interleavedlayout/vendorpin.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing synthetic longcontext+agent native/Mooncake; upstreamkernelchecksfirst, profilematchedpath thenservingtails.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 9,
+      "repo": "vllm-project/vllm",
+      "number": 62359,
+      "url": "https://github.com/vllm-project/vllm/pull/62359",
+      "title": "[Perf][DSv4.1] Share Engram host tables as host-NUMA cuMem across DP ranks",
+      "class": "performance",
+      "experiment_family": "engram_host_backing",
+      "decision": "shortlist_conditional",
+      "mechanism": "Back shared host Engram tables with host-NUMA cuMem mappings to reduce GPU translation overhead.",
+      "b200_eligibility_and_dependencies": "Actualdp_shared_memory and hosttables; probeFABRIChandleexportonB200x86. Fallback/noengagementisnooptimization. NUMAbind samearms.",
+      "existing_evaluation_fit": "Existing prefill/document/raggedmix/MooncakeTTFT, hostRSS,lookuptrace; source showsdecode0%so dontclaimTPOTwin.",
+      "source_quote": "Decode lookups already overlap on the side stream.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "e3b9eb99ecdf0e7530c0d732c66aa77d9f3dc144",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "62359",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-18",
+          "closed_or_merged": "",
+          "group": "engram",
+          "affects_us": "maybe: engram cpu_offload + embedding_across_dp on B300; prefill gain only, needs FABRIC handles (may be unavailable on p6-b300)",
+          "action": "watch - candidate prefill win; check FABRIC handle support on B300 first",
+          "url": "https://github.com/vllm-project/vllm/pull/62359",
+          "title": "[Perf][DSv4.1] Share Engram host tables as host-NUMA cuMem across DP ranks"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/62359",
+          "quote": "Decode lookups already overlap on the side stream.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Actualdp_shared_memory and hosttables; probeFABRIChandleexportonB200x86. Fallback/noengagementisnooptimization. NUMAbind samearms.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing prefill/document/raggedmix/MooncakeTTFT, hostRSS,lookuptrace; source showsdecode0%so dontclaimTPOTwin.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 10,
+      "repo": "vllm-project/vllm",
+      "number": 59849,
+      "url": "https://github.com/vllm-project/vllm/pull/59849",
+      "title": "[Perf][DSv4.1] Register CPU-offloaded Engram tables at their exact size",
+      "class": "performance",
+      "experiment_family": "engram_host_backing",
+      "decision": "shortlist_conditional",
+      "mechanism": "Register host Engram tables at their exact size to avoid pinned allocator rounding and potentially improve lookups.",
+      "b200_eligibility_and_dependencies": "Differentpath fromsharedcuMem; GB10onlysource, B200PCIe/NUMAtransferunknown; validateactualallocatorandfallback.",
+      "existing_evaluation_fit": "Existing startupRSS andprefill/documentTTFT, samehostNUMAandlookupsort; startupfailureguards.",
+      "source_quote": "Still needed before un-drafting: GB200 and an E2E `cpu_offload` run.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "8e91c6ea3164487585bfe75241e4dd9f241ffcf9",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "59849",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-03",
+          "closed_or_merged": "",
+          "group": "engram",
+          "affects_us": "maybe: engram cpu_offload true; host RAM per instance and lookup speed; only GB10 measured",
+          "action": "watch - draft, needs GB200/B300 and e2e",
+          "url": "https://github.com/vllm-project/vllm/pull/59849",
+          "title": "[Perf][DSv4.1] Register CPU-offloaded Engram tables at their exact size"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/59849",
+          "quote": "Still needed before un-drafting: GB200 and an E2E `cpu_offload` run.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Differentpath fromsharedcuMem; GB10onlysource, B200PCIe/NUMAtransferunknown; validateactualallocatorandfallback.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing startupRSS andprefill/documentTTFT, samehostNUMAandlookupsort; startupfailureguards.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 11,
+      "repo": "vllm-project/vllm",
+      "number": 60938,
+      "url": "https://github.com/vllm-project/vllm/pull/60938",
+      "title": "[Perf][DSv4.1] Prototype Engram to delayed mHC input fusion",
+      "class": "research_prototype",
+      "experiment_family": "engram_mhc_fusion",
+      "decision": "prototype_after_simple_wins",
+      "mechanism": "Fuse the Engram gate/residual update with the following delayed mHC collapse and normalization.",
+      "b200_eligibility_and_dependencies": "TP1,noSP,noactiveoverlapstream alignsDEP candidate; GPUcorrectness/perfpending; keepflagoffuntilexactupstreamtests pass.",
+      "existing_evaluation_fit": "Existing kerneltests+nativeprefill/document andMooncake; gatecollapsewholeforward notisolatedkernelonly.",
+      "source_quote": "No speedup or GPU numerical-equivalence claim is made yet.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "e597dbc4fb95a8a7804f42a07c93ec0e64c355c0",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "60938",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-10",
+          "closed_or_merged": "",
+          "group": "engram",
+          "affects_us": "maybe: TP1 Blackwell is our layout; unvalidated prototype",
+          "action": "watch",
+          "url": "https://github.com/vllm-project/vllm/pull/60938",
+          "title": "[Perf][DSv4.1] Prototype Engram to delayed mHC input fusion"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/60938",
+          "quote": "No speedup or GPU numerical-equivalence claim is made yet.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "TP1,noSP,noactiveoverlapstream alignsDEP candidate; GPUcorrectness/perfpending; keepflagoffuntilexactupstreamtests pass.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing kerneltests+nativeprefill/document andMooncake; gatecollapsewholeforward notisolatedkernelonly.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 12,
+      "repo": "vllm-project/vllm",
+      "number": 61971,
+      "url": "https://github.com/vllm-project/vllm/pull/61971",
+      "title": "[Perf][DSv4.1] Share MegaAttn int32 positions across layers",
+      "class": "performance",
+      "experiment_family": "redundant_cast",
+      "decision": "low_cost_low_expected_value",
+      "mechanism": "Share one int32 RoPE-position conversion within a full graph instead of repeating it in every layer.",
+      "b200_eligibility_and_dependencies": "MegaAttnFULLgraphs, exactsameinputtensorcontext; source0.39%targetGPU notserving.",
+      "existing_evaluation_fit": "Existing profiler kernelcounts andnative/Mooncake; do notmandatehighcostcapacitysweepifbelowrunnoise.",
+      "source_quote": "This measures GPU target time, not request latency or serving throughput.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "7dc5b6683bc894a99e984c0bc3dbb826d4a51990",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "61971",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-16",
+          "closed_or_merged": "",
+          "group": "perf-decode",
+          "affects_us": "yes: FLASHMLA_MEGA_ATTN_DSV41 decode graphs; gain tiny",
+          "action": "cherry-pick - low priority, gain within noise for SLO",
+          "url": "https://github.com/vllm-project/vllm/pull/61971",
+          "title": "[Perf][DSv4.1] Share MegaAttn int32 positions across layers"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/61971",
+          "quote": "This measures GPU target time, not request latency or serving throughput.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "MegaAttnFULLgraphs, exactsameinputtensorcontext; source0.39%targetGPU notserving.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing profiler kernelcounts andnative/Mooncake; do notmandatehighcostcapacitysweepifbelowrunnoise.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 13,
+      "repo": "vllm-project/vllm",
+      "number": 57843,
+      "url": "https://github.com/vllm-project/vllm/pull/57843",
+      "title": "[Bugfix][DSV4.1] Warm DeepGEMM mHC projection specializations",
+      "class": "startup",
+      "experiment_family": "jit_readiness",
+      "decision": "bundle_after_inclusion_check",
+      "mechanism": "Warm missing DeepGEMM mHC projection specializations before serving.",
+      "b200_eligibility_and_dependencies": "ActualDeepGEMM mHCprojection andnewshapeJITlogs; compareto60468coverage; avoiddoublewarmup.",
+      "existing_evaluation_fit": "Existing cold/warmrestart logs andraggedlengthworkload; startupseconds vsfirstrequestTTFT.",
+      "source_quote": "DSV4.1 can compile a DeepGEMM mHC prenorm projection during intermediate prefill because decode and maximum-prefill startup runs miss a reachable split count.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "baa5c3b28262c10e537e11d0d8e77bf1db952cdb",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "57843",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-09-21",
+          "closed_or_merged": "",
+          "group": "startup",
+          "affects_us": "yes: runtime JIT stall on first mid-size prefill (TTFT spike after restart); cold compile time",
+          "action": "cherry-pick",
+          "url": "https://github.com/vllm-project/vllm/pull/57843",
+          "title": "[Bugfix][DSV4.1] Warm DeepGEMM mHC projection specializations"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/57843",
+          "quote": "DSV4.1 can compile a DeepGEMM mHC prenorm projection during intermediate prefill because decode and maximum-prefill startup runs miss a reachable split count.",
+          "basis": "frozen corpus opening body; root filled missing evidence excerpt"
+        }
+      ],
+      "gate": "ActualDeepGEMM mHCprojection andnewshapeJITlogs; compareto60468coverage; avoiddoublewarmup.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing cold/warmrestart logs andraggedlengthworkload; startupseconds vsfirstrequestTTFT.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 14,
+      "repo": "vllm-project/vllm",
+      "number": 58559,
+      "url": "https://github.com/vllm-project/vllm/pull/58559",
+      "title": "[Warmup] Cover DSv4 sparse top-k and DFlash input-prep Triton specializations that JIT at first request",
+      "class": "startup",
+      "experiment_family": "jit_readiness",
+      "decision": "bundle_after_inclusion_check",
+      "mechanism": "Warm sparse TopK and speculative input-preparation Triton variants missed by existing startup coverage.",
+      "b200_eligibility_and_dependencies": "Exactcalledkernels andnoexistingcoverage; sourceDSparkrelevantbutDFlashsubpaths notautomaticmatch.",
+      "existing_evaluation_fit": "Existing JITmonitor plusfirstpass lengths thenrepeat; GPUcacheentrycounts,TTFTtails.",
+      "source_quote": "Two Triton kernels still JIT-compile at the first real request despite the JIT warmup,",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "f91150d29ca07efccc5629ced645ff47a36889f1",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "58559",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-09-24",
+          "closed_or_merged": "",
+          "group": "startup",
+          "affects_us": "yes: dspark + DSv4 sparse topk; first-request latency spike after restart, --jit-monitor-mode",
+          "action": "cherry-pick - removes mid-serving JIT; needs rebase",
+          "url": "https://github.com/vllm-project/vllm/pull/58559",
+          "title": "[Warmup] Cover DSv4 sparse top-k and DFlash input-prep Triton specializations that JIT at first request"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/58559",
+          "quote": "Two Triton kernels still JIT-compile at the first real request despite the JIT warmup,",
+          "basis": "frozen corpus opening body; root filled missing evidence excerpt"
+        }
+      ],
+      "gate": "Exactcalledkernels andnoexistingcoverage; sourceDSparkrelevantbutDFlashsubpaths notautomaticmatch.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing JITmonitor plusfirstpass lengths thenrepeat; GPUcacheentrycounts,TTFTtails.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 15,
+      "repo": "vllm-project/vllm",
+      "number": 62011,
+      "url": "https://github.com/vllm-project/vllm/pull/62011",
+      "title": "[Perf][DSv4.1] Enable DeepGEMM sparse MQA logits on the FP8 indexer cache",
+      "class": "quality_performance_tradeoff",
+      "experiment_family": "fp8_indexer_sparse",
+      "decision": "alternative_precision_lane",
+      "mechanism": "Enable sparse MQA logits with the FP8 indexer cache, allowing a separate precision and capacity comparison against MXFP4.",
+      "b200_eligibility_and_dependencies": "Requires61149packedUE8M0layout; changesprecision/cachecapacityvsMXFP4 baseline. Treatownqualitylane notfreewin.",
+      "existing_evaluation_fit": "Existing contextgrid,fullquality andcostfrontier; compareFP8sparseon/off thenMXFP4 atmatchingquality.",
+      "source_quote": "This PR wires the FP8 cache into the existing sparse path,",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "ed578d9a5222fd7288c51f5130148c92638bb5bc",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "62011",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-16",
+          "closed_or_merged": "",
+          "group": "kernels",
+          "affects_us": "maybe: lets us A/B indexer_kv_dtype fp8 + indexer_sparse_logits vs our mxfp4; quality vs KV size tradeoff",
+          "action": "watch - candidate config A/B (fp8 indexer) if mxfp4 quality is an issue",
+          "url": "https://github.com/vllm-project/vllm/pull/62011",
+          "title": "[Perf][DSv4.1] Enable DeepGEMM sparse MQA logits on the FP8 indexer cache"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/62011",
+          "quote": "This PR wires the FP8 cache into the existing sparse path,",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Requires61149packedUE8M0layout; changesprecision/cachecapacityvsMXFP4 baseline. Treatownqualitylane notfreewin.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing contextgrid,fullquality andcostfrontier; compareFP8sparseon/off thenMXFP4 atmatchingquality.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 16,
+      "repo": "flashinfer-ai/flashinfer",
+      "number": 5523,
+      "url": "https://github.com/flashinfer-ai/flashinfer/pull/5523",
+      "title": "feat(cake_deepgemm): add generated DeepGEMM-family kernels for SM100a/SM103a (sparse MQA indexer, routing gate, mHC, MoE, FP8/FP4 GEMM)",
+      "class": "research_integration",
+      "experiment_family": "generated_kernel_catalog",
+      "decision": "prototype_after_route_audit",
+      "mechanism": "Evaluate one admitted generated SM100a kernel route at a time for MQA, mHC, MegaGate or MegaMoE.",
+      "b200_eligibility_and_dependencies": "Experimental APIsnotautomaticallyusedbyvLLM; exactroute/shape/ABI/EPcollectiveadmission needed. Startoneoperator withfallback;notreplaceentirestack.",
+      "existing_evaluation_fit": "Existing peroptests+profile andnative/Mooncake; routecatalogreceipt required; authoredkernelgeomeansnotservingprojection.",
+      "source_quote": "for **SM100a (B200, 148 SMs) and SM103a (GB300, 152 SMs)**",
+      "source_quote_exact": true,
+      "state": "closed",
+      "merged_at": "2026-09-29T23:12:23Z",
+      "head_sha": "24fb6c8007159bf4babe6d4f6ed77d55842ecb6f",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "flashinfer-ai/flashinfer",
+          "number": "5523",
+          "type": "pr",
+          "state": "merged",
+          "created": "2026-09-24",
+          "closed_or_merged": "2026-09-29",
+          "group": "kernels",
+          "affects_us": "no: experimental flashinfer package, vLLM uses DeepGEMM directly",
+          "action": "watch - claimed faster indexer and mega MoE than DeepGEMM; unproven in serving",
+          "url": "https://github.com/flashinfer-ai/flashinfer/pull/5523",
+          "title": "feat(cake_deepgemm): add generated DeepGEMM-family kernels for SM100a/SM103a (sparse MQA indexer, routing gate, mHC, MoE, FP8/FP4 GEMM)"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/flashinfer-ai/flashinfer/pull/5523",
+          "quote": "for **SM100a (B200, 148 SMs) and SM103a (GB300, 152 SMs)**",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "Experimental APIsnotautomaticallyusedbyvLLM; exactroute/shape/ABI/EPcollectiveadmission needed. Startoneoperator withfallback;notreplaceentirestack.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing peroptests+profile andnative/Mooncake; routecatalogreceipt required; authoredkernelgeomeansnotservingprojection.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 17,
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 394,
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/394",
+      "title": "MegaMoE: add cluster-paired FP4 weight packets",
+      "class": "research_integration",
+      "experiment_family": "weight_packet_layout",
+      "decision": "defer_shape_port",
+      "mechanism": "Pack cooperating CTA weight tiles and scales together at model load; isolate layout from eviction and warpgroup changes.",
+      "b200_eligibility_and_dependencies": "MeasuredH7168I3072 no sharedexperts, unlikeFlashH5120I2304+shared; validatepacketshape+repackingmemory. Needseparateablations.",
+      "existing_evaluation_fit": "Existing MegaMoEkernelcorrectnessactualmodelshapes thennativeagent; noheadline9.5%transfer.",
+      "source_quote": "Shared-expert weights retain the existing layout and load policy.",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "d1e73685349137b5019ec7b75fe640509e89fbd4",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "deepseek-ai/DeepGEMM",
+          "number": "394",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-07-28",
+          "closed_or_merged": "",
+          "group": "kernels",
+          "affects_us": "maybe: deep_gemm_mega_moe; no numbers in digest",
+          "action": "watch",
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/394",
+          "title": "MegaMoE: add cluster-paired FP4 weight packets"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/394",
+          "quote": "Shared-expert weights retain the existing layout and load policy.",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "MeasuredH7168I3072 no sharedexperts, unlikeFlashH5120I2304+shared; validatepacketshape+repackingmemory. Needseparateablations.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing MegaMoEkernelcorrectnessactualmodelshapes thennativeagent; noheadline9.5%transfer.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 18,
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 404,
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/404",
+      "title": "feat: add opt-in MegaMoE EVICT_FIRST weight loads",
+      "class": "research_integration",
+      "experiment_family": "weight_cache_policy",
+      "decision": "defer_until_engagement",
+      "mechanism": "Apply an opt-in EVICT_FIRST cache hint to routed expert-weight TMA loads for small batches.",
+      "b200_eligibility_and_dependencies": "MeasuredV4FlashH4096notV4.1H5120; inspectgeneratedSASS/engagement notassumeflagworks; verify withrealrouting.",
+      "existing_evaluation_fit": "Existingkernelcapture andsynthetic/Mooncake; slowestrank notsource rankmeans; routingreuse/cachedinputs heldfixed.",
+      "source_quote": "The switch is enabled only when `num_tokens <= 512`;",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "12aa4d5f48bfae04839fdbfdee942028b3419675",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "deepseek-ai/DeepGEMM",
+          "number": "404",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-08-12",
+          "closed_or_merged": "",
+          "group": "kernels",
+          "affects_us": "maybe: deep_gemm_mega_moe decode at small per-rank batch; V4 not V4.1 shapes, kernel-only, unmerged",
+          "action": "watch - small kernel-only gain, bot flagged it may be a no-op",
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/404",
+          "title": "feat: add opt-in MegaMoE EVICT_FIRST weight loads"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/404",
+          "quote": "The switch is enabled only when `num_tokens <= 512`;",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "MeasuredV4FlashH4096notV4.1H5120; inspectgeneratedSASS/engagement notassumeflagworks; verify withrealrouting.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existingkernelcapture andsynthetic/Mooncake; slowestrank notsource rankmeans; routingreuse/cachedinputs heldfixed.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 19,
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 436,
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/436",
+      "title": "Improve SM100 MX MQA logits clean-output performance",
+      "class": "version_conditional",
+      "experiment_family": "indexer_cleanup_schedule",
+      "decision": "defer_api_preflight",
+      "mechanism": "Move MX MQA logits cleanup after CTA compute where the old clean_logits API is actually used.",
+      "b200_eligibility_and_dependencies": "Oldclean_logits API removedby61149DeepGEMM6ce1; likelynoapplicablecall onnewpin. Requireexactoldpathandclean_logits=True; otherwiseexclude.",
+      "existing_evaluation_fit": "Existingprefillprofile plusupstreamcompleteoutputtests; no newevalharness.",
+      "source_quote": "The `clean_logits=False` control stays within 0.2%",
+      "source_quote_exact": true,
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "7710a5b20017b650c1189a823ae2b7292951e99e",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "deepseek-ai/DeepGEMM",
+          "number": "436",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-09-10",
+          "closed_or_merged": "",
+          "group": "perf-prefill",
+          "affects_us": "maybe: indexer_kv_dtype mxfp4 prefill, only if vLLM calls mqa_logits with clean_logits=True; not measured on SM100/SM103, no E2E TTFT",
+          "action": "watch - header-only JIT change, reaches us via DeepGEMM bump",
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/436",
+          "title": "Improve SM100 MX MQA logits clean-output performance"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/436",
+          "quote": "The `clean_logits=False` control stays within 0.2%",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "Oldclean_logits API removedby61149DeepGEMM6ce1; likelynoapplicablecall onnewpin. Requireexactoldpathandclean_logits=True; otherwiseexclude.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existingprefillprofile plusupstreamcompleteoutputtests; no newevalharness.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P3 dependency or diagnostic"
+    },
+    {
+      "rank": 20,
+      "repo": "vllm-project/vllm",
+      "number": 61371,
+      "url": "https://github.com/vllm-project/vllm/pull/61371",
+      "title": "[Kernel][DSv4.1] Bump FlashMLA to the 2026.09.30 release and its interleaved V4.1 KV cache",
+      "class": "dependency_tradeoff",
+      "experiment_family": "flashmla_layout_upgrade",
+      "decision": "audit_not_blind_upgrade",
+      "mechanism": "Upgrade FlashMLA together with the corresponding interleaved KV writers, readers and block packing.",
+      "b200_eligibility_and_dependencies": "Treatpairedwriter/reader/layoutasatomicdependency; measured9.5%KVtokencapacityloss withMegaAttn;61149alignmentdependency.",
+      "existing_evaluation_fit": "Existing context/memorysweep,cache-heavyMooncake andquality. Newreleasealoneisnoperformancehypothesis.",
+      "source_quote": "KV capacity:",
+      "source_quote_exact": true,
+      "state": "merged",
+      "merged_at": "2026-10-15T20:58:26Z",
+      "head_sha": "c7cca9b27664dd714813f23cd9c27d4f426d0444",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "61371",
+          "type": "pr",
+          "state": "merged main",
+          "created": "2026-10-13",
+          "closed_or_merged": "2026-10-15",
+          "group": "kernels",
+          "affects_us": "maybe: only if we bump past v0.32.0; costs ~9.5% KV tokens with FLASHMLA_MEGA_ATTN_DSV41 (L1 KV size)",
+          "action": "watch - layout change, not a fix; reduces KV capacity; keep off v0.32.0.1 unless a later fix depends on it",
+          "url": "https://github.com/vllm-project/vllm/pull/61371",
+          "title": "[Kernel][DSv4.1] Bump FlashMLA to the 2026.09.30 release and its interleaved V4.1 KV cache"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/61371",
+          "quote": "KV capacity:",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Treatpairedwriter/reader/layoutasatomicdependency; measured9.5%KVtokencapacityloss withMegaAttn;61149alignmentdependency.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing context/memorysweep,cache-heavyMooncake andquality. Newreleasealoneisnoperformancehypothesis.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P3 dependency or diagnostic"
+    },
+    {
+      "rank": 21,
+      "repo": "vllm-project/vllm",
+      "number": 61149,
+      "url": "https://github.com/vllm-project/vllm/pull/61149",
+      "title": "[Kernel][Build] Bump DeepGEMM to the 26/09/30 release and adapt the sparse indexer",
+      "class": "dependency",
+      "experiment_family": "deepgemm_api_upgrade",
+      "decision": "audit_dependency",
+      "mechanism": "Adapt the engine to the DeepGEMM 2.8.1 MQA API and packed UE8M0 indexer scale format.",
+      "b200_eligibility_and_dependencies": "Requiredfor62011/61371; removedclean_logits/logits_dtype changes61039/436port; checkinstalledactualpin.",
+      "existing_evaluation_fit": "Existing build/import+kernelcorrectness; comparefullstackonlyifdependencyabsent.",
+      "source_quote": "Adapt vLLM to the breaking MQA-logits API.",
+      "source_quote_exact": true,
+      "state": "merged",
+      "merged_at": "2026-10-13T06:24:44Z",
+      "head_sha": "16470a135ecdb80c82cab018490a0db1dce94db9",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "61149",
+          "type": "pr",
+          "state": "merged main",
+          "created": "2026-10-12",
+          "closed_or_merged": "2026-10-13",
+          "group": "kernels",
+          "affects_us": "maybe: deep_gemm_mega_moe + mxfp4 indexer path; main-only, not in v0.32.0; slight decode regression measured on GB200 not B300",
+          "action": "watch - large csrc build bump, take only with a vLLM bump; not needed unless a DeepGEMM bug forces it",
+          "url": "https://github.com/vllm-project/vllm/pull/61149",
+          "title": "[Kernel][Build] Bump DeepGEMM to the 26/09/30 release and adapt the sparse indexer"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/61149",
+          "quote": "Adapt vLLM to the breaking MQA-logits API.",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Requiredfor62011/61371; removedclean_logits/logits_dtype changes61039/436port; checkinstalledactualpin.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing build/import+kernelcorrectness; comparefullstackonlyifdependencyabsent.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P3 dependency or diagnostic"
+    },
+    {
+      "rank": 22,
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 471,
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/471",
+      "title": "Public release 10/14",
+      "class": "dependency",
+      "experiment_family": "deepgemm_api_upgrade",
+      "decision": "watch_dependency",
+      "mechanism": "Consider DeepGEMM 2.8.2 epilogue and stride support only when a selected experiment needs those APIs.",
+      "b200_eligibility_and_dependencies": "BreakingFP8Quantizationclassrename; noautoclaimsbaselineimprovement. IncludeonlyifselectedcandidateusesnewAPI.",
+      "existing_evaluation_fit": "Existingimport/kerneltests; no standalonebenchmarkuntilcalledpathidentified.",
+      "source_quote": "deep_gemm.epilogue.FP8Quantization has been replaced by FP8CastWithClamp.",
+      "source_quote_exact": true,
+      "state": "closed",
+      "merged_at": "2026-10-14T05:35:55Z",
+      "head_sha": "d810967a1158d5fbfd4a5bf8145e75223a831e41",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "deepseek-ai/DeepGEMM",
+          "number": "471",
+          "type": "pr",
+          "state": "merged",
+          "created": "2026-10-14",
+          "closed_or_merged": "2026-10-14",
+          "group": "kernels",
+          "affects_us": "maybe: SM100 epilogue and paged indexer on our path; after v0.32.0 cut, no bug fix for us",
+          "action": "watch - reaches us only via a vLLM DeepGEMM bump",
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/471",
+          "title": "Public release 10/14"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/deepseek-ai/DeepGEMM/pull/471",
+          "quote": "deep_gemm.epilogue.FP8Quantization has been replaced by FP8CastWithClamp.",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "BreakingFP8Quantizationclassrename; noautoclaimsbaselineimprovement. IncludeonlyifselectedcandidateusesnewAPI.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existingimport/kerneltests; no standalonebenchmarkuntilcalledpathidentified.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P3 dependency or diagnostic"
+    },
+    {
+      "rank": 23,
+      "repo": "vllm-project/recipes",
+      "number": 1002,
+      "url": "https://github.com/vllm-project/recipes/pull/1002",
+      "title": " [DeepSeek] V4.1-Flash: TP2 with Engram offload on B200, B300, GB200 and GB300",
+      "class": "configuration",
+      "experiment_family": "tp2_host_engram",
+      "decision": "existing_comparator",
+      "mechanism": "Use TP2 with host Engram as an eight-GPU topology comparator, if that configuration has not already been measured.",
+      "b200_eligibility_and_dependencies": "RecipehasactualB200source; baselinealreadyhostoffload sooffloadaloneisnotnew. Compare4xTP2vs2xDEP4ona8GPUbudget onlyifnotalreadytested.",
+      "existing_evaluation_fit": "Existing nativeagentconcurrencysweep/Mooncake withrouterfixed; samequality/costdenominator.",
+      "source_quote": "**B200:** InferenceX AgentX sweep completed concurrency 1 through 128 with evals green,",
+      "source_quote_exact": true,
+      "state": "closed",
+      "merged_at": "2026-09-21T15:23:30Z",
+      "head_sha": "75dce686e392f7943d5c30d15615a0efe03acf23",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/recipes",
+          "number": "1002",
+          "type": "pr",
+          "state": "merged",
+          "created": "2026-09-20",
+          "closed_or_merged": "2026-09-21",
+          "group": "engram",
+          "affects_us": "maybe: we run engram cpu_offload true already; TP2 not in our plan",
+          "action": "watch",
+          "url": "https://github.com/vllm-project/recipes/pull/1002",
+          "title": " [DeepSeek] V4.1-Flash: TP2 with Engram offload on B200, B300, GB200 and GB300"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/recipes/pull/1002",
+          "quote": "**B200:** InferenceX AgentX sweep completed concurrency 1 through 128 with evals green,",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "RecipehasactualB200source; baselinealreadyhostoffload sooffloadaloneisnotnew. Compare4xTP2vs2xDEP4ona8GPUbudget onlyifnotalreadytested.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing nativeagentconcurrencysweep/Mooncake withrouterfixed; samequality/costdenominator.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P2 conditional experiment"
+    },
+    {
+      "rank": 24,
+      "repo": "SemiAnalysisAI/InferenceX",
+      "number": 3095,
+      "url": "https://github.com/SemiAnalysisAI/InferenceX/pull/3095",
+      "title": "fix: improve B300 DSv4.1 low-concurrency tails / \u6539\u5584\u4f4e\u5e76\u53d1\u5c3e\u5ef6\u8fdf",
+      "class": "configuration",
+      "experiment_family": "graph_capture_floor",
+      "decision": "diagnostic_not_direct_patch",
+      "mechanism": "Inspect low-load capture coverage; the source recipe imposes a 64-token minimum capture size.",
+      "b200_eligibility_and_dependencies": "Currentprofilecap512alreadyexceeds64; inspectactualcapturelistandDSparksequencecoverage. R7bseq128*kplus1=768 cap512issueisothercoverageproblem.",
+      "existing_evaluation_fit": "Existinglowloadnativeagent+profilerFULLreplayreceipt; no38ms->2mstransfer.",
+      "source_quote": "other points require sweep validation.",
+      "source_quote_exact": true,
+      "state": "closed",
+      "merged_at": "2026-09-15T04:12:00Z",
+      "head_sha": "fbf7acbbdbfffd9417846cc1f07253e1f4913a23",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "GitHub primary REST pull object fetched via existing cached client",
+      "input_classifications": [
+        {
+          "repo": "SemiAnalysisAI/InferenceX",
+          "number": "3095",
+          "type": "pr",
+          "state": "merged",
+          "created": "2026-09-14",
+          "closed_or_merged": "2026-09-15",
+          "group": "cudagraph",
+          "affects_us": "yes: measured on B300 with DSpark k5; any decode batch above capture size runs eager and ITL jumps ~15x",
+          "action": "config - ensure capture size >= max-num-seqs x 6 per rank",
+          "url": "https://github.com/SemiAnalysisAI/InferenceX/pull/3095",
+          "title": "fix: improve B300 DSv4.1 low-concurrency tails / \u6539\u5584\u4f4e\u5e76\u53d1\u5c3e\u5ef6\u8fdf"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/SemiAnalysisAI/InferenceX/pull/3095",
+          "quote": "other points require sweep validation.",
+          "basis": "GitHub primary REST pull object fetched via existing cached client"
+        }
+      ],
+      "gate": "Currentprofilecap512alreadyexceeds64; inspectactualcapturelistandDSparksequencecoverage. R7bseq128*kplus1=768 cap512issueisothercoverageproblem.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existinglowloadnativeagent+profilerFULLreplayreceipt; no38ms->2mstransfer.",
+        "additional_upstream_repro_only_if_existing_observation_missing": false
+      },
+      "priority": "P3 dependency or diagnostic"
+    },
+    {
+      "rank": 25,
+      "repo": "vllm-project/vllm",
+      "number": 62467,
+      "url": "https://github.com/vllm-project/vllm/pull/62467",
+      "title": "[Bugfix][Kernel] persistent_topk: don't select float4 tail lanes past the row length",
+      "class": "conditional_correctness",
+      "experiment_family": "topk_bounds",
+      "decision": "deprioritize_default_path",
+      "mechanism": "Exclude invalid float4 tail lanes in persistent TopK when the threshold reaches the negative-infinity bin.",
+      "b200_eligibility_and_dependencies": "PRsaysnoshippeddefaultmodelreachesbug. V4.1candidate2048*8covers<=8192; inspectpersistentbackend/adversarialchangedcandidateconfig beforepromote.",
+      "existing_evaluation_fit": "Existingupstreamtopktest; no newservingevalunlessnondefaultpathactuallyreachable.",
+      "source_quote": "no shipped model reaches this path",
+      "source_quote_exact": true,
+      "state": "merged",
+      "merged_at": "2026-10-19T16:13:56Z",
+      "head_sha": "ee1aff3e875caadf5d5e32ef1be55e7e6409dfb5",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "62467",
+          "type": "pr",
+          "state": "merged main",
+          "created": "2026-10-19",
+          "closed_or_merged": "2026-10-19",
+          "group": "crash",
+          "affects_us": "yes: sparse MLA indexer topk on every decode/prefill step",
+          "action": "cherry-pick - known #62466; csrc rebuild",
+          "url": "https://github.com/vllm-project/vllm/pull/62467",
+          "title": "[Bugfix][Kernel] persistent_topk: don't select float4 tail lanes past the row length"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/62467",
+          "quote": "no shipped model reaches this path",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "PRsaysnoshippeddefaultmodelreachesbug. V4.1candidate2048*8covers<=8192; inspectpersistentbackend/adversarialchangedcandidateconfig beforepromote.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existingupstreamtopktest; no newservingevalunlessnondefaultpathactuallyreachable.",
+        "additional_upstream_repro_only_if_existing_observation_missing": true
+      },
+      "priority": "P3 dependency or diagnostic"
+    },
+    {
+      "rank": 26,
+      "repo": "vllm-project/vllm",
+      "number": 62269,
+      "url": "https://github.com/vllm-project/vllm/pull/62269",
+      "title": "[Bugfix][DSv4.1] Keep the Engram all-to-all buffers in one allocator",
+      "class": "conditional_correctness",
+      "experiment_family": "engram_allocator",
+      "decision": "conditional_dependency",
+      "mechanism": "Allocate Engram all-to-all send and receive buffers from the same allocator when using the cuMem allocator.",
+      "b200_eligibility_and_dependencies": "Onlycumemallocator+hostDPshard path; currentflagsdonotestablishenablecumem. RequiredifnewEngramexperimentenablesit, notunconditionalperf.",
+      "existing_evaluation_fit": "Existingstartupserving/captureandupstreamreproducer ifenablingcumem.",
+      "source_quote": "main, no `--enable-cumem-allocator`",
+      "source_quote_exact": true,
+      "state": "merged",
+      "merged_at": "2026-10-19T03:55:55Z",
+      "head_sha": "9dd9e967de411aa43670ce49b6774c5fa87df69c",
+      "baseline_inclusion": "Unknown at actual ac9126... image; do not infer from source v0.32 release labels. Parent baseline audit authoritative.",
+      "source_verification": "stored full GitHub body",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "62269",
+          "type": "pr",
+          "state": "merged main",
+          "created": "2026-10-18",
+          "closed_or_merged": "2026-10-19",
+          "group": "engram",
+          "affects_us": "maybe: our engram cpu_offload + embedding_across_dp + DEP + deep_gemm_mega_moe; hangs only with --enable-cumem-allocator (not in our run files)",
+          "action": "watch - cherry-pick only if we add cumem allocator; 4-line change",
+          "url": "https://github.com/vllm-project/vllm/pull/62269",
+          "title": "[Bugfix][DSv4.1] Keep the Engram all-to-all buffers in one allocator"
+        }
+      ],
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/62269",
+          "quote": "main, no `--enable-cumem-allocator`",
+          "basis": "stored full GitHub body"
+        }
+      ],
+      "gate": "Onlycumemallocator+hostDPshard path; currentflagsdonotestablishenablecumem. RequiredifnewEngramexperimentenablesit, notunconditionalperf.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existingstartupserving/captureandupstreamreproducer ifenablingcumem.",
+        "additional_upstream_repro_only_if_existing_observation_missing": true
+      },
+      "priority": "P3 dependency or diagnostic"
+    },
+    {
+      "rank": 27,
+      "repo": "vllm-project/vllm",
+      "number": 59327,
+      "url": "https://github.com/vllm-project/vllm/pull/59327",
+      "title": "[Perf][DSv4.1] Faster Engram host lookups: sorted rows, inline big lookups",
+      "class": "baseline_dependency",
+      "experiment_family": "engram_host_lookup",
+      "decision": "inclusion audit; evaluate only if absent or explicitly tuning its policy",
+      "mechanism": "Audit inclusion before 59849/62359: sort host lookup rows and run large lookups inline to avoid contention with persistent kernels.",
+      "gate": "Merged October1; likely baseline dependency but inclusion must be checked. Requires host tables backed by small pages; THP skips sort. Thresholds were measured on GB200, not this B200 CPU/PCIe topology.",
+      "b200_eligibility_and_dependencies": "Merged October1; likely baseline dependency but inclusion must be checked. Requires host tables backed by small pages; THP skips sort. Thresholds were measured on GB200, not this B200 CPU/PCIe topology.",
+      "existing_evaluation_fit": "Existing document/prefill and Mooncake TTFT; profile lookup CTA overlap, sorted-row engagement and rank stalls.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing document/prefill and Mooncake TTFT; profile lookup CTA overlap, sorted-row engagement and rank stalls."
+      },
+      "source_quote": "Other GPUs, including ROCm, keep both paths off and behave as before.",
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/59327",
+          "quote": "Other GPUs, including ROCm, keep both paths off and behave as before.",
+          "basis": "stored complete primary GitHub body"
+        }
+      ],
+      "source_quote_exact": true,
+      "priority": "P1 baseline dependency audit",
+      "state": "merged",
+      "merged_at": "2026-10-01T03:54:45Z",
+      "head_sha": "24a50efaaee9ba5d9aacff6df79b7afb52935983",
+      "baseline_inclusion": "Unknown at actual image pin; do not infer from CSV v0.32 labels.",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "59327",
+          "type": "pr",
+          "state": "merged v0.32.0",
+          "created": "2026-09-30",
+          "closed_or_merged": "2026-10-01",
+          "group": "engram",
+          "affects_us": "yes: engram cpu_offload true; prefill-heavy batches at 16384 batched tokens",
+          "action": "already in v0.32.0 - thresholds tuned on GB200, check on B300",
+          "url": "https://github.com/vllm-project/vllm/pull/59327",
+          "title": "[Perf][DSv4.1] Faster Engram host lookups: sorted rows, inline big lookups"
+        }
+      ]
+    },
+    {
+      "rank": 28,
+      "repo": "vllm-project/vllm",
+      "number": 59923,
+      "url": "https://github.com/vllm-project/vllm/pull/59923",
+      "title": "[Perf][DSv4.1] Exchange packed FP8 Engram rows across DP and feed wkv MXFP8",
+      "class": "baseline_dependency",
+      "experiment_family": "packed_engram_dp",
+      "decision": "inclusion audit; evaluate only if absent or explicitly tuning its policy",
+      "mechanism": "Preserve packed FP8 Engram rows through DP exchange into MXFP8 WKV; batch prefill exchanges and use peer exchange for small decode batches.",
+      "gate": "Merged October9; exact baseline inclusion first. TP1, DP-sharded tables with dp_shared_memory=false, supported WKV layout and CPU offload. DP-shared tables bypass the batched path, so do not combine its benefit with shared cuMem without checking the mutually exclusive branch.",
+      "b200_eligibility_and_dependencies": "Merged October9; exact baseline inclusion first. TP1, DP-sharded tables with dp_shared_memory=false, supported WKV layout and CPU offload. DP-shared tables bypass the batched path, so do not combine its benefit with shared cuMem without checking the mutually exclusive branch.",
+      "existing_evaluation_fit": "Existing native agent and Mooncake, phase-specific Engram communication bytes and time; correctness and acceptance matched.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing native agent and Mooncake, phase-specific Engram communication bytes and time; correctness and acceptance matched."
+      },
+      "source_quote": "Everything else, including TP, DP-shared tables, single replicas and ROCm, keeps the existing BF16 path unchanged.",
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/59923",
+          "quote": "Everything else, including TP, DP-shared tables, single replicas and ROCm, keeps the existing BF16 path unchanged.",
+          "basis": "stored complete primary GitHub body"
+        }
+      ],
+      "source_quote_exact": true,
+      "priority": "P1 baseline dependency audit",
+      "state": "merged",
+      "merged_at": "2026-10-09T07:30:18Z",
+      "head_sha": "4f6745cd95e710360392079c0e997a0cf7ba38b7",
+      "baseline_inclusion": "Unknown at actual image pin; do not infer from CSV v0.32 labels.",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "59923",
+          "type": "pr",
+          "state": "merged v0.32.0",
+          "created": "2026-10-04",
+          "closed_or_merged": "2026-10-09",
+          "group": "engram",
+          "affects_us": "yes: engram cpu_offload + embedding_across_dp, DEP4; peer exchange gated on SM100, check it engages on SM103",
+          "action": "already in v0.32.0",
+          "url": "https://github.com/vllm-project/vllm/pull/59923",
+          "title": "[Perf][DSv4.1] Exchange packed FP8 Engram rows across DP and feed wkv MXFP8"
+        }
+      ]
+    },
+    {
+      "rank": 29,
+      "repo": "vllm-project/vllm",
+      "number": 59922,
+      "url": "https://github.com/vllm-project/vllm/pull/59922",
+      "title": "[Kernel] Extend LiteTopK decode to BF16 V4.1 top512 and next_n 1-6",
+      "class": "conditional_performance",
+      "experiment_family": "producer_assisted_topk",
+      "decision": "experimental alternative",
+      "mechanism": "Experimental exact BF16 top512 for V4.1 next_n1-6 with producer histograms and reused metadata.",
+      "gate": "Stacked vLLM59921 and vllm-project/DeepGEMM24/25; not deepseek-ai IDs. B200 kernel evidence includes a default/new ratio0.775 at B1 n6 8K, so require shape dispatch and compare the current default. No serving win established.",
+      "b200_eligibility_and_dependencies": "Stacked vLLM59921 and vllm-project/DeepGEMM24/25; not deepseek-ai IDs. B200 kernel evidence includes a default/new ratio0.775 at B1 n6 8K, so require shape dispatch and compare the current default. No serving win established.",
+      "existing_evaluation_fit": "Existing sparse-indexer route tests, DSpark graph updates and native/Mooncake. Include all verification lengths and short-context negative controls.",
+      "evaluation_need": {
+        "reuse_existing_harness": true,
+        "new_harness_required": false,
+        "specific_measurement": "Existing sparse-indexer route tests, DSpark graph updates and native/Mooncake. Include all verification lengths and short-context negative controls."
+      },
+      "source_quote": "They exclude the rest of the model",
+      "source_quotes": [
+        {
+          "url": "https://github.com/vllm-project/vllm/pull/59922",
+          "quote": "They exclude the rest of the model",
+          "basis": "stored complete primary GitHub body"
+        }
+      ],
+      "source_quote_exact": true,
+      "priority": "P2 conditional experiment",
+      "state": "open",
+      "merged_at": null,
+      "head_sha": "45f9d7c889d1c73e6eb23ddd3dc52e090c70927c",
+      "baseline_inclusion": "Unknown at actual image pin; do not infer from CSV v0.32 labels.",
+      "input_classifications": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": "59922",
+          "type": "pr",
+          "state": "open",
+          "created": "2026-10-04",
+          "closed_or_merged": "",
+          "group": "kernels",
+          "affects_us": "maybe: indexer_kv_dtype mxfp4 + dspark k5 decode topk; unmeasured end-to-end",
+          "action": "watch - stacked on #59921 + DeepGEMM #24/#25, csrc rebuild",
+          "url": "https://github.com/vllm-project/vllm/pull/59922",
+          "title": "[Kernel] Extend LiteTopK decode to BF16 V4.1 top512 and next_n 1-6"
+        }
+      ]
+    }
+  ],
+  "excluded_or_held": [
+    {
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 381,
+      "reason": "Explicitgate hidden7168,intermediate2048,256experts,top8,EP8 andnarrow128TPE; FlashV4.1H5120I2304top6failsgate. B200 in title doesnotmakeitapplicable.",
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/381",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "deepseek-ai/DeepGEMM",
+      "number": 386,
+      "reason": "VendorbenchmarkDeepSeekV4Proonly; broadtiling/UE8M0/directcombine proposal insufficientFlashshapeevidence; below394/404forboundedport.",
+      "url": "https://github.com/deepseek-ai/DeepGEMM/pull/386",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "deepseek-ai/FlashMLA",
+      "number": 196,
+      "reason": "Onlygeneric sparse_fwd withouttopk_length; currentMegaAttn supplieslengths/differentfusedpath. No work savedwherelengthalreadyprovided.",
+      "url": "https://github.com/deepseek-ai/FlashMLA/pull/196",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "deepseek-ai/FlashMLA",
+      "number": 187,
+      "reason": "SparseprefillHCA oddtailoptimization thinoneparagraphbody; unverifiedspecificMegaAttncallsite;lowerprioritythan227.",
+      "url": "https://github.com/deepseek-ai/FlashMLA/pull/187",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 58818,
+      "reason": "Fullbody explicitlySM100MegaAttentiondoesnotuseplanholders;H20plannerwinirrelevantcurrentpath.",
+      "url": "https://github.com/vllm-project/vllm/pull/58818",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "flashinfer-ai/flashinfer",
+      "number": 6059,
+      "reason": "V3.2FP8cacheABI132bytesandH64denseSM100noadmittedroutes; pagedSM100batch<=16admission only. NotdropinV4.1MXFP4indexer.",
+      "url": "https://github.com/flashinfer-ai/flashinfer/pull/6059",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "SemiAnalysisAI/InferenceX",
+      "number": 3181,
+      "reason": "ClosedunmergedB300EngramHBMexperiment withnoresults. CurrentB200hostoffloadintentional; GPUmemorytradeoffneedsseparatelane.",
+      "url": "https://github.com/SemiAnalysisAI/InferenceX/pull/3181",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 61868,
+      "reason": "LargeGB300TP4specializeddecode; desiredTP1DEPnotmatching. CouldreconsiderforTP4comparatoronly.",
+      "url": "https://github.com/vllm-project/vllm/pull/61868",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 62091,
+      "reason": "GPUresidentEngrampeerHBM path; currentcpu_offloadtrue bypassesit.",
+      "url": "https://github.com/vllm-project/vllm/pull/62091",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 61530,
+      "reason": "RequiresMXFP4packedEngramcheckpoint; currentrevisionFP8Engram assumedfromsourceandmustconfirm; notparameteronlyoptimization.",
+      "url": "https://github.com/vllm-project/vllm/pull/61530",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 57575,
+      "reason": "GenericFlashMLAsparseprefill bufferreservation, sourceGLMvalidation; confirmMegaAttnnotusingit. Do notpromoteonlyforMLAtitle.",
+      "url": "https://github.com/vllm-project/vllm/pull/57575",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 60936,
+      "reason": "Realprefillindexcombinecandidate butfullmodel+0.60%ishistoricalunpairedvs2.3%CV; lowerthanothercandidates. Correctness60613 prerequisite; notDeepGEMM451integration.",
+      "url": "https://github.com/vllm-project/vllm/pull/60936",
+      "priority": "excluded or held after source review"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 56989,
+      "url": "https://github.com/vllm-project/vllm/pull/56989",
+      "reason": "Initial path requires TP>1 and effective Engram DP size1, non-SP. Desired TP1 DEP does not engage it; 59923 is the more relevant DP mechanism.",
+      "priority": "excluded or dependency history"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 60220,
+      "url": "https://github.com/vllm-project/vllm/pull/60220",
+      "reason": "Generic FlashMLA sparse fp8_ds_mla mixed-batch workspace reuse; measured on GLM/H100, not the current V4.1 MegaAttention path. Hold unless exact caller evidence differs.",
+      "priority": "excluded or dependency history"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "number": 57218,
+      "url": "https://github.com/vllm-project/vllm/pull/57218",
+      "reason": "Older DeepGEMM pin bump is dependency history, not a new performance experiment. It changes a device timeout from60 to300seconds; do not call this a speedup.",
+      "priority": "excluded or dependency history"
+    }
+  ]
+}

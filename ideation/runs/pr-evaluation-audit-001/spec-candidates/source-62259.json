@@ -1,0 +1,79 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62259",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62259",
+    "title": "[Tool Parser] Fix truncated/unclosed DSML parameters and add incremental DSML arg streaming",
+    "body": "## Purpose\n\nPart of #62051 (the truncated/unclosed-parameter rows only; the block with no invoke, the cut inside a tool name, and the V4 spellings are not addressed here, so the issue should stay open) and extends the `arg_value_extender` incremental streaming architecture (introduced for `qwen3_xml` in #62027 and `minimax_m2` in #62035) to the DeepSeek DSML parsers (`deepseek_v32`, `deepseek_v4`, and `deepseek_v41`).\n\n### Problem (#62051)\n1. **Unclosed / Truncated DSML Parameters Produce Invalid JSON on Stream Flush**:\n   - In `_dsml_args_to_json(raw_args, partial)`, trailing unclosed `<\uff5cDSML\uff5cparameter name=\"...\" string=\"...\">...` tags were matched via `_PARTIAL_PARAM_RE` **only when `partial=True`**.\n   - When `partial=False` (called during `extract_tool_calls(...)` or during `_flush_arg_converter()` at `</\uff5cDSML\uff5cinvoke>` / `finish_streaming()`), `_PARTIAL_PARAM_RE` was skipped.\n   - As a result:\n     - **Case 1 (Truncated at `max_tokens`)**: During streaming, `converter(raw_args, True)` emitted `{\"url\": \"https://example.com` (`prev_converted_len > 0`). On `finish_streaming()`, `_flush_arg_converter()` called `converter(raw_args, False)` which returned `\"{}\"` (length 2 < `prev_converted_len`), so no closing `\"}` delta was emitted\u2014leaving clients with invalid, unclosed JSON (`{\"url\": \"https://example.com`).\n     - **Case 4 (Model omits `</\uff5cDSML\uff5cparameter>` before `</\uff5cDSML\uff5cinvoke>`)**: Non-streaming `extract_tool_calls` dropped the parameter (`{}`), while streaming emitted unclosed JSON (`{\"file_path\": \"/tmp/a`).\n2. **Quadratic Re-conversion of Long DSML Tool Arguments**:\n   - Unlike `Qwen3Parser` (#62027) and `MinimaxM2Parser` (#62035), DeepSeek DSML parsers lacked an `arg_value_extender` and re-ran full regex conversion over `slot.args` whenever `>` appeared inside streamed argument content (e.g., code, HTML, shell redirects, markdown).\n\n### Solution\n1. **Consistent Unclosed Parameter Recovery + Partial Tag Holdback**:\n   - Extract `_dsml_parse_args` so trailing unclosed `<\uff5cDSML\uff5cparameter ...>` blocks at the end of `raw_args` are recovered in both `partial=True` and `partial=False`.\n   - Add `_value_end_window(text, value_end_re)` using `regex.fullmatch(..., partial=True)` against `</\uff5cDSML\uff5cparameter>|<\uff5cDSML\uff5cparameter\\s+name=` so any trailing suffix of an open parameter value that could still complete into a closing or sibling parameter tag is held back during `partial=True` streaming (since `DeepSeekV4Parser` has no lexer transitions on `PARAM_START`/`PARAM_CLOSE` in `TOOL_ARGS`).\n   - Hold back `_unwrap_wrapper_args` when `partial=True` and a single `arguments`/`input` wrapper parameter contains an incomplete JSON string, preventing premature streaming of `\"arguments\": ` before unwrapping.\n2. **Incremental DSML String Argument Streaming (`_dsml_arg_value_extender`)**:\n   - Implement `_dsml_arg_value_extender` for `deepseek_v4`, `deepseek_v41`, and `deepseek_v32`, streaming open `string=\"true\"` DSML parameter values in $O(1)$ conversions with respect to argument length (reducing partial converter calls on a 200-line `write_file` call from 206 to 6).\n\n## Test Plan\n\n- Added `TestArgValueExtender` in `tests/parser/engine/test_deepseek_v4.py` (long 200-line DSML call with `>`, `<`, quotes, backslashes, and partial DSML tag lookalikes; $O(1)$ conversion count verification; #62051 truncated & unclosed parameter streaming/non-streaming parity).\n- Added parametrized streaming and non-streaming tests for truncated and unclosed parameters in `tests/parser/engine/test_deepseek_v41.py` and `tests/parser/engine/test_deepseek_v32.py`.\n- All 279 tests in `tests/parser/engine/test_deepseek_v32.py`, `test_deepseek_v4.py`, `test_deepseek_v41.py`, and `test_parser_engine.py` pass.\n\n### Credits & Acknowledgments\n- Credit to **@robertgshaw2-redhat** for reporting #62051 and providing the DSML truncation/unclosed-parameter reproduction cases, and to **@YaashuDave** for reproducing all five cases and analyzing `StreamingParserEngine.finish()` on #62051.\n- Credit to **@deadstrobe5** (#62027, #62035) for designing the `ArgValueExtender` incremental argument streaming architecture in `ParserEngine`, and **@jayzuccarelli** (#58780) for prior work on incremental DeepSeek V3.2/V4 tool argument streaming.\n- Special thanks to **@JohnZhao01** (#62290) and **@smiyamoto3** for end-to-end validation, edge-case reproductions, and review feedback on this PR.\n",
+    "created_at": "2026-10-18T06:25:27Z",
+    "updated_at": "2026-10-19T15:57:46Z",
+    "fetched_at": "2026-10-20T08:05:40Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek"
+    ],
+    "metadata": {
+      "number": 62259,
+      "labels": [
+        {
+          "id": 8509281801,
+          "node_id": "LA_kwDOI7xefs8AAAAB-zFWCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/tool-calling",
+          "name": "tool-calling",
+          "color": "C1E8F1",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 9,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "da9134bc89364465f68aa679564435936d157a14",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/deepseek-dsml-unclosed-param-and-streaming",
+        "sha": "13bccc834928150c2e0457adae024a5d63b7f60d",
+        "label": "deep1blue:fix/deepseek-dsml-unclosed-param-and-streaming"
+      },
+      "merge_commit_sha": "df084690110c0161cc6215f9b6a399492beeac01",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:05:40Z"
+    },
+    "content_hash": "46c525c5d055300aeb976623ad23979088204b0def4a7bfaffa97ecfdcc3efa7"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

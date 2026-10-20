@@ -1,0 +1,90 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:45963",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/45963",
+    "title": "Disable dynamic speculative decoding when DP is enabled",
+    "body": "## Summary\r\n\r\nDisable `num_speculative_tokens_per_batch_size` when data parallelism is enabled.\r\n\r\nDynamic speculative decoding currently picks K from each scheduler's local scheduled request count. With DP, ranks can choose different K values, and the EAGLE/draft proposer has K-dependent DP collectives. This change warns and falls back to the static `num_speculative_tokens` value when `data_parallel_size > 1`.\r\n\r\nSome codex-generated breadcrumbs to follow:\r\n<details>\r\n  Rank-local proposer entry / skip\r\n\r\n  - _input_fits_in_drafter() depends on local common_attn_metadata.max_seq_len:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/worker/gpu_model_runner.py#L4407-L4420\r\n\r\n  - sample_tokens() computes that predicate locally:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/worker/gpu_model_runner.py#L4497-L4503\r\n\r\n  - If true, rank enters propose_draft_token_ids(); if false, it does not:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/worker/gpu_model_runner.py#L4520-L4523\r\n\r\n  - False path zeroes draft tokens instead of proposing:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/worker/gpu_model_runner.py#L4561-L4568\r\n\r\n  Rank-local / dynamic draft count\r\n\r\n  - Scheduler picks num_spec_tokens_to_schedule from local len(num_scheduled_tokens) under dynamic SD:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/core/sched/scheduler.py#L1050-L1055\r\n\r\n  - Worker reads that local K from scheduler_output:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/worker/gpu_model_runner.py#L4863-L4868\r\n\r\n  - Worker passes K into EAGLE/MTP drafter:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/worker/gpu_model_runner.py#L5110-L5120\r\n\r\n  K controls number of drafter forwards\r\n\r\n  - First drafter forward always happens before K == 0 check:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/spec_decode/llm_base_proposer.py#L501-L524\r\n\r\n  - K == 0 returns after that one forward:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/spec_decode/llm_base_proposer.py#L538-L547\r\n\r\n  - K == 1 or parallel drafting returns after one forward:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/spec_decode/llm_base_proposer.py#L549-L558\r\n\r\n  - K > 1 runs K - 1 additional drafter iterations:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/spec_decode/llm_base_proposer.py#L587-L613\r\n\r\n  - Each additional iteration runs the drafter model again:\r\n    https://github.com/vllm-project/vllm/blob/2a47a9ff0f4f302ee64915dfea64642757e31ee4/vllm/v1/spec_decode/llm_base_proposer.py#L650-L668\r\n</details>\r\n\r\n\r\n",
+    "created_at": "2026-06-17T20:35:45Z",
+    "updated_at": "2026-07-07T12:52:44Z",
+    "fetched_at": "2026-10-19T22:57:42Z",
+    "state": "merged",
+    "merged_at": "2026-07-07T12:52:42Z",
+    "parent": null,
+    "tags": [
+      "speculation"
+    ],
+    "metadata": {
+      "number": 45963,
+      "labels": [
+        {
+          "id": 5135047180,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaDA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/documentation",
+          "name": "documentation",
+          "color": "0075ca",
+          "default": true,
+          "description": "Improvements or additions to documentation",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8068298936,
+          "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+          "name": "v1",
+          "color": "9810B3",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 5,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "d3e69fd6714e9d1bb6e8e4f03157090dc32e7960",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "tms/disable-dynamic-sd-dp",
+        "sha": "4250dc3cc4cb746bc5e9d6eb16fa659f326e1399",
+        "label": "vllm-project:tms/disable-dynamic-sd-dp"
+      },
+      "merge_commit_sha": "93e2ab71119ff08805adc93be75196450382b088",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T22:57:42Z"
+    },
+    "content_hash": "3fdb45e361d95d36d312916a63979280139a5a914c5bc8d87dd99262f10e16e4"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

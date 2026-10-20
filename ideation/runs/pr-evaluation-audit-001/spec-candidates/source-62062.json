@@ -1,0 +1,90 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62062",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62062",
+    "title": "[Bugfix][Spec Decode] Keep data_parallel_index in DFlash/DSpark draft configs",
+    "body": "## Purpose\n\nWith dense (independent) data parallelism, every DFlash/DSpark drafter on a node shares one torch.compile cache directory, so a cached restart loads artifacts compiled on another replica's GPU and crashes (`CUDA driver error: invalid argument` in the draft's compiled graph).\n\nThe draft parallel config is built with `replace(parallel_config, ...)`, which re-derives the `init=False` field `data_parallel_index` from `data_parallel_rank` (0 on independent DP ranks). Fix: copy the target's `data_parallel_index` into the DFlash and DSpark draft parallel configs. (Keeping the field across `replace` in `ParallelConfig` itself would be a broader alternative.)\n\n## Test Plan\n\n`pytest tests/v1/worker/test_dspark_utils.py`. E2E on H200: `vllm serve Qwen/Qwen3-4B --data-parallel-size 2` with `RedHatAI/Qwen3-4B-speculator.dspark`, cold then cached start: main writes only `rank_0_0/dspark_head` and the cached start crashes; with this change both replicas get their own draft cache dir and both starts serve.\n\nAI assistance (Claude) was used; all changes were reviewed by the submitter.\n",
+    "created_at": "2026-10-16T18:11:12Z",
+    "updated_at": "2026-10-18T12:56:39Z",
+    "fetched_at": "2026-10-19T23:26:09Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "speculation"
+    ],
+    "metadata": {
+      "number": 62062,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 5,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "ae8f41238cc7316781ef4359890940749735b209",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "dspark-dp-index",
+        "sha": "db602db1792fda04b1ad1dc468252714ad38178d",
+        "label": "faresobeid:dspark-dp-index"
+      },
+      "merge_commit_sha": "a72782d430d996e9eac73c13b5bb38b84d9bc28f",
+      "draft": true,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:26:09Z"
+    },
+    "content_hash": "39395256abc3864f3a8211804b602f2233baecf0c9368f04f6bc3148b7f45857"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

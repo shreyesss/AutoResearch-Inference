@@ -1,0 +1,69 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:59140",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/59140",
+    "title": "[Bugfix][KV Offload] Fix inaccurate proportional store dropping",
+    "body": "## Purpose\r\n\r\n`ThrottledDropPolicy` calculates what fraction of store attempts should be dropped based on pressure. This PR fixes how it applies that fraction.\r\n\r\nFor a calculated drop rate of 75%, the expected result over 20 store attempts is 15 drops and 5 allowed stores.\r\n\r\n- Before: 10 dropped, 10 allowed. Only 50% are dropped.\r\n- After: 15 dropped, 5 allowed. The calculated 75% rate is honored.\r\n\r\nThe old implementation rounds the rate into a \"drop every N attempts\" interval, which cannot represent rates such as 75%. The replacement carries fractional drops between decisions, keeping the cumulative drop count within one store of the calculated target.\r\n\r\nThis corrects application of the existing rate; it does not change how pressure determines that rate. Pressure detection and cooldown behavior are unchanged. These decisions control optional writes to secondary cache tiers, not inference-request admission.\r\n\r\nRelated to #50045. Duplicate-work checks found no open PR implementing this arithmetic correction. #51576 adds admission-policy infrastructure without changing this calculation; #51240 tracks the broader admission/backpressure work.\r\n\r\nAI assistance (OpenAI Codex) was used to implement and test this change.\r\n\r\n## Test Plan\r\n\r\nTests cover steady and changing drop rates, preservation of fractional state, reset behavior, and manager submissions, drop metrics, and pin release.\r\n\r\nRun from the repository root with the test environment at `.venv`:\r\n\r\n```bash\r\nPYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. \\\r\n.venv/bin/python -m pytest \\\r\n  tests/v1/kv_offload/tiering/test_backpressure.py \\\r\n  -q --tb=short -p no:cacheprovider\r\n\r\n.venv/bin/pre-commit run --files \\\r\n  vllm/v1/kv_offload/tiering/backpressure.py \\\r\n  tests/v1/kv_offload/tiering/test_backpressure.py\r\n```\r\n\r\n## Test Result\r\n\r\n- 106 passed, 14 warnings in 11.44s across `test_backpressure.py` and `test_tiering_offloading.py`, using worktree sources at `7b2dfa6c77`.\r\n- Targeted pre-commit checks passed.\r\n- The original arithmetic fails the new 40%, 75%, and changing-rate regression tests.\r\n- At 75%, the manager test verifies two submissions, six dropped stores, twelve dropped blocks, and pin release after completion.\r\n- No regressions were detected in the tested cascade, pin, promotion, and eviction paths.\r\n\r\nNo model evaluations or end-to-end serving benchmarks were run. This PR verifies drop-accounting correctness; no throughput or latency improvement is claimed.\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n",
+    "created_at": "2026-09-29T05:07:14Z",
+    "updated_at": "2026-10-14T14:05:23Z",
+    "fetched_at": "2026-10-19T23:21:23Z",
+    "state": "merged",
+    "merged_at": "2026-10-14T14:05:22Z",
+    "parent": null,
+    "tags": [
+      "throughput",
+      "performance"
+    ],
+    "metadata": {
+      "number": 59140,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 14,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "c67c69e657254dace058ed5250a29f884cf4a19b",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/throttled-drop-proportional",
+        "sha": "68c63d9e2567b4f321dd5eecf1064ad7d0d624c4",
+        "label": "thuongvu:fix/throttled-drop-proportional"
+      },
+      "merge_commit_sha": "02653fa22cd1232cd252165b901091bd4a96f04f",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:21:23Z"
+    },
+    "content_hash": "2d8251c4b288bcab55efcfaf917354813a0dad99156e0b85ae635af29b45605e"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

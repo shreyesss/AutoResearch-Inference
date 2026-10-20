@@ -1,0 +1,122 @@
+{
+  "claims": [
+    {
+      "source_id": "github:vllm-project/vllm:43483",
+      "quote": "opt-in prefix-cache-aware routing path for V1 internal data-parallel load balancing",
+      "claim": "The PR author describes an internal DP router that uses prompt-prefix information to choose a rank.",
+      "relation": "supports",
+      "conditions": "Internal/local DP with the proposed feature enabled.",
+      "reported_result": "The author reports 16 routing tests passed; no serving latency or throughput result is reported.",
+      "transfer_inference": "A bounded, rank-aware router merits comparison with load-only routing if repeated prefixes reach the same rank without excessive load skew.",
+      "limitations": "The PR is open and disabled by default. Whether the B200 R7b baseline implements it is unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:43483",
+      "quote": "Does not implement cross-DP KV import or warmup.",
+      "claim": "The proposed router cannot recover a prefix cached only on another rank through KV transfer.",
+      "relation": "challenges",
+      "conditions": "A request moves between ranks or the chosen rank lacks its prefix.",
+      "reported_result": "No KV transfer or warmup result is reported.",
+      "transfer_inference": "A load-based override can lose cache affinity. Measure served cache hits, rank load, and tail latency together.",
+      "limitations": "Miss costs and load imbalance are not quantified."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:58757",
+      "quote": "route requests to *individual* DP engines within a deployment",
+      "claim": "The documentation PR describes routing to individual DP engines.",
+      "relation": "context",
+      "conditions": "vLLM Router with `--intra-node-data-parallel-size N` and `consistent_hash`.",
+      "reported_result": "Documentation-only change; markdown lint passed. No serving result is reported.",
+      "transfer_inference": "Endpoint affinity alone does not establish stable DP-rank identity.",
+      "limitations": "The rank selected in the B200 R7b baseline is unknown."
+    },
+    {
+      "source_id": "fulltext:2608.19677v1",
+      "quote": "Cache-blind balancing disperses that reuse; fixed affinity preserves it but can overload a server.",
+      "claim": "The paper's abstract states a cache-reuse versus load-balance tradeoff.",
+      "relation": "supports",
+      "conditions": "Repeated requests have a recoverable prefix that remains resident.",
+      "reported_result": "This is an abstract-level mechanism claim, not implementation evidence.",
+      "transfer_inference": "Compare bounded affinity with load-only routing at matched offered load using per-rank utilization, served KV hits, TTFT, and tail latency.",
+      "limitations": "It establishes no gain for two B200 replicas or the R7b workload."
+    },
+    {
+      "source_id": "fulltext:2608.19677v1",
+      "quote": "On a 70B fp8 model across 60 H100 GPUs, it reaches 93.2% served KV hit and 2.3×2.3\\times the capacity of the strongest baseline at a 3.5-s p99 SLO.",
+      "claim": "The paper's conclusion reports a routing benefit under its evaluated large-scale conditions.",
+      "relation": "supports",
+      "conditions": "70B fp8 model; 60 H100 GPUs; 3.5-second p99 SLO.",
+      "reported_result": "The authors report 93.2% served KV hit and a 2.3× capacity result; the supplied HTML renders the multiplier redundantly as `2.3×2.3\\times`.",
+      "transfer_inference": "This motivates a local routing test but provides no B200 effect-size estimate.",
+      "limitations": "The supplied excerpt does not identify the strongest baseline or establish two-replica behavior."
+    },
+    {
+      "source_id": "fulltext:2608.19677v1",
+      "quote": "affinity can reduce capacity when the recoverable prefix work is small",
+      "claim": "The paper identifies a negative-transfer boundary for prefix affinity.",
+      "relation": "challenges",
+      "conditions": "Little prefix work is recoverable.",
+      "reported_result": "The excerpt gives no numerical result for the negative workloads.",
+      "transfer_inference": "Load-only routing may win for B200 R7b if exact-prefix reuse is low or affinity creates rank skew.",
+      "limitations": "Recoverable prefix work and rank-level skew in the target workload are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:52906",
+      "quote": "if N_p >= N_th and N_d > 0:\n    prefill_budget = B_cap\nelse:\n    prefill_budget = B_max",
+      "claim": "The RFC specifies a conditional prefill cap based on concurrent prefill and decode pressure.",
+      "relation": "supports",
+      "conditions": "The RFC's evaluated settings are threshold 2, maximum 16,384, and cap 2,048.",
+      "reported_result": "This is a proposed policy, not evidence that it is enabled in the target baseline.",
+      "transfer_inference": "It could protect decode ITL during mixed load while allowing larger prefills at low pressure.",
+      "limitations": "The target scheduler state, workload mix, and B200 response are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:52906",
+      "quote": "reduced average end-to-end latency by 8.5% relative to fixed MBT 2k and by 11.3% relative to fixed MBT 16k",
+      "claim": "The RFC author reports an adaptive-policy gain over two fixed budgets in its main load sweep.",
+      "relation": "supports",
+      "conditions": "The RFC describes models and workloads on RTX 5090, A100, and H100 GPUs.",
+      "reported_result": "Author-reported average end-to-end latency improvement: 8.5% versus fixed 2k and 11.3% versus fixed 16k. Fixed 2k is stronger among those two comparisons.",
+      "transfer_inference": "A fair B200 R7b comparison must first identify the strongest fixed budget on the same workload and objective.",
+      "limitations": "The source does not establish that 2k is the strongest fixed budget overall or report a B200 R7b gain."
+    },
+    {
+      "source_id": "fulltext:2608.15171v1",
+      "quote": "its magnitude depends on the model–hardware configuration",
+      "claim": "The P-PAS paper qualifies budget sensitivity by model and hardware.",
+      "relation": "challenges",
+      "conditions": "Transfer from evaluated configurations to B200 R7b.",
+      "reported_result": "The supplied conclusion gives no B200 R7b effect size.",
+      "transfer_inference": "A crossover between large and small budgets is a local hypothesis to test.",
+      "limitations": "The supplied full-text excerpt is gapped; detailed hardware results are unavailable."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:56848",
+      "quote": "keeping decode ITL at the pure-decode level, at the cost of higher prefill TTFT / lower prefill throughput",
+      "claim": "A separate decode-priority scheduler proposal states a TTFT and ITL tradeoff relevant to evaluating prefill caps.",
+      "relation": "challenges",
+      "conditions": "High concurrency with active decode and limited KV cache; the proposal uses cadence, not the adaptive-budget policy.",
+      "reported_result": "The PR author reports decode throughput changing from below 1 to 8 tokens/s and prefill throughput from about 2,500 to 1,600 tokens/s on Qwen3.8-27B TP2.",
+      "transfer_inference": "Measure TTFT and prefill throughput alongside ITL when testing adaptive budgets.",
+      "limitations": "The PR is closed and unmerged. Its cadence result does not quantify P-PAS or B200 R7b."
+    },
+    {
+      "source_id": "fulltext:2609.07883v1",
+      "quote": "starvation and admission control deserve separate study",
+      "claim": "An adaptive chunking paper identifies a fairness risk outside its evaluation.",
+      "relation": "challenges",
+      "conditions": "Mixed requests with competing latency objectives.",
+      "reported_result": "The supplied excerpt reports no starvation or fairness measurement.",
+      "transfer_inference": "Check per-request wait time and long-tail TTFT so average latency does not hide delayed prefills.",
+      "limitations": "This is a different controller; its caveat is not a measured failure of P-PAS."
+    }
+  ],
+  "unanswered": [
+    "Which routing and prefill-budget features are enabled in the B200 R7b two-replica DP4 baseline?",
+    "Does endpoint affinity map requests to a stable DP rank in that baseline?",
+    "How much exact-prefix work is recoverable, and how long do useful prefixes remain resident on each rank?",
+    "Which fixed prefill budget is strongest on the target workload under the same TTFT, ITL, throughput, and fairness objectives?",
+    "What are the B200 R7b effect sizes and tail-latency tradeoffs against load-only routing and the strongest fixed budget?",
+    "How do the proposed mechanisms affect per-rank load fairness, request starvation, and preemption on the target workload?"
+  ]
+}

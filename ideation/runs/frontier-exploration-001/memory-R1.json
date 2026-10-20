@@ -1,0 +1,938 @@
+{
+  "id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+  "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/frontier-exploration-001/routing/hypotheses",
+  "local_id": "B200-R7b-RANK-ROUTE-1",
+  "fingerprint": "789eb31eaf7bf44f4db3926d8724b35c624b68c3ff8fb23b6255a9854dcdb22b",
+  "baseline": "baseline:0b72634bd203d436836eb7303221d2d7127a84910b6d4a4ccdbdc3ee803aab49",
+  "created_at": "2026-10-19T23:29:32Z",
+  "brief": {
+    "baseline": {
+      "desired_profile": "two TP1/DP4/EP4 engines; DSpark k5; prefix cache enabled; API2 per replica; seq128 override;16384 token budget",
+      "measured_closed_loop": "c384 27.69 req/s E2E p95 18.30s; c512 33.76 req/s E2E p95 19.49s; $296/Mreq at8GPU*$4.5/h scenario",
+      "presence_unknown": [
+        "actual router code and policy",
+        "actual running rank targeting",
+        "effective image/commit dirty tree",
+        "runtime adaptive prefill feature"
+      ],
+      "run": "LAT-2XDEP4-R7b",
+      "score_warning": "Existing custom length-aware goodput differs from AIPerf goodput; freeze scorer and output-length cohorts. Whole-trace inter-token-gap p95 not equivalent TPOT. Profile is desired state not runtimeproof."
+    },
+    "constraints": [
+      "Only inspect/design; no GPU execution",
+      "No transferring another model or GPU headline speedups",
+      "Route/cache locality must target exact DP rank, not only replica",
+      "Do not use public endpoint cost comparison",
+      "Change one factor at a time before composing"
+    ],
+    "count": 2,
+    "instructions": "Generate at most two DIFFERENT practical improvements: (1) engine/rank-aware prefix reuse with bounded load-skew and load-only fallback, accounting for API2 and internal DP4; (2) adaptive prefill admission budget protecting decode deadlines with bounded TTFT and starvation. Strongest static comparator mandatory. Known existing techniques welcome; scientific novelty irrelevant. Do not propose flags already verified present. Presence not established: use first inspection gate. Distinguish cacheability target from observed cache hit. Source grounded useful proposals, no speedup claim. Test cheap causal falsification first. Proposed numeric thresholds are design choices not observations. No GPU execution now. Use held-out skew/prefix distributions and length-aware scorer.",
+    "name": "B200 routing and prefill pressure frontier exploration",
+    "prior_decision_text": {},
+    "repos": [
+      "vllm-project/vllm"
+    ],
+    "selection": {
+      "require_novelty": false
+    },
+    "target": {
+      "gpu": "8 B200",
+      "metrics": [
+        "SLO goodput",
+        "cost per successful request",
+        "E2E p95",
+        "TTFT p95",
+        "ITL p95 by output-length cohort",
+        "completed throughput"
+      ],
+      "model": "DeepSeek-V4.1-Flash",
+      "workload": "agent-f75 8192 input /1024 output, 75% cacheability target; Mooncake median/burst/cache-heavy replay"
+    }
+  },
+  "card": {
+    "alternatives": [
+      {
+        "distinguishing_test": "In shadow replay, compare cacheability labels with actual eligible exact-block residency and counterfactual rank-local hits.",
+        "explanation": "The desired cacheability may not produce resident exact-prefix hits, so routing cannot save meaningful prefill work."
+      },
+      {
+        "distinguishing_test": "Vary only the skew cap and inspect per-rank queue delay, served hits, and tail latency.",
+        "explanation": "Affinity may overload a hot rank, offsetting saved prefill."
+      }
+    ],
+    "applicability": "Potentially useful for repeated exact prefixes resident on a DP rank; benefit is unknown for the B200 workload and can reverse when recoverable prefix work is small.",
+    "classification": "adaptation",
+    "code_surface": "API2 router, rank identity and targeting, V1 internal DP load balancer, prefix block hashing, routing telemetry.",
+    "evidence": [
+      {
+        "quote": "Disabled by default.",
+        "relation": "context",
+        "source_id": "github:vllm-project/vllm:43483"
+      },
+      {
+        "quote": "Only supports internal/local DP load balancing.",
+        "relation": "supports",
+        "source_id": "github:vllm-project/vllm:43483"
+      },
+      {
+        "quote": "This is a documentation-only change (no code paths affected).",
+        "relation": "context",
+        "source_id": "github:vllm-project/vllm:58757"
+      },
+      {
+        "quote": "affinity can reduce capacity when the recoverable prefix work is small",
+        "relation": "challenges",
+        "source_id": "fulltext:2608.19677v1"
+      }
+    ],
+    "experiment": {
+      "control": "LAT-2XDEP4-R7b as actually running, plus the strongest tuned static routing policy selected on a calibration split, including load-only and fixed affinity candidates.",
+      "correctness": "Verify compatible block hashes, exact rank identity, deterministic routing where required, and unchanged generated outputs. Do not infer a cache hit from routing choice alone.",
+      "cost": "First inspect configuration and route decisions, then run a CPU-only shadow replay; GPU replay is a later test and is not requested now.",
+      "held_out_condition": "Mooncake median, burst, and cache-heavy traces with unseen skew and prefix distributions and request lengths, preserving output-length cohorts.",
+      "inconclusive_if": "The effective baseline policy or rank targeting cannot be established, cache-hit instrumentation is unreliable, or the replay lacks enough repeated resident prefixes.",
+      "metrics": "Frozen length-aware SLO goodput; cost per successful request; E2E and TTFT p95; ITL p95 by output-length cohort; completed throughput; served exact rank-local KV hits; per-rank load and skew.",
+      "rejects_if": "Eligible exact-prefix hits are negligible, or load skew and queue delay erase the gain, or either strong control has better frozen SLO goodput.",
+      "supports_if": "On held-out replay, actual served rank-local hits rise and frozen SLO goodput improves over both controls without violating the predeclared skew and latency bounds.",
+      "treatment": "Bounded rank-aware prefix routing, with all engine and scheduler settings fixed."
+    },
+    "id": "B200-R7b-RANK-ROUTE-1",
+    "mechanism": "Exact rank-local prefix reuse can avoid recomputation, while a load-skew cap and load-only fallback limit affinity-induced queueing.",
+    "novelty": {
+      "implementation": "The possible delta is verified API2-to-internal-rank targeting and a bounded fallback in this deployment; current presence is unknown.",
+      "nearest_prior_art": "vLLM PR 43483 proposes internal DP prefix-aware routing; PR 58757 describes individual-engine affinity; CacheRoute discusses affinity versus load.",
+      "scientific": "No novelty claim; bounded cache affinity is established prior work.",
+      "specific_delta": "Conditionally connect exact-rank affinity to the R7b API2 path with a measurable skew bound, if inspection shows the capability is absent.",
+      "workload": "Two engines with internal DP4 and agent-f75 plus Mooncake replay; actual prefix hits and rank skew are unknown."
+    },
+    "observed_bottleneck": "Unknown. The supplied R7b closed-loop results are 27.69 req/s and 18.30s E2E p95 at c384, and 33.76 req/s and 19.49s at c512; they do not identify routing or cache misses as the bottleneck.",
+    "operation": "generate",
+    "parents": [],
+    "predicted_direction": "Conditional increase in SLO goodput and served rank-local KV hits, with no unacceptable E2E p95 or cost per successful request regression; no effect size predicted.",
+    "prior_art_query": "prefix affinity rank routing",
+    "proposed_change": "After the presence gate, add or configure API2-to-DP-rank prefix-aware selection with an explicit skew cap, deterministic compatible hashes, and load-only fallback. Change routing alone before combining it with scheduler changes.",
+    "revision_reason": "",
+    "statement": "For the two TP1/DP4/EP4 engines, first inspect the effective image, router policy, API2 request path, and internal DP rank selection to establish whether rank-aware prefix routing is already active. If absent, test a bounded policy that prefers a rank holding an exact reusable prefix only while its estimated queue load stays within a chosen skew limit; otherwise it falls back to load-only routing. API2 must preserve or convey the rank choice through the internal DP4 decision, since replica affinity alone cannot guarantee a local cache hit. The 75% cacheability figure is a target, not an observed hit rate. Shadow routing should first determine whether avoidable rank-local misses exist. Predict better goodput only where saved prefill work outweighs skew and routing cost."
+  },
+  "policy": {
+    "baseline_comparison": "Compare each change separately with LAT-2XDEP4-R7b and the strongest tuned static policy on the same held-out skew, prefix, and request-length distributions. The task reports closed-loop c384 throughput of 27.69 req/s with E2E p95 of 18.30s, and c512 throughput of 33.76 req/s with E2E p95 of 19.49s. The stated engine profile is desired state, not verified runtime state. Freeze the length-aware scorer and output-length cohorts before comparing SLO goodput, cost per successful request, latency, and completed throughput.",
+    "criteria": [
+      {
+        "category": "improvement",
+        "description": "Required veto: show a credible, testable path to task value and either a delta from the verified baseline or a cheap inspection gate that determines whether the capability is already present. Unknown presence defers judgment.",
+        "id": "required_improvement",
+        "justification": "The router policy, rank targeting, effective commit, and adaptive prefill feature are unverified. Checking those first prevents proposing an already active flag while allowing useful experiments before a speedup is measured.",
+        "required": true,
+        "weight": 40
+      },
+      {
+        "category": "testability",
+        "description": "Specify the cheapest falsification test first, then a one-factor-at-a-time replay against the strongest tuned static comparator.",
+        "id": "causal_test",
+        "justification": "Cacheability is a target, not an observed cache hit. Replay must measure rank-local hits, load skew, decode deadline misses, TTFT, starvation, and the frozen length-aware goodput score.",
+        "required": false,
+        "weight": 25
+      },
+      {
+        "category": "feasibility",
+        "description": "Show a plausible integration at API2 and the internal DP4 rank, with bounded load skew or admission delay and a specified fallback.",
+        "id": "integration_and_bounds",
+        "justification": "Replica-only affinity cannot establish rank-local reuse. Admission control must protect decode without allowing unbounded prefill waiting.",
+        "required": false,
+        "weight": 20
+      },
+      {
+        "category": "evidence",
+        "description": "Ground mechanism and baseline claims in the supplied evidence; label unknown implementation, hardware, workload, effect size, and limitations.",
+        "id": "claim_discipline",
+        "justification": "The supplied PR and issue titles identify relevant work but provide no code, measurements, or implementation detail. The paper entries provide links and titles only.",
+        "required": false,
+        "weight": 15
+      }
+    ],
+    "evidence": {
+      "minimum_independent_sources": 1,
+      "rationale": "One relevant engineering source suffices for an implementation claim; two sources or a paper are not automatic requirements. Here the available metadata cannot verify implementation or effects. Positive claims about existing behavior therefore await the first code and runtime inspection gate. Hypotheses and proposed tests may proceed with unknowns recorded.",
+      "require_engineering": true,
+      "require_paper_fulltext": false
+    },
+    "novelty_request": "",
+    "novelty_required": false,
+    "objective": "Prioritize up to two practical improvements for the stated 8 B200 target: rank-aware prefix reuse with bounded load skew and load-only fallback, and adaptive prefill admission that protects decode deadlines while bounding TTFT and starvation.",
+    "rationale": "The 70-point threshold is an uncalibrated prioritization choice, not a measured success cutoff. Only the required improvement criterion is a veto; unknown judgments defer selection. Observed result: the task supplies the baseline figures quoted above, without independently verifiable run details. Author claims: titles such as \u201cAdd prefix-cache-aware routing for internal DP load balancing\u201d and \u201cAdaptive prefill token budget based on scheduling pressure\u201d indicate relevant ideas, not verified behavior. Transfer inference: both ideas could plausibly address the stated workload, but their cache-hit rate, bottlenecks, effect size, tested hardware, workload match, and limitations remain unknown. Published status and scientific novelty have no selection role.",
+    "retrieval": {
+      "github": false,
+      "literature": false,
+      "rationale": "This response uses only supplied material, as requested. A later authorized inspection should check the router, rank targeting, runtime configuration, and adaptive prefill presence before proposing implementation changes."
+    },
+    "threshold": 70
+  },
+  "events": [
+    {
+      "seq": 461,
+      "id": "event:422c8c8e25e83f648e8077c2282be5e43670d90e0c35c8e0362f5540131d057a",
+      "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+      "type": "produced",
+      "at": "2026-10-19T23:29:32Z",
+      "actor": "generator",
+      "data": {
+        "local_id": "B200-R7b-RANK-ROUTE-1",
+        "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/frontier-exploration-001/routing/hypotheses"
+      }
+    },
+    {
+      "seq": 465,
+      "id": "event:c0ea2f84f58a0421f81003e50d1be4fec45ed092f62185d0b269733c88d6a2f7",
+      "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+      "type": "reviewed",
+      "at": "2026-10-19T23:29:58Z",
+      "actor": "reviewer",
+      "data": {
+        "assessment": {
+          "eligible": false,
+          "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+          "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+          "reasons": [
+            "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+            "Priority below this task's threshold; reconsider with evidence or a revised policy"
+          ],
+          "score": 68.0,
+          "status": "deferred"
+        },
+        "context_id": "review_context:53b754bedd9595e9ca8dc5730d47b522d97d581e813fc0beb60b903995f8d039",
+        "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+        "review": {
+          "criteria": {
+            "causal_test": {
+              "rationale": "CPU-only shadow replay first asks whether eligible, resident exact prefixes are being missed. The later one-factor replay compares routing against R7b and a tuned static policy on held-out distributions, measuring served rank-local hits, skew, latency, and frozen length-aware goodput. The 75% cacheability target is correctly kept separate from observed hits.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "claim_discipline": {
+              "rationale": "The c384 and c512 figures are identified as supplied baseline results, not evidence of cache misses. The PR author says the path \u201cOnly supports internal/local DP load balancing\u201d; that is an author claim, not verified running behavior. CacheRoute\u2019s warning that \u201caffinity can reduce capacity when the recoverable prefix work is small\u201d supports a transfer risk, not a B200 effect estimate.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "integration_and_bounds": {
+              "rationale": "The proposed API2-to-DP4 rank decision and load-only fallback address the required integration. Actual rank targeting is unverified. \u201cChosen skew limit\u201d needs an explicit queue-load measure and enforcement rule before the bound is reviewable.",
+              "score": 3,
+              "verdict": "unknown"
+            },
+            "required_improvement": {
+              "rationale": "The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+              "score": 3,
+              "verdict": "unknown"
+            }
+          },
+          "factual_support": "pass",
+          "id": "B200-R7b-RANK-ROUTE-1",
+          "objections": [
+            "Effective image, router policy, API2 rank propagation, and exact resident-prefix hit rate are unknown.",
+            "The supplied routing PR body and documentation PR do not establish deployed code or serving gains.",
+            "A routing choice alone is not a served cache hit; the proposed instrumentation must verify residency and use."
+          ],
+          "required_revision": "Inspect the effective deployment first. Define the skew metric, cap, and load-only trigger; then retain the proposed shadow and held-out one-factor comparisons."
+        },
+        "status": "deferred"
+      }
+    },
+    {
+      "seq": 473,
+      "id": "event:a59f0012c80a952482f236335d64292765724f490ad0fa6848da9918ccdaabb3",
+      "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+      "type": "test_planned",
+      "at": "2026-10-19T23:30:51Z",
+      "actor": "exploration-routing-subagent",
+      "data": {
+        "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+        "id": "test:010eae591cc308f30c2ae343a96c19f5a399335b55ca06871da9edb2ed53a7d6",
+        "plan": {
+          "autoresearch_stages": [
+            {
+              "artifact": "runtime_inventory.json + routing_trace.jsonl",
+              "budget": "30minCPU",
+              "gate": "finalrankvisibility andrecoverablemiss demonstrated",
+              "stage": "0_presence_cpu"
+            },
+            {
+              "artifact": "paired10min baseline/treatment includingwarmup flags, rawrequestrows",
+              "budget": "30min8GPUwallclock ($18scenario)",
+              "gate": "cacheworkreduction withoutqueuehotspot",
+              "stage": "1_pilot"
+            },
+            {
+              "artifact": "threepairedpolicycomparisons atbelow/nearloadknee,3repeats withrecordedwarmup",
+              "budget": "90min8GPUwallclock ($54scenario)",
+              "gate": "supportmetric orprune",
+              "stage": "2_screen"
+            },
+            {
+              "artifact": "heldout5pairedseeds capacityladder, CIs,scopeandverdict",
+              "budget": "max2h8GPUwallclock ($72scenario), onlypromisingfinalist",
+              "gate": "reportcensoringifbudgetcannotresolveknee",
+              "stage": "3_confirm"
+            }
+          ],
+          "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+          "causal_falsification": "Atfixedofferedload affinity must increase actual reusedtokens or reduce executedprefill tokens; then examine whether queue skew erases benefit. If no recoverablemisses, stopbeforefullsweep. Do not optimize reportedcachehit alone.",
+          "concrete_source_delta": "At PR head b4baf2d, route() invokes _pick_balanced_miss_rank only inside _would_miss. Proposed adaptation tests queue-cost escape even for warm sticky hits, after measuring whether extra queue wait exceeds saved prefill time. Baseline router inclusion remains unknown.",
+          "control": "Original R7b routing plus best supported load-only least-work/power-of-two comparator; all engine configs fixed.",
+          "correctness": "Treat routehash solelyas schedulinghint; engine verifies exacttoken-prefix cacheidentity. Include differenttenant salts/adapters/sameprefixtext and frontend restart/eviction tests. Avoid cross-tenant KV reuse; no token rewriting.",
+          "decision": {
+            "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+            "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+            "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+          },
+          "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+          "freeze": [
+            "image digest, exact source commits plus dirty diff hash",
+            "model/tokenizer revision and precision",
+            "effective launch args, visible GPU/rank mapping, router policy",
+            "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+            "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+          ],
+          "hypothesis": "If R7b wastes recoverable prefill because the external two-replica router and each DP4/API2 frontend do not preserve final-engine locality, routing on exact prefix identity through both levels with a queue-aware escape can raise SLO capacity. Endpoint stickiness alone is insufficient when internal rank assignment changes.",
+          "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+          "id": "R1",
+          "implementation_surfaces": [
+            "existing serving router request dispatch; exact file path requires runtimecheckout inspection",
+            "vllm/v1/engine/core_client.py",
+            "vllm/v1/engine/dp_prefix_cache_router.py fromPR43483 headb4baf2df26b25c3ab39c5590656d3937c9ac6fb0 (open/needs-rebase)",
+            "supported vLLM Router engine targeting; PR58757 is documentation, not implementationproof"
+          ],
+          "instrumentation": [
+            "requestID to endpoint/APIprocess/DPrank trace",
+            "prefix block hash inclmodel/tokenizer/adapter/cache-salt; hash no raw user content",
+            "served cachedprompttokens and actual prefilltokens",
+            "queuewait,prefilltime,per-rankrunning/waiting,cacheevictions",
+            "frontend CPU overhead and telemetry staleness"
+          ],
+          "metrics": {
+            "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+            "guardrails": [
+              "request failure/timeout rate",
+              "correctness and finish reason",
+              "queue growth slope and waiting-time tail",
+              "per-rank cache hit, running/waiting, preemptions",
+              "TTFT and E2E starvation by request length/prefix cohort"
+            ],
+            "latency": [
+              "E2E p50/p95/p99",
+              "TTFT p50/p95/p99",
+              "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+              "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+            ],
+            "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+          },
+          "phase": "presence_gate_then_conditional_evaluation",
+          "presence_gate": "Inspect actual fixed latency router code and launch command, internal-DP policy, API2 process-shared owner state, rank-routing protocol and supported flags. Trace a repeatedprefix through endpoint->frontend PID->DP rank; measure servedcachehits. If policy already implemented, do notclaim activation asdelta; test bounded-load/hot-key escape separately.",
+          "request_id": "frontier-exploration-001-routing-R1",
+          "risks": [
+            "two-level affinity can overload a rank while replica average looks balanced",
+            "API2 separatebest-effort maps may diverge",
+            "prefix target75%mayalreadyachievehitceiling",
+            "equalprefix-slot paper modeldoesnotcoverheterogeneouscontextbytes",
+            "endpoint affinity might regressdata-parallelbalance andexpert communication"
+          ],
+          "selection": {
+            "eligible": false,
+            "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+            "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+            "reasons": [
+              "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+              "Priority below this task's threshold; reconsider with evidence or a revised policy"
+            ],
+            "score": 68.0,
+            "status": "deferred"
+          },
+          "source_grounding": "PR43483 supplies opt-in internal DP prefix hashing and best-effort owner state; PR58757 describes per-engine consistent-hash routing. CacheRoute supports balancing reuse against skew and explicitly reports cases where more cache hits reduce capacity. None verifies current R7b deployment or B200 speedup.",
+          "source_ids": [
+            "github:vllm-project/vllm:43483",
+            "github:vllm-project/vllm:58757",
+            "github:vllm-project/vllm:33172",
+            "fulltext:2608.19677v1",
+            "code:vllm-project/vllm:b4baf2df26b25c3ab39c5590656d3937c9ac6fb0:vllm/v1/engine/dp_prefix_cache_router.py"
+          ],
+          "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+          "status": "design_only_not_executed",
+          "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+          "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+          "title": "Two-level engine-aware prefix affinity with load-skew escape",
+          "treatments": [
+            "endpoint-only affinity (negative/diagnostic ablation)",
+            "internal-rank affinity only",
+            "two-level stable exact-prefix affinity",
+            "two-level affinity plus escape when predicted queuewait exceeds savedprefill time; start with bounded-load threshold calibrated onpilot, freeze beforeholdout"
+          ],
+          "workload": {
+            "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+            "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+            "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+            "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+          }
+        },
+        "scope": {
+          "baseline": "LAT-2XDEP4-R7b desired profile plus seq128; effective runtime must be frozen before evaluation",
+          "hardware": "8 B200",
+          "scorer": "Exact custom length-aware scorer and AIPerf versions to be frozen; no result exists yet",
+          "workload": {
+            "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+            "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+            "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+            "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+          }
+        }
+      }
+    },
+    {
+      "seq": 482,
+      "id": "event:091006e1e29ec881c6b686efa1e73936837afd17baecdc9cd111cc4704140011",
+      "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+      "type": "test_planned",
+      "at": "2026-10-19T23:37:02Z",
+      "actor": "frontier-exploration-primary-agent",
+      "data": {
+        "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+        "id": "test:1af94b25dc8aa40963ea43f716b4ec2ae23c05328ba9aeeb28442e6cf7459e8d",
+        "plan": {
+          "baseline_snapshot": {
+            "path": "baseline-audit.json",
+            "sha256": "59287430bb877ffb9af07f49a66bd9181c8a797cc5e37ac419ddb8240d5c330d"
+          },
+          "design_id": "R1",
+          "detailed_design": {
+            "autoresearch_stages": [
+              {
+                "artifact": "runtime_inventory.json + routing_trace.jsonl",
+                "budget": "30minCPU",
+                "gate": "finalrankvisibility andrecoverablemiss demonstrated",
+                "stage": "0_presence_cpu"
+              },
+              {
+                "artifact": "paired10min baseline/treatment includingwarmup flags, rawrequestrows",
+                "budget": "30min8GPUwallclock ($18scenario)",
+                "gate": "cacheworkreduction withoutqueuehotspot",
+                "stage": "1_pilot"
+              },
+              {
+                "artifact": "threepairedpolicycomparisons atbelow/nearloadknee,3repeats withrecordedwarmup",
+                "budget": "90min8GPUwallclock ($54scenario)",
+                "gate": "supportmetric orprune",
+                "stage": "2_screen"
+              },
+              {
+                "artifact": "heldout5pairedseeds capacityladder, CIs,scopeandverdict",
+                "budget": "max2h8GPUwallclock ($72scenario), onlypromisingfinalist",
+                "gate": "reportcensoringifbudgetcannotresolveknee",
+                "stage": "3_confirm"
+              }
+            ],
+            "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+            "causal_falsification": "Atfixedofferedload affinity must increase actual reusedtokens or reduce executedprefill tokens; then examine whether queue skew erases benefit. If no recoverablemisses, stopbeforefullsweep. Do not optimize reportedcachehit alone.",
+            "concrete_source_delta": "At PR head b4baf2d, route() invokes _pick_balanced_miss_rank only inside _would_miss. Proposed adaptation tests queue-cost escape even for warm sticky hits, after measuring whether extra queue wait exceeds saved prefill time. Baseline router inclusion remains unknown.",
+            "control": "Original R7b routing plus best supported load-only least-work/power-of-two comparator; all engine configs fixed.",
+            "correctness": "Treat routehash solelyas schedulinghint; engine verifies exacttoken-prefix cacheidentity. Include differenttenant salts/adapters/sameprefixtext and frontend restart/eviction tests. Avoid cross-tenant KV reuse; no token rewriting.",
+            "decision": {
+              "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+              "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+              "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+            },
+            "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+            "freeze": [
+              "image digest, exact source commits plus dirty diff hash",
+              "model/tokenizer revision and precision",
+              "effective launch args, visible GPU/rank mapping, router policy",
+              "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+              "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+            ],
+            "hypothesis": "If R7b wastes recoverable prefill because the external two-replica router and each DP4/API2 frontend do not preserve final-engine locality, routing on exact prefix identity through both levels with a queue-aware escape can raise SLO capacity. Endpoint stickiness alone is insufficient when internal rank assignment changes.",
+            "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+            "id": "R1",
+            "implementation_surfaces": [
+              "existing serving router request dispatch; exact file path requires runtimecheckout inspection",
+              "vllm/v1/engine/core_client.py",
+              "vllm/v1/engine/dp_prefix_cache_router.py fromPR43483 headb4baf2df26b25c3ab39c5590656d3937c9ac6fb0 (open/needs-rebase)",
+              "supported vLLM Router engine targeting; PR58757 is documentation, not implementationproof"
+            ],
+            "instrumentation": [
+              "requestID to endpoint/APIprocess/DPrank trace",
+              "prefix block hash inclmodel/tokenizer/adapter/cache-salt; hash no raw user content",
+              "served cachedprompttokens and actual prefilltokens",
+              "queuewait,prefilltime,per-rankrunning/waiting,cacheevictions",
+              "frontend CPU overhead and telemetry staleness"
+            ],
+            "metrics": {
+              "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+              "guardrails": [
+                "request failure/timeout rate",
+                "correctness and finish reason",
+                "queue growth slope and waiting-time tail",
+                "per-rank cache hit, running/waiting, preemptions",
+                "TTFT and E2E starvation by request length/prefix cohort"
+              ],
+              "latency": [
+                "E2E p50/p95/p99",
+                "TTFT p50/p95/p99",
+                "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+                "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+              ],
+              "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+            },
+            "presence_gate": "Inspect actual fixed latency router code and launch command, internal-DP policy, API2 process-shared owner state, rank-routing protocol and supported flags. Trace a repeatedprefix through endpoint->frontend PID->DP rank; measure servedcachehits. If policy already implemented, do notclaim activation asdelta; test bounded-load/hot-key escape separately.",
+            "risks": [
+              "two-level affinity can overload a rank while replica average looks balanced",
+              "API2 separatebest-effort maps may diverge",
+              "prefix target75%mayalreadyachievehitceiling",
+              "equalprefix-slot paper modeldoesnotcoverheterogeneouscontextbytes",
+              "endpoint affinity might regressdata-parallelbalance andexpert communication"
+            ],
+            "selection": {
+              "eligible": false,
+              "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+              "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+              "reasons": [
+                "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+                "Priority below this task's threshold; reconsider with evidence or a revised policy"
+              ],
+              "score": 68.0,
+              "status": "deferred"
+            },
+            "source_grounding": "PR43483 supplies opt-in internal DP prefix hashing and best-effort owner state; PR58757 describes per-engine consistent-hash routing. CacheRoute supports balancing reuse against skew and explicitly reports cases where more cache hits reduce capacity. None verifies current R7b deployment or B200 speedup.",
+            "source_ids": [
+              "github:vllm-project/vllm:43483",
+              "github:vllm-project/vllm:58757",
+              "github:vllm-project/vllm:33172",
+              "fulltext:2608.19677v1",
+              "code:vllm-project/vllm:b4baf2df26b25c3ab39c5590656d3937c9ac6fb0:vllm/v1/engine/dp_prefix_cache_router.py"
+            ],
+            "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+            "status": "design_only_not_executed",
+            "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+            "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+            "title": "Two-level engine-aware prefix affinity with load-skew escape",
+            "treatments": [
+              "endpoint-only affinity (negative/diagnostic ablation)",
+              "internal-rank affinity only",
+              "two-level stable exact-prefix affinity",
+              "two-level affinity plus escape when predicted queuewait exceeds savedprefill time; start with bounded-load threshold calibrated onpilot, freeze beforeholdout"
+            ],
+            "workload": {
+              "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+              "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+              "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+              "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+            }
+          },
+          "effective_contract": {
+            "baseline_audit": {
+              "path": "BASELINE_AUDIT.md",
+              "sha256": "f69d28d3ee26bb6d2f968e4a1f2f5de2445e728889c2e32529d28488cfbe1a56"
+            },
+            "confirmation": "separate approved budget; >=5 paired blocks, held-out traces and predeclared stopping; see protocol",
+            "fixed_load_alternative": ">=5% E2E p95 reduction at identical offered load with matched goodput and cost",
+            "initial_screening": {
+              "gpu_hours_max": 6,
+              "gpus": 8,
+              "includes_warmup": true,
+              "matrix": "CPU prerequisites first; one anchor current+strong static+treatment. Reduce matrix to fit cap; not every cell required.",
+              "node_minutes_max": 45,
+              "scenario_cost_usd_max": 27,
+              "scenario_node_hour_usd": 36,
+              "startup_compile": "record separately and budget before execution"
+            },
+            "precedence": "This effective contract overrides conflicting defaults in preserved agent draft designs; domain-specific correctness/prerequisites remain mandatory. No execution requested.",
+            "primary": "strict AIPerf0.13.0 SLO goodput with frozen per-request TTFT4000ms/ITL33.333ms/E2E75000ms scorer; campaign custom length-aware goodput reported separately",
+            "promotion": {
+              "correctness_and_quality": "no regression under preregistered exact/numerical/distributional contract appropriate to change",
+              "lower_effect_interval_must_exceed_zero": true,
+              "material_effect_percent": 5,
+              "max_tail_regression_percent": 2,
+              "paired_block_bootstrap_confidence": 0.95,
+              "wide_intervals": "inconclusive"
+            },
+            "protocol": {
+              "path": "EVALUATION_PROTOCOL.md",
+              "sha256": "f0d1000c93b9da1d2bb7894628108ca71352cd2856c64fe935491dffb74ee7c1"
+            },
+            "version": "frontier-eval-v1"
+          },
+          "execution": "No jobs started. Reconstruct terminated-host baseline first. CPU checks precede any conditional GPU stages.",
+          "kind": "conditional_experimental_design",
+          "next_action": "CPU/source baseline reconstruction and eligibility diagnosis only; GPU stages conditional and not executed",
+          "prerequisites": [],
+          "request_id": "frontier-exploration-001-consolidated-R1",
+          "source_artifact": {
+            "path": "routing/experiments.json",
+            "sha256": "328d2e4f0eb22a6366a804ec879a39b9184058ebb2163c4d95778ad5a13ef5ac"
+          },
+          "supersedes_draft_test_ids": [
+            "test:010eae591cc308f30c2ae343a96c19f5a399335b55ca06871da9edb2ed53a7d6"
+          ],
+          "title": "Two-level engine-aware prefix affinity with load-skew escape"
+        },
+        "scope": {
+          "baseline": "Archived R7b two TP1/DP4/EP4 engines plus seq128 overlay; runtime identity unresolved; host terminated",
+          "hardware": "8xB200; not provisioned by this task",
+          "model": "DeepSeek-V4.1-Flash; exact weights hash must be reconstructed",
+          "source_bundle": "frontier-exploration-001",
+          "status": "planned; not tested",
+          "workloads": [
+            "agent-f75 8192/1024",
+            "Mooncake median/burst/cache-heavy"
+          ]
+        }
+      }
+    }
+  ],
+  "status": "deferred",
+  "assessment": {
+    "eligible": false,
+    "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+    "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+    "reasons": [
+      "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+      "Priority below this task's threshold; reconsider with evidence or a revised policy"
+    ],
+    "score": 68.0,
+    "status": "deferred"
+  },
+  "tests": [
+    {
+      "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+      "id": "test:010eae591cc308f30c2ae343a96c19f5a399335b55ca06871da9edb2ed53a7d6",
+      "plan": {
+        "autoresearch_stages": [
+          {
+            "artifact": "runtime_inventory.json + routing_trace.jsonl",
+            "budget": "30minCPU",
+            "gate": "finalrankvisibility andrecoverablemiss demonstrated",
+            "stage": "0_presence_cpu"
+          },
+          {
+            "artifact": "paired10min baseline/treatment includingwarmup flags, rawrequestrows",
+            "budget": "30min8GPUwallclock ($18scenario)",
+            "gate": "cacheworkreduction withoutqueuehotspot",
+            "stage": "1_pilot"
+          },
+          {
+            "artifact": "threepairedpolicycomparisons atbelow/nearloadknee,3repeats withrecordedwarmup",
+            "budget": "90min8GPUwallclock ($54scenario)",
+            "gate": "supportmetric orprune",
+            "stage": "2_screen"
+          },
+          {
+            "artifact": "heldout5pairedseeds capacityladder, CIs,scopeandverdict",
+            "budget": "max2h8GPUwallclock ($72scenario), onlypromisingfinalist",
+            "gate": "reportcensoringifbudgetcannotresolveknee",
+            "stage": "3_confirm"
+          }
+        ],
+        "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+        "causal_falsification": "Atfixedofferedload affinity must increase actual reusedtokens or reduce executedprefill tokens; then examine whether queue skew erases benefit. If no recoverablemisses, stopbeforefullsweep. Do not optimize reportedcachehit alone.",
+        "concrete_source_delta": "At PR head b4baf2d, route() invokes _pick_balanced_miss_rank only inside _would_miss. Proposed adaptation tests queue-cost escape even for warm sticky hits, after measuring whether extra queue wait exceeds saved prefill time. Baseline router inclusion remains unknown.",
+        "control": "Original R7b routing plus best supported load-only least-work/power-of-two comparator; all engine configs fixed.",
+        "correctness": "Treat routehash solelyas schedulinghint; engine verifies exacttoken-prefix cacheidentity. Include differenttenant salts/adapters/sameprefixtext and frontend restart/eviction tests. Avoid cross-tenant KV reuse; no token rewriting.",
+        "decision": {
+          "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+          "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+          "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+        },
+        "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+        "freeze": [
+          "image digest, exact source commits plus dirty diff hash",
+          "model/tokenizer revision and precision",
+          "effective launch args, visible GPU/rank mapping, router policy",
+          "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+          "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+        ],
+        "hypothesis": "If R7b wastes recoverable prefill because the external two-replica router and each DP4/API2 frontend do not preserve final-engine locality, routing on exact prefix identity through both levels with a queue-aware escape can raise SLO capacity. Endpoint stickiness alone is insufficient when internal rank assignment changes.",
+        "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+        "id": "R1",
+        "implementation_surfaces": [
+          "existing serving router request dispatch; exact file path requires runtimecheckout inspection",
+          "vllm/v1/engine/core_client.py",
+          "vllm/v1/engine/dp_prefix_cache_router.py fromPR43483 headb4baf2df26b25c3ab39c5590656d3937c9ac6fb0 (open/needs-rebase)",
+          "supported vLLM Router engine targeting; PR58757 is documentation, not implementationproof"
+        ],
+        "instrumentation": [
+          "requestID to endpoint/APIprocess/DPrank trace",
+          "prefix block hash inclmodel/tokenizer/adapter/cache-salt; hash no raw user content",
+          "served cachedprompttokens and actual prefilltokens",
+          "queuewait,prefilltime,per-rankrunning/waiting,cacheevictions",
+          "frontend CPU overhead and telemetry staleness"
+        ],
+        "metrics": {
+          "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+          "guardrails": [
+            "request failure/timeout rate",
+            "correctness and finish reason",
+            "queue growth slope and waiting-time tail",
+            "per-rank cache hit, running/waiting, preemptions",
+            "TTFT and E2E starvation by request length/prefix cohort"
+          ],
+          "latency": [
+            "E2E p50/p95/p99",
+            "TTFT p50/p95/p99",
+            "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+            "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+          ],
+          "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+        },
+        "phase": "presence_gate_then_conditional_evaluation",
+        "presence_gate": "Inspect actual fixed latency router code and launch command, internal-DP policy, API2 process-shared owner state, rank-routing protocol and supported flags. Trace a repeatedprefix through endpoint->frontend PID->DP rank; measure servedcachehits. If policy already implemented, do notclaim activation asdelta; test bounded-load/hot-key escape separately.",
+        "request_id": "frontier-exploration-001-routing-R1",
+        "risks": [
+          "two-level affinity can overload a rank while replica average looks balanced",
+          "API2 separatebest-effort maps may diverge",
+          "prefix target75%mayalreadyachievehitceiling",
+          "equalprefix-slot paper modeldoesnotcoverheterogeneouscontextbytes",
+          "endpoint affinity might regressdata-parallelbalance andexpert communication"
+        ],
+        "selection": {
+          "eligible": false,
+          "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+          "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+          "reasons": [
+            "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+            "Priority below this task's threshold; reconsider with evidence or a revised policy"
+          ],
+          "score": 68.0,
+          "status": "deferred"
+        },
+        "source_grounding": "PR43483 supplies opt-in internal DP prefix hashing and best-effort owner state; PR58757 describes per-engine consistent-hash routing. CacheRoute supports balancing reuse against skew and explicitly reports cases where more cache hits reduce capacity. None verifies current R7b deployment or B200 speedup.",
+        "source_ids": [
+          "github:vllm-project/vllm:43483",
+          "github:vllm-project/vllm:58757",
+          "github:vllm-project/vllm:33172",
+          "fulltext:2608.19677v1",
+          "code:vllm-project/vllm:b4baf2df26b25c3ab39c5590656d3937c9ac6fb0:vllm/v1/engine/dp_prefix_cache_router.py"
+        ],
+        "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+        "status": "design_only_not_executed",
+        "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+        "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+        "title": "Two-level engine-aware prefix affinity with load-skew escape",
+        "treatments": [
+          "endpoint-only affinity (negative/diagnostic ablation)",
+          "internal-rank affinity only",
+          "two-level stable exact-prefix affinity",
+          "two-level affinity plus escape when predicted queuewait exceeds savedprefill time; start with bounded-load threshold calibrated onpilot, freeze beforeholdout"
+        ],
+        "workload": {
+          "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+          "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+          "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+          "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+        }
+      },
+      "scope": {
+        "baseline": "LAT-2XDEP4-R7b desired profile plus seq128; effective runtime must be frozen before evaluation",
+        "hardware": "8 B200",
+        "scorer": "Exact custom length-aware scorer and AIPerf versions to be frozen; no result exists yet",
+        "workload": {
+          "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+          "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+          "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+          "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+        }
+      },
+      "status": "planned",
+      "results": []
+    },
+    {
+      "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+      "id": "test:1af94b25dc8aa40963ea43f716b4ec2ae23c05328ba9aeeb28442e6cf7459e8d",
+      "plan": {
+        "baseline_snapshot": {
+          "path": "baseline-audit.json",
+          "sha256": "59287430bb877ffb9af07f49a66bd9181c8a797cc5e37ac419ddb8240d5c330d"
+        },
+        "design_id": "R1",
+        "detailed_design": {
+          "autoresearch_stages": [
+            {
+              "artifact": "runtime_inventory.json + routing_trace.jsonl",
+              "budget": "30minCPU",
+              "gate": "finalrankvisibility andrecoverablemiss demonstrated",
+              "stage": "0_presence_cpu"
+            },
+            {
+              "artifact": "paired10min baseline/treatment includingwarmup flags, rawrequestrows",
+              "budget": "30min8GPUwallclock ($18scenario)",
+              "gate": "cacheworkreduction withoutqueuehotspot",
+              "stage": "1_pilot"
+            },
+            {
+              "artifact": "threepairedpolicycomparisons atbelow/nearloadknee,3repeats withrecordedwarmup",
+              "budget": "90min8GPUwallclock ($54scenario)",
+              "gate": "supportmetric orprune",
+              "stage": "2_screen"
+            },
+            {
+              "artifact": "heldout5pairedseeds capacityladder, CIs,scopeandverdict",
+              "budget": "max2h8GPUwallclock ($72scenario), onlypromisingfinalist",
+              "gate": "reportcensoringifbudgetcannotresolveknee",
+              "stage": "3_confirm"
+            }
+          ],
+          "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+          "causal_falsification": "Atfixedofferedload affinity must increase actual reusedtokens or reduce executedprefill tokens; then examine whether queue skew erases benefit. If no recoverablemisses, stopbeforefullsweep. Do not optimize reportedcachehit alone.",
+          "concrete_source_delta": "At PR head b4baf2d, route() invokes _pick_balanced_miss_rank only inside _would_miss. Proposed adaptation tests queue-cost escape even for warm sticky hits, after measuring whether extra queue wait exceeds saved prefill time. Baseline router inclusion remains unknown.",
+          "control": "Original R7b routing plus best supported load-only least-work/power-of-two comparator; all engine configs fixed.",
+          "correctness": "Treat routehash solelyas schedulinghint; engine verifies exacttoken-prefix cacheidentity. Include differenttenant salts/adapters/sameprefixtext and frontend restart/eviction tests. Avoid cross-tenant KV reuse; no token rewriting.",
+          "decision": {
+            "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+            "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+            "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+          },
+          "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+          "freeze": [
+            "image digest, exact source commits plus dirty diff hash",
+            "model/tokenizer revision and precision",
+            "effective launch args, visible GPU/rank mapping, router policy",
+            "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+            "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+          ],
+          "hypothesis": "If R7b wastes recoverable prefill because the external two-replica router and each DP4/API2 frontend do not preserve final-engine locality, routing on exact prefix identity through both levels with a queue-aware escape can raise SLO capacity. Endpoint stickiness alone is insufficient when internal rank assignment changes.",
+          "hypothesis_id": "hypothesis:cc9105999256646dbaa47c4f6b615bfa412fd3674c30bdafc5fd8787e38dd075",
+          "id": "R1",
+          "implementation_surfaces": [
+            "existing serving router request dispatch; exact file path requires runtimecheckout inspection",
+            "vllm/v1/engine/core_client.py",
+            "vllm/v1/engine/dp_prefix_cache_router.py fromPR43483 headb4baf2df26b25c3ab39c5590656d3937c9ac6fb0 (open/needs-rebase)",
+            "supported vLLM Router engine targeting; PR58757 is documentation, not implementationproof"
+          ],
+          "instrumentation": [
+            "requestID to endpoint/APIprocess/DPrank trace",
+            "prefix block hash inclmodel/tokenizer/adapter/cache-salt; hash no raw user content",
+            "served cachedprompttokens and actual prefilltokens",
+            "queuewait,prefilltime,per-rankrunning/waiting,cacheevictions",
+            "frontend CPU overhead and telemetry staleness"
+          ],
+          "metrics": {
+            "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+            "guardrails": [
+              "request failure/timeout rate",
+              "correctness and finish reason",
+              "queue growth slope and waiting-time tail",
+              "per-rank cache hit, running/waiting, preemptions",
+              "TTFT and E2E starvation by request length/prefix cohort"
+            ],
+            "latency": [
+              "E2E p50/p95/p99",
+              "TTFT p50/p95/p99",
+              "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+              "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+            ],
+            "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+          },
+          "presence_gate": "Inspect actual fixed latency router code and launch command, internal-DP policy, API2 process-shared owner state, rank-routing protocol and supported flags. Trace a repeatedprefix through endpoint->frontend PID->DP rank; measure servedcachehits. If policy already implemented, do notclaim activation asdelta; test bounded-load/hot-key escape separately.",
+          "risks": [
+            "two-level affinity can overload a rank while replica average looks balanced",
+            "API2 separatebest-effort maps may diverge",
+            "prefix target75%mayalreadyachievehitceiling",
+            "equalprefix-slot paper modeldoesnotcoverheterogeneouscontextbytes",
+            "endpoint affinity might regressdata-parallelbalance andexpert communication"
+          ],
+          "selection": {
+            "eligible": false,
+            "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+            "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+            "reasons": [
+              "required_improvement: The proposal gives a cheap inspection gate and a testable route to value. Its delta from the running baseline remains unknown because the effective router policy and rank targeting have not been inspected. The PR author describes a path that is \u201cDisabled by default,\u201d but that does not establish this deployment\u2019s state.",
+              "Priority below this task's threshold; reconsider with evidence or a revised policy"
+            ],
+            "score": 68.0,
+            "status": "deferred"
+          },
+          "source_grounding": "PR43483 supplies opt-in internal DP prefix hashing and best-effort owner state; PR58757 describes per-engine consistent-hash routing. CacheRoute supports balancing reuse against skew and explicitly reports cases where more cache hits reduce capacity. None verifies current R7b deployment or B200 speedup.",
+          "source_ids": [
+            "github:vllm-project/vllm:43483",
+            "github:vllm-project/vllm:58757",
+            "github:vllm-project/vllm:33172",
+            "fulltext:2608.19677v1",
+            "code:vllm-project/vllm:b4baf2df26b25c3ab39c5590656d3937c9ac6fb0:vllm/v1/engine/dp_prefix_cache_router.py"
+          ],
+          "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+          "status": "design_only_not_executed",
+          "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+          "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+          "title": "Two-level engine-aware prefix affinity with load-skew escape",
+          "treatments": [
+            "endpoint-only affinity (negative/diagnostic ablation)",
+            "internal-rank affinity only",
+            "two-level stable exact-prefix affinity",
+            "two-level affinity plus escape when predicted queuewait exceeds savedprefill time; start with bounded-load threshold calibrated onpilot, freeze beforeholdout"
+          ],
+          "workload": {
+            "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+            "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+            "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+            "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+          }
+        },
+        "effective_contract": {
+          "baseline_audit": {
+            "path": "BASELINE_AUDIT.md",
+            "sha256": "f69d28d3ee26bb6d2f968e4a1f2f5de2445e728889c2e32529d28488cfbe1a56"
+          },
+          "confirmation": "separate approved budget; >=5 paired blocks, held-out traces and predeclared stopping; see protocol",
+          "fixed_load_alternative": ">=5% E2E p95 reduction at identical offered load with matched goodput and cost",
+          "initial_screening": {
+            "gpu_hours_max": 6,
+            "gpus": 8,
+            "includes_warmup": true,
+            "matrix": "CPU prerequisites first; one anchor current+strong static+treatment. Reduce matrix to fit cap; not every cell required.",
+            "node_minutes_max": 45,
+            "scenario_cost_usd_max": 27,
+            "scenario_node_hour_usd": 36,
+            "startup_compile": "record separately and budget before execution"
+          },
+          "precedence": "This effective contract overrides conflicting defaults in preserved agent draft designs; domain-specific correctness/prerequisites remain mandatory. No execution requested.",
+          "primary": "strict AIPerf0.13.0 SLO goodput with frozen per-request TTFT4000ms/ITL33.333ms/E2E75000ms scorer; campaign custom length-aware goodput reported separately",
+          "promotion": {
+            "correctness_and_quality": "no regression under preregistered exact/numerical/distributional contract appropriate to change",
+            "lower_effect_interval_must_exceed_zero": true,
+            "material_effect_percent": 5,
+            "max_tail_regression_percent": 2,
+            "paired_block_bootstrap_confidence": 0.95,
+            "wide_intervals": "inconclusive"
+          },
+          "protocol": {
+            "path": "EVALUATION_PROTOCOL.md",
+            "sha256": "f0d1000c93b9da1d2bb7894628108ca71352cd2856c64fe935491dffb74ee7c1"
+          },
+          "version": "frontier-eval-v1"
+        },
+        "execution": "No jobs started. Reconstruct terminated-host baseline first. CPU checks precede any conditional GPU stages.",
+        "kind": "conditional_experimental_design",
+        "next_action": "CPU/source baseline reconstruction and eligibility diagnosis only; GPU stages conditional and not executed",
+        "prerequisites": [],
+        "request_id": "frontier-exploration-001-consolidated-R1",
+        "source_artifact": {
+          "path": "routing/experiments.json",
+          "sha256": "328d2e4f0eb22a6366a804ec879a39b9184058ebb2163c4d95778ad5a13ef5ac"
+        },
+        "supersedes_draft_test_ids": [
+          "test:010eae591cc308f30c2ae343a96c19f5a399335b55ca06871da9edb2ed53a7d6"
+        ],
+        "title": "Two-level engine-aware prefix affinity with load-skew escape"
+      },
+      "scope": {
+        "baseline": "Archived R7b two TP1/DP4/EP4 engines plus seq128 overlay; runtime identity unresolved; host terminated",
+        "hardware": "8xB200; not provisioned by this task",
+        "model": "DeepSeek-V4.1-Flash; exact weights hash must be reconstructed",
+        "source_bundle": "frontier-exploration-001",
+        "status": "planned; not tested",
+        "workloads": [
+          "agent-f75 8192/1024",
+          "Mooncake median/burst/cache-heavy"
+        ]
+      },
+      "status": "planned",
+      "results": []
+    }
+  ],
+  "outcomes_by_scope": [],
+  "experiment_status": "planned"
+}

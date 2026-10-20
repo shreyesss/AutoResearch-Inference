@@ -1,0 +1,92 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:59134",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/59134",
+    "title": "[Bugfix][MoE] Size the FlashInfer one-sided dispatch for experts that quantize their own inputs",
+    "body": "## Purpose\n\nWith a block-FP8 MoE, `--moe-backend flashinfer_cutlass` and `--all2all-backend flashinfer_nvlink_one_sided`, `FlashInferExperts.expects_unquantized_inputs` is True, so the one-sided prepare step dispatches the BF16 activations and the CUTLASS kernel quantizes them itself. `make_fp8_moe_kernel` builds the prepare/finalize before the experts and passes no `input_dtype`, so `flashinfer_one_sided_dispatch_layout` sizes the MoeAlltoAll workspace for FP8 rows plus FP32 1x128 scales. For hidden size 2560 and top-k 10 that is 2,720 bytes per token (2560 + 80 + 80 for top-k ids and weights) where 5,200 are dispatched.\n\nFlashInfer lays out the dispatch payloads from the actual tensor sizes of each call, puts the combine region right after them, and checks both against the per-rank workspace size. An undersized workspace therefore works until a step's largest per-rank token count gets close to the size the workspace was reserved for (`max_num_batched_tokens`), and then combine raises `workspace insufficient for combine payload region`. For the shapes above that happens at about 76% of `max_num_batched_tokens`. On main this makes the configuration below fail at startup: the profile run dispatches `max_num_batched_tokens` tokens on every rank and combine raises that error, so the engine never comes up.\n\nThis PR:\n\n- `make_fp8_moe_kernel` builds standard-format experts before the prepare/finalize (they do not depend on it) and passes `input_dtype=moe_config.in_dtype` when `experts.expects_unquantized_inputs`, the same way #57176 sizes the dispatch for per-token NVFP4. Batched-format experts are still built after the prepare/finalize, from its max tokens and dispatcher count.\n- `make_eep_staged_quant_method`, which rebuilds the prepare/finalize for elastic EP, passes `input_dtype` from the existing experts' `expects_unquantized_inputs`. It passed none before, so the rebuild also dropped the per-token NVFP4 sizing from #57176.\n\nExperts that quantize before the dispatch (DeepGEMM, Triton without LoRA) keep the FP8 + scales layout.\n\n**Not a duplicate.** I searched open PRs for `flashinfer_nvlink_one_sided`, `one-sided dispatch`, `one_sided_dispatch_layout`, `expects_unquantized_inputs`, `defer_input_quant all2all`, `combinePayloadOffset` and `workspace insufficient for combine`. #57176 (merged) fixed the same sizing for per-token NVFP4 only. #57073 adds a new all-to-all backend that reuses `flashinfer_one_sided_dispatch_layout`, #50030 changes FP8 backend selection only, and #49335 fixes MXFP8 scale swizzling after the dispatch; none of them changes how the FP8 dispatch is sized.\n\n**Not covered:** `TritonExperts` defers input quantization only once a MoE LoRA context is attached, which happens after the kernel is built, so FP8 MoE LoRA with the one-sided dispatch still reserves FP8 rows.\n\n## Test Plan\n\n8x H20 (96 GB), CUDA 13.3, torch 2.13.0, FlashInfer 0.7.0 (the pinned version).\n\n```bash\n# New unit tests: the FP8 oracle requests a BF16 dispatch layout for FlashInferExperts\n# and keeps FP8 + scales for TritonExperts; the elastic EP rebuild passes input_dtype\n# from the existing experts. They fail on main for the two buggy cases.\npytest tests/kernels/moe/test_flashinfer.py -k \"one_sided_dispatch_sized or eep_rebuild\"\n\n# Existing tests around the change\npytest tests/kernels/moe/test_flashinfer.py\npytest tests/quantization/test_online.py -k one_sided\npytest tests/distributed/test_mnnvl_alltoall.py -k one_sided   # 2 GPUs\n\n# Real MoeAlltoAll on 2 GPUs (script below): workspace sized with main's block-FP8 layout\n# vs. the BF16 layout, BF16 dispatch + identity-expert combine at 25-100% of max tokens\npython repro_undersized_layout.py --layout fp8\npython repro_undersized_layout.py --layout bf16\n\n# End to end, main vs. this PR: Qwen3.8-Flash-Next-FP8 (block FP8, hidden 2560, 512 experts,\n# top-10), DP=4 / EP=4 on 4x H20, flashinfer_cutlass + flashinfer_nvlink_one_sided,\n# --max-num-batched-tokens 16384. Then 48 concurrent 19k-token prompts (full 16384-token\n# prefill steps on every DP rank) and GSM8K (1319 questions, 0-shot chat, thinking off, greedy).\n```\n\n## Test Result\n\n- New tests: 4 passed. On main, `[flashinfer_cutlass]` and `[True]` (elastic EP) fail with `assert None == torch.bfloat16`; the other two pass.\n- `tests/kernels/moe/test_flashinfer.py`: 33 passed, 18 skipped (SM100-only cases). `test_online.py -k one_sided`: 8 passed. `test_mnnvl_alltoall.py -k one_sided`: 2 passed, 3 skipped (no `SYS_PTRACE` in this container).\n- `pre-commit` passes.\n\nReal `MoeAlltoAll`, 2 ranks, hidden 2560, top-10, 64 experts, `max_num_tokens` 4096:\n\n| tokens per rank | main's layout (64.9 MB per rank) | BF16 layout (85.3 MB per rank) |\n|---:|---|---|\n| 1024-3072 (25-75%) | correct | correct |\n| 3276 (80%) | `RuntimeError: workspace insufficient for combine payload region` | correct |\n| 4096 (100%) | (not reached) | correct |\n\n\"Correct\" means every rank received exactly the tokens routed to it, intact, and combine returned `x * (number of distinct destination ranks)` for every token.\n\nEnd to end, Qwen3.8-Flash-Next-FP8, DP=4 / EP=4 on 4x H20, `--moe-backend flashinfer_cutlass --all2all-backend flashinfer_nvlink_one_sided --max-num-batched-tokens 16384`, everything else default:\n\n| | main | this PR |\n|---|---|---|\n| startup | fails in `profile_run` (below) | ok |\n| 48 concurrent 19,429-token prompts (full 16,384-token prefill steps on every DP rank) | \u2014 | 48/48 succeeded, no errors in the server log |\n| GSM8K, 1319 questions, 0-shot chat, thinking off, greedy | \u2014 | 0.960 (0 invalid) |\n\nOn main every rank's profile-run dispatch was 16,384 BF16 rows (`a1=(16384, 2560)`, `defer_input_quant=True`) into a workspace sized for FP8 rows (516,686,208 bytes per rank):\n\n```text\nFile \".../vllm/v1/worker/gpu_worker.py\", line 626, in determine_available_memory\n  self.model_runner.profile_run()\n...\nFile \".../vllm/model_executor/layers/fused_moe/prepare_finalize/flashinfer_nvlink_one_sided.py\", line 176, in finalize\nFile \".../vllm/distributed/device_communicators/all2all.py\", line 873, in combine_into\nFile \".../flashinfer/comm/trtllm_moe_alltoall.py\", line 266, in moe_a2a_combine_into\nRuntimeError: Check failed: (combinePayloadOffset >= 0 && combinePayloadOffset + payloadBytes <= sizePerRank) is false: workspace insufficient for combine payload region\n```\n\nFor comparison, our production build (an older vLLM in which this dispatch is hard-coded to BF16) scores 0.958 with the same client.\n\n- AI assistance: this PR was developed with AI assistance (Claude, via Cursor), including the fix, tests and the reproduction. The commit carries a `Co-authored-by` trailer. I have reviewed every changed line.\n\n<details>\n<summary>repro_undersized_layout.py</summary>\n\n```python\n\"\"\"Reproduce what happens when the FlashInfer one-sided workspace is sized for block-FP8\ndispatch (hidden bytes + fp32 1x128 scales) but BF16 activations are dispatched, as with\nFLASHINFER_CUTLASS block-FP8 experts (expects_unquantized_inputs=True).\n\n    python repro_undersized_layout.py [--layout fp8|bf16] [--world-size 2]\n\nEvery row a rank dispatches encodes (source rank, token index) in small integers that are\nexact in BF16. Each rank checks that it received exactly the tokens routed to it, intact,\nthen combines with identity experts and checks every token comes back as\nx * (number of distinct destination ranks).\n\"\"\"\n\nimport argparse\nimport os\nimport traceback\n\nimport torch\nimport torch.multiprocessing as mp\n\nHIDDEN, TOP_K, NUM_EXPERTS, MAX_TOKENS = 2560, 10, 64, 4096\nFRACTIONS = (0.25, 0.5, 0.7, 0.75, 0.8, 1.0)\n\n\ndef make_inputs(src, t):\n    g = torch.Generator(device=\"cuda\").manual_seed(1000 * src + t)\n    topk_ids = torch.rand(t, NUM_EXPERTS, device=\"cuda\", generator=g).topk(TOP_K, dim=1)\n    topk_ids = topk_ids.indices.to(torch.int32)\n    topk_w = torch.rand(t, TOP_K, device=\"cuda\", generator=g)\n    tok = torch.arange(t, device=\"cuda\")\n    x = (torch.arange(HIDDEN, device=\"cuda\") % 7 + 1).repeat(t, 1).float()\n    x[:, 0] = src + 1\n    x[:, 1] = tok // 128\n    x[:, 2] = tok % 128\n    return x.to(torch.bfloat16).contiguous(), topk_ids, topk_w\n\n\ndef worker(rank, world_size, port, dp_port, layout, queue):\n    try:\n        os.environ.pop(\"CUDA_VISIBLE_DEVICES\", None)\n        torch.accelerator.set_device_index(rank)\n        from vllm.config import VllmConfig, set_current_vllm_config\n        from vllm.config.parallel import ParallelConfig\n        from vllm.distributed.parallel_state import (\n            ensure_model_parallel_initialized,\n            get_dp_group,\n            init_distributed_environment,\n        )\n\n        cfg = VllmConfig()\n        cfg.parallel_config = ParallelConfig(\n            data_parallel_size=world_size,\n            data_parallel_rank=rank,\n            _data_parallel_master_port_list=[int(dp_port)],\n        )\n        with set_current_vllm_config(cfg):\n            init_distributed_environment(\n                world_size=1, rank=0, distributed_init_method=f\"tcp://localhost:{port}\",\n                local_rank=rank,\n            )\n            ensure_model_parallel_initialized(1, 1)\n\n        from vllm.distributed.device_communicators.all2all import (\n            FlashInferNVLinkOneSidedManager,\n        )\n\n        manager = FlashInferNVLinkOneSidedManager(get_dp_group().cpu_group)\n        if layout == \"fp8\":  # what vLLM main computes for block FP8\n            x_bytes, sf_bytes = HIDDEN, HIDDEN // 128 * 4\n        else:  # what is actually dispatched\n            x_bytes, sf_bytes = HIDDEN * 2, 0\n        manager.initialize(\n            max_num_tokens=MAX_TOKENS, top_k=TOP_K, num_experts=NUM_EXPERTS,\n            hidden_size=HIDDEN, x_bytes_per_token=x_bytes, x_sf_bytes_per_token=sf_bytes,\n        )\n        a2a = manager.moe_alltoall\n        per_rank = NUM_EXPERTS // world_size\n        pattern = (torch.arange(HIDDEN, device=\"cuda\") % 7 + 1).float()\n        results = []\n        for frac in FRACTIONS:\n            t = int(MAX_TOKENS * frac)\n            x, topk_ids, topk_w = make_inputs(rank, t)\n            try:\n                recv_x, recv_ids, _ = a2a.dispatch(\n                    token_selected_experts=topk_ids, input_payloads=[x, topk_ids, topk_w],\n                    runtime_max_tokens_per_rank=t, invalid_token_expert_id=-1,\n                    expert_id_payload_index=1,\n                )\n                torch.accelerator.synchronize()\n                recv_x = recv_x.view(world_size, t, HIDDEN).float()\n                recv_ids = recv_ids.view(world_size, t, TOP_K)\n                bad = 0\n                for src in range(world_size):\n                    _, src_ids, _ = make_inputs(src, t)\n                    want = torch.nonzero((src_ids // per_rank == rank).any(-1)).flatten()\n                    rows = recv_x[src][(recv_ids[src] // per_rank == rank).any(-1)]\n                    got = (rows[:, 1] * 128 + rows[:, 2]).long()\n                    bad += int((rows[:, 0] != src + 1).sum())\n                    bad += int((rows[:, 3:] != pattern[3:]).any(-1).sum())\n                    bad += int(got.numel() != want.numel() or\n                               not torch.equal(got.sort().values, want))\n                manager.combine_into(\n                    payload=recv_x.to(torch.bfloat16).contiguous(),\n                    runtime_max_tokens_per_rank=t, output=(out := torch.empty_like(x)),\n                )\n                torch.accelerator.synchronize()\n                n_dst = sum((topk_ids // per_rank == r).any(-1).int() for r in range(world_size))\n                bad_out = int((out.float() != x.float() * n_dst[:, None]).any(-1).sum())\n                status = f\"dispatch errors={bad}, wrong combined tokens={bad_out}/{t}\"\n            except Exception as e:  # noqa: BLE001\n                status = f\"EXCEPTION {type(e).__name__}: {str(e).splitlines()[0][:160]}\"\n            results.append((frac, t, status))\n            torch.distributed.barrier(group=get_dp_group().cpu_group)\n            if status.startswith(\"EXCEPTION\"):\n                break\n        queue.put((rank, manager.workspace_size, results))\n        manager.cleanup()\n    except Exception:\n        queue.put((rank, None, traceback.format_exc()))\n\n\ndef main():\n    p = argparse.ArgumentParser()\n    p.add_argument(\"--layout\", choices=[\"fp8\", \"bf16\"], default=\"fp8\")\n    p.add_argument(\"--world-size\", type=int, default=2)\n    a = p.parse_args()\n    from vllm.utils.network_utils import get_open_port\n\n    mp.set_start_method(\"spawn\")\n    port, dp_port = str(get_open_port()), str(get_open_port())\n    q = mp.Queue()\n    procs = [mp.Process(target=worker, args=(r, a.world_size, port, dp_port, a.layout, q))\n             for r in range(a.world_size)]\n    for pr in procs:\n        pr.start()\n    outs = [q.get(timeout=900) for _ in procs]\n    for pr in procs:\n        pr.join(timeout=60)\n    for rank, ws, res in sorted(outs, key=lambda o: o[0]):\n        print(f\"== layout={a.layout} rank {rank} workspace_size_per_rank={ws}\")\n        if isinstance(res, str):\n            print(res)\n            continue\n        for frac, t, status in res:\n            print(f\"   runtime tokens/rank {t:5d} ({frac:.0%} of {MAX_TOKENS}): {status}\")\n\n\nif __name__ == \"__main__\":\n    main()\n```\n\n</details>\n\n",
+    "created_at": "2026-09-29T04:04:30Z",
+    "updated_at": "2026-10-15T18:56:14Z",
+    "fetched_at": "2026-10-19T23:21:23Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "moe",
+      "communication",
+      "nvfp4"
+    ],
+    "metadata": {
+      "number": 59134,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7614859318,
+          "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+          "name": "needs-rebase",
+          "color": "d4c5f9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9543357705,
+          "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+          "name": "nvidia",
+          "color": "76B900",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9988761457,
+          "node_id": "LA_kwDOI7xefs8AAAACU2BncQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/quantization",
+          "name": "quantization",
+          "color": "62bfab",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 2,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "295a0b8d6456b765edc5b135c6d2b5c03bccbb90",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/fi-one-sided-unquantized-dispatch",
+        "sha": "8479b862656e06f927697e9afb7af1f92cd07d4e",
+        "label": "charon14:fix/fi-one-sided-unquantized-dispatch"
+      },
+      "merge_commit_sha": null,
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:21:23Z"
+    },
+    "content_hash": "d424d4e11b0baadb6c47312cd621b27922e34c7ebbe7b5e3b1c8b4bbd30a1fdd"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

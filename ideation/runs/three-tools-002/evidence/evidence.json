@@ -1,0 +1,111 @@
+{
+  "claims": [
+    {
+      "source_id": "github:vllm-project/vllm:36037",
+      "quote": "the draft model predicts likely verification outcomes and pre-speculates tokens for those outcomes in advance",
+      "claim": "The feature request describes the asynchronous speculation mechanism.",
+      "relation": "supports",
+      "conditions": "A predicted outcome must match the actual verification result for the next speculation to be ready immediately.",
+      "reported_result": "The issue repeats a paper claim of up to 2× speedup over optimized speculative decoding; it reports no vLLM measurement.",
+      "transfer_inference": "DeepSeek-V4.1-Flash could benefit if drafting latency is material and likely outcomes can be predicted cheaply.",
+      "limitations": "B200 performance, outcome prediction accuracy, draft cost, and any measured vLLM bottleneck are unknown. The issue is closed as not planned; its supplied text gives no technical reason."
+    },
+    {
+      "source_id": "fulltext:2603.03251",
+      "quote": "If the actual verification outcome is in the predicted set, a speculation can be returned immediately",
+      "claim": "The paper states the conditional latency benefit of preparing branches during verification.",
+      "relation": "supports",
+      "conditions": "The actual outcome must be among the prepared branches.",
+      "reported_result": "The supplied conclusion claims Saguaro is on average 30% faster than its strongest speculative decoding baselines.",
+      "transfer_inference": "The mechanism is relevant to DeepSeek-V4.1-Flash only if verification and branch preparation can overlap in its serving configuration.",
+      "limitations": "The supplied excerpt omits experiment configurations and implementation details. B200 hardware, DeepSeek-V4.1-Flash results, resource quantities, and effect size on this target are unknown."
+    },
+    {
+      "source_id": "fulltext:2603.03251",
+      "quote": "speculation cache",
+      "claim": "The paper identifies cached speculation and additional draft devices as resources that can reduce latency.",
+      "relation": "challenges",
+      "conditions": "Scaling the number of draft devices increases the speculation cache; the authors say returns eventually diminish.",
+      "reported_result": "The supplied excerpt gives no device count, cache size, or cost for the proposed transfer.",
+      "transfer_inference": "Any B200 evaluation must account for extra draft compute, memory, and hardware when comparing latency and throughput.",
+      "limitations": "The magnitude of those costs for DeepSeek-V4.1-Flash is unknown."
+    },
+    {
+      "source_id": "fulltext:2603.03251",
+      "quote": "generally ineffective for throughput-bound workloads",
+      "claim": "The authors caution that speculative decoding adds verification work to compute-bound serving.",
+      "relation": "challenges",
+      "conditions": "The caution applies to throughput-bound workloads such as large-scale RL and offline data generation.",
+      "reported_result": "The conclusion also claims a better latency-throughput frontier for SSD after accounting for additional hardware, without supplying measurements in this excerpt.",
+      "transfer_inference": "A throughput-bound DeepSeek-V4.1-Flash deployment may have less to gain than a latency-bound one.",
+      "limitations": "Whether the proposed vLLM workload is throughput-bound is unknown; no measured vLLM bottleneck is supplied."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62541",
+      "quote": "Full sweep run 38438383633 passed all 17 points and both evals",
+      "claim": "The PR reports validation of B200 DeepSeek-V4.1-Flash recipe settings.",
+      "relation": "context",
+      "conditions": "The documented settings vary by DEP configuration and concurrency; the PR changes guide text only.",
+      "reported_result": "The author reports 17 sweep points and two evaluations passed.",
+      "transfer_inference": "These configurations provide relevant baselines for a B200 experiment.",
+      "limitations": "The PR reports no asynchronous speculation implementation, bottleneck measurement, or speedup. Workload details and effect size for SSD are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:49620",
+      "quote": "Preemption frees the request's KV state and resets its computed-token state, making that late output stale.",
+      "claim": "The open PR describes a correctness hazard when asynchronous speculative output arrives after preemption.",
+      "relation": "challenges",
+      "conditions": "Its proposed handling discards stale output after preemption and counts each speculative frame as 1 + num_scheduled_spec placeholder tokens, including across repeated preemptions.",
+      "reported_result": "The source lists regression tests to add and a test command, but no completed test result.",
+      "transfer_inference": "An SSD integration needs explicit in-flight output invalidation and KV-state accounting across preemption and prefix-cache reset.",
+      "limitations": "This is a proposed vLLM fix, not evidence that the same path is implemented or validated for DeepSeek-V4.1-Flash on B200."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:30980",
+      "quote": "mean TPOT: 268.02 ms -> 260.72 = 2.7% speedup",
+      "claim": "A separate vLLM asynchronous DP-coordination PR reports a modest measured TPOT improvement.",
+      "relation": "context",
+      "conditions": "The benchmark uses DeepSeek-R1 with MTP, DP8, expert parallelism, and 2048 maximum request concurrency; the PR is closed and unmerged.",
+      "reported_result": "The supplied tables report mean TPOT falling by 7.30 ms, while mean TTFT rises from 20707.70 to 24249.12 ms.",
+      "transfer_inference": "Async scheduling can expose overlap opportunities, but this result cannot establish an SSD benefit for DeepSeek-V4.1-Flash.",
+      "limitations": "Hardware is unknown. The model, workload, and mechanism differ; the result measures DP coordination, not asynchronous speculation."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62073",
+      "quote": "max_num_seqs × (1 + num_speculative_tokens) tokens per sequence-parallel rank",
+      "claim": "A separate open PR specifies a decode workspace whose capacity grows with speculative token count.",
+      "relation": "context",
+      "conditions": "The stated workspace applies to the PR's FlashInfer MegaMoE path; the reported throughput benchmark uses Beam prefill on GB300.",
+      "reported_result": "The PR reports 168.8K versus 98.7K input tokens/s for Beam prefill, unrelated to SSD.",
+      "transfer_inference": "Speculation depth can affect serving memory and warmup costs, so a B200 experiment should measure these costs.",
+      "limitations": "The formula and Beam result do not quantify SSD's extra branch cache or its DeepSeek-V4.1-Flash effect."
+    },
+    {
+      "source_id": "arxiv:2410.17375",
+      "quote": "both models to perform predictions independently on separate devices",
+      "claim": "The AMUSD abstract proposes asynchronous drafting and verification with separate devices.",
+      "relation": "supports",
+      "conditions": "The design assumes independently running draft and verify models.",
+      "reported_result": "The abstract claims an average 29% improvement over speculative decoding and identical output quality.",
+      "transfer_inference": "Separate devices are one possible way to overlap work for the target deployment.",
+      "limitations": "This is an abstract, not implementation evidence. Hardware, workload, resource cost, correctness method, and DeepSeek-V4.1-Flash effect are unknown."
+    },
+    {
+      "source_id": "arxiv:2506.11309",
+      "quote": "KV-cache inconsistencies, and communication overheads",
+      "claim": "The SwiftSpec abstract identifies correctness and communication obstacles to asynchronous speculative decoding.",
+      "relation": "challenges",
+      "conditions": "Its stated setting is small-batch tensor-parallel low-latency decoding.",
+      "reported_result": "The abstract claims an average 1.75× speedup across five model families and six datasets and cites a Llama3-70B result on eight Hopper GPUs.",
+      "transfer_inference": "A B200 transfer must check KV consistency and communication costs under the actual DeepSeek-V4.1-Flash parallelism and batch sizes.",
+      "limitations": "This is an abstract, not implementation evidence. It supplies no DeepSeek-V4.1-Flash or B200 result."
+    }
+  ],
+  "unanswered": [
+    "What are measured draft, verification, synchronization, and idle times for the intended DeepSeek-V4.1-Flash B200 vLLM workload?",
+    "What fraction of actual verification outcomes would be covered by affordable prepared branches?",
+    "How much extra GPU compute, KV/cache memory, workspace, communication, and hardware would SSD require at the intended concurrency?",
+    "Does the implementation preserve exact output behavior through branch selection, preemption, prefix-cache reset, and multiple in-flight frames?",
+    "What are end-to-end latency and throughput effects against the validated B200 recipe under the intended workload?"
+  ]
+}

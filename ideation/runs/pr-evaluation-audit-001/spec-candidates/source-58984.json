@@ -1,0 +1,97 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:58984",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/58984",
+    "title": "[Perf][Spec Decode] Avoid target request padding in DP drafter",
+    "body": "## Purpose\n\nWhen a target FULL CUDA graph pads its request count, `DPSyncState.num_reqs` describes graph capacity rather than the number of scheduled requests. Reusing that capacity for uniform drafter steps makes active DP ranks select larger draft graphs than needed.\n\nThis PR keeps the DP-wide maximum real request count alongside graph capacity and uses it for uniform drafter dispatch. It also shrinks online dummy-rank DFlash batches coherently across input preparation, graph dispatch, attention metadata, EPLB preparation, and draft generation. Startup graph capture retains its required capacity.\n\n## Test Plan & Result\n\nThe performance validation below uses the official nightly build at the PR base. This PR uses the same nightly plus only the four Python files changed by this PR; the runtime SHA-256 values were verified after the overlay was applied.\n\n### GPU environment\n\n- Model: DeepSeek-V4.1-Flash.\n- Hardware: two non-production nodes, one arm per node, with 8x NVIDIA H20 96GB per arm.\n- Image: `vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989`\n- Baseline: the official nightly without a source change.\n\n### vLLM Startup Command\n\n```bash\nvllm serve /data00/models/DeepSeek-V4.1-Flash \\\n  --host 0.0.0.0 \\\n  --port 8010 \\\n  --served-model-name deepseek-v4.1-flash \\\n  --trust-remote-code \\\n  --tokenizer-mode deepseek_v41 \\\n  --attention-backend FLASHMLA_SPARSE_DSV41 \\\n  --kv-cache-dtype fp8_ds_mla \\\n  --data-parallel-size 8 \\\n  --enable-expert-parallel \\\n  --max-model-len 131072 \\\n  --max-num-batched-tokens 2048 \\\n  --max-num-seqs 96 \\\n  --compilation-config '{\"cudagraph_mode\":\"FULL_DECODE_ONLY\",\"cudagraph_capture_sizes\":[16,32,64,128,256,512]}' \\\n  --speculative-config '{\"method\":\"dspark\",\"num_speculative_tokens\":5,\"draft_sample_method\":\"probabilistic\",\"rejection_sample_method\":\"block\",\"enable_adaptive_verification\":true}' \\\n  --gpu-memory-utilization 0.95 \\\n  --disable-uvicorn-access-log\n```\n\n### Performance Test\n\n```bash\n# Concurrency 64 example.\nvllm bench serve \\\n  --backend openai \\\n  --endpoint /v1/completions \\\n  --base-url http://127.0.0.1:8010 \\\n  --model deepseek-v4.1-flash \\\n  --tokenizer /data00/models/DeepSeek-V4.1-Flash \\\n  --dataset-name random \\\n  --random-input-len 3500 \\\n  --random-output-len 1500 \\\n  --random-range-ratio 0 \\\n  --num-prompts 640 \\\n  --request-rate inf \\\n  --max-concurrency 64 \\\n  --seed 42 \\\n  --temperature 0 \\\n  --extra-body '{\"seed\":42}' \\\n  --ignore-eos \\\n  --num-warmups 64 \\\n  --save-result \\\n  --save-detailed\n```\n\nAll 890 requests completed in each arm without failures or Pod restarts.\n\nEach point uses `num-prompts = 10 * concurrency`, random input 3500, output 1500, and seed 42. Both arms receive byte-identical input and output token arrays at each point.\n\n| Concurrency | Output TPS Baseline -> This PR | Mean TPOT Baseline -> This PR | Acceptance Baseline -> This PR | Mean TTFT Baseline -> This PR |\n|---:|---:|---:|---:|---:|\n| 1 | 84.42 -> 86.09 (+1.98%) | 11.32 -> 11.15 ms (-1.57%) | 94.22% -> 85.63% (-8.58pp) | 795.0 -> 716.5 ms (-9.88%) |\n| 8 | 471.97 -> 539.51 (+14.31%) | 15.23 -> 13.72 ms (-9.94%) | 84.54% -> 88.38% (+3.84pp) | 1339.1 -> 1271.8 ms (-5.02%) |\n| 16 | 775.13 -> 842.71 (+8.72%) | 18.71 -> 17.01 ms (-9.06%) | 80.29% -> 82.97% (+2.68pp) | 1179.1 -> 1089.1 ms (-7.63%) |\n| 64 | 1341.96 -> 1356.23 (+1.06%) | 44.55 -> 43.89 ms (-1.47%) | 81.09% -> 76.13% (-4.97pp) | 2306.4 -> 2371.9 ms (+2.84%) |\n\nAcceptance varies between the two arms, but This PR improves output throughput and mean TPOT at every measured concurrency. This consistent end-to-end benefit across C1/C8/C16/C64 supports the optimization in this PR.\n\n### GSM8K Test\n\nBoth arms were evaluated simultaneously with EvalScope 1.9.1 using the full 1319-sample zero-shot GSM8K test split and identical generation parameters.\n\n```bash\nevalscope eval \\\n  --eval-type openai_api \\\n  --api-url http://127.0.0.1:8000/v1 \\\n  --api-key EMPTY \\\n  --model deepseek-v4.1-flash \\\n  --model-id deepseek-v4.1-flash \\\n  --datasets gsm8k \\\n  --dataset-args '{\"gsm8k\":{\"few_shot_num\":0}}' \\\n  --eval-batch-size 8 \\\n  --generation-config '{\"temperature\":0.2,\"top_p\":0.95,\"max_tokens\":8192,\"timeout\":3600,\"seed\":0,\"reasoning_effort\":\"high\"}' \\\n  --work-dir ./gsm8k-results \\\n  --no-timestamp\n```\n\n- Baseline: 1270/1319 (96.29%).\n- This PR: 1264/1319 (95.83%).\n- Paired outcomes: 1257 both correct, 13 baseline-only correct, 7 This PR-only correct, and 42 both wrong.\n- Exact two-sided McNemar test: `p=0.26318`; no statistically significant difference.\n- API errors: zero in both arms. Baseline had three and This PR had five outputs reach the 8192-token limit.\n- EvalScope performance: mean latency 7.58 -> 7.13 s (-5.90%); average output throughput 52.17 -> 56.16 tok/s (+7.65%).\n\n## AI assistance\n\nAI assistance was used to instrument the DP drafter path, identify the online dummy-rank graph mismatch, implement the follow-up optimization, run GPU validation, and summarize the results.\n",
+    "created_at": "2026-09-28T07:13:31Z",
+    "updated_at": "2026-10-20T00:06:58Z",
+    "fetched_at": "2026-10-20T08:05:08Z",
+    "state": "merged",
+    "merged_at": "2026-10-20T00:06:58Z",
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "ttft",
+      "tpot",
+      "throughput",
+      "performance",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 58984,
+      "labels": [
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 6,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "8c60cf07b3df3b289c310fbd45a382a10709d9ab",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "codex/perf-drafter-dp-padding",
+        "sha": "8b1fc99ee51cf708e8ce3d2790bfa216e5b86cba",
+        "label": "wangyicong52:codex/perf-drafter-dp-padding"
+      },
+      "merge_commit_sha": "59a51259c5b7dbbd226f5b10d4f0e3a3152c0862",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:05:08Z"
+    },
+    "content_hash": "0ad3ca114c52d800bb005a00491e8c4e52020f02e87cbefbaf72f383848580cd"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

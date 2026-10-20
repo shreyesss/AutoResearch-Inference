@@ -1,0 +1,61 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:50569",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/50569",
+    "title": "feat: allow shared expert overlapping for FlashInfer one-sided all-to-all",
+    "body": "## Purpose\r\n\r\nAllow shared expert overlap when using EPLB with the `flashinfer_nvlink_one_sided` all2all backend. Previously, PR #28377 disabled shared expert overlap for all non-`allgather_reducescatter` backends under EPLB due to correctness issues observed with `deepep_low_latency`. This PR exempts `flashinfer_nvlink_one_sided` from that restriction after verifying it produces correct results with overlap enabled.\r\n\r\n## Test Plan\r\n\r\nServed `deepseek-ai/DeepSeek-V2-Lite` with TP=1, DP=4, EP=4, EPLB enabled, `--all2all-backend flashinfer_nvlink_one_sided`, on 4\u00d7 NVIDIA GB300.\r\n\r\nAccuracy check:\r\n```bash\r\nvllm serve deepseek-ai/DeepSeek-V2-Lite \\\r\n  --tensor-parallel-size 1 --data-parallel-size 4 \\\r\n  --enable-expert-parallel --enable-eplb \\\r\n  --eplb-config '{\"use_async\": false}' \\\r\n  --trust-remote-code --max-model-len 2048 \\\r\n  --all2all-backend flashinfer_nvlink_one_sided\r\n\r\npython tests/evals/gsm8k/gsm8k_eval.py \\\r\n  --host http://127.0.0.1 --port 8000 --num-questions 200\r\n```\r\n\r\nPerformance check:\r\n```bash\r\nvllm bench serve \\\r\n  --dataset-name random --input-len 1000 --output-len 1000 \\\r\n  --max-concurrency 1 --num-warmups 3 --num-prompts 30 \\\r\n  --backend openai\r\n```\r\n\r\n## Test Result\r\n\r\n| | With overlap (this PR) | Without overlap (baseline) |\r\n|---|---|---|\r\n| GSM8K accuracy (200q) | 0.330 | 0.350 |\r\n| Output throughput (tok/s) | 227.96 | 223.80 |\r\n| Mean TPOT (ms) | 4.15 | 4.39 |\r\n| Median TPOT (ms) | 3.18 | 3.42 |\r\n\r\nAccuracy difference (0.330 vs 0.350) is within sampling noise at 200 questions. No correctness regression. TPOT improves by ~5-7%.",
+    "created_at": "2026-07-31T11:21:53Z",
+    "updated_at": "2026-08-11T19:19:37Z",
+    "fetched_at": "2026-10-19T23:08:16Z",
+    "state": "merged",
+    "merged_at": "2026-08-11T17:06:22Z",
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "tpot",
+      "throughput",
+      "performance",
+      "communication"
+    ],
+    "metadata": {
+      "number": 50569,
+      "labels": [
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 5,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "608c12473f3f93b5452ac3c4fa13fb280b7da674",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "allow_shared_expert_overlap_for_additional_a2a_be",
+        "sha": "95bb952450ba25138194d9ee556fdd790521a64c",
+        "label": "jdebache:allow_shared_expert_overlap_for_additional_a2a_be"
+      },
+      "merge_commit_sha": "52be12cfac0c5a18ba906814b2d2bcadb40a9c4b",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:08:16Z"
+    },
+    "content_hash": "a2e5c145b59b3aa3c3bc53e63fcc0c270b179d483ac2426645c6357e65475639"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

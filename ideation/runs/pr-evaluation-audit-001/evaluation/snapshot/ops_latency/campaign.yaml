@@ -1,0 +1,677 @@
+schema_version: 1
+name: b200-latency-campaign
+description: "Latency, SLO-goodput, and cost qualification for DeepSeek V4.1 Flash on one 8xB200 node."
+hardware: b200
+engine: vllm
+model: deepseek-v4.1-flash
+gpu_count: 8
+gpu_price_per_hour: 4.5
+vllm_router:
+  repository: https://github.com/vllm-project/router.git
+  commit: 37b37a43c577cd7d83bad7b10b8b4650325b4fc7
+  policy: consistent_hash
+  aggregated_tp4_frontend:
+    implementation: lib/router.py
+    sticky_load_factor: 1.1
+    connection_limit: 4096
+    retry_connection_errors: 1
+results_subdirectory: b200/vllm/latency-campaign
+archive_root: /data/b200-bench-results/deepseek-v4.1-flash/i-01040ad89b81a570e
+stream_gap_semantics: "SSE chunk gap; DSpark can emit multiple tokens in one chunk."
+
+active_protocol:
+  evidence_class: topology_selection
+  workloads: [chat, code, agent, mix]
+  cache_tiers: [25, 50, 75]
+  cache_distribution: "Zipf(1.2), pool size 64, deterministic prefix affinity"
+  warmup:
+    duration_s: 120
+    max_tokens: 1
+    measured: false
+  floor:
+    mode: closed
+    concurrency: 1
+    duration_s: 180
+  knee:
+    mode: open
+    duration_s: 300
+    gate_tier: balanced
+    maximum_adjustments: 2
+    decrease_factor: 0.75
+    increase_factor: 1.25
+    comfortable_fraction_of_p95_limit: 0.75
+  calibration:
+    cache_tier: 50
+    rates_per_workload: 3
+    duration_s: 120
+  discovery_repetitions: 1
+  confirmation_repetitions: 2
+  decision_total_repetitions: 3
+  deferred_final_sla_repetitions: 5
+  pareto_dimensions: [ttft_p99_ms, tpot_p99_ms, slo_goodput_rps]
+  cache_match_tolerance: 0.10
+  cache_mismatch_policy: "report actual; exclude mismatched points from direct Pareto comparison; no automatic retry"
+
+dep8_vs_2xdep4:
+  evidence_class: paired_closed_loop_topology_comparison
+  runner: run_dep8_vs_2xdep4.sh
+  workload:
+    file: testing/workloads/latency-active-matrix.yaml
+    case: agent-f75
+    input_tokens: 8192
+    output_tokens: 1024
+    target_cacheable_fraction: 0.75
+    prefix_distribution: "Zipf(1.2), pool size 64, prefix-key affinity"
+  protocol:
+    concurrencies: [256, 384, 512]
+    client_shards: 8
+    warmup_s: 120
+    measured_s: 150
+    discovery_repetitions: 1
+    confirmation_repetitions: 2
+    dataset_seed_namespace: dep8-vs-2xdep4-v1
+    exact_dataset_pairing: true
+  arms:
+    dep8:
+      experiment_id: LAT-CMP-DEP8-R7
+      profile: latency-dep8-sla
+      experiment_flags: []
+    dep4_api2:
+      experiment_id: LAT-CMP-2XDEP4-API2-S64
+      profile: latency-2xdep4-sla
+      experiment_flags: []
+    dep4_api4:
+      experiment_id: LAT-CMP-2XDEP4-API4-S64
+      profile: latency-2xdep4-sla
+      experiment_flags: [lat-api-4]
+    dep4_seq80:
+      experiment_id_api2: LAT-CMP-2XDEP4-API2-S80
+      experiment_id_api4: LAT-CMP-2XDEP4-API4-S80
+      profile: latency-2xdep4-sla
+      experiment_flags_api2: [lat-seqs-80]
+      experiment_flags_api4: [lat-api-4, lat-seqs-80]
+  corrections:
+    maximum: 2
+    first:
+      variable: api_server_count_per_replica
+      baseline: 2
+      candidate: 4
+    second:
+      variable: max_num_seqs_per_rank
+      baseline: 64
+      candidate: 80
+      apply_to: first_correction_winner
+    excluded: [eplb, stream_interval, larger_batch_sizes, router_policy]
+  selection:
+    minimum_completion_ratio: 0.999
+    maximum_error_rate: 0.001
+    ttft_p50_ms: 500
+    ttft_p99_ms: 4000
+    minimum_median_output_tokens_per_second_per_user: 30
+    target_cache_hit_share: 0.75
+    cache_hit_tolerance: 0.10
+    primary: request_rps
+    tie_breakers: [tpot_p50_ms, e2e_p50_ms]
+  confirmation:
+    total_required_observations: 3
+    reuse_discovery_observation: true
+    additional_repetitions: 2
+    arms: [dep8, selected_2xdep4]
+  report:
+    same_concurrency_deltas: true
+    best_qualifying_operating_point: true
+    figures: [throughput_vs_ttft_p99, throughput_vs_tpot_p50]
+    metrics:
+      - request_rps
+      - output_tokens_per_s
+      - ttft_p50_p95_p99
+      - tpot_p50_p95_p99
+      - e2e_p50_p95_p99
+      - completion_ratio
+      - error_rate
+      - cache_hit_share
+      - backend_request_balance
+  limits:
+    conclusion: "Valid only for agent-f75 and the measured cache regime."
+    router_tuning: false
+    fault_testing: false
+    update_measured_recommendation_automatically: false
+
+measured_recommendation:
+  as_of: "2026-10-15"
+  evidence_status: provisional_single_run_closed_loop
+  objective: "Best measured agent-f75 point satisfying TTFT p50 <= 0.5 s, TTFT p99 <= 4 s, and median generation speed >= 30 output tok/s/user."
+  deployment_profile: latency-dep8-sla
+  source_profile: latency-dep8
+  source_experiment_flags: [lat-prefix-on, lat-dspark-k5, lat-seqs-64, lat-graph-512, lat-batched-16k, lat-api-4]
+  workload:
+    case: agent-f75
+    input_tokens: 8192
+    output_tokens: 1024
+    target_cacheable_fraction: 0.75
+  settings:
+    topology: "TP1 x DP8 x EP8 on one 8xB200 node"
+    max_num_seqs_per_rank: 64
+    max_num_seqs_node_wide: 512
+    cuda_graph_capture_size: 512
+    max_num_batched_tokens: 16384
+    dspark_speculative_tokens: 5
+    dspark_adaptive_verification: false
+    api_server_count: 4
+    prefix_caching: true
+    eplb: false
+  admission:
+    recommended_closed_loop_concurrency: 384
+    measured_custom_objective_ceiling_concurrency: 512
+    explanation: "Client concurrency is load, not a server scheduler setting. c384 passes the balanced tier and retains nearly all c512 throughput with materially better TPOT and E2E latency; c512 passes only the separate p50/p99/speed objective."
+  measured_points:
+    c384:
+      request_rps: 25.4718
+      output_tokens_per_s: 26083.2
+      ttft_p50_ms: 233.4
+      ttft_p99_ms: 2664.0
+      tpot_p50_ms: 14.10
+      e2e_p50_ms: 14787.5
+      cache_hit_share: 0.7582
+    c512:
+      request_rps: 26.0860
+      output_tokens_per_s: 26712.1
+      ttft_p50_ms: 322.3
+      ttft_p99_ms: 2884.0
+      tpot_p50_ms: 18.51
+      e2e_p50_ms: 19397.4
+      cache_hit_share: 0.7728
+  highest_measured_throughput_point:
+    source: LAT-R10-DEP8-DSPARK2-S160-LP4K-B16K-G512
+    closed_loop_concurrency: 1024
+    request_rps: 43.5470
+    output_tokens_per_s: 44592.1
+    ttft_p99_ms: 6096.5
+    slo_fit: false
+    explanation: "This is the highest measured R10 point, not a demonstrated saturation ceiling or latency-optimal deployment: it misses the 4-second TTFT-p99 target."
+  qualification_required:
+    - "Repeat the selected point three times."
+    - "Validate with open-loop arrivals and production ingress before quoting a customer SLA."
+    - "Recalibrate when prompt length, output length, or achieved cache reuse changes."
+
+slo_tiers:
+  strict:
+    description: "Provisional responsive-interactive engineering target; not a customer SLA."
+    gate_overall_latency: false
+    mixed_category_minimum_samples: advisory
+    default:
+      minimum_samples: 100
+      minimum_completion_ratio: 0.999
+      maximum_error_rate: 0.001
+      maximum_queue_slope_ms_per_s: 1.0
+      ttft_p95_ms: 1000
+      ttft_p99_ms: 2000
+      tpot_p95_ms: 20
+      tpot_p99_ms: 40
+      stream_gap_p99_ms: 250
+      request_limits:
+        ttft_ms: 2000
+        tpot_ms: 40
+        maximum_stream_gap_ms: 250
+    class_overrides:
+      chat:
+        e2e_p95_ms: 15000
+      code-reasoning:
+        e2e_p95_ms: 30000
+      agentic:
+        e2e_p95_ms: 30000
+      long-doc:
+        ttft_p95_ms: 3000
+        ttft_p99_ms: 6000
+        e2e_p95_ms: 30000
+        request_limits:
+          ttft_ms: 6000
+          tpot_ms: 40
+          maximum_stream_gap_ms: 250
+      multimodal:
+        ttft_p95_ms: 3000
+        ttft_p99_ms: 6000
+        e2e_p95_ms: 20000
+        request_limits:
+          ttft_ms: 6000
+          tpot_ms: 40
+          maximum_stream_gap_ms: 250
+      long-context:
+        minimum_samples: 20
+        ttft_p95_ms: 30000
+        ttft_p99_ms: 60000
+        tpot_p95_ms: 100
+        tpot_p99_ms: 200
+        request_limits:
+          ttft_ms: 60000
+          tpot_ms: 200
+
+  balanced:
+    description: "Existing campaign gate extended with p99 and per-class reporting."
+    gate_overall_latency: false
+    default:
+      minimum_samples: 100
+      minimum_completion_ratio: 0.995
+      maximum_error_rate: 0.001
+      maximum_queue_slope_ms_per_s: 1.0
+      ttft_p95_ms: 2000
+      ttft_p99_ms: 5000
+      tpot_p95_ms: 50
+      tpot_p99_ms: 100
+      stream_gap_p99_ms: 500
+      request_limits:
+        ttft_ms: 5000
+        tpot_ms: 100
+        maximum_stream_gap_ms: 500
+    class_overrides:
+      chat:
+        e2e_p95_ms: 30000
+      code-reasoning:
+        e2e_p95_ms: 75000
+      agentic:
+        e2e_p95_ms: 75000
+      long-doc:
+        ttft_p95_ms: 5000
+        ttft_p99_ms: 15000
+        e2e_p95_ms: 60000
+        request_limits:
+          ttft_ms: 15000
+          tpot_ms: 100
+          maximum_stream_gap_ms: 500
+      multimodal:
+        ttft_p95_ms: 5000
+        ttft_p99_ms: 15000
+        e2e_p95_ms: 45000
+        request_limits:
+          ttft_ms: 15000
+          tpot_ms: 100
+          maximum_stream_gap_ms: 500
+      long-context:
+        minimum_samples: 20
+        ttft_p95_ms: 60000
+        ttft_p99_ms: 120000
+        tpot_p95_ms: 200
+        tpot_p99_ms: 400
+        request_limits:
+          ttft_ms: 120000
+          tpot_ms: 400
+
+  relaxed:
+    description: "Latency-bounded background or long-running service tier."
+    gate_overall_latency: false
+    default:
+      minimum_samples: 50
+      minimum_completion_ratio: 0.995
+      maximum_error_rate: 0.005
+      maximum_queue_slope_ms_per_s: 1.0
+      ttft_p95_ms: 5000
+      ttft_p99_ms: 15000
+      tpot_p95_ms: 100
+      tpot_p99_ms: 200
+      stream_gap_p99_ms: 1000
+      request_limits:
+        ttft_ms: 15000
+        tpot_ms: 200
+        maximum_stream_gap_ms: 1000
+    class_overrides:
+      long-doc:
+        ttft_p95_ms: 15000
+        ttft_p99_ms: 30000
+        request_limits:
+          ttft_ms: 30000
+          tpot_ms: 200
+          maximum_stream_gap_ms: 1000
+      multimodal:
+        ttft_p95_ms: 10000
+        ttft_p99_ms: 30000
+        request_limits:
+          ttft_ms: 30000
+          tpot_ms: 200
+          maximum_stream_gap_ms: 1000
+      long-context:
+        minimum_samples: 10
+        ttft_p95_ms: 120000
+        ttft_p99_ms: 300000
+        tpot_p95_ms: 500
+        tpot_p99_ms: 1000
+        request_limits:
+          ttft_ms: 300000
+          tpot_ms: 1000
+
+existing_evidence:
+  - id: EXP-01
+    label: "2xTP4 low-latency, DSpark, cache-hot default mix"
+    relative_path: results/b200/vllm/low-latency/default-mix/20261010-142956
+    evidence_class: reused_cache_hot_slo
+    include_in_slo_frontier: false
+    include_as_legacy_reference: true
+    profile: low-latency
+    cache_regime: "approximately 98% hits"
+    cache_hit_share: 0.982
+    comments: "Passing boundary 4.345682 req/s; engine queue and max_num_seqs=8 bound TTFT. DSpark and sequence cap changed together."
+  - id: EXP-02
+    label: "2xTP4 balanced, target-only, cache-hot default mix"
+    relative_path: results/b200/vllm/balanced/default-mix/20261010-175056
+    evidence_class: reused_cache_hot_slo
+    include_in_slo_frontier: false
+    include_as_legacy_reference: true
+    profile: balanced
+    cache_regime: "approximately 98% hits"
+    cache_hit_share: 0.984
+    comments: "Passing boundary 8.923624 req/s, but router connection limits likely bound the result and p99 TTFT was unstable."
+  - id: EXP-14
+    label: "DEP8 throughput, cache-hot default mix"
+    relative_path: results/b200/vllm/throughput/default-mix/20261011-131338
+    evidence_class: reused_cache_hot_slo
+    include_in_slo_frontier: false
+    include_as_legacy_reference: true
+    profile: throughput
+    cache_regime: "approximately 98% hits"
+    cache_hit_share: 0.984
+    comments: "Passing boundary about 19.36 req/s; TPOT was the limiting SLO. This is a whole-system topology comparison."
+  - id: EXP-15
+    label: "DEP8 max-throughput, uncached default mix"
+    relative_path: results/b200/vllm/max-throughput/default-mix/20261011-233652
+    evidence_class: reused_diagnostic_only
+    include_in_slo_frontier: false
+    profile: max-throughput
+    cache_regime: uncached
+    cache_hit_share: 0.0
+    comments: "Closed-loop stage A only. Reuse as an uncached latency curve, never as sustainable SLO capacity."
+  - id: EXP-17
+    label: "DEP8 prefix-cache sweep and agent sessions"
+    relative_path: results/b200/vllm/cache-sweep/20261012-032209
+    evidence_class: reused_diagnostic_only
+    include_in_slo_frontier: false
+    profile: max-throughput
+    cache_regime: "controlled 25/50/75% shared prefixes and sessions"
+    comments: "Closed-loop, mostly one client. A-f90 is incomplete and must be excluded."
+  - id: EXP-07
+    label: "DEP8 offline fixed-output and extended anchors"
+    relative_path: results/b200/vllm/throughput/offline-throughput/20261011-070007
+    evidence_class: reused_diagnostic_only
+    include_in_slo_frontier: false
+    profile: throughput
+    cache_regime: mixed
+    comments: "Offline throughput evidence only; latency did not gate these runs."
+  - id: EXP-07-EXT
+    label: "DEP8 extended 128K/1M/multimodal anchors"
+    relative_path: results/b200/vllm/throughput/offline-throughput-extended/20261011-172654
+    evidence_class: reused_diagnostic_only
+    include_in_slo_frontier: false
+    profile: throughput
+    cache_regime: mixed
+    comments: "Useful latency floors and failure evidence, not production capacity."
+
+experiments:
+  - id: LAT-00
+    title: "Import immutable existing evidence"
+    status: reusable
+    kind: evidence
+    runner: run_import_evidence.sh
+    change: "No serving change; rebuild the latency report from archived evidence."
+    expected: "EXP-01/02 and DEP8/offline history remain reference-only and never enter the new decision frontier."
+    interpretation:
+      - "Missing or invalid archive artifacts are reported, not silently promoted."
+
+  - id: LAT-PD-SMOKE
+    title: "Mandatory stock same-node PD NIXL smoke"
+    status: planned
+    kind: smoke
+    runner: run_pd_smoke.sh
+    profile: pd-tp4-baseline
+    change: "Split one node into TP4 prefill on GPUs 0-3 and TP4 decode on GPUs 4-7 behind native vllm-router."
+    expected: "Successful text/reasoning/tool responses with NixlConnector active in both workers and no KV-load fallback."
+    stop_condition: "If stock fails, allow one prebuilt pinned-PR fallback smoke; if that fails, mark PD unavailable and run TP4 only."
+    interpretation:
+      - "A successful response with kv_load_failure_policy=fail proves the request did not silently recompute on decode."
+
+  - id: LAT-TP4-BALANCED
+    title: "2xTP4 existing balanced configuration"
+    status: planned
+    kind: configuration
+    runner: run_tp4_balanced.sh
+    server_kind: aggregated
+    profile: balanced
+    experiment_flags: []
+    calibrate: true
+    include_uncached: true
+    calibration_rates:
+      chat: [4, 8, 12]
+      code: [1, 2, 4]
+      agent: [0.5, 1, 2]
+      mix: [2, 4, 8]
+    change: "Existing target-only TP4 baseline: seq64, batch4K, graph64, prefix cache enabled."
+    expected: "Higher sustainable rate than strict TP4, with TPOT rising as decode batches grow."
+    interpretation:
+      - "TTFT or queue growth with TPOT still below limits means admission/frontend pressure."
+      - "TPOT p99 near the limit with flat queues means decode batching is the constraint."
+
+  - id: LAT-TP4-LOW
+    title: "2xTP4 existing low-latency configuration"
+    status: planned
+    kind: configuration
+    runner: run_tp4_low_latency.sh
+    server_kind: aggregated
+    profile: low-latency
+    experiment_flags: []
+    calibrate: false
+    calibration_source: LAT-TP4-BALANCED
+    include_uncached: false
+    change: "Use existing DSpark-k5/adaptive, seq8, batch4K profile."
+    expected: "Lowest TPOT at low load but earlier TTFT queueing from the seq8 cap."
+    interpretation:
+      - "Low TPOT plus high TTFT/waiting confirms the active-sequence cap is too restrictive for that rate."
+      - "Poor DSpark acceptance means the draft path is not paying for its memory/verification cost."
+
+  - id: LAT-TP4-HYBRID
+    title: "2xTP4 DSpark-k2 seq32 hybrid"
+    status: planned
+    kind: configuration
+    runner: run_tp4_hybrid.sh
+    server_kind: aggregated
+    profile: latency-tp4
+    experiment_flags: [lat-prefix-on, lat-dspark-k2, lat-seqs-32]
+    calibrate: false
+    calibration_source: LAT-TP4-BALANCED
+    include_uncached: false
+    change: "From the uncached target-only latency control, enable prefix cache, DSpark k2 without adaptive verification, and seq32."
+    expected: "Recover much of balanced TP4 capacity while retaining a material decode-latency benefit."
+    interpretation:
+      - "If it is dominated by both existing profiles, no intermediate TP4 profile is justified."
+      - "If it occupies the TTFT/TPOT Pareto middle, carry it into manual confirmation."
+
+  - id: LAT-PD-BASELINE
+    title: "Stock PD recipe baseline"
+    status: planned
+    kind: configuration
+    runner: run_pd_baseline.sh
+    server_kind: pd
+    profile: pd-tp4-baseline
+    experiment_flags: []
+    calibrate: true
+    include_uncached: true
+    calibration_rates:
+      chat: [4, 8, 12]
+      code: [1, 2, 4]
+      agent: [0.5, 1, 2]
+      mix: [2, 4, 8]
+    change: "Stock 1P1D: P/D seq32, batch8K, native vllm-router and NIXL."
+    expected: "Prefill/decode isolation should reduce decode stalls on agent/mixed traffic, offset by KV handoff latency."
+    interpretation:
+      - "High TTFT with low P/D queues points to handoff/router overhead."
+      - "Busy prefill and idle decode means the fixed 4/4 split is prefill-bound; the reverse means decode-bound."
+
+  - id: LAT-PD-PREFILL16K
+    title: "PD prefill batch16K"
+    status: planned
+    kind: configuration
+    runner: run_pd_prefill16k.sh
+    server_kind: pd
+    profile: pd-tp4-prefill16k
+    experiment_flags: []
+    calibrate: false
+    calibration_source: LAT-PD-BASELINE
+    include_uncached: false
+    change: "Only prefill max_num_batched_tokens changes from 8K to 16K."
+    expected: "Higher prefill efficiency and possibly lower long-prompt TTFT without directly changing decode batches."
+    interpretation:
+      - "Lower TTFT with unchanged TPOT confirms a prefill-side gain."
+      - "No gain or worse handoff tails means the larger prefill batch is not useful for this traffic."
+
+  - id: LAT-PD-DECODE64
+    title: "PD decode seq64"
+    status: planned
+    kind: configuration
+    runner: run_pd_decode64.sh
+    server_kind: pd
+    profile: pd-tp4-decode64
+    experiment_flags: []
+    calibrate: false
+    calibration_source: LAT-PD-BASELINE
+    include_uncached: false
+    change: "Only decode max_num_seqs changes from 32 to 64."
+    expected: "Higher decode capacity at the cost of potentially higher TPOT tails."
+    interpretation:
+      - "Higher goodput with passing TPOT is a win; TPOT p99 inflation without queue relief is a loss."
+
+deferred_experiments:
+  - id: LAT-01
+    title: "Ingress and warmup qualification"
+    status: planned
+    runner: run_lat_01.sh
+    objective: "Separate backend service time from router/ingress and warmup overhead."
+    workloads: [chat-512-256, agent-8k-1k]
+    arms: [direct-replica, local-router, optional-remote-ingress]
+    comments: "Use the same requests and low load. Record first-run JIT/graph warmup separately from steady state."
+    interpretation:
+      - "A large routed-minus-direct delta identifies frontend work, not a GPU-model problem."
+      - "Only steady-state values feed later frontiers."
+
+  - id: LAT-02
+    title: "No-queue workload latency floors"
+    status: planned
+    runner: run_lat_02.sh
+    objective: "Measure the lowest attainable latency for each workload class."
+    workloads: [chat-512-256, code-2k-1k, agent-8k-1k, document-32k-512, multimodal-512-256, long-context-128k-128, long-context-512k-32, long-context-1m-16]
+    arms: [latency-tp4, latency-dep8]
+    load: "closed-loop c=1,2,4,8; long-context stops at safe lower points"
+    comments: "If c=1 misses a tier, admission control cannot make that topology satisfy the tier."
+    interpretation:
+      - "Prefill-heavy failures appear in TTFT."
+      - "Decode-heavy failures appear in TPOT and E2E."
+
+  - id: LAT-03
+    title: "Matched DSpark A/B"
+    status: planned
+    runner: run_lat_03.sh
+    objective: "Measure whether DSpark improves latency without memory, quality, or stability regressions."
+    workloads: [chat-512-256, code-2k-1k, agent-8k-1k]
+    arms: [target-only, lat-dspark-k2, lat-dspark-k5]
+    load: "closed-loop c=1,16,32,64 plus matched open-loop points"
+    comments: "All non-DSpark settings and cache state remain identical. Adaptive verification is disabled in these B200 controls."
+    interpretation:
+      - "Keep DSpark only when TPOT/E2E and SLO-goodput improve with valid outputs and zero instability."
+      - "Acceptance near one means proposal overhead is not paying for itself."
+
+  - id: LAT-04
+    title: "Active-sequence and graph-cap knee"
+    status: planned
+    runner: run_lat_04.sh
+    objective: "Balance engine waiting/TTFT against larger-batch TPOT."
+    workloads: [production-mix-32k]
+    arms: [lat-seqs-8, lat-seqs-16, lat-seqs-32, lat-seqs-64]
+    comments: "CUDA graph coverage remains at 64 for every arm, so sequence cap is the intended variable."
+    interpretation:
+      - "Rising engine waiting with low TPOT means the cap is too small."
+      - "Low waiting with failing TPOT means the cap is too large."
+
+  - id: LAT-05
+    title: "Prefill/decode interference"
+    status: planned
+    runner: run_lat_05.sh
+    objective: "Find the token budget that protects active streams while admitting 8K/32K prompts."
+    workloads: [chat-512-256, agent-8k-1k, document-32k-512, production-mix-32k]
+    arms: [lat-batched-2k, lat-batched-4k, lat-batched-8k, lat-long-prefill-4k]
+    comments: "Evaluate short-request stream-gap tails and long-request TTFT together."
+    interpretation:
+      - "If no budget satisfies both classes, route long documents to a separate pool."
+
+  - id: LAT-06
+    title: "TP4 versus DEP8"
+    status: planned
+    runner: run_lat_06.sh
+    objective: "Choose topology using SLO-goodput rather than raw throughput."
+    workloads: [chat-512-256, agent-8k-1k, production-mix-32k]
+    arms: [best-latency-tp4, latency-dep8]
+    comments: "This is a whole-system comparison because TP4 and DEP8 use different attention/MoE stacks."
+    interpretation:
+      - "TP4 is favored by strict per-stream TPOT; DEP8 is favored when it meets the tier at higher RPS."
+
+  - id: LAT-07
+    title: "Prefix cache and rank affinity"
+    status: planned
+    runner: run_lat_07.sh
+    objective: "Measure cold-miss, expected-cache, sticky, and unpinned behavior."
+    workloads: [production-mix-32k, agent-sessions]
+    arms: [lat-prefix-off, lat-prefix-on-unpinned, lat-prefix-on-sticky]
+    comments: "Report hit and miss latency separately where telemetry permits; do not infer production gains from configured reuse alone."
+    interpretation:
+      - "Low achieved reuse with high theoretical reuse indicates routing/cache placement loss."
+
+  - id: LAT-08
+    title: "Per-workload SLO capacity"
+    status: planned
+    runner: run_lat_08.sh
+    objective: "Find sustainable open-loop capacity for each workload and tier."
+    workloads: [chat-512-256, code-2k-1k, agent-8k-1k, document-32k-512, multimodal-512-256]
+    arms: [best-latency-tp4, best-latency-dep8]
+    load: "fixed open-loop rate ladder, repeated boundary points"
+    comments: "This is the primary source for deployment planning by workload."
+    interpretation:
+      - "Highest repeated pass is the measured boundary; deploy below it after burst qualification."
+
+  - id: LAT-09
+    title: "Mixed workload and trace replay"
+    status: planned
+    runner: run_lat_09.sh
+    objective: "Measure nonlinear interference in the production-shaped mixture."
+    workloads: [production-mix-32k, optional-production-trace]
+    arms: [best-finalist]
+    comments: "Synthetic mix and trace replay remain separate evidence classes. Trace replay is empty until a trace dataset is supplied."
+    interpretation:
+      - "The mixed boundary, not an average of isolated capacities, sets shared-pool admission."
+
+  - id: LAT-10
+    title: "Burst, admission, and recovery"
+    status: planned
+    runner: run_lat_10.sh
+    objective: "Verify bounded tails and queue drainage around overload."
+    workloads: [production-mix-32k]
+    arms: [normal-rate, two-times-burst, post-burst-recovery]
+    comments: "Track offered/completed rate, engine waiting, queue age, errors, and time to return to baseline."
+    interpretation:
+      - "A queue that does not drain means the normal admission target is too close to saturation."
+
+  - id: LAT-11
+    title: "Soak and resilience"
+    status: planned
+    runner: run_lat_11.sh
+    objective: "Detect long-run drift and characterize cancellation or replica-loss behavior."
+    workloads: [production-mix-32k]
+    arms: [one-to-three-hour-soak, cancellation, replica-loss, recovery]
+    comments: "Destructive fault arms require LATENCY_ALLOW_FAULTS=1; the default runner plans/skips them."
+    interpretation:
+      - "Latency or memory drift indicates a leak, fragmentation, cache-growth, or host-resource problem."
+
+  - id: LAT-12
+    title: "Remote production-path qualification"
+    status: planned
+    runner: run_lat_12.sh
+    remote_runner: run_remote_client.sh
+    objective: "Add real client network, TLS, gateway, and multi-process effects."
+    workloads: [production-mix-32k]
+    arms: [local-multiprocess, remote-gateway]
+    comments: "Remote arm remains planned until LATENCY_REMOTE_BASE_URL and a remote load-generator host are supplied."
+    interpretation:
+      - "Node capacity and user-observed latency are reported separately when ingress adds material delay."

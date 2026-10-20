@@ -1,0 +1,439 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:36037",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/vllm-project/vllm/issues/36037",
+    "title": "[Feature]: Supports Speculative Speculative Decoding",
+    "body": "### \ud83d\ude80 The feature, motivation and pitch\n\n\n# Motivation\n\nvLLM already supports speculative decoding to accelerate autoregressive generation using a draft model. However, speculative decoding still suffers from a sequential dependency between drafting and verification: the draft model must wait for the target model to finish verifying tokens before generating the next speculation batch.\n\nRecent work proposes Speculative Speculative Decoding (SSD), which removes this dependency by running drafting and verification asynchronously and precomputing speculations for predicted verification outcomes. \n\npaper link: [https://arxiv.org/pdf/2603.03251](https://arxiv.org/pdf/2603.03251)\n\nIn SSD, while the target model verifies a speculation, the draft model predicts likely verification outcomes and pre-speculates tokens for those outcomes in advance. If the actual verification result matches one of the predicted outcomes, the next speculation can be returned immediately, eliminating drafting latency. \n\nThis approach enables overlapping speculation and verification and significantly reduces idle GPU time.\n\nThe paper reports:\n\n- Up to 2\u00d7 speedup over optimized speculative decoding\n\n- Up to 5\u00d7 speedup over autoregressive decoding\nacross several workloads and datasets. \n\nGiven that vLLM is widely used for high-performance inference, supporting SSD could provide meaningful latency improvements.\n\n\n<div align=\"center\">\n  <table><tr><td width=\"800\">\n    <video src=\"https://github.com/user-attachments/assets/588eaa70-d6e5-4522-9e94-e54fc6074aba\" />\n  </td></tr></table>\n</div>\n\n\n### Additional context\n\n[_No response_](https://github.com/tanishqkumar/ssd)\n\n### Before submitting a new issue...\n\n- [x] Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the [documentation page](https://docs.vllm.ai/en/latest/), which can answer lots of frequently asked questions.",
+    "created_at": "2026-03-04T19:27:36Z",
+    "updated_at": "2026-08-18T02:54:14Z",
+    "fetched_at": "2026-10-19T21:20:38Z",
+    "state": "closed",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "performance",
+      "speculation"
+    ],
+    "metadata": {
+      "number": 36037,
+      "labels": [
+        {
+          "id": 5645279504,
+          "node_id": "LA_kwDOI7xefs8AAAABUHwhEA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/feature%20request",
+          "name": "feature request",
+          "color": "a2eeef",
+          "default": false,
+          "description": "New feature or request",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7648877658,
+          "node_id": "LA_kwDOI7xefs8AAAABx-icWg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/stale",
+          "name": "stale",
+          "color": "ededed",
+          "default": false,
+          "description": "Over 90 days of inactivity",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 16,
+      "state_reason": "not_planned"
+    },
+    "content_hash": "8e1972eebee752df9557f9263cc1dcca8b7fde2e3bfd94ea7b55adec963ae37e"
+  },
+  "children": [
+    {
+      "id": "github:vllm-project/vllm:comments:5322921053",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-5322921053",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "This issue has been automatically closed due to inactivity. Please feel free to reopen if you feel it is still relevant. Thank you!",
+      "created_at": "2026-08-18T02:54:14Z",
+      "updated_at": "2026-08-18T02:54:14Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [],
+      "metadata": {
+        "author": "github-actions[bot]",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "f42b5941e81e77cbd7e86f74b2f00936eec58713a28520e8e64c956db37cb65a"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:5009407946",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-5009407946",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "This issue has been automatically marked as stale because it has not had any activity within 90 days. It will be automatically closed if no further activity occurs within 30 days. Leave a comment if you feel this issue should remain open. Thank you!",
+      "created_at": "2026-07-18T02:15:12Z",
+      "updated_at": "2026-07-18T02:15:12Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [],
+      "metadata": {
+        "author": "github-actions[bot]",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "1c2f9ca000c43add7351cba83bb25c1c85dad673f37c0e6ddeb2b9759760ef91"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4269106083",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4269106083",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "I would assume this is using random inputs (acceptance rate near zero), just to measure the draft/verify timings. ",
+      "created_at": "2026-04-17T14:58:12Z",
+      "updated_at": "2026-04-17T14:58:12Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "speculation"
+      ],
+      "metadata": {
+        "author": "benchislett",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "87cc85152e83a4bb932159751afcf01136d9bca82e8f62404f2b46c3237f2f3f"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4241821448",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4241821448",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "> > My thoughts:\n> > \n> > * Substantial engineering work would be required to support SSD in the vLLM framework. It would be very difficult to build this into the vLLM scheduler+worker infrastructure, a lot of the speculative decoding and kv cache management logic would need to be redesigned. A hacky prototype could put something together but this would be a very complex system to debug and maintain in the long term.\n> > * GSM8k @ concurrency=1 with TP4 is a very favorable benchmark. Using MTBench as a proxy for chat workloads would show a much steeper falloff in AL, so it would not be as valuable to run with >8 spec tokens in that scenario. Using TP1 or TP2 would also be more affordable by a large margin, the TPS would be a bit lower but the cost-effectiveness makes a huge difference in practice. This would also be exaggerated if another H100 was needed for the drafter, notably also since it no longer can fit 2 replicas in a single 8xH100 node.\n> > * Please share the actual ITL metrics you have measured for this, it is hard to tell the value in drafting so many tokens if we cannot quantify the increase in verification time.\n> > * We have some work in the pipeline to reduce drafting overhead, such as [feat(spec_decode): fuse EAGLE step slot mapping and metadata updates\u00a0#33503](https://github.com/vllm-project/vllm/pull/33503) as well as some open work on full-graphs and torch.compile for the draft model. There is a lot of room to improve the drafting overhead with simpler approaches.\n> \n> [@benchislett](https://github.com/benchislett) Thanks for the detailed feedback. Here is some additional experimental data for reference.\n> \n> From these numbers, I think a few points are fairly clear:\n> \n> At low concurrency, MTP drafting overhead is a large fraction of the total added latency. For example, at concurrency=1, the extra time introduced by MTP is dominated by the draft side, while verify-side growth is relatively smaller.\n> \n> At higher concurrency, both draft and verify become major limiting factors. When compute utilization is already high, speculative decoding is no longer limited by drafting overhead alone \u2014 verification overhead also becomes a major bottleneck.\n> \n> This is exactly why reducing drafting overhead alone may not fully unlock the gains at higher load. Improvements on the draft path are definitely important, but under higher concurrency the verify path also contributes substantially to the slowdown.\n> \n> Also, just to be clear: these measurements were collected in SGLang, not vLLM, so they should be treated as reference data only, not as a direct statement about vLLM performance.\n> \n> Concurrency\tMode\tStep\tDraft (ms)\tVerify (ms)\tDraft Extend (ms)\tTotal (ms)\t\u0394 Total vs Baseline (ms)\t\u0394 Draft (ms)\t\u0394 Verify (ms)\n> 32\tMTP\t16\t12.45\t34.48\t1.33\t48.26\t36.70\t13.78\t22.92\n> 32\tMTP\t12\t9.17\t31.14\t1.26\t41.57\t30.01\t10.43\t19.58\n> 32\tMTP\t8\t5.96\t21.88\t1.18\t29.03\t17.47\t7.14\t10.32\n> 32\tMTP\t4\t2.66\t17.22\t1.08\t20.96\t9.40\t3.74\t5.66\n> 32\tDFlash\t16\t1.74\t31.26\t-\t33.00\t-\t-\t-\n> 32\tBaseline\t-\t-\t-\t-\t11.56\t-\t-\t-\n> 8\tMTP\t16\t10.61\t15.70\t0.95\t27.25\t17.25\t11.56\t5.70\n> 8\tMTP\t12\t7.83\t14.11\t0.96\t22.90\t12.90\t8.79\t4.11\n> 8\tMTP\t8\t5.08\t12.99\t0.92\t18.99\t8.99\t6.00\t2.99\n> 8\tMTP\t4\t2.27\t11.73\t0.91\t14.91\t4.91\t3.18\t1.73\n> 8\tDFlash\t16\t1.12\t15.03\t-\t16.16\t-\t-\t-\n> 8\tBaseline\t-\t-\t-\t-\t10.00\t-\t-\t-\n> 1\tMTP\t16\t9.56\t11.73\t0.87\t22.16\t13.41\t10.43\t2.98\n> 1\tMTP\t12\t7.03\t11.18\t0.80\t19.01\t10.26\t7.83\t2.43\n> 1\tMTP\t8\t4.64\t10.72\t0.82\t16.18\t7.43\t5.46\t1.97\n> 1\tMTP\t4\t2.06\t10.25\t0.80\t13.11\t4.36\t2.86\t1.50\n> 1\tDFlash\t16\t0.90\t11.46\t-\t12.36\t-\t-\t-\n> 1\tBaseline\t-\t-\t-\t-\t8.75\t-\t-\t-\n\nMay I ask\u2014based on your quantitative tests\u2014it appears that, regardless of whether the concurrency worker is low or high, the overall latency increases compared to the baseline after enabling MTP? Is that correct?\n",
+      "created_at": "2026-04-14T06:52:40Z",
+      "updated_at": "2026-04-14T06:52:40Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "h100",
+        "tpot",
+        "performance",
+        "speculation",
+        "kv-cache"
+      ],
+      "metadata": {
+        "author": "weishu20",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "56a35c50b68b30c2e0d36621e48be912a16bd861c05b272308132cbc98897821"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4216895204",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4216895204",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "@weishu20 please create a github issue, this is the wrong thread",
+      "created_at": "2026-04-09T19:16:32Z",
+      "updated_at": "2026-04-09T19:16:32Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [],
+      "metadata": {
+        "author": "benchislett",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "9effcd09bc80955d3c555c964e8f942da60d43471592d6cfbce386f01a5735ef"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4211442358",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4211442358",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "In Qwen3.5-0.8B, Whether under single-threaded or high-concurrency loads, enabling MTP results in degraded latency.\n1. without mtp\n(APIServer pid=1422509) INFO 04-09 11:27:10 [loggers.py:259] Engine 000: Avg prompt throughput: 967.2 tokens/s, Avg generation throughput: 342.2 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.1%, Prefix cache hit rate: 44.5%, MM cache hit rate: 16.7%\n----\n1. with mtp\n(APIServer pid=1409788) INFO 04-09 11:17:53 [loggers.py:259] Engine 000: Avg prompt throughput: 1357.9 tokens/s, Avg generation throughput: 128.3 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 22.3%, MM cache hit rate: 6.5%\n(APIServer pid=1409788) INFO 04-09 11:17:53 [metrics.py:101] SpecDecoding metrics: Mean acceptance length: 1.97, Accepted throughput: 63.00 tokens/s, Drafted throughput: 65.20 tokens/s, Accepted: 630 tokens, Drafted: 652 tokens, Per-position acceptance rate: 0.966, Avg Draft acceptance rate: 96.6%\n\nPlease Help!\n",
+      "created_at": "2026-04-09T04:25:35Z",
+      "updated_at": "2026-04-09T04:25:35Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "throughput",
+        "performance",
+        "speculation",
+        "kv-cache"
+      ],
+      "metadata": {
+        "author": "weishu20",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "d395d5192db97aaee862b883cef6bdf630b4a3f1611a43a7764d041a91649ddc"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4052086338",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4052086338",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "This is the `config.json` of my trained `Qwen3.5-27B-DFlash-b16`:\n\n```json\n{\n  \"architectures\": [\n    \"DFlashDraftModel\"\n  ],\n  \"attention_bias\": false,\n  \"attention_dropout\": 0.0,\n  \"auto_map\": {\n    \"AutoModel\": \"dflash.DFlashDraftModel\"\n  },\n  \"block_size\": 16,\n  \"bos_token_id\": null,\n  \"dflash_config\": {\n    \"mask_token_id\": 248077,\n    \"target_layer_ids\": [\n      3,\n      15,\n      31,\n      47,\n      59\n    ]\n  },\n  \"dtype\": \"bfloat16\",\n  \"eos_token_id\": 248044,\n  \"head_dim\": 256,\n  \"hidden_act\": \"silu\",\n  \"hidden_size\": 5120,\n  \"initializer_range\": 0.02,\n  \"intermediate_size\": 17408,\n  \"layer_types\": [\n    \"full_attention\",\n    \"full_attention\",\n    \"full_attention\",\n    \"full_attention\",\n    \"full_attention\"\n  ],\n  \"max_position_embeddings\": 262144,\n  \"max_window_layers\": 28,\n  \"model_type\": \"qwen3\",\n  \"num_attention_heads\": 24,\n  \"num_hidden_layers\": 5,\n  \"num_key_value_heads\": 4,\n  \"num_target_layers\": 64,\n  \"pad_token_id\": null,\n  \"rms_norm_eps\": 1e-06,\n  \"rope_parameters\": {\n    \"rope_theta\": 10000000,\n    \"rope_type\": \"default\"\n  },\n  \"sliding_window\": null,\n  \"tie_word_embeddings\": false,\n  \"transformers_version\": \"5.2.0\",\n  \"use_cache\": true,\n  \"use_sliding_window\": false,\n  \"vocab_size\": 248320\n}\n```\n\nHowever, it is worth noting that these results were recorded on SGLang. In SGLang, draft-model drafting supports full CUDA Graph, while vLLM does not. In my view, the drafting performance of the same model can differ across inference engines, especially for draft models whose number of layers is not equal to 1, such as any non-EAGLE draft model.",
+      "created_at": "2026-03-13T02:54:13Z",
+      "updated_at": "2026-03-13T02:54:13Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "performance",
+        "speculation"
+      ],
+      "metadata": {
+        "author": "EanWang211123",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "5d8955c1ad5b3b31b72284ba3e3d7f78d959619b5c65766b855fd233b96556c2"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4051548323",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4051548323",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "How many layers does the DFlash drafter have? Those timings are a bit surprising, I'm working on DFlash support for vLLM and haven't gotten nearly that low of overhead for DFlash with 8 layers",
+      "created_at": "2026-03-13T01:18:42Z",
+      "updated_at": "2026-03-13T01:18:42Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [],
+      "metadata": {
+        "author": "benchislett",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "777354ef3dbcc96f253aec07abcb3e45570f2959bf4bfe5f286a92cdd1d0b176"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4051454644",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4051454644",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "@benchislett In fact, in my personal experimental repository, I inserted CPU-GPU synchronization before and after the draft model\u2019s drafting stage and the target model\u2019s verification stage in SGLang to measure the runtime. Although this introduces some performance overhead, my goal was to observe the approximate proportion of time spent in each stage.\n\nThe DFlash model for Qwen3.5-27B was trained by myself. Since the training time and dataset size were both insufficient, I did not open-source it.",
+      "created_at": "2026-03-13T00:59:18Z",
+      "updated_at": "2026-03-13T00:59:18Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "performance",
+        "speculation"
+      ],
+      "metadata": {
+        "author": "EanWang211123",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "26c32a85599fd984fe8a10a55fe99e51cde4a5bb6cde3bda1188364f8e4d10ab"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4050337443",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4050337443",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "@EanWang211123 where do these numbers come from? I don't see a DFlash for Qwen3.5 27B on HF, is this using a different target model? Could you share the commands to reproduce?",
+      "created_at": "2026-03-12T21:36:37Z",
+      "updated_at": "2026-03-12T21:36:37Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [],
+      "metadata": {
+        "author": "benchislett",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "3b1d391b184dd60db72617dbaa4c59ac3f47604fc6cf27e1b809081640f6f708"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4035503606",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4035503606",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "> My thoughts:\n> \n> * Substantial engineering work would be required to support SSD in the vLLM framework. It would be very difficult to build this into the vLLM scheduler+worker infrastructure, a lot of the speculative decoding and kv cache management logic would need to be redesigned. A hacky prototype could put something together but this would be a very complex system to debug and maintain in the long term.\n> * GSM8k @ concurrency=1 with TP4 is a very favorable benchmark. Using MTBench as a proxy for chat workloads would show a much steeper falloff in AL, so it would not be as valuable to run with >8 spec tokens in that scenario. Using TP1 or TP2 would also be more affordable by a large margin, the TPS would be a bit lower but the cost-effectiveness makes a huge difference in practice. This would also be exaggerated if another H100 was needed for the drafter, notably also since it no longer can fit 2 replicas in a single 8xH100 node.\n> * Please share the actual ITL metrics you have measured for this, it is hard to tell the value in drafting so many tokens if we cannot quantify the increase in verification time.\n> * We have some work in the pipeline to reduce drafting overhead, such as [feat(spec_decode): fuse EAGLE step slot mapping and metadata updates\u00a0#33503](https://github.com/vllm-project/vllm/pull/33503) as well as some open work on full-graphs and torch.compile for the draft model. There is a lot of room to improve the drafting overhead with simpler approaches.\n\n@benchislett  Thanks for the detailed feedback. Here is some additional experimental data for reference.\n\nFrom these numbers, I think a few points are fairly clear:\n\nAt low concurrency, MTP drafting overhead is a large fraction of the total added latency.\nFor example, at concurrency=1, the extra time introduced by MTP is dominated by the draft side, while verify-side growth is relatively smaller.\n\nAt higher concurrency, both draft and verify become major limiting factors.\nWhen compute utilization is already high, speculative decoding is no longer limited by drafting overhead alone \u2014 verification overhead also becomes a major bottleneck.\n\nThis is exactly why reducing drafting overhead alone may not fully unlock the gains at higher load.\nImprovements on the draft path are definitely important, but under higher concurrency the verify path also contributes substantially to the slowdown.\n\nAlso, just to be clear: these measurements were collected in SGLang, not vLLM, so they should be treated as reference data only, not as a direct statement about vLLM performance.\n\nConcurrency | Mode | Step | Draft (ms) | Verify (ms) | Draft Extend (ms) | Total (ms) | \u0394 Total vs Baseline (ms) | \u0394 Draft (ms) | \u0394 Verify (ms)\n-- | -- | -- | -- | -- | -- | -- | -- | -- | --\n32 | MTP | 16 | 12.45 | 34.48 | 1.33 | 48.26 | 36.70 | 13.78 | 22.92\n32 | MTP | 12 | 9.17 | 31.14 | 1.26 | 41.57 | 30.01 | 10.43 | 19.58\n32 | MTP | 8 | 5.96 | 21.88 | 1.18 | 29.03 | 17.47 | 7.14 | 10.32\n32 | MTP | 4 | 2.66 | 17.22 | 1.08 | 20.96 | 9.40 | 3.74 | 5.66\n32 | DFlash | 16 | 1.74 | 31.26 | - | 33.00 | - | - | -\n32 | Baseline | - | - | - | - | 11.56 | - | - | -\n8 | MTP | 16 | 10.61 | 15.70 | 0.95 | 27.25 | 17.25 | 11.56 | 5.70\n8 | MTP | 12 | 7.83 | 14.11 | 0.96 | 22.90 | 12.90 | 8.79 | 4.11\n8 | MTP | 8 | 5.08 | 12.99 | 0.92 | 18.99 | 8.99 | 6.00 | 2.99\n8 | MTP | 4 | 2.27 | 11.73 | 0.91 | 14.91 | 4.91 | 3.18 | 1.73\n8 | DFlash | 16 | 1.12 | 15.03 | - | 16.16 | - | - | -\n8 | Baseline | - | - | - | - | 10.00 | - | - | -\n1 | MTP | 16 | 9.56 | 11.73 | 0.87 | 22.16 | 13.41 | 10.43 | 2.98\n1 | MTP | 12 | 7.03 | 11.18 | 0.80 | 19.01 | 10.26 | 7.83 | 2.43\n1 | MTP | 8 | 4.64 | 10.72 | 0.82 | 16.18 | 7.43 | 5.46 | 1.97\n1 | MTP | 4 | 2.06 | 10.25 | 0.80 | 13.11 | 4.36 | 2.86 | 1.50\n1 | DFlash | 16 | 0.90 | 11.46 | - | 12.36 | - | - | -\n1 | Baseline | - | - | - | - | 8.75 | - | - | -\n\n",
+      "created_at": "2026-03-11T01:13:46Z",
+      "updated_at": "2026-03-11T01:13:46Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "h100",
+        "tpot",
+        "performance",
+        "speculation",
+        "kv-cache"
+      ],
+      "metadata": {
+        "author": "EanWang211123",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "5c588e834b590112415e64381c8d721dc17d6e2294c6496136771ecc101cf7ae"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4032578462",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4032578462",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "My thoughts:\n- Substantial engineering work would be required to support SSD in the vLLM framework. It would be very difficult to build this into the vLLM scheduler+worker infrastructure, a lot of the speculative decoding and kv cache management logic would need to be redesigned. A hacky prototype could put something together but this would be a very complex system to debug and maintain in the long term.\n- GSM8k @ concurrency=1 with TP4 is a very favorable benchmark. Using MTBench as a proxy for chat workloads would show a much steeper falloff in AL, so it would not be as valuable to run with >8 spec tokens in that scenario. Using TP1 or TP2 would also be more affordable by a large margin, the TPS would be a bit lower but the cost-effectiveness makes a huge difference in practice. This would also be exaggerated if another H100 was needed for the drafter, notably also since it no longer can fit 2 replicas in a single 8xH100 node.\n- Please share the actual ITL metrics you have measured for this, it is hard to tell the value in drafting so many tokens if we cannot quantify the increase in verification time.\n- We have some work in the pipeline to reduce drafting overhead, such as https://github.com/vllm-project/vllm/pull/33503 as well as some open work on full-graphs and torch.compile for the draft model. There is a lot of room to improve the drafting overhead with simpler approaches.",
+      "created_at": "2026-03-10T15:57:05Z",
+      "updated_at": "2026-03-10T15:57:05Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "h100",
+        "tpot",
+        "performance",
+        "speculation",
+        "kv-cache"
+      ],
+      "metadata": {
+        "author": "benchislett",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "982da17242b1051d9c29656f9dc1498feef6daeafd9f8954abae43db2500ac4b"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4028316754",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4028316754",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "@benchislett  @celsowm  \nI did some MTP testing on Qwen3.5-27B with the following setup:\n\n- H100, TP=4\n- Model: Qwen3.5-27B\n- Dataset: GSM8K\n\nIn my tests, as `mtp-draft-tokens` increases, the average accepted length (AL) also increases:\n\nmtp-draft-tokens | AL\n-- | --\n3 | 3.64\n4 | 4.335\n5 | 4.70\n6 | 5.25\n7 | 5.66\n8 | 5.93\n10 | 6.44\n12 | 6.85\n14 | 6.90\n16 | 7.04\n\n\n\nHowever, under concurrency=1, I also found that the drafting cost becomes significant:\n\n- with 8 draft tokens, drafting takes 27.76% of (verification + drafting) time\n- with 16 draft tokens, drafting takes 43.45% of (verification + drafting) time\n\nSo although increasing speculative length improves AL, the extra autoregressive drafting cost starts to offset the gain. Combined with the increase in verification cost as well (more obvious at higher concurrency), this is why in my tests the overall speedup starts to decline beyond around 8~9 speculative tokens.\n\nThis makes me think that in high-acceptance-rate scenarios, autoregressive drafting methods like MTP / EAGLE-3 can themselves become a bottleneck. In that sense, parallel drafting ideas are very interesting.\n\nThat said, from my reading of the SSD paper, true overlap between drafting and verification seems to assume that the draft runner and target runner are placed on different hardware. Otherwise they would contend for the same GPU resources, which could reduce or even eliminate the overlap benefit. The issue description also frames SSD as asynchronous drafting + verification. :contentReference[oaicite:1]{index=1}\n\nSo my impression is that supporting SSD in vLLM may require quite substantial runtime / scheduler / device-placement changes, rather than being a small extension of the current speculative decoding path.\n\nCurious what the maintainers think about this.",
+      "created_at": "2026-03-10T03:13:27Z",
+      "updated_at": "2026-03-10T03:13:27Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "h100",
+        "performance",
+        "speculation"
+      ],
+      "metadata": {
+        "author": "EanWang211123",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "7aea9c9c50870e34406983d10b250d33f1ce38fe6ba82db8406262b05e7d9b22"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4025959147",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4025959147",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "Thanks, that makes sense.\nI think I\u2019ll work on some other features first, and in the meantime I can do some ablation studies on this to evaluate whether it would make a worthwhile contribution.",
+      "created_at": "2026-03-09T18:43:46Z",
+      "updated_at": "2026-03-09T18:43:46Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [],
+      "metadata": {
+        "author": "buffett0323",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "4ce2c4919fefccf2e44b0a4551e81431ca00146933c774b21e7434b0b30e8dc8"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4025824220",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4025824220",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "I'm skeptical that this project would provide a lot of value for vLLM. For most workloads we use MTP or EAGLE3, for which drafting is very rarely a significant bottleneck and therefore overlapping it with verification is not an especially promising proposition.\n\nWhile vLLM does currently support draft-target speculation (e.g. Llama 1B with Llama 70B, Qwen3-0.6B with Qwen3-8B etc.) all model pairs I know of have publicly-available EAGLE3 models which can exceed the speed of the draft-target pair. The paper claims this:\n> In our experiments Llama-3.2-1B outperforms Eagle-3 as a draft model for Llama-3.1-70B in SGLang.\nI have not found this to be true in my experience. I have serious concerns that the evaluations in the paper are incomplete and do not highlight a representative set of benchmarks. \n\nI do not consider this to be a priority feature for vLLM. You are welcome to attempt to reproduce the paper's results for vLLM, and I am happy to reconsider if the results are indeed compelling for a standard set of models/benchmarks (e.g. Qwen3/Llama3.3/GPT-OSS validated on [MTBench](https://huggingface.co/datasets/philschmid/mt-bench)/[SPEED-Bench](https://huggingface.co/datasets/nvidia/SPEED-Bench))",
+      "created_at": "2026-03-09T18:18:47Z",
+      "updated_at": "2026-03-09T18:18:47Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "speculation"
+      ],
+      "metadata": {
+        "author": "benchislett",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "5a1f3c354effb791942874fb4a9dda9750804e6afd6344286abea9ceaced0422"
+    },
+    {
+      "id": "github:vllm-project/vllm:comments:4025397112",
+      "source": "github",
+      "kind": "comment",
+      "url": "https://github.com/vllm-project/vllm/issues/36037#issuecomment-4025397112",
+      "title": "comment on vllm-project/vllm #36037",
+      "body": "Hi, I\u2019m happy to take this on.\n\nI\u2019ve read the SSD paper, and it seems like a promising feature for vLLM. \n\nMy tentative plan is to start with a minimal prototype with correctness tests to verify that the outputs match the expected speculative decoding behavior. After that, I\u2019d run some latency and throughput benchmarks to evaluate whether the implementation provides meaningful gains.\n\nIf this direction seems aligned with the project roadmap, feel free to assign to me. thanks!\n@benchislett ",
+      "created_at": "2026-03-09T17:13:41Z",
+      "updated_at": "2026-03-09T17:13:41Z",
+      "fetched_at": "2026-10-19T20:44:07Z",
+      "state": null,
+      "merged_at": null,
+      "parent": "github:vllm-project/vllm:36037",
+      "tags": [
+        "throughput",
+        "performance",
+        "speculation"
+      ],
+      "metadata": {
+        "author": "buffett0323",
+        "path": null,
+        "commit_id": null
+      },
+      "content_hash": "1fa230810b65dc803e03d3ffc985ae5aba4dff9d70441a5b07d6d576200cc58c"
+    }
+  ],
+  "hydration": {
+    "at": "2026-10-19T20:44:07Z",
+    "collections": {
+      "comments": {
+        "count": 16,
+        "complete": true
+      }
+    }
+  },
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

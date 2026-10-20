@@ -1,0 +1,92 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62199",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62199",
+    "title": "[Bugfix][Frontend] Match DeepSeek-V4.1 encoder to the 1017 reference encoding",
+    "body": "<!-- markdownlint-disable -->\n\n## Overview\n\nMatch the Python DeepSeek V4.1 encoder to the updated reference [`encoding/`](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/encoding). Rust counterpart: #62200.\n\nAffects both V4.1-Flash checkpoints (launch and 1017). DeepSeek fixed the turn handling in both repos ([launch `314113f`](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/commit/314113f8a7dadb388215396ba5fbee2c610a04d6), 1017 release); their `encoding/` is now identical. The image-token check has been in the reference since launch.\n\n## Claims\n\n- Tool results alone no longer start a new user turn, so reasoning before a tool call is kept.\n- Literal `<\uff5cdeepseek_image\uff5c>` in message text or reasoning returns 400.\n- All five reference golden prompts match. V4 is unchanged.\n\n## Examples\n\n**1. Tool call in thinking mode, with no `tools` field in the request**\n\n```python\n[{\"role\": \"user\", \"content\": \"What's the weather in Paris? Answer in Fahrenheit.\"},\n {\"role\": \"assistant\", \"content\": \"\", \"reasoning\": \"Tool returns Celsius; convert to Fahrenheit.\",\n  \"tool_calls\": [{\"id\": \"c1\", \"type\": \"function\", \"function\": {\"name\": \"get_weather\", \"arguments\": \"{\\\"city\\\": \\\"Paris\\\"}\"}}]},\n {\"role\": \"tool\", \"tool_call_id\": \"c1\", \"content\": \"{\\\"temp_c\\\": 20}\"}]\n```\n\nBefore (reasoning dropped):\n```\n<\uff5cUser\uff5c>What's the weather in Paris? Answer in Fahrenheit.<\uff5cAssistant\uff5c></think>\n\n<\uff5cDSML\uff5c calls>...\n```\nAfter (reasoning kept, same as the reference encoder):\n```\n<\uff5cUser\uff5c>What's the weather in Paris? Answer in Fahrenheit.<\uff5cAssistant\uff5c><think>Tool returns Celsius; convert to Fahrenheit.</think>\n\n<\uff5cDSML\uff5c calls>...\n```\n\n**2. Literal image token in text**\n\n```python\n[{\"role\": \"user\", \"content\": \"hi <\uff5cdeepseek_image\uff5c>\"}]\n```\n\nBefore: accepted, so the prompt has an image placeholder with no image. After: 400.\n\n## Validation\n\n- `pytest tests/tokenizers_/test_deepseek_v41.py tests/tokenizers_/test_deepseek_v4.py`: 84 passed. The new tests fail on main.\n- E2E on 8x H100 (TP8, recipe H100 flags, DeepSeek-V4.1-Flash-1017): the prompt keeps the tool-call reasoning and matches the reference encoder; the literal image token returns 400.\n- GSM8K (chat, thinking off, 1319 questions): 0.970.\n\n## Details\n\nNot a duplicate: #60792 (image order) and other open V4.1 tokenizer PRs don't change turn boundaries or placeholder validation. Fixtures are copied from the 1017 repo (MIT).\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n",
+    "created_at": "2026-10-17T15:51:26Z",
+    "updated_at": "2026-10-19T15:08:42Z",
+    "fetched_at": "2026-10-20T08:05:47Z",
+    "state": "merged",
+    "merged_at": "2026-10-19T15:08:42Z",
+    "parent": null,
+    "tags": [
+      "h100",
+      "deepseek-v4.1-flash",
+      "deepseek"
+    ],
+    "metadata": {
+      "number": 62199,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 5,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "973dbf8071f8bdd6dd7eb2d6ee0da7cbe6a93670",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "dsv41-1017-encoder-parity",
+        "sha": "2a20d84234a2e9ec7012f4318cf20a572b870396",
+        "label": "robertgshaw2-redhat:dsv41-1017-encoder-parity"
+      },
+      "merge_commit_sha": "ddefe40e16dda6cd3a0ba1b5c83e1ee9f18187fc",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:05:47Z"
+    },
+    "content_hash": "ddf6fa28efd80d203b95b842bcf8fddbb360158d8cdade8f25d30ecec6a786a8"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

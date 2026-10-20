@@ -1,0 +1,157 @@
+{
+  "hypotheses": [
+    {
+      "alternatives": [
+        {
+          "distinguishing_test": "Inspect effective runtime flags and startup logs before GPU benchmarking.",
+          "explanation": "Verification is already active, or DSpark is absent in the deployed runtime."
+        },
+        {
+          "distinguishing_test": "Qualify and freeze one graph-safe build, then change only the adaptive toggle within that build.",
+          "explanation": "Safety changes or different graph capture, rather than adaptive verification, account for any measured difference."
+        },
+        {
+          "distinguishing_test": "Compare adaptive k5 against static k5, static k2, and no speculation on identical topology and traces.",
+          "explanation": "Full k5 verification is already cheaper under the target acceptance and batch mix."
+        }
+      ],
+      "applicability": "DeepSeek-V4.1-Flash on 8×B200, 2×DEP4 baseline, agent-f75 and fixed Mooncake traces. Transfer from B300 and GLM is unproven.",
+      "classification": "activation",
+      "code_surface": "Deployed launch configuration; DSpark adaptive verification; DeepSeek-V4.1 sparse attention metadata builders and CUDA graph eligibility.",
+      "evidence": [
+        {
+          "quote": "CSV dspark_config off contradicts profile on; runtime flags not inspected.",
+          "relation": "context",
+          "source_id": "brief:baseline"
+        },
+        {
+          "quote": "IMA within 1 min at c96 (4/4)",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:59970"
+        },
+        {
+          "quote": "Downgrade them to `UNIFORM_BATCH`",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:59986"
+        },
+        {
+          "quote": "On B200, DSpark verifies the full 5-token block",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62541"
+        },
+        {
+          "quote": "With DP, ranks can choose different K values",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:45963"
+        }
+      ],
+      "experiment": {
+        "control": "Same frozen 2×DEP4 topology with static k5; also static k2 and no speculation.",
+        "correctness": "Check exact sampling distribution and rejection behavior, KV rollback, reproducible fixed-tokenizer outputs, and concurrent-prefill stability before performance scoring.",
+        "cost": "Cheap read-only flag and code inspection first; then targeted safety qualification and a bounded same-topology GPU sweep. No GPU execution in this session.",
+        "held_out_condition": "Mooncake burst and cache-heavy fixed traces after tuning on agent-f75; retain output-length cohorts.",
+        "inconclusive_if": "Effective flags, patch lineage, tokenizer, trace replay, graph path, or scorer attribution remain uncertain; or variance spans the decision threshold.",
+        "metrics": "Both Mooncake custom and AIPerf SLO-qualified goodput scorers; GPU-dollar cost; cost per successful million output tokens; TTFT and E2E p95/p99; ITL by output-length cohort; acceptance, errors, and correctness.",
+        "rejects_if": "Mixed-batch safety or exact sampling and KV rollback fails, or qualified adaptive k5 cannot outperform the strongest eligible static comparator under the prespecified decision rule.",
+        "supports_if": "Safety and correctness pass, and a prespecified repeatable improvement of at least the proposed 5% engineering threshold appears in target cost-throughput metrics without violating latency SLOs.",
+        "treatment": "Graph-safe adaptive verification with draft k5, with safety changes already fixed in every relevant arm."
+      },
+      "id": "R1",
+      "mechanism": "Adaptive verification may reduce target work while keeping the draft width at k5; mixed prefill must avoid unsafe FULL graph capture.",
+      "novelty": {
+        "implementation": "Potential activation after a DeepSeek-specific graph-safety qualification; deployed inclusion is unknown.",
+        "nearest_prior_art": "DSpark adaptive verification and the open DeepSeek graph-safety PR #59986.",
+        "scientific": "None claimed; adaptive verification is known.",
+        "specific_delta": "Keep draft k5 and compare the adaptive verification toggle under one qualified 2×DEP4 deployment.",
+        "workload": "The specified B200 agent and Mooncake traces have no supplied adaptive-versus-static result."
+      },
+      "observed_bottleneck": "Unknown on the target deployment. No supplied result isolates verification cost on 8×B200.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:e5416985fa14d20d7065a0b9258657e509ad12d4ee0311f32c1a569676556fa6"
+      ],
+      "predicted_direction": "Possible increase in SLO-qualified goodput per GPU dollar and decrease in cost per successful million output tokens; size and even sign are unknown.",
+      "prior_art_query": "DSpark adaptive verification graphs",
+      "proposed_change": "After flag and code inspection, qualify graph-safe mixed prefill and decode, then toggle enable_adaptive_verification with draft k5 fixed. Keep any safety patch separate from the toggle.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "Inspect the deployed launch flags, checkout, patch, and container first: the supplied profile says DSpark k5 has adaptive verification disabled, while its CSV says DSpark is off. If verification is inactive and the DeepSeek-specific graph safety conditions are present or can be qualified, enable adaptive verification while retaining draft k5. The proposed mechanism is to spend less target verification work when a full drafted block is unlikely to be useful. This is a transfer inference, not an observed B200 benefit. The B300 concurrent-prefill failure makes mixed-batch graph eligibility a prerequisite, and the B200 tuning PR favors fixed k5. Advance only if same-topology tests improve SLO-qualified cost and throughput without sampling, rollback, or latency regressions."
+    },
+    {
+      "alternatives": [
+        {
+          "distinguishing_test": "Inspect the pinned code path and profile outputs for k5 and the resolved sequence limit.",
+          "explanation": "The deployed runtime already contains schedulable mixed-tail profiling."
+        },
+        {
+          "distinguishing_test": "Replay identical fixed traces and compare estimated costs, selected verification widths, and actual scheduled batch shapes before a GPU performance sweep.",
+          "explanation": "Profiling shape changes startup measurements but leaves adaptive choices unchanged."
+        },
+        {
+          "distinguishing_test": "Stratify decisions by acceptance regime and prefill mix while holding graph and sampling paths fixed.",
+          "explanation": "Acceptance rather than verification cost determines the adaptive choice."
+        }
+      ],
+      "applicability": "Conditional on an active adaptive policy and a reachable tail-shape mismatch in the frozen B200 runtime. Effect on target workload is unknown.",
+      "classification": "upstream_port",
+      "code_surface": "AdaptiveVerificationManager batches_to_profile, dummy-run scheduling and context, model runner profiling, and cost selection.",
+      "evidence": [
+        {
+          "quote": "Anything the profiler measures above 1024 tokens cannot be decode.",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:54046"
+        },
+        {
+          "quote": "This change profiles tail samples as schedulable mixed decode/prefill batches.",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:54077"
+        },
+        {
+          "quote": "A full DSpark model-serving evaluation was not run",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:54077"
+        },
+        {
+          "quote": "runtime conditions and domain shift may still affect their accuracy",
+          "relation": "context",
+          "source_id": "fulltext:2605.00342"
+        },
+        {
+          "quote": "On A100 with TP1",
+          "relation": "context",
+          "source_id": "fulltext:2609.37532"
+        }
+      ],
+      "experiment": {
+        "control": "The strongest qualified same-topology configuration from hypothesis 1, including static k2, static k5, and no-spec references; for calibration attribution, use adaptive k5 with its existing profiler.",
+        "correctness": "Preserve sampling, verification acceptance, KV rollback, draft k5, and graph-safe decode; verify profiler changes do not alter generated distributions.",
+        "cost": "Code-presence and shape inspection first; policy replay second; a bounded GPU sweep only if both reveal a relevant delta. No GPU execution in this session.",
+        "held_out_condition": "Mooncake median, burst, and cache-heavy fixed traces after any calibration on agent-f75; include low and high acceptance and output-length cohorts.",
+        "inconclusive_if": "Cost estimates cannot be matched to scheduled shapes, the adaptive safety gate remains open, or performance variance spans the threshold.",
+        "metrics": "Profiled versus scheduled shape agreement; estimated versus measured verification cost; policy decisions; both goodput scorers; GPU-dollar and successful-token cost; TTFT/E2E p95/p99; ITL length cohorts; correctness.",
+        "rejects_if": "Equivalent behavior is already deployed, relevant shapes are reachable, decisions do not change, or the strongest qualified comparator remains better under the prespecified rule.",
+        "supports_if": "The old profiler produces unreachable relevant shapes, the treatment corrects them and changes decisions, and repeated held-out serving tests clear the proposed 5% engineering threshold against the strongest qualified comparator while satisfying SLO and correctness gates.",
+        "treatment": "Adaptive k5 with only schedulable mixed-tail profiling changed, after graph safety and activation are frozen."
+      },
+      "id": "R2",
+      "mechanism": "Scheduler-reachable mixed-batch profiling could correct verification-cost estimates used by an eligible adaptive policy.",
+      "novelty": {
+        "implementation": "Possible port or activation of the open #54077 behavior, conditional on absence in the pinned runtime.",
+        "nearest_prior_art": "Issue #54046 and open PR #54077; EVICT cost-estimation limitations provide context, not implementation evidence.",
+        "scientific": "None claimed; cost-aware adaptive verification has prior art.",
+        "specific_delta": "Calibrate only scheduler-reachable tail shapes and test whether corrected estimates change useful decisions in the target deployment.",
+        "workload": "Target k5, 2×DEP4 B200 mixed-prefill traces differ from the reported k7 profiling example."
+      },
+      "observed_bottleneck": "Unknown. The supplied B200 issue identifies an invalid profiling shape, not a measured target serving bottleneck.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:35689a139d8cc1cf4c02e42d4033f06cb9f5a37eed740712df0d65c646608933"
+      ],
+      "predicted_direction": "Potentially better policy decisions and SLO-qualified cost-throughput; no directional benefit is established without decision and cost traces.",
+      "prior_art_query": "adaptive verification mixed profiling",
+      "proposed_change": "Inspect whether #54077 or equivalent behavior is present. If absent and relevant, use explicit mixed decode/prefill tail splits above the k5 decode ceiling, preserving captured graph shapes; isolate this change from graph safety and adaptive activation.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "Consider verification-cost calibration only if deployed inspection shows adaptive verification is eligible, graph safety is qualified, and its cost model uses profiling shapes above the reachable decode ceiling. A B200 issue reports that such shapes can be mistaken for uniform decode; an open PR proposes schedulable mixed prefill and decode tails. Port or enable that behavior only if absent from the frozen runtime, and retain the current captured decode shapes. The mechanism is a more faithful cost estimate for the batches that actually occur, which might change adaptive decisions under prefill pressure. No supplied evidence shows that calibration improves serving performance on this target; if the behavior already exists or decisions do not change, stop."
+    }
+  ],
+  "gaps": []
+}

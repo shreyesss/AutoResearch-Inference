@@ -1,0 +1,103 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61827",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61827",
+    "title": "[Bugfix][MRV2][Spec Decode] Sync standalone draft token counts across DP ranks",
+    "body": "\n\n## Overview\n\nMRV2 `draft_model` (`StandaloneARSpeculator`) with a MoE target and DP > 1 crashes at startup: the drafter passes the target's `num_tokens_across_dp` to its own forwards, which run a different number of tokens, and `DPMetadata.make` asserts.\n\nRelated: #56281 (same assert in DSpark, fixed by #54856), #56734 (dummy-run masking for EAGLE). Not a duplicate: no open or closed PR covers these fixes. #56136 touches the same dynamic-SD gate but not which managers capture per K.\n\n## Claims\n\n- Fix the `draft_model` + MoE + DP > 1 startup crash (`AssertionError: 7168 1024`).\n- Port #56734's dummy-run `idx_mapping` masking to the standalone drafter, so idle DP ranks don't write draft KV through stale block tables.\n- Fix the draft prefill's `seq_lens_cpu_upper_bound`, which was one short.\n- Stop `DFlashCudaGraphManager` (DFlash/DFlash2/DSpark) capturing per-K FULL graphs under dynamic SD that it never dispatches.\n\n## Validation\n\nQwen3-30B-A3B target, Qwen3-0.6B draft, K=3, MRV2, H100s. GSM8K 5-shot, 1319 questions.\n\n| Config | GSM8K | Acceptance |\n| --- | --- | --- |\n| DP=1, no spec | 0.889 | \u2014 |\n| DP=1, draft_model | 0.889 | 81.6% |\n| DP=2, draft_model, main | crash at startup | \u2014 |\n| DP=2, draft_model, this PR | 0.899 | 81.8% |\n\n- No sync warnings with `VLLM_GPU_SYNC_CHECK=warn` at DP=2.\n- Prefill bound: a temporary check found the actual draft `seq_lens` above the CPU bound on 539/549 prefills before, 0 after.\n- Idle-rank dummy batches: a tiny random-weight MoE at DP=2 with single and burst requests completes; main crashes.\n- `tests/v1/worker/test_gpu_model_runner_v2.py`, `tests/v1/spec_decode/test_dynamic_sd_cug.py`, `tests/v1/cudagraph/test_cudagraph_manager.py`, `tests/v1/worker/test_gpu_block_table.py`: 56 passed. Both new tests fail on main.\n\n<details>\n<summary>Repro</summary>\n\n```bash\nVLLM_USE_V2_MODEL_RUNNER=1 vllm serve Qwen/Qwen3-30B-A3B --data-parallel-size 2 \\\n  --max-model-len 4096 --port 8001 \\\n  --speculative-config '{\"method\":\"draft_model\",\"model\":\"Qwen/Qwen3-0.6B\",\"num_speculative_tokens\":3}'\npython tests/evals/gsm8k/gsm8k_eval.py --port 8001\n```\n</details>\n\n## Details\n\n- **DP sync.** The draft prefill runs `num_tokens + num_reqs` tokens and each decode step `num_reqs`, so each syncs its own count via `dispatch_cg_and_sync_dp(need_eager=True)`: once for prefill, once before the decode loop. That adds two CPU all-reduces per `propose` at DP > 1. Reusing the target's sync (as the target-dependent drafters do) would mean padding eager attention metadata here, since the target sync only carries the max request count.\n- **Prefill bound.** The prefill kernel writes `seq_len + 1` per request for the correction token, so the prefill now passes `step=1`, as decode already does. FlashInfer TRTLLM prefill with FP8 KV and the sparse MLA backends size work from this bound.\n- **DFlash capture.** New `CudaGraphManager.dynamic_sd_query_lens = True`, set to `False` on `DFlashCudaGraphManager`.\n- **CI.** No CI step runs a MoE target with a draft model at DP=2; the e2e runs above were local.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>",
+    "created_at": "2026-10-15T13:23:47Z",
+    "updated_at": "2026-10-15T13:38:39Z",
+    "fetched_at": "2026-10-19T23:25:46Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "moe",
+      "mla",
+      "speculation"
+    ],
+    "metadata": {
+      "number": 61827,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9543357705,
+          "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+          "name": "nvidia",
+          "color": "76B900",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 0,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "9cede34a674c392092134e34218b127d6bbb3679",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/standalone-draft-dp-sync",
+        "sha": "68b448078b6fa70c62e4d6ee95fab459e1cf23d1",
+        "label": "ayush1399:fix/standalone-draft-dp-sync"
+      },
+      "merge_commit_sha": "d6a68f005c84e30dc4370d011ecb3c40d7966153",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:25:46Z"
+    },
+    "content_hash": "3a9ef6f796f94066299a4ca207f3d28d961c6586ab12684899258b7e2239aba4"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

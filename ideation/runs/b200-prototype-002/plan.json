@@ -1,0 +1,35 @@
+{
+  "directions": [
+    {
+      "mechanism": "Investigate three verifier scheduling behaviors: group requests by verification length, shorten verification for requests whose recent drafts are repeatedly rejected, and defer verification work when a prefill step would delay decodes. Specify the observable state, decision rule, action, overhead, fallback, and strongest fixed-length comparator for each. Check whether the resolved backend supports the required per-request behavior.",
+      "corpus_query": "MTP verifier scheduling",
+      "paper_query": "speculative decoding verification scheduling under mixed prefill and decode load",
+      "counterevidence_query": "fixed draft length outperforms adaptive verification"
+    },
+    {
+      "mechanism": "Investigate three MoE dispatch changes: overlap expert dispatch with local expert work, pack small expert token groups before communication, and switch packing rules as token count changes. Identify the active MoE backend before proposing code edits; compare each change with its existing dispatch path and a fixed backend choice.",
+      "corpus_query": "MoE dispatch overlap",
+      "paper_query": "mixture of experts inference dispatch overlap small token batches",
+      "counterevidence_query": "MoE overlap packing decode regression"
+    },
+    {
+      "mechanism": "Investigate three KV admission rules: retain prefixes with high observed reuse, reserve space for expensive cold-prefill prefixes, and evict low-value entries when cache pressure rises. Specify how each rule handles hybrid or sliding-window state and how it compares with unchanged prefix caching. Treat the stated 75% cacheability target as a workload hypothesis.",
+      "corpus_query": "prefix cache admission",
+      "paper_query": "cost aware KV cache admission for LLM serving",
+      "counterevidence_query": "prefix cache admission overhead thrashing"
+    },
+    {
+      "mechanism": "Investigate three one-node placement rules across DEP8 and two DEP4 layouts: queue-aware engine admission, prefix-residency-aware placement with a bounded queue penalty, and load-triggered placement changes. Account for each layout’s weight memory, concurrency, communication, and cache duplication. Compare with static layouts and the previously proposed bounded prefix placement.",
+      "corpus_query": "DEP4 DEP8 placement",
+      "paper_query": "LLM serving replica routing cache locality queue delay",
+      "counterevidence_query": "cache aware routing load imbalance"
+    },
+    {
+      "mechanism": "Investigate three precision behaviors: retain higher precision for selected sensitive experts, use different precision for prefill and decode where backend support permits, and fall back to higher precision for selected output stages. Require quality and memory evaluation on the target workload; compare with unchanged checkpoint loading and fixed-precision backend activation.",
+      "corpus_query": "NVFP4 expert precision",
+      "paper_query": "mixed precision mixture of experts inference quality sensitivity",
+      "counterevidence_query": "NVFP4 mixed precision conversion overhead quality"
+    }
+  ],
+  "selection_reason": "These are five distinct investigations, with three candidate code behaviors in each. The supplied decision texts establish prior proposals and comparators, but provide no downloaded source bodies, current branch or merge state, active-backend resolution, bottleneck traces, or measured transfer for these proposals. Retrieval should trace base, head, and merge state separately from main-branch availability and baseline inclusion, then test each mechanism against its strongest unchanged activation or static comparator. Deployment novelty and implementation novelty remain separate questions; publication novelty is unestablished."
+}

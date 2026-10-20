@@ -1,0 +1,53 @@
+{
+  "objective": "Prioritize two testable B200 deployment hypotheses: a decode-specific MegaMoE workspace, and conditional transfer of communication CTA/SM resource selection to shared-expert/combine overlap. Seek useful improvement in TTFT, TPOT, throughput, cost per token, or quality without compromising correctness.",
+  "baseline_comparison": "Compare against the supplied R7b2xDEP4 results at 256/384/512 and R10DEP8 at 1024 under matched controls. The task reports R7b custom goodput of 6.6288 and AIPerf strict goodput of 4.6727; preserve both definitions. The historical source pin and refreshed configuration differ. Active engine, precision, backend, MTP/DSpark state, runtime flags, and image digest must be established before claiming a feature is absent or measuring a delta.",
+  "novelty_required": false,
+  "novelty_request": "",
+  "criteria": [
+    {
+      "id": "improvement_path",
+      "description": "Required veto: identify a credible, testable path to task value and either a baseline delta or a cheap inspection that determines whether the feature is already active. Unknown bottlenecks may motivate an experiment.",
+      "category": "improvement",
+      "weight": 35,
+      "required": true,
+      "justification": "Both proposals can be useful even if their performance effects are currently unknown. Backend and configuration inspection is essential before estimating incremental value."
+    },
+    {
+      "id": "legal_correct_integration",
+      "description": "Required veto: show a correctness-preserving integration path. For the workspace, check active backend inclusion, global capacity agreement, zero and unequal rank cases, and the DSpark verify token-bound contract. For communication resource selection, establish that the active backend exposes a legal CTA/SM concurrency knob.",
+      "category": "feasibility",
+      "weight": 25,
+      "required": true,
+      "justification": "These are the concrete failure modes and transfer preconditions in this task. Unknowns defer judgment; a demonstrated violation rejects the proposal."
+    },
+    {
+      "id": "source_support",
+      "description": "Separate observed results, author claims, and B200 transfer inference; use exact short source passages and record unknown hardware, workload, effect size, and limitations.",
+      "category": "evidence",
+      "weight": 20,
+      "required": false,
+      "justification": "The supplied evidence is identifiers and titles, not source excerpts. A PR title or paper abstract cannot establish implementation behavior or B200 gains."
+    },
+    {
+      "id": "controlled_experiment",
+      "description": "Specify matched baseline controls and measurements for TPOT, TTFT, throughput, cost per token, quality, and KV-cache capacity. Treat proposed performance thresholds as design choices.",
+      "category": "testability",
+      "weight": 20,
+      "required": false,
+      "justification": "Workspace allocation may trade decode overhead against KV capacity; communication overlap may shift latency without improving end-to-end service value."
+    }
+  ],
+  "threshold": 70,
+  "evidence": {
+    "minimum_independent_sources": 1,
+    "require_engineering": true,
+    "require_paper_fulltext": true,
+    "rationale": "One substantive implementation source can support the workspace hypothesis; two independent citations are not a blanket requirement. The communication-transfer hypothesis additionally needs the cited paper’s full text and active-backend engineering evidence. These requirements are hypothesis-specific. Supplied titles alone satisfy neither."
+  },
+  "retrieval": {
+    "github": false,
+    "literature": false,
+    "rationale": "The user prohibited tools and limited this response to supplied material. The supplied source identifiers do not include passages, so source-grounded findings and exact source quotations remain deferred."
+  },
+  "rationale": "Weights emphasize a useful baseline-relative path and legal, correct integration for these two specific mechanisms. The 70-point threshold is an uncalibrated prioritization choice, not an empirical cutoff; required vetoes apply independently, and unknown judgments defer rather than reject. The task explicitly says “No GPU execution in this session” and “75% target cacheability is not measured cache-hit rate.” No source results or author claims can be verified from the supplied titles, and no A100-to-B200 effect size is inferred."
+}

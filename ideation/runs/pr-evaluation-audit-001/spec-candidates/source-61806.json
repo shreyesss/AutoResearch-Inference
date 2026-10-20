@@ -1,0 +1,43 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61806",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/vllm-project/vllm/issues/61806",
+    "title": "[Bug]: DSpark draft token count inflated by reusing target DP sync state with adaptive verification",
+    "body": "### Your current environment\n\n<details>\n<summary>The output of <code>python collect_env.py</code></summary>\n\n```text\ncommit id: ac71b175172f2c092d7141f41f0777b914788cfb\n```\n\n</details>\n\n\n### \ud83d\udc1b Describe the bug\n\nWith adaptive verification and DP enabled, DSpark reuses the target model\u2019s DP sync state, whose `num_reqs` may reflect the target CUDA graph\u2019s padded request capacity rather than the logical request count. This causes unnecessary padding in the draft batch. For example, a single request requiring 7 draft query tokens is expanded to 112 tokens when the target graph has a request capacity of 16. The drafter then selects and replays a 133-token CUDA graph.\n\nThis issue appears to share the same root cause as #58984.\n\n* serve script\n\n```text\nvllm serve deepseek-ai/DeepSeek-V4-Flash-0731 \\\n  --tokenizer-mode deepseek_v4 --trust-remote-code \\\n  --data-parallel-size 4 --enable-expert-parallel \\\n  --kv-cache-dtype fp8 --max-model-len 16384 --max-num-seqs 256 \\\n  --max-num-batched-tokens 16384 --gpu-memory-utilization 0.8 \\\n  --compilation-config '{\"cudagraph_capture_sizes\":[16,32,64,128,256,512],\"max_cudagraph_capture_size\":512}' \\\n  --speculative-config '{\"method\":\"dspark\",\"attention_backend\":\"FLASH_ATTN\",\"num_speculative_tokens\":7,\"draft_sample_method\":\"probabilistic\",\"enable_adaptive_verification\":true}'\n```\n\n* profiling result\n\n<img width=\"1846\" height=\"702\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/0d51f211-9cdd-4e86-bdb9-da7fafe36a53\" />\n\n\n### Before submitting a new issue...\n\n- [x] Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the [documentation page](https://docs.vllm.ai/en/latest/), which can answer lots of frequently asked questions.",
+    "created_at": "2026-10-15T10:01:35Z",
+    "updated_at": "2026-10-20T01:22:02Z",
+    "fetched_at": "2026-10-20T08:03:34Z",
+    "state": "closed",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 61806,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 3,
+      "state_reason": "completed"
+    },
+    "content_hash": "ec77625eaaac81872bf82523a4770b3b25ced70178bac42f508516a81284a5f5"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

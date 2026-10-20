@@ -1,0 +1,53 @@
+{
+  "objective": "Prioritize five testable ways to improve DeepSeek-V4.1-Flash serving on one eight-B200 node, considering TTFT, TPOT, throughput, cost per token, and quality.",
+  "baseline_comparison": "Compare each candidate with the unchanged current serving configuration at matched request bodies, cache preparation, load, and eight-GPU budget. Check the active backend, MTP, DSpark, and DEP8 versus two-DEP4 layout before claiming a baseline delta. A prior decision reports 27.6882 req/s at one c384 point, but calls it “one aggregate discovery run without a kernel, rank or request trace.” This is an author-reported aggregate, not an observed bottleneck. The 75% cacheability target is not a measured cache-hit rate.",
+  "novelty_required": false,
+  "novelty_request": "",
+  "criteria": [
+    {
+      "id": "task_value",
+      "description": "Required: Give a credible, testable path to improving a target metric or the cost/quality tradeoff, plus either a delta from the active baseline or a cheap inspection that establishes whether the feature is already active.",
+      "category": "improvement",
+      "weight": 40,
+      "required": true,
+      "justification": "The task seeks useful serving changes; existing flags, ports, and parameter changes qualify. Unknown bottlenecks can justify diagnostic experiments. If baseline status is unknown, defer judgment until the inspection."
+    },
+    {
+      "id": "deployment_fit",
+      "description": "Assess compatibility with the pinned code, actual backend, B200 runtime, and candidate node layouts, including quality and memory risks.",
+      "category": "feasibility",
+      "weight": 25,
+      "required": false,
+      "justification": "A mechanism that works elsewhere may miss this backend or workload. The supplied PR titles and code path identify leads but do not establish implementation or deployment compatibility."
+    },
+    {
+      "id": "discriminating_test",
+      "description": "Specify the cheapest informative inspection or experiment, its matched control, and a result that would stop or advance the candidate.",
+      "category": "testability",
+      "weight": 20,
+      "required": false,
+      "justification": "No GPU execution is available in this session, and no speedup estimate should be invented. A trace or source check can resolve uncertainty before an expensive serving comparison."
+    },
+    {
+      "id": "evidence_and_limits",
+      "description": "Separate direct observations, author claims, and transfer inference; record unknown hardware, workload, effect size, and limitations.",
+      "category": "evidence",
+      "weight": 15,
+      "required": false,
+      "justification": "The available evidence is mostly titles and prior-decision text. For example, the prior decision says “No rank-skew evidence.” That is a reported limitation, not proof that rank skew is absent."
+    }
+  ],
+  "threshold": 70,
+  "evidence": {
+    "minimum_independent_sources": 1,
+    "require_engineering": true,
+    "require_paper_fulltext": false,
+    "rationale": "One relevant code or configuration source, or a concrete cheap baseline-inspection test, can support an engineering candidate. A paper and two independent sources are unnecessary for a known implementation change. An abstract or PR title alone cannot establish implementation details. Unknown required judgments defer selection rather than reject it."
+  },
+  "retrieval": {
+    "github": true,
+    "literature": false,
+    "rationale": "Future branch-specific code and PR inspection is needed to verify active features and applicability; no retrieval was performed because this response is restricted to supplied sources. Additional literature is optional unless it resolves a specific mechanism or limitation."
+  },
+  "rationale": "Observed in the supplied material: commit pins, candidate layouts, source identifiers, and PR titles; no full diffs, traces, or new measurements. Author-reported results are limited to the prior decision's aggregate serving point and its stated limitations. Transfer inference: prioritize cheap checks of active features and suspected bottlenecks, then matched experiments. The 70-point threshold is an uncalibrated prioritization choice, not a measured probability or acceptance guarantee. Only the task-value criterion is a veto; an unknown baseline state defers judgment."
+}

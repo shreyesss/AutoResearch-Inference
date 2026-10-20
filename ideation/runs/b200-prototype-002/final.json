@@ -1,0 +1,181 @@
+{
+  "hypotheses": [
+    {
+      "id": "H01",
+      "title": "Ancestry-preserving prefix-cache admission with ghost hashes",
+      "classification": "adaptation",
+      "mechanism": "Under local KV pressure, retain complete reusable prefix blocks and decline optional cache writes for an unproven private suffix. Record each declined block's exact hash and parent hash in a bounded metadata-only ghost table. If the block is recomputed on a later request, promote it only after its parent is resident and all required cache groups can commit it. Once one block is declined, decline its descendants for that trajectory until a later request rebuilds the contiguous admission frontier. Active generation KV remains allocated normally.",
+      "nearest_prior_art": "The open #51981 PR supplies request-level no-store; RR-Evict proposes tail-first reclamation for agent histories; open #54625 and #58837 reorder waiting-request admission; PEEK proposes queue-informed protection. A write-admission policy at the contiguous block frontier is a narrower adaptation. None of these sources proves a gain on the target deployment.",
+      "new_adaptation": "Add bounded ghost metadata and a per-trajectory admission frontier at completed-block commit. Promote only after a repeat exact hash is observed through recomputation. Treat the cache-group bundle as the admission unit: publish a prefix hit only after every required group has committed the same complete token span. For asynchronous commits, use a completion fence and generation identifier before publishing; cancellation or speculative rollback invalidates pending writes and ghost observations from uncommitted tokens. If the pinned cache manager cannot provide this lifecycle, disable the policy for that configuration.",
+      "code_surface": "V1 block-pool commit and eviction hooks, hybrid KV-cache group coordinator, asynchronous cache-commit completion, and per-run cache accounting. Exact pinned-file locations remain unknown.",
+      "online_policy": "Observable state: completed exact block hashes with parent hashes, ghost repeat counts, free-block pressure, active-block pins, and group commit status. Decision rule: with ample free blocks, use stock admission; under pressure, retain the contiguous proven prefix and place newly computed private suffix blocks on metadata-only probation. On later recomputation, admit repeated blocks in ancestor order if every required group has capacity. Action: change optional local cache retention only. Overhead: bounded host hash-table updates and commit checks. Fallback: stock admission when metadata, group, or async guarantees are unavailable. Strongest static comparator: application-supplied #51981-style request no-store, alongside stock admission and RR-Evict at equal KV capacity.",
+      "strongest_objection": "Declining a suffix may discard precisely the block needed on the next agent turn; ghost metadata cannot supply its KV and promotion requires recomputation. The extra policy may lose to simple request no-store or tail-first eviction, and no supplied B200 block trace establishes avoidable eviction.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DEP8 or two DEP4. The 75% cacheability target is not a measured hit rate.",
+        "implementation": "Proposed block-frontier write behavior differs from #51981's request-level switch, subject to inspection of the pinned cache lifecycle and overlap with existing policies.",
+        "publication": "Unestablished; cache admission, tail eviction, and queue-informed protection have close prior art."
+      },
+      "confidence": "Moderate in the cache invariant and plausible failure mode; low in workload benefit.",
+      "readiness": "Low-to-moderate for a CPU lifecycle prototype; low for serving integration until pinned hybrid-group and asynchronous-commit semantics are resolved.",
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:51981",
+          "quote": "A request can still reuse existing prefix-cache entries, but newly computed blocks from that request are not admitted",
+          "relation": "context",
+          "claim": "Request-level no-store is an existing comparator."
+        },
+        {
+          "source_id": "arxiv:2609.32278",
+          "quote": "evicts a tail chunk from each, preserving reusable prefixes for more agents",
+          "relation": "context",
+          "claim": "The abstract motivates retaining contiguous agent prefixes under pressure; it does not validate this admission rule."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:48401",
+          "quote": "Block-hash prefix caching only registers a **complete** block",
+          "relation": "supports",
+          "claim": "Promotion must wait for a complete recomputed block."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:51820",
+          "quote": "the scheduler can advance its token count optimistically before `block_hashes` are extended to match",
+          "relation": "challenges",
+          "claim": "Asynchronous and speculative paths require a commit fence before hash metadata becomes usable."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:58837",
+          "quote": "Cached-prefix ranking can delay cold requests",
+          "relation": "challenges",
+          "claim": "Cold-request TTFT and scheduler overhead remain necessary checks for cache-aware alternatives."
+        }
+      ],
+      "rubric": {
+        "value": "Conditional reduction in recomputed prompt tokens and TTFT tails for repeated agent histories; no target gain established.",
+        "mechanism": "Bounded ghost hashes guide optional writes at a contiguous, complete-block cache frontier.",
+        "evidence": "Agent-cache and request no-store sources support the opportunity and comparator; target eviction behavior is unknown.",
+        "integration": "Hybrid group atomicity, asynchronous publication, and rollback make integration nontrivial.",
+        "correctness": "A hit must reference a contiguous committed ancestry across every required group; active KV, cancellation, and speculative rollback must remain safe.",
+        "experiment": "Use a small block-lifecycle test, then CPU replay of frozen request hashes and capacity; promote only if recomputed tokens improve against static controls.",
+        "cost": "Low CPU-screen cost; serving integration and GPU cost unestimated.",
+        "distinctness": "Changes local cache write admission, separate from request-level no-store, queue ordering, and eviction order.",
+        "research_contribution": "Potential workload-specific policy study; publication novelty unestablished."
+      },
+      "experiment": {
+        "control": "Stock admission, #51981-style request no-store, and RR-Evict-style tail eviction at equal effective KV capacity and identical request order.",
+        "treatment": "Ghost-hash probation with ancestry-preserving promotion; keep checkpoint, precision, sampler, cache preparation, and active backend fixed within each topology.",
+        "measurements": "Exact per-run hit and recomputed prompt tokens, evictions, scheduler CPU time, HBM occupancy, TTFT tails, TPOT, throughput, cost per token, and agent/tool quality; report DEP8 and two DEP4 separately across relevant concurrency.",
+        "reject_if": "The lifecycle test violates contiguous group commits, CPU replay does not reduce recomputation against the strongest static control, or matched serving loses after scheduler cost.",
+        "correctness": "Exercise shared and divergent prefixes, incomplete blocks, asynchronous completion, cancellation, speculative rollback, group mismatch, and output/logprob parity at fixed precision and sampling.",
+        "cost": "CPU component test and replay first; matched serving cost remains unestimated. No GPU work was performed."
+      },
+      "revision_after_critique": "Explored request-level no-store, RR-Evict tail eviction, queue admission ordering, and block probation. No-store fails to distinguish reusable and one-use segments within a request; a capacity-matched CPU replay is its cheapest falsifier. Tail eviction cannot prevent pollution before reclamation; the same replay compares its recomputed tokens. Queue ordering needs eligible waiting peers and may delay cold requests; a scheduler replay checks both conditions. Retained probation with explicit ancestry, recomputation-based promotion, group commit, and async rollback rules."
+    },
+    {
+      "id": "H02",
+      "title": "Payback-gated expert-placement commits",
+      "classification": "adaptation",
+      "mechanism": "Keep a computed EPLB placement plan pending until recent rank skew is likely to repay migration and the serving state can tolerate the commit. Change the timing of weight movement and map publication, without changing the placement algorithm, token routing, or expert precision.",
+      "nearest_prior_art": "Open #62009 adds asynchronous EPLB work, MegaMoE mapping fusion, and a migration backend; open #61839 adds a rebalance cap; open #59168 describes online placement and replica routing. These are direct controls. #62009's GB200 multi-node, decode-only result does not establish single-node B200 transfer.",
+      "new_adaptation": "Add a pending-plan state and payback gate to the EPLB controller. The first implementation uses a quiescent all-rank serving boundary for in-place migration: drain in-flight forwards and graph replays, agree on plan version and source map, migrate weights, verify each rank's destination rows, then publish the new map version before serving resumes. Before any weight mutation, timeout safely discards or defers the plan and leaves the old map active. After mutation starts, a failed collective must fail closed and recover from a known placement or restart; it cannot claim to roll back merely by restoring the old map. Shadow slots are an optional alternative only if measured free HBM supports them.",
+      "code_surface": "EPLB plan state, migration scheduler and communicator, per-rank weight/map version tracking, and the active MoE backend's map publication path. The pinned active backend and #62009 base/head are unresolved.",
+      "online_policy": "Observable state: recent per-layer rank load and MoE step time, migration bytes and measured pause cost, queued prefills, active decodes, per-rank free HBM, and pending-plan age. Decision rule: at a safe boundary, commit only if estimated saved slow-rank time over a bounded horizon exceeds migration and queueing cost by a hysteresis margin; otherwise defer or discard at expiry. Action: either execute one versioned all-rank migration and publish the map, or keep the old placement. Overhead: host scoring, existing load collection, and measured coordination cost. Fallback: existing fixed placement or qualified async EPLB cadence. Strongest static comparator: best fixed placement and a capped rebalance schedule with equal expert memory.",
+      "strongest_objection": "Single-node migration may be cheap enough that gating only prolongs imbalance, while quiescent in-place migration may stall serving and shadow migration may exceed HBM. #62009 already removes host work from the decode critical path. Durable rank skew, migration payback, and support in either B200 layout are unmeasured.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DEP8 and two DEP4; reported #62009 gains use a different GB200 topology and decode-only workload.",
+        "implementation": "Proposed timing gate and versioned commit protocol, conditional on the active backend and on a similar gate not already existing in the pinned tree.",
+        "publication": "Unestablished; online expert placement and refresh already have close prior art."
+      },
+      "confidence": "Moderate in the migration-versus-skew tradeoff; low in target benefit.",
+      "readiness": "Low. A host policy replay is straightforward, but safe migration integration requires backend and memory qualification.",
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:62009",
+          "quote": "takes async EPLB's host work off the decode critical path",
+          "relation": "challenges",
+          "claim": "Existing work already addresses a major source of EPLB overhead."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62009",
+          "quote": "Within one node, `symm_mem` and NIXL (CUDA IPC) move weights at a similar rate",
+          "relation": "challenges",
+          "claim": "The reported cross-node migration advantage is not a single-node B200 prediction."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61839",
+          "quote": "Every rebalance point blocks all EP ranks.",
+          "relation": "supports",
+          "claim": "Commit frequency and timing can affect service latency."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61839",
+          "quote": "stop after N rebalance points and keep the placement",
+          "relation": "context",
+          "claim": "A simple rebalance cap is a strong low-complexity comparator."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:50647",
+          "quote": "Synchronous rearrangement dominates EPLB wall time",
+          "relation": "challenges",
+          "claim": "Improved rank balance can still lose total throughput after migration."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:59168",
+          "quote": "UltraEP's online refresh re-solves placement and per-replica quotas every N representative batches",
+          "relation": "context",
+          "claim": "Placement refresh and replica routing are existing alternative mechanisms."
+        }
+      ],
+      "rubric": {
+        "value": "Conditional TPOT-tail and throughput opportunity if rank skew persists long enough to repay migration.",
+        "mechanism": "Gate a prepared placement plan using measured migration cost, rank skew, queue pressure, and memory headroom.",
+        "evidence": "Other deployments show both EPLB benefits and costly rearrangement; target transfer is unmeasured.",
+        "integration": "Requires collective version agreement, quiescent migration or shadow storage, and active-backend support.",
+        "correctness": "No forward may use a map version until all corresponding expert weights are valid on every rank; mid-migration failure must fail closed.",
+        "experiment": "Start with a component comparison of rank skew, migration pause, and free HBM, then host policy replay; use serving A/B only if the payback case survives.",
+        "cost": "Cheap host replay; multi-GPU correctness and matched serving work substantial and unestimated.",
+        "distinctness": "Changes commit timing, rather than enabling EPLB, changing placement, or routing replicas per token.",
+        "research_contribution": "A load-dependent commit policy may be useful; publication novelty unestablished."
+      },
+      "experiment": {
+        "control": "EPLB off, best fixed placement, qualified existing async cadence, and a rebalance cap at equal redundant-expert memory.",
+        "treatment": "Same placement algorithm and migration backend with only the pending-plan commit gate added.",
+        "measurements": "Per-layer rank skew and MoE time, migration bytes and serving pause, per-rank free HBM, prefill queue delay, TTFT/TPOT tails, throughput, cost per token, and agent/tool quality at matched concurrency on DEP8 and two DEP4.",
+        "reject_if": "The component test finds no durable skew, insufficient HBM or migration payback, or matched serving loses to the best fixed/async/capped control.",
+        "correctness": "Test plan-version agreement, idle and unequal DP batches, graph replay, no request admitted during in-place mutation, timeout before mutation, and fail-closed behavior after mutation. Compare expert outputs at fixed precision and evaluate agent/tool quality.",
+        "cost": "Component measurement and host replay first; serving duration and setup remain unknown. No GPU work was performed."
+      },
+      "revision_after_critique": "Explored enabling existing EPLB, a fixed rebalance cap, per-token replica routing, and a payback-gated commit. EPLB activation is existing work; a component test of skew versus migration cost can falsify its value here. A cap is simpler but cannot react to changing load; a host cadence replay is its cheapest comparison. Replica routing overlaps #59168 and needs redundant capacity; a memory and routing component check can rule it out. Retained commit timing with a quiescent, versioned in-place protocol and safe defer/discard before mutation."
+    }
+  ],
+  "comparators": [
+    "Historical baseline: vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and DeepSeek Serve 2e6fa287d90adf7318ad314de27aa2f595aac821. Refreshed configuration and later main-branch availability are separate from inclusion in these pins.",
+    "DEP8 and two DEP4 are separate eight-B200 topology controls. Match checkpoint, request bodies and arrival order, cache preparation, concurrency, precision, KV format, MTP/DSpark state, active MoE backend, sampler, and quality scorer within each comparison.",
+    "Open #62541 targets main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5 and changes guide text only; its validated recipe is not thereby in the historical baseline.",
+    "Open #62073 is stacked on woosuk/beam-fused-allreduce base 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea at woosuk/beam-moe head 86a5bbe75a7971275952477bb1ce03e715bcc339. A supplied comment reports conflicts. Its merge_commit_sha field is not proof of merge, and its Beam paths are not V4.1 serving evidence.",
+    "Open #62009 has no supplied base/head SHAs; its inclusion in either pinned deployment is unknown. The later #62073 flashinfer_moe_ep.py body cannot establish the pinned B200 backend.",
+    "For H01: stock cache admission, #51981 request no-store, RR-Evict tail eviction, and #54625/#58837 waiting-queue policies. For H02: EPLB off, best fixed placement, qualified async cadence, #61839 rebalance cap, and #59168 routing if applicable.",
+    "No speculation and fixed DSpark depth remain quality and performance controls. The #62417 chat/tool report is for the 1017 checkpoint on SM120, not a demonstrated B200 failure."
+  ],
+  "rejected_leads": [
+    "SSD or FASER as a direct B200 port: supplied evidence does not establish the required scheduler, KV, hardware-placement, or active-backend transfer; #36037 includes a maintainer objection.",
+    "Fixed-to-adaptive DSpark depth alone repeats the prior B200 decision and existing dynamic-k/adaptive-verification work; an unchanged activation is a comparator.",
+    "CuTeDSL MegaMoE selection and #62073 decode-workspace behavior are existing backend work on an open stacked Beam PR, not a new V4.1 mechanism.",
+    "FP4 KV or mixed expert precision from title matches lacks pinned B200 sparse-MLA and quality support; #50416's prefill regression is on SM120.",
+    "Distributed cache-affinity routing repeats the prior B200 proposal and overlaps documented engine-aware consistent hashing; no target evidence separates avoidable misses from load imbalance."
+  ],
+  "gaps": [
+    "Two defensible cards survived the requested maximum of five; shortfall: three.",
+    "No supplied B200 request, block, rank, or kernel trace establishes cache thrashing, durable expert skew, migration payback, or the winning topology. These are experiment questions, not prerequisites to proposing the mechanisms.",
+    "The pinned ac9126e58aa7 flashinfer_moe_ep.py body is absent. The later #62073 file and diff cannot identify the pinned active backend, EPLB path, or cache lifecycle.",
+    "Exact repeated-prefix overlap, per-run cache hits, eviction reasons, preemptions, hybrid-group behavior, per-rank HBM headroom, and migration cost are unknown.",
+    "The actual checkpoint, precision and KV encoding, MTP/DSpark configuration, active backend, and chat/tool quality must be resolved before matched comparisons. No numeric speedup is predicted."
+  ],
+  "search_queries": [
+    "vllm ac9126e58aa7 DeepSeek V4.1 Flash active MoE backend and EPLB configuration",
+    "vllm ac9126e58aa7 hybrid KV cache group block commit async prefix caching semantics",
+    "DeepSeek V4.1 Flash B200 DEP8 DEP4 repeated prefix block eviction trace",
+    "vllm PR 62009 base head merge state and single-node EPLB migration protocol",
+    "vllm EPLB in-place weight rearrangement quiescent boundary map version timeout",
+    "DeepSeek V4.1 Flash 1017 B200 DSpark chat tool quality qualification"
+  ]
+}

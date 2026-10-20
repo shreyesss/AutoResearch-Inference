@@ -1,0 +1,248 @@
+{
+  "github": [
+    {
+      "id": "github:vllm-project/vllm:49620",
+      "source": "github",
+      "kind": "pr",
+      "url": "https://github.com/vllm-project/vllm/pull/49620",
+      "title": "fix(v1): prevent IMA after speculative preemption",
+      "body": "Fixes #41190.\r\n\r\n\r\n\r\n## Purpose\r\n\r\nWith async scheduling, a request can be preempted after a speculative decode\r\nframe has been dispatched but before its output returns. Preemption frees the\r\nrequest's KV state and resets its computed-token state, making that late output\r\nstale.\r\n\r\nThis PR discards stale asynchronous output after every preemption. The discard\r\nbudget is accounted in placeholder-token units: a speculative frame consumes\r\n`1 + num_scheduled_spec`, rather than one frame or the number of accepted\r\ntokens. The budget is also preserved across repeated preemptions.\r\n\r\nThis covers both ordinary KV-pressure preemption and\r\n`reset_prefix_cache(reset_running_requests=True)`.\r\n\r\n## Related work / duplicate check\r\n\r\nThis change is related to, but does not duplicate,\r\n[#48475](https://github.com/vllm-project/vllm/pull/48475) or\r\n[#49252](https://github.com/vllm-project/vllm/pull/49252).\r\n\r\n- #48475 clamps a GDN kernel state-index load for zero accepted tokens. This\r\n  PR intentionally does not modify GDN code.\r\n- #49252 addresses KV-load-failure recompute. This PR fixes stale asynchronous\r\n  speculative output after regular preemption and drains each frame using its\r\n  scheduled placeholder-token contribution.\r\n\r\n## Test Plan\r\n\r\n- Add regressions for async preemption with 0, 1, 3, and 5 speculative tokens.\r\n- Cover stale output, partial draft acceptance, repeated preemption, multiple\r\n  in-flight frames, and the prefix-cache-reset preemption path.\r\n- Run:\r\n\r\n  ```bash\r\n  .venv/bin/python -m pytest -q tests/v1/core/test_async_scheduler.py",
+      "created_at": "2026-07-23T16:38:28Z",
+      "updated_at": "2026-08-19T21:49:53Z",
+      "fetched_at": "2026-10-19T21:40:47Z",
+      "state": "open",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "speculation"
+      ],
+      "metadata": {
+        "number": 49620,
+        "labels": [
+          {
+            "id": 7614859318,
+            "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+            "name": "needs-rebase",
+            "color": "d4c5f9",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 8068298936,
+            "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+            "name": "v1",
+            "color": "9810B3",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 11777487818,
+            "node_id": "LA_kwDOI7xefs8AAAACvf4zyg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/scheduler",
+            "name": "scheduler",
+            "color": "f5d1c9",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 6,
+        "state_reason": null
+      },
+      "content_hash": "afbe1c4263c7f9535273666f8d8a0c29a2565f6263464db7096535f40ee20d2d",
+      "rank": -11.235989616883167
+    },
+    {
+      "id": "github:vllm-project/vllm:30980",
+      "source": "github",
+      "kind": "pr",
+      "url": "https://github.com/vllm-project/vllm/pull/30980",
+      "title": "[Do not merge][Async] Asynchronous DP coordination",
+      "body": "\n## Purpose\nWhen using async scheduling with MTP and DP, `_get_valid_sampled_token_count` causes a sync point. Following this sync point, DP coordination causes a GPU bubble. This PR creates and employs an asynchronous replacement for `coordinate_batch_across_dp`, allowing this communication to overlap with execution.\n\n## Test Plan\n```\nvllm serve deepseek-ai/DeepSeek-R1 \\\n    -dp 8 \\\n    --enable-expert-parallel \\\n    --no-enable-prefix-caching \\\n    --trust-remote-code \\\n    --max-model-len 4096 \\\n    --async-scheduling \\\n    --speculative-config '{\"method\": \"mtp\", \"num_speculative_tokens\": 1}' \\\n    --gpu-memory-utilization 0.8\n```\nwith\n```\nvllm bench serve --model deepseek-ai/DeepSeek-R1 \\\n    --dataset-name random \\\n    --random-input-len 2 \\\n    --random-output-len 512 \\\n    --max-concurrency 2048 \\\n    --request-rate \"inf\" --num-prompts 8192\n```\n\n## Test Result\n### Correctness\n```\n|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|\n|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|\n|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.9553|±  |0.0057|\n|     |       |strict-match    |     5|exact_match|↑  |0.9545|±  |0.0057|\n```\n\n### Performance\n**mean TPOT: 268.02 ms -> 260.72 = 2.7% speedup**\n\nMain:\n```\n============ Serving Benchmark Result ============\nSuccessful requests:                     8192      \nFailed requests:                         0         \nMaximum request concurrency:             2048      \nBenchmark duration (s):                  694.74    \nTotal input tokens:                      8192      \nTotal generated tokens:                  4194304   \nRequest throughput (req/s):              11.79     \nOutput token throughput (tok/s):         6037.25   \nPeak output token throughput (tok/s):    27887.00  \nPeak concurrent requests:                2200.00   \nTotal token throughput (tok/s):          6049.05   \n---------------Time to First Token----------------\nMean TTFT (ms):                          20707.70  \nMedian TTFT (ms):                        3599.56   \nP99 TTFT (ms):                           104962.31 \n-----Time per Output Token (excl. 1st token)------\nMean TPOT (ms):                          268.02    \nMedian TPOT (ms):                        271.88    \nP99 TPOT (ms):                           497.44    \n---------------Inter-token Latency----------------\nMean ITL (ms):                           545.86    \nMedian ITL (ms):                         237.47    \nP99 ITL (ms):                            1079.73   \n==================================================\n```\n\nPR:\n```\n============ Serving Benchmark Result ============\nSuccessful requests:                     8192      \nFailed requests:                         0         \nMaximum request concurrency:             2048      \nBenchmark duration (s):                  692.14    \nTotal input tokens:                      8192      \nTotal generated tokens:                  4194304   \nRequest throughput (req/s):              11.84     \nOutput token throughput (tok/s):         6059.89   \nPeak output token throughput (tok/s):    10913.00  \nPeak concurrent requests:                2086.00   \nTotal token throughput (tok/s):          6071.73   \n---------------Time to First Token----------------\nMean TTFT (ms):                          24249.12  \nMedian TTFT (ms):                        6028.87   \nP99 TTFT (ms):                           109039.20 \n-----Time per Output Token (excl. 1st token)------\nMean TPOT (ms):                          260.72    \nMedian TPOT (ms):                        263.83    \nP99 TPOT (ms):                           449.06    \n---------------Inter-token Latency----------------\nMean ITL (ms):                           484.87    \nMedian ITL (ms):                         240.19    \nP99 ITL (ms):                            841.68    \n==================================================\n```\n\n### Profile\nMain: Bubble evident\n<img width=\"1119\" height=\"1208\" alt=\"Screenshot 2025-12-18 at 1 20 40 PM\" src=\"https://github.com/user-attachments/assets/0ff7d031-7197-4301-b32d-9defe557769c\" />\n\nPR: No bubble\n<img width=\"1119\" height=\"1208\" alt=\"Screenshot 2025-12-18 at 1 20 44 PM\" src=\"https://github.com/user-attachments/assets/1f062383-fbc7-4405-ac27-dc36879777df\" />\n\n---\n<details>\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\n\n- [x] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\n- [x] The test plan, such as providing test command.\n- [x] The test results, such as pasting the results comparison before and after, or e2e results\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\n- [ ] (Optional) Release notes update. If your change is user facing, please update the release notes draft in the [Google Doc](https://docs.google.com/document/d/1YyVqrgX4gHTtrstbq8oWUImOyPCKSGnJ7xtTpmXzlRs/edit?tab=t.0).\n</details>\n\n",
+      "created_at": "2025-12-18T18:40:44Z",
+      "updated_at": "2026-03-25T19:24:19Z",
+      "fetched_at": "2026-10-19T21:14:29Z",
+      "state": "closed",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "deepseek",
+        "ttft",
+        "tpot",
+        "throughput",
+        "performance",
+        "speculation"
+      ],
+      "metadata": {
+        "number": 30980,
+        "labels": [
+          {
+            "id": 8068298936,
+            "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+            "name": "v1",
+            "color": "9810B3",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 2,
+        "state_reason": null
+      },
+      "content_hash": "f9ac9a4f058f7aeb693f404bc6c0ab497d01230aa5b18eadb39b9dced985dc6a",
+      "rank": -10.855296312514074
+    },
+    {
+      "id": "github:vllm-project/vllm:50363",
+      "source": "github",
+      "kind": "pr",
+      "url": "https://github.com/vllm-project/vllm/pull/50363",
+      "title": "[K3] Enable DS align state copies with speculative decoding",
+      "body": "## Summary\r\n\r\nThis is a focused follow-up to #50000 that enables the DS convolution-state\r\nlayout with Model Runner V2, align-mode Mamba prefix caching, asynchronous\r\nscheduling, and speculative decoding.\r\n\r\nThe fused pre-copy and postprocess kernels already support DS state by shifting\r\nalong the state-length axis using per-row count and stride metadata. The\r\nremaining blocker was a stale assertion in `MambaHybridModelState` based on the\r\nolder contiguous `MambaCopySpec` path, which cannot represent a strided DS\r\nslice.\r\n\r\n- Remove the stale DS plus speculative-decoding guard from the MRV2 align path.\r\n- Clarify that DS offsets are handled by both fused state-copy kernels.\r\n- Extend the existing fused pre-copy equivalence test across SD and DS layouts,\r\n  request counts 1/4/16, and token offsets 0/1/7.\r\n- Add an MRV2 DS plus asynchronous-scheduling prefix-cache test case.\r\n\r\nRelated issue: #38897.\r\n\r\n## Duplicate-work check\r\n\r\nThe required searches were run:\r\n\r\n```bash\r\ngh issue view 38897 --repo vllm-project/vllm --comments\r\ngh pr list --repo vllm-project/vllm --state open \\\r\n  --search \"38897 in:body\"\r\ngh pr list --repo vllm-project/vllm --state open \\\r\n  --search \"DS conv state layout speculative decoding mamba align\"\r\n```\r\n\r\nNo open PR references #38897, and the area search found no direct duplicate.\r\nThe nearest open work is materially different:\r\n\r\n- #49436 optimizes state-copy kernel tiling; it does not remove the DS/spec\r\n  guard or add DS MRV2 coverage.\r\n- #46912 is a broader, draft pre-copy-free redesign of align-mode prefix\r\n  caching.\r\n- #42792 provides the broader MRV2 speculative-decoding align implementation.\r\n  This patch uses that implementation already present in the `kimi-k3` base\r\n  and narrowly unblocks and validates DS.\r\n\r\nThis PR is stacked on #50000 and is intended to target its `kimi-k3` branch.\r\n\r\n## Testing\r\n\r\n### Focused CUDA correctness\r\n\r\n```bash\r\n.venv/bin/python -m pytest \\\r\n  tests/kernels/mamba/test_precopy_mamba_align.py -v\r\n```\r\n\r\nResult: 18 passed. The matrix covers both layouts, 1/4/16 requests, offsets\r\n0/1/7, fresh requests, same-block no-ops, cross-block convolution-state\r\nshifts, and temporal-state copies. State comparisons use zero tolerance.\r\n\r\n```bash\r\npre-commit run --files \\\r\n  tests/kernels/mamba/test_precopy_mamba_align.py \\\r\n  tests/v1/e2e/general/test_mamba_prefix_cache.py \\\r\n  vllm/model_executor/layers/mamba/mamba_utils.py \\\r\n  vllm/v1/worker/gpu/model_states/mamba_hybrid.py\r\ngit diff --check origin/kimi-k3...HEAD\r\n```\r\n\r\nResult: all applicable pre-commit hooks passed; `git diff --check` produced no\r\nerrors.\r\n\r\n### E2E and model evaluation\r\n\r\nThe run served `moonshotai/Kimi-K3` as one TP8 replica on two GB300 nodes with:\r\n\r\n- `VLLM_USE_V2_MODEL_RUNNER=1`\r\n- `VLLM_SSM_CONV_STATE_LAYOUT=DS`\r\n- align-mode Mamba prefix caching\r\n- automatically enabled asynchronous scheduling\r\n- dSpark speculative decoding with 7 draft tokens\r\n- `max_num_seqs=256` and `max_num_batched_tokens=32768`\r\n\r\nFive full GSM8K 5-shot evaluations ran at concurrency 512, with 1,319 samples per run:\r\n\r\n| Run | Strict exact match | Flexible exact match |\r\n| ---: | -----------------: | -------------------: |\r\n| 1 | 0.9629 | 0.9629 |\r\n| 2 | 0.9613 | 0.9613 |\r\n| 3 | 0.9613 | 0.9613 |\r\n| 4 | 0.9621 | 0.9621 |\r\n| 5 | 0.9613 | 0.9613 |\r\n\r\nThe output scanner checked all 6,595 generations and reported 0 garbage\r\nresponses.\r\n\r\nAn additional held-server probe exercised exact Mamba block boundaries, shared\r\nprefixes, and full scheduler occupancy under the same configuration:\r\n\r\n- 510/510 requests succeeded; the cumulative prefix-cache hit rate was 65.1%\r\n  (810,240 of 1,244,567 queried tokens).\r\n- Repeated 1,537/2,303/2,305/3,071/3,073-token prompts produced identical\r\n  outputs and hit 768/768/1,536/1,536/2,304 prefix tokens, respectively.\r\n- A repeated 6,789-token chat completed 16/16 requests, with all 8 replays\r\n  matching and 5,376 cached tokens per replay.\r\n- A 256-request concurrent wave completed 256/256 requests with unique response\r\n  IDs and no garbage output.\r\n- dSpark accepted 14,101 of 27,174 drafted tokens. Health remained HTTP 200,\r\n  with no queued requests or live engine/CUDA/NCCL failures after the probes.\r\n\r\n## AI assistance and human accountability\r\n\r\nOpenAI Codex was used for implementation support, test authoring, log analysis,\r\nand drafting this description.\r\n\r\n",
+      "created_at": "2026-07-30T02:39:04Z",
+      "updated_at": "2026-08-09T21:31:21Z",
+      "fetched_at": "2026-10-19T21:41:53Z",
+      "state": "closed",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "speculation",
+        "kv-cache"
+      ],
+      "metadata": {
+        "number": 50363,
+        "labels": [
+          {
+            "id": 7614859318,
+            "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+            "name": "needs-rebase",
+            "color": "d4c5f9",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 8068298936,
+            "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+            "name": "v1",
+            "color": "9810B3",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 11639749575,
+            "node_id": "LA_kwDOI7xefs8AAAACtch7xw",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/k3",
+            "name": "k3",
+            "color": "e429eb",
+            "default": false,
+            "description": null,
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 1,
+        "state_reason": null
+      },
+      "content_hash": "1481e268aee2d37abd2c3079532cff04f2d76256d965399178b8b29656ae5cc5",
+      "rank": -10.430203094181865
+    },
+    {
+      "id": "github:vllm-project/vllm:28947",
+      "source": "github",
+      "kind": "issue",
+      "url": "https://github.com/vllm-project/vllm/issues/28947",
+      "title": "[Tracking Issue][Performance]: Speculative decoding performance/QoL improvements",
+      "body": "Below are some of the items that help improve the usability and performance of speculative decoding in vLLM. Please feel free to review, suggest and collaborate if you are interested! \n\nPoint of Contact: @benchislett, drafted/maintained by @benchislett \n\n## New Drafting Styles\n\n- [x] Draft-model support (Merged #24322)\n- [x] Parallel Drafting (PARD, P-EAGLE) (Merged #32887)\n- [ ] DFlash Parallel Drafting (WIP #32206)\n- [ ] NGram-GPU support  (In Review https://github.com/vllm-project/vllm/pull/29184)\n- [ ] Hybrid ngram-eagle drafting (In Review https://github.com/vllm-project/vllm/pull/24344)\n\n## Extending Model Support\n- [ ] Support more than 1 spec token for DeepSeek V3.2 (Tracking Issue https://github.com/vllm-project/vllm/issues/31845)\n\n## Performance Improvements\n- [ ] Full CudaGraph for the drafter (Tracking Issue #33341)\n- [ ] Reduce number of kernels issued in EAGLE drafting\n  - [x] Task 1: optimize prepare_inputs_padded (Merged https://github.com/vllm-project/vllm/pull/28597)\n  - [ ] Task 2: clean up and optimize work done between iterations of the drafter (Tracking Issue #33455)\n  - - [ ] Fuse the slot mapping update into a triton kernel (In Review https://github.com/vllm-project/vllm/pull/33503)\n  - [ ] Task 3: make eagle’s prepare_inputs methods stateful [cleaner implementation, which also will save a few redundant copies] (Tracking Issue #33456)\n  - [ ] Misc: Compile the drafter (What exactly does this do?) (In Review https://github.com/vllm-project/vllm/pull/26179)\n- [ ] First-class support for multimodal EAGLE\n  - [x] Enablement of Multi-Modal EAGLE drafters\n  - [ ] Compatibility with Parallel Drafting and external drafters (Tracking Issue #33458)\n- [ ] Improved overlapping for async scheduling (In Review https://github.com/vllm-project/vllm/pull/32951 ~https://github.com/vllm-project/vllm/pull/29957~)\n\n## Sampling Improvements\n- [ ] Support for probability-aware sampling (Stalled https://github.com/vllm-project/vllm/pull/20459)\n  - May also be accomplished in ModelRunnerV2 by Gumbel sampling\n- [ ] General performance investigation for speculative sampling\n\n## Legacy Effort: Asynchronous Scheduling Support\nAsynchronous Scheduling is now enabled by default in vLLM even with Speculative Decoding. The following is a record of the work done to accomplish this feature. It may need to be revisited when implementing speculative decoding for ModelRunnerV2.\n- [x] Basic support (Merged https://github.com/vllm-project/vllm/pull/24799)\n- [x] Support for penalties and bad_words (todo, discussion https://github.com/vllm-project/vllm/pull/24799#issuecomment-3442944707), PR https://github.com/vllm-project/vllm/pull/30495\n- [x] Support for logprobs (Merged #29223)\n- [x] Optimal support for logprobs (https://github.com/vllm-project/vllm/pull/31336)\n- [x] Compatibility with structured outputs (In-Progress, discussion https://github.com/vllm-project/vllm/pull/24799#issuecomment-3438133490) https://github.com/vllm-project/vllm/pull/29821\n\n# CC List\n@pavanimajety @vadiklyutiy @hjjq @nvpohanh ",
+      "created_at": "2025-11-18T16:43:47Z",
+      "updated_at": "2026-06-25T00:32:29Z",
+      "fetched_at": "2026-10-19T21:12:09Z",
+      "state": "closed",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "deepseek",
+        "performance",
+        "speculation"
+      ],
+      "metadata": {
+        "number": 28947,
+        "labels": [
+          {
+            "id": 5471987301,
+            "node_id": "LA_kwDOI7xefs8AAAABRifmZQ",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/performance",
+            "name": "performance",
+            "color": "3DDD26",
+            "default": false,
+            "description": "Performance-related issues",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 7648877658,
+            "node_id": "LA_kwDOI7xefs8AAAABx-icWg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/stale",
+            "name": "stale",
+            "color": "ededed",
+            "default": false,
+            "description": "Over 90 days of inactivity",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 9543357705,
+            "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+            "name": "nvidia",
+            "color": "76B900",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 11,
+        "state_reason": "completed"
+      },
+      "content_hash": "0c5ef07b854c863bb332384da9a74533dbd628faea09468d5b3648b6f72e9309",
+      "rank": -10.332071084337219
+    }
+  ],
+  "literature": {
+    "query": "asynchronous speculative decoding",
+    "ids": [
+      "arxiv:2410.17375",
+      "arxiv:2506.11309",
+      "arxiv:2604.25326",
+      "hf:2506.11309",
+      "hf:2408.11850",
+      "hf:2604.26779"
+    ],
+    "errors": [],
+    "provider": "both",
+    "after": null,
+    "before": null,
+    "searched_at": "2026-10-19T22:02:22Z",
+    "coverage": "Bounded search; HF dates filtered after retrieval. Empty hits do not establish novelty."
+  },
+  "fulltext": {
+    "id": "fulltext:2603.03251",
+    "url": "https://arxiv.org/html/2603.03251",
+    "characters": 102795
+  }
+}

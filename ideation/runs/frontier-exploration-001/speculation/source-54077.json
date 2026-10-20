@@ -1,0 +1,90 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:54077",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/54077",
+    "title": "[Bugfix][Spec Decode] Profile adaptive verification tails as mixed batches",
+    "body": "## Summary\r\n\r\nFixes #54046.\r\n\r\nAdaptive verification profiles token counts beyond the cudagraph capture limit by distributing them across dummy requests. With `max_num_seqs=128` and seven speculative tokens, a real decode request contributes eight query tokens, so a fully occupied decode step contains at most:\r\n\r\n```text\r\n128 * (1 + 7) = 1024 tokens\r\n```\r\n\r\nTail samples above 1024 tokens cannot be uniform decode batches. Previously, however, a 16384-token sample was profiled as 128 requests with 128 query tokens each, producing a shape the scheduler cannot generate for speculative decoding.\r\n\r\nThis change profiles tail samples as schedulable mixed decode/prefill batches.\r\n\r\nFor the configuration reported in the issue:\r\n\r\n```text\r\nmax_num_batched_tokens = 16384\r\nmax_num_seqs           = 128\r\nnum_speculative_tokens = 7\r\nprofile_context_len    = 8192\r\n```\r\n\r\nthe 16384-token profile becomes:\r\n\r\n```text\r\n126 decode requests * 8 tokens\r\n2 fresh-prefill requests * 7688 tokens\r\n```\r\n\r\n## Changes\r\n\r\n- Keep captured token sizes unchanged so their dummy runs continue to match their cudagraph descriptors.\r\n- Convert only tail sizes above the decode ceiling into mixed decode/prefill batches.\r\n- Account for the decode tokens freed when a request slot becomes prefill.\r\n- Allow small request budgets to produce a schedulable prefill-only tail instead of falling back to an invalid uniform shape.\r\n- Carry the explicit per-request split through the existing scheduler output.\r\n- Give context only to decode rows.\r\n- Mark trailing rows as fresh prefill and construct their positions accordingly.\r\n- Size dummy block tables for the longest decode or prefill sequence.\r\n- Preserve the existing even split when no explicit profile shape is supplied.\r\n- Fall back to the existing dummy shape if cudagraph dispatch pads or reshapes the batch.\r\n\r\n## Tests\r\n\r\nHardware:\r\n\r\n```text\r\nNVIDIA GeForce RTX 5090\r\nCUDA-enabled PyTorch environment\r\n```\r\n\r\nRegression command:\r\n\r\n```bash\r\nCUDA_VISIBLE_DEVICES=0 .venv/bin/python -m pytest -q \\\r\n  tests/v1/spec_decode/test_adaptive_verification.py \\\r\n  tests/v1/worker/test_gpu_input_batch_v2.py \\\r\n  tests/v1/worker/test_gpu_model_runner_v2.py \\\r\n  tests/v1/worker/test_gpu_model_runner_v2_cudagraph_profiling.py \\\r\n  tests/v1/cudagraph/test_cudagraph_dispatch.py \\\r\n  tests/v1/cudagraph/test_cudagraph_manager.py\r\n```\r\n\r\nResult:\r\n\r\n```text\r\n54 passed, 14 warnings\r\n```\r\n\r\nAdditional checks:\r\n\r\n```text\r\npy_compile: passed\r\nruff check 0.14.0: passed\r\nruff format --check 0.14.0: passed\r\n```\r\n\r\nThe CUDA regression test verifies the explicit split, decode-only context, fresh-prefill metadata, positions, sequence lengths, and KV block-table coverage.\r\n\r\nA full DSpark model-serving evaluation was not run because the corresponding large-model environment was not available on this single-GPU host. This change affects startup profiling shapes and does not modify sampling or verification kernels.\r\n\r\n## Related work\r\n\r\n#54065 addresses the same reported issue. This implementation additionally:\r\n\r\n- keeps the prefill rows context-free instead of applying dummy decode context to every row;\r\n- accounts for freed decode tokens when sizing prefill chunks;\r\n- covers small request budgets that require a prefill-only tail.\r\n\r\n## AI assistance\r\n\r\nAI assistance was used during investigation, implementation and test. Every changed line and the reported test results were reviewed.",
+    "created_at": "2026-08-27T16:51:42Z",
+    "updated_at": "2026-09-13T17:58:47Z",
+    "fetched_at": "2026-10-19T23:13:33Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "speculation"
+    ],
+    "metadata": {
+      "number": 54077,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7614859318,
+          "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+          "name": "needs-rebase",
+          "color": "d4c5f9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 3,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "32ad1400d7fa08872430de3f1d0f981dc8db5cb6",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix-adaptive-profile-shapes-54046",
+        "sha": "a04a99637b0b5b4ccb4f7018245149153f7f8d24",
+        "label": "poorpaper:fix-adaptive-profile-shapes-54046"
+      },
+      "merge_commit_sha": null,
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:13:33Z"
+    },
+    "content_hash": "8967b3fbf7b1b8b8101ca3596d775a90e653429a24b1c1fd4ee6265606ab78ea"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

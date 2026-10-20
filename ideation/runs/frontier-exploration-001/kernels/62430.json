@@ -1,0 +1,58 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62430",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62430",
+    "title": "[MRV2] Stage decode tokens across captured DBO regions",
+    "body": "## Overview\n\nDuring imbalanced DP decode, a rank can have real requests but leave the last captured microbatch empty, causing MRV2 DBO to fall back from FULL CUDA Graph replay. This first layer of the split of #57184 stages those requests into the captured regions and restores logical order after execution. Related issue: #57177.\n\n## Claims\n\n- Divide real single-token decode rows across the already captured microbatch regions, including odd graph sizes and more than two regions.\n- Scatter through temporary buffers so overlapping source and destination rows do not corrupt inputs; restore logical rows for post-forward consumers.\n- Retain FULL replay only when every DP rank satisfies the staging contract. Unsupported layouts keep the existing fallback.\n\n## Validation\n\n- Exact head `018312f191`, 2026-10-19: `.venv/bin/python -m pytest -q tests/v1/worker/test_gpu_ubatch_slicing.py -k 'stage or staging or conditional or empty'` \u2192 **106 passed, 17 skipped, 29 deselected**. This exercises layout, gating, and restoration on CPU; skipped cases include CUDA-dependent coverage.\n- Targeted Ruff and whitespace checks passed on the split stack during preparation; the full pre-commit suite was not run for this PR.\n- Real CUDA Graph replay, NIXL multi-rank correctness, and full-model serving have **not** been validated on this head. No model evaluation or throughput claim is made for this layer.\n\n## Details\n\n**How it works:** the DP decision checks whether any rank's last captured region would be empty. For eligible uniform single-token decode, staging spreads rows across the existing region slices, rebuilds per-region attention metadata, and restores input and output order after the forward pass. Temporary scatter buffers preserve source rows when regions overlap. The path is gated to specific MRV2 model-state and attention layouts with NIXL EP; unsupported auxiliary inputs and parallel layouts remain excluded.\n\n**Review context:** specture724 asked that the prototype support odd graph sizes and more than two microbatches without hard-coded equal halves; this layer applies that region-based approach. aoshen02 requested that #57184 be split. The original combined PR is closed. Follow-on layers remain reviewable in the author's fork: [routed-expert ordering](https://github.com/algebra-MCX/vllm/pull/2) \u2192 [NIXL capacity](https://github.com/algebra-MCX/vllm/pull/3) \u2192 [stream handoff](https://github.com/algebra-MCX/vllm/pull/4) \u2192 [per-microbatch resources](https://github.com/algebra-MCX/vllm/pull/5) \u2192 [dynamic count](https://github.com/algebra-MCX/vllm/pull/6). They will be proposed upstream in dependency order.\n\n**Overlap and cost:** #57020 chooses eager fallback at the empty-tail boundary; this PR stages eligible real rows to preserve FULL replay. The predicates must be reconciled before merge. Staging adds copies and temporary buffers, so this layer makes no performance claim.\n\nOpenAI Codex assisted with code preparation, validation, and PR text. The human submitter confirmed line-by-line review of all six incremental changes on 2026-10-19. Historical model results in #57184 do not validate this head.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill.\n- [x] AI assistance was used during the creation of this PR.\n- [x] **Design Fit:** Staging uses captured slices and a conservative capability gate; added copies and unsupported layouts are described.\n- [ ] **Testing and Validation:** CPU checks passed; current-head CUDA Graph and model validation are pending.\n- [ ] **Code Quality and Style:** Targeted Ruff and whitespace checks passed on the stack; full pre-commit remains pending.\n- [x] **Pull Request Contents:** Scope, related work, reviewer feedback, evidence, and limitations are included.\n</details>\n",
+    "created_at": "2026-10-19T08:44:30Z",
+    "updated_at": "2026-10-19T09:39:57Z",
+    "fetched_at": "2026-10-19T23:26:46Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "throughput",
+      "performance"
+    ],
+    "metadata": {
+      "number": 62430,
+      "labels": [
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 2,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "852989f580820849113d67d13fd8053e279d0444",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "split/pr57184-01-staging",
+        "sha": "018312f1918fdf81c16ccbfbbef19fa2713338f7",
+        "label": "algebra-MCX:split/pr57184-01-staging"
+      },
+      "merge_commit_sha": "6cd72764d406da79e3129dd8e31b4b0831ee0cc6",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:26:46Z"
+    },
+    "content_hash": "3216ba9513199d4a9fc7e3d7fd001ab6d0f8a556b147bbfcf08922a6463b081d"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

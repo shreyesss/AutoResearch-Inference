@@ -1,0 +1,23 @@
+{
+  "reviews": [
+    {
+      "id": "H01",
+      "verdict": "Revise; retain only as a trace-gated implementation hypothesis.",
+      "objection": "The deadline rule is established prior art: arxiv:2609.07883 says “selects the largest prefill chunk predicted to finish before the earliest active decode deadline.” The proposed EP-wide decision does not specify which ranks share scheduling state, how local deadlines become one decision, or how the decision avoids unnecessary waiting across independent DP work. The collective constraint is narrower than stated: github:vllm-project/vllm:62073:files:vllm/model_executor/layers/fused_moe/modular_kernel.py says “with passthrough, dispatch happens inside the experts, so idle ranks must participate.” The active backend and incidence of mixed-step rank skew are unknown. A fixed cadence may already suffice; the guide diff at github:vllm-project/vllm:62541:files:recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml says “It sets `--prefill-schedule-interval 48` at c96,” but that guide change is not proved present in the pinned image.",
+      "required_revision": "Define the actual collective group and per-rank scheduling contract after resolving the pinned backend. Specify deadline and predictor calibration, the overdue/no-fitting-chunk action, graph-shape and KV-memory limits, and stale-state fallback. Gate implementation on target traces showing mixed prefill/decode steps with material rank skew. Compare unchanged pinned behavior, qualified fixed cadence and budget sweeps, and an applicable SLOWeave-style controller under matched DEP8 and two-DEP4 concurrency, precision, quality, and memory conditions. Keep deployment and publication novelty unestablished."
+    },
+    {
+      "id": "H02",
+      "verdict": "Reject as a distinct mechanism card; retain as a conditional integration or comparator study.",
+      "objection": "The proposed decision rule is substantially RR-EVICT: arxiv:2609.32278 says it “visits agents in round-robin order and evicts a tail chunk from each.” A vLLM agent-cache precedent also exists: fulltext:2606.16824 says “Implemented in vLLM and evaluated on the collected traces.” Strong counterevidence favors a simpler baseline: arxiv:2609.28870 says “sophisticated policies designed for traditional caches provide little benefit over LRU.” The target's 75% cacheability is a goal, with no observed eviction pressure or returning-session losses. arxiv:2609.19969 mentions “cross-layer KV cache reuse in Compressed Sparse Attention 2 (CSA2) with FP4 KV caching,” but its abstract does not establish block ownership, replay dependencies, or safe partial invalidation. Calling LRU the existing pinned policy is also unverified.",
+      "required_revision": "Do not count round-robin tail eviction as a new mechanism. First establish the pinned cache manager, exact prefix and replay-state dependencies, actual occupancy, and avoidable recomputation from request traces. If a model-specific integration remains useful, specify atomic ownership and invalidation rules, metadata and recomputation overhead, replica locality, and safe fallback. Compare unchanged pinned policy, qualified LRU, fixed partial eviction, a compatible RR-EVICT port, CacheWise where applicable, and native CPU KV offload only in a supported layout. Require uncached output and quality agreement at matched precision before any serving claim."
+    }
+  ],
+  "global_gaps": [
+    "Neither card establishes the resolved active backend, precision path, MTP/DSpark state, graph repertoire, KV representation, or memory fit at the historical vLLM and deepseek_serve pins.",
+    "PR #62541 is supplied as open with a main-branch base and a guide-only head; PR #62073 is supplied as open on a stacked branch. Branch availability, main-branch inclusion, historical-image inclusion, and runtime activation require separate proof.",
+    "No target request, rank, collective, cache, memory, concurrency, or quality traces establish that either proposed mechanism addresses a measured bottleneck.",
+    "The cited abstracts motivate mechanisms and identify prior art; they do not establish implementation absence or measured transfer to DeepSeek-V4.1-Flash on B200.",
+    "Both proposals are untested. Deployment novelty is conditional, implementation novelty is unproved, and publication novelty is unestablished."
+  ]
+}

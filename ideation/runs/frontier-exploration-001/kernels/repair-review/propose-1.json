@@ -1,0 +1,82 @@
+{
+  "hypotheses": [
+    {
+      "alternatives": [
+        {
+          "distinguishing_test": "Inspect resolved backend and trace workspace allocation and selection in the exact image before implementing.",
+          "explanation": "The deployed backend already selects the smaller workspace."
+        },
+        {
+          "distinguishing_test": "Compare workspace bytes, KV capacity and occupancy, MegaMoE decode time, TPOT, and SLO goodput with otherwise identical runs.",
+          "explanation": "MegaMoE workspace overhead is too small to affect serving, or extra allocation reduces KV capacity enough to offset it."
+        }
+      ],
+      "applicability": "Conditional on active `flashinfer_moe_ep_cutedsl`, required FlashInfer APIs, and a verified DSpark token bound. Applicability to archived R7b and R10 runs is unknown. Pinned adapter supports secondary workspace only for CuTeDSL with PCP=1 and create_workspace; capacity ceil(max_num_seqs*(1+num_speculative_tokens)/SPsize). Active runtime inclusion remains unknown.",
+      "classification": "adaptation",
+      "code_surface": "vLLM FlashInfer MoE-EP adapter and workspace allocation/selection in `vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py`; deployed FlashInfer `create_workspace` API.",
+      "evidence": [
+        {
+          "quote": "It is used when every DP rank's batch fits, since peer buffer offsets depend on the capacity.",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:62073"
+        },
+        {
+          "quote": "The MegaMoE runtime paths still need CI or a nightly-FlashInfer machine.",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62073"
+        },
+        {
+          "quote": "decode/draft are essentially unchanged.",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:57604"
+        },
+        {
+          "quote": "On B200, DSpark verifies the full 5-token block (`enable_adaptive_verification:false`)",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:62541"
+        },
+        {
+          "quote": "and moe.moe_parallel_config.pcp_size == 1",
+          "relation": "context",
+          "source_id": "code:vllm-project/vllm:86a5bbe75a7971275952477bb1ce03e715bcc339:vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py"
+        },
+        {
+          "quote": "# Every EP rank must use the same capacity: peer buffer offsets depend",
+          "relation": "supports",
+          "source_id": "code:vllm-project/vllm:86a5bbe75a7971275952477bb1ce03e715bcc339:vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py"
+        }
+      ],
+      "experiment": {
+        "control": "The resolved deployed backend with its existing fixed or automatic workspace policy; retain the static fixed-workspace option as a comparator. Match R7b two DEP4 at concurrency 256/384/512 and R10 DEP8 at 1024 within each layout.",
+        "correctness": "Require global capacity agreement, collective participation by idle ranks, no deadlock, bit-exact eligible outputs against the fixed path, and a verified maximum number of MegaMoE tokens entering each DSpark verification step.",
+        "cost": "Read-only presence and eligibility inspection first; then targeted multi-rank correctness tests and paired eight-B200 serving runs. No GPU execution is available in this session.",
+        "held_out_condition": "Unequal and zero-token rank batches under CUDA graph replay, plus a held-out arrival trace with measured cache hits and a different concurrency mix.",
+        "inconclusive_if": "The active image or flags cannot be recovered, cache-hit rates or request streams differ, the path is already active without a separable control, or measurement uncertainty masks the delta.",
+        "metrics": "TTFT, TPOT/ITL, throughput, separately defined custom and AIPerf strict SLO goodput, cost per token, quality, MegaMoE decode time, workspace bytes, KV capacity and occupancy, and collective hangs/errors.",
+        "rejects_if": "The active path is ineligible, the token or peer-offset contract fails, correctness fails, or paired serving results show no useful net benefit after KV capacity is included.",
+        "supports_if": "The path is eligible and absent from control, rank and DSpark contracts pass, and paired serving runs improve TPOT or throughput without material loss of KV capacity, goodput, cost, or quality. Any performance threshold must be chosen before testing.",
+        "treatment": "Decode-sized workspace selection with a fixed-workspace fallback when any rank exceeds the common capacity."
+      },
+      "id": "R1",
+      "mechanism": "Select a smaller workspace for eligible decode batches while preserving identical peer buffer offsets across ranks; any saved active capacity may reduce MegaMoE overhead, while the additional allocation may reduce KV capacity.",
+      "novelty": {
+        "implementation": "Conditional activation or adaptation of an existing, open PR's workspace mechanism.",
+        "nearest_prior_art": "vLLM PR #62073.",
+        "scientific": "No novelty claim.",
+        "specific_delta": "Evaluate decode workspace selection against the deployed fixed-workspace path, including its KV memory cost and DSpark correctness contract.",
+        "workload": "DeepSeek-V4.1-Flash agent-style decode on a single eight-B200 node; actual cache-hit rate is unknown."
+      },
+      "observed_bottleneck": "Unknown. The supplied B200 aggregate reports serving outcomes, not MegaMoE workspace overhead.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:49e612f1ad8cffc2b83acf89f6a33f4d5062a606204262f327ad458722d41534"
+      ],
+      "predicted_direction": "Possible lower decode TPOT or higher throughput; KV capacity, TTFT, and cost per token could worsen. No numerical B200 effect is predicted.",
+      "prior_art_query": "MegaMoE decode workspace capacity",
+      "proposed_change": "First inspect the deployed image and runtime to establish engine, precision, selected MoE backend, FlashInfer API availability, and whether decode workspace selection is already active. If eligible and absent, adapt #62073's workspace selection with global capacity agreement and a safe fixed-workspace fallback.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "Test a decode-sized MegaMoE workspace for DeepSeek-V4.1-Flash on the eight-B200 node, conditional on the deployed engine selecting FlashInfer CuTeDSL MegaMoE and supporting the required workspace API. PR #62073 describes a capacity of `max_num_seqs × (1 + num_speculative_tokens)` per sequence-parallel rank, selected only when every data-parallel rank fits because peer offsets depend on shared capacity. A smaller active workspace might reduce decode address or capacity overhead, but its extra allocation and warmup could take memory from KV cache and reduce useful concurrency. No controlled DeepSeek B200 decode performance measurement appears in the inspected sources; the PR throughput measurement concerns Beam prefill on GB300. Establish backend inclusion and the actual DSpark verification token bound first, then compare full serving behavior and correctness against a fixed-workspace control. The B200 decode bottleneck and effect size are unknown."
+    }
+  ],
+  "gaps": []
+}

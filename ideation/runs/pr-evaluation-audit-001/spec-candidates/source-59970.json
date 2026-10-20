@@ -1,0 +1,57 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:59970",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/vllm-project/vllm/issues/59970",
+    "title": "[Bug]: DeepSeek-V4.1 DSpark adaptive verification + FULL_AND_PIECEWISE: illegal memory access under concurrent prefill (FlashInfer sparse DSV41 builders declare ALWAYS)",
+    "body": "### Your current environment\n\n`vllm/vllm-openai:v0.31.0` (digest `sha256:a4a4c0437bf7\u2026`), 2\u00d7 B300 (SM103), TP2, Model Runner V2, DeepSeek-V4.1-Flash (rev `dba1be0a40aa45a94ad051997016db3960a90277`).\n\n### \ud83d\udc1b Describe the bug\n\nWith DSpark adaptive verification on and `cudagraph_mode=FULL_AND_PIECEWISE`, the engine dies with `CUDA error: an illegal memory access was encountered` once the scheduler runs mixed prefill+decode batches at high concurrency. The error surfaces at the event sync in `AdaptiveVerification.record_confidences` (`vllm/v1/worker/gpu/spec_decode/adaptive_verification.py:264`, called from `model_runner.sample_tokens`). Because the error is async, that frame is only where it is reported.\n\nServe command (relevant flags):\n\n```\nvllm serve deepseek-ai/DeepSeek-V4.1-Flash --tokenizer-mode deepseek_v41 -tp 2 \\\n  --max-model-len 1040000 --max-num-seqs 128 --max-num-batched-tokens 8192 --long-prefill-token-threshold 4096 \\\n  --enable-prefix-caching --kv-cache-dtype fp8 --engram-config '{\"cpu_offload\":true}' \\\n  --attention-config '{\"backend\":\"FLASHINFER_MLA_SPARSE_DSV41\",\"indexer_kv_dtype\":\"mxfp4\",\"indexer_sparse_logits\":true}' \\\n  --compilation-config '{\"mode\":\"VLLM_COMPILE\",\"cudagraph_mode\":\"FULL_AND_PIECEWISE\"}' --gpu-memory-utilization 0.85 \\\n  --speculative-config '{\"method\":\"dspark\",\"num_speculative_tokens\":5,\"draft_sample_method\":\"probabilistic\",\"rejection_sample_method\":\"block\",\"enable_adaptive_verification\":true}'\n```\n\nLoad: closed-loop multi-turn chat, 96 concurrent streams, prompts 0.6K\u2013118K tokens (~90% prefix-cache hits), outputs 8\u20135,000 tokens. The engine dies 30\u201360 s into the run, with ~90 requests running and the KV cache only ~3% used. We reproduced it 4 times in 4 tries across two nodes.\n\n| Arm (same node, same load) | Result |\n|---|---|\n| adaptive verification **on**, `FULL_AND_PIECEWISE` | IMA within 1 min at c96 (4/4) |\n| adaptive verification **off**, `FULL_AND_PIECEWISE` | stable: 30 min at c96 + 15 min at c128 |\n| adaptive verification **on**, `FULL_DECODE_ONLY` | stable: 15 min at c128 |\n\nThe fix only has to keep mixed/prefill batches out of FULL graphs while adaptive verification is on. That points at the same class as #59681 / #59751. In 0.31.0 the DSV4.1 FlashInfer sparse builders (`DeepseekV4FlashInferSparseMLAMetadataBuilder` and `DeepseekSparseSWAFlashInferMetadataBuilder` in `vllm/models/deepseek_v41/nvidia/flashinfer_sparse.py`, along with the compressor and FlashMLA builders) all declare `AttentionCGSupport.ALWAYS`. #59751 changes only the generic `FlashInferMLASparseTRTLLMMetadataBuilder`, so it will not cover this path. The likely fix is the same move for these builders: `UNIFORM_BATCH` plus `get_varlen_cudagraph_max_query_len` returning `max_decode_query_len(vllm_config)`.\n\nWorkaround: `enable_adaptive_verification: false`. Throughput was the same within noise (c128: 1,643 vs 1,608 out tok/s per GPU for on + `FULL_DECODE_ONLY`).\n\n### Before submitting a new issue...\n\n- [x] Searched existing issues (#59681 and #59751 are related, but they cover the generic backend and `cudagraph_mode=FULL`).\n",
+    "created_at": "2026-10-04T18:29:09Z",
+    "updated_at": "2026-10-04T19:00:00Z",
+    "fetched_at": "2026-10-19T21:57:36Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "throughput",
+      "performance",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 59970,
+      "labels": [
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 0,
+      "state_reason": null
+    },
+    "content_hash": "4ff1c294590dca6baa68b2178815237141c4157c6fc796bcf5a598acb5e647c0"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

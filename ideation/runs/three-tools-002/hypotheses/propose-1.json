@@ -1,0 +1,86 @@
+{
+  "hypotheses": [
+    {
+      "id": "H01",
+      "parents": [],
+      "operation": "generate",
+      "statement": "On the eight-B200 DeepSeek-V4.1-Flash node, trial a capped asynchronous draft cache that prepares likely verification continuations while the target verifies the current MTP batch. A scheduler would spend a per-request token and memory budget only when traces show material draft wait and verification outcomes that can be predicted affordably; otherwise it would use fixed MTP. Prepared continuations would carry request and KV-state epochs and expire on mismatch, preemption, prefix-cache reset, or budget pressure. This could reduce TPOT when a prepared continuation matches, but discarded work could reduce throughput. No supplied source measures draft wait, outcome predictability, or discarded-work cost for this model. Reported SSD gains elsewhere are author claims. Compare within the same eight-GPU budget against qualified fixed MTP and a static branch policy.",
+      "observed_bottleneck": "Unknown. The supplied DeepSeek-V4.1-Flash material reports recipe validation, not a draft-wait or verification trace.",
+      "mechanism": "Prepare a bounded set of possible next drafts during verification, reuse a matching continuation, and invalidate unmatched or stale state.",
+      "proposed_change": "Add a trace-gated branch budget, request/KV epochs, expiry and preemption handling, plus a fixed-MTP fallback.",
+      "code_surface": "Proposed speculative scheduler, draft/verify handoff, KV-state accounting, and preemption handling; the supplied sources do not establish the active implementation path at the pinned commit.",
+      "applicability": "Conditional on compatible MTP/DSpark and backend state, measurable draft wait, affordable outcome prediction, and spare capacity under DEP8 or two DEP4 layouts.",
+      "predicted_direction": "Conditional TPOT reduction; throughput and cost per token may worsen if unused drafts consume scarce capacity. TTFT benefit is unestablished.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "Fixed MTP already hides most drafting time.",
+          "distinguishing_test": "Trace draft wait on the unchanged qualified baseline; reject this direction if little exposed wait remains."
+        },
+        {
+          "explanation": "Any apparent gain comes from asynchronous DP coordination or configuration drift.",
+          "distinguishing_test": "Hold backend, layout, MTP depth, recipe settings, and DP coordination fixed across arms; record their resolved states."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "github:vllm-project/vllm:36037",
+          "quote": "pre-speculates tokens for those outcomes in advance",
+          "relation": "supports"
+        },
+        {
+          "source_id": "fulltext:2603.03251",
+          "quote": "which parallelizes even this sequential dependence",
+          "relation": "supports"
+        },
+        {
+          "source_id": "fulltext:2603.03251",
+          "quote": "generally ineffective for throughput-bound workloads",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:49620",
+          "quote": "preempted after a speculative decode frame has been dispatched but before its output returns",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62541",
+          "quote": "It changes only `recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml` (guide text).",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:30980",
+          "quote": "mean TPOT: 268.02 ms -> 260.72 = 2.7% speedup",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "Unestablished; SSD and asynchronous drafting are prior art.",
+        "implementation": "A bounded, epoch-safe integration with the resolved DeepSeek-V4.1-Flash serving path is proposed, not demonstrated.",
+        "workload": "Agent-style approximately 8K input / 1K output on one eight-B200 node; the 75% cacheability target is not a measured hit rate.",
+        "nearest_prior_art": "SSD/Saguaro; AMUSD and SwiftSpec abstracts describe related asynchronous systems. The earlier B200 H06 decision proposes adaptive DSpark depth, a different control mechanism.",
+        "specific_delta": "Conditionally prepare verification-outcome continuations under an explicit shared-node work and memory budget, with stale-state invalidation and fixed-MTP fallback."
+      },
+      "prior_art_query": "bounded speculative speculative decoding branches",
+      "experiment": {
+        "control": "Qualified unchanged fixed-MTP/DSpark recipe at the pinned serving stack, plus a static branch-budget SSD comparator if an implementation is available; use the same eight-GPU budget.",
+        "treatment": "Capped asynchronous outcome branches with trace-gated spending, expiry, and epoch-based invalidation.",
+        "metrics": "Draft wait, branch match and discard rates, added draft tokens and memory, TTFT, TPOT, throughput, cost per token, and output quality; report distributions by load and cache condition.",
+        "supports_if": "On held-out requests, prepared branches repeatedly remove exposed draft wait and improve TPOT beyond run variance while quality holds and throughput and cost remain acceptable under a prespecified service objective.",
+        "rejects_if": "Exposed draft wait is negligible, branch matches are too rare, stale-state correctness fails, or added work erases the latency gain under the equal-resource comparison.",
+        "inconclusive_if": "The active backend or MTP state cannot be resolved, the static comparator is unavailable, configuration drifts, or measurement uncertainty exceeds the observed differences.",
+        "held_out_condition": "Separate agent-style request bodies with different prefix repetition and concurrency from policy tuning; include cold and repeated-prefix traffic and both candidate layouts.",
+        "correctness": "Check deterministic output equivalence where applicable and quality evaluations otherwise; exercise mismatch, partial acceptance, cancellation, preemption, repeated preemption, and prefix-cache reset.",
+        "cost": "Implementation and setup cost are unknown and potentially substantial. No GPU execution is authorized in this analysis; any later serving experiment must account for all eight GPUs, warmup, and repeats."
+      },
+      "revision_reason": "The proposal limits speculative work because the supplied paper cautions about throughput-bound use, while the open preemption PR identifies a stale-output hazard. No source establishes a target bottleneck or speedup."
+    }
+  ],
+  "gaps": [
+    "Resolved active backend and MTP/DSpark state at the pinned baseline are unknown.",
+    "DeepSeek-V4.1-Flash draft wait, verification-outcome distribution, branch-cache cost, and effect size on B200 are unknown.",
+    "The supplied SSD excerpt omits experiment configuration and implementation details; its performance figures remain author claims.",
+    "The DeepSeek recipe PR reports a validation sweep but no asynchronous-speculation measurement.",
+    "The DP-coordination PR reports a different mechanism and workload; its hardware is unknown. The MegaMoE PR reports Beam prefill on GB300, so neither establishes this hypothesis's effect."
+  ]
+}

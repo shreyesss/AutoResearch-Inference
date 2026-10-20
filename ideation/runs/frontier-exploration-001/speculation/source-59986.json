@@ -1,0 +1,90 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:59986",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/59986",
+    "title": "[Bugfix][Attention] Keep DSV4.1 sparse prefill out of FULL cudagraphs",
+    "body": "\n\n## Overview\n\nFixes #59970. The five DSV4.1-specific sparse metadata builders declare `AttentionCGSupport.ALWAYS`, so with `cudagraph_mode=FULL_AND_PIECEWISE` prefill and mixed batches get FULL-graph captured even though their prefill metadata is not graph-safe, and the engine dies with an illegal memory access once adaptive verification runs mixed batches at concurrency. Downgrade them to `UNIFORM_BATCH` and report the speculation width as the varlen decode bound, mirroring the reviewed pattern from #59751.\n\n## Claims\n\n- Prefill and mixed batches leave FULL capture for all five builders named in #59970: `DeepseekV4FlashMLAMetadataBuilder`, `DeepseekV4FlashInferSparseMLAMetadataBuilder`, `DeepseekSparseSWAFlashInferMetadataBuilder`, `DeepseekSparseSWAFlashMLAMetadataBuilder`, `CompressorMetadataBuilder`. `FlashMLAMegaAttnBackend` inherits the same builder, so it is covered too.\n- FULL varlen decode graphs are kept for uniform batches sized up to 1 + num_speculative_tokens, so DSpark adaptive verification keeps its decode graphs.\n\n## Validation\n\n```bash\n.venv/bin/python -m pytest tests/v1/worker/test_attn_utils.py -q\n```\n\n82 passed on CPU. The 10 new parametrized cases pin, per backend and num_speculative_tokens in {0, 7}, that support resolves to `UNIFORM_BATCH`, that decode widths up to the speculation width stay graph-eligible, and that one token wider is rejected with the reported bound. Changed-file pre-commit (ruff-check, ruff-format) passed.\n\nNot run: the B300 (SM103) end-to-end reproducer from the issue, no compatible hardware available here, and CI does not exercise these builders. The change only narrows what FULL graphs capture: prefill moves to the piecewise path that the issue's adaptive-verification-off and FULL_DECODE_ONLY arms already exercise for 30+ minutes under load, so no batch that was not captured before becomes captured.\n\n## Details\n\nRoot cause, from the issue's arm table: adaptive verification on + FULL_AND_PIECEWISE hits the IMA 4/4 within a minute; verification off in the same mode is stable; verification on with FULL_DECODE_ONLY is stable. The failing ingredient is prefill inside FULL graphs. Each affected builder now also overrides `get_varlen_cudagraph_max_query_len` to return `max_decode_query_len(vllm_config)` (1 + num_speculative_tokens on MRV2), the same width the V2 runner uses when it builds varlen decode replays.\n\nNot a duplicate of #59751: that PR changes only the generic `FlashInferMLASparseTRTLLMMetadataBuilder` for #59681, while the DSV4.1 model wires its own five builders, which the #59970 reporter calls out explicitly. Checked the issue thread and open PRs referencing #59970 before starting; nothing else covers them.\n\nAI assistance: Kimi Code (Kimi K3) prepared the patch and tests; I reviewed every changed line and ran the validation above.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n\n",
+    "created_at": "2026-10-04T23:17:26Z",
+    "updated_at": "2026-10-07T05:05:57Z",
+    "fetched_at": "2026-10-19T23:22:44Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "speculation"
+    ],
+    "metadata": {
+      "number": 59986,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9543357705,
+          "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+          "name": "nvidia",
+          "color": "76B900",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 5,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "43b4aaea3e40e20ef53ce2bfecfa1b72060bf2b5",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/dsv41-sparse-full-cudagraph-prefill",
+        "sha": "86579a1f34d9c30010e8bec13d61851edc935c13",
+        "label": "he-yufeng:fix/dsv41-sparse-full-cudagraph-prefill"
+      },
+      "merge_commit_sha": "1363ee79e2cb43ddb7172b4db5aef6893a7347e1",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:22:44Z"
+    },
+    "content_hash": "9e81a70300f816170524935cf5d81766ddf2f5950f81550618e8d02b2e9d9f1a"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

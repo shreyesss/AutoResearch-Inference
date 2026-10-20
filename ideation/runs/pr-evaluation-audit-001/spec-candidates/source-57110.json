@@ -1,0 +1,91 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:57110",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/57110",
+    "title": "[Bugfix][Spec Decode] Separate DSpark from EAGLE prefix-cache block drop",
+    "body": "## Purpose\n\nFix a DSpark prefix-cache regression caused by sharing EAGLE's hidden-state scheduling path.\n\nDSpark intentionally returns true from `use_eagle()` because it consumes target hidden states. Before this change, that also made `use_eagle_block_drop()` return true. The scheduler and KV-cache manager therefore applied EAGLE's trailing-block handling to DSpark: the last matched prefix block was dropped and the Mamba cache position was moved back by one block.\n\nThat behavior is required for EAGLE because its trailing draft cache block is volatile. DSpark uses block-parallel drafting and does not have the same requirement. Dropping the block for DSpark prevents an otherwise reusable full prefix block from being reused, reducing prefix-cache hits and adding repeated prefill work.\n\nThis PR keeps DSpark on the EAGLE hidden-state scheduling path but excludes it from EAGLE's trailing prefix-cache block drop.\n\nThe DSpark verification path can also add recurrent state whose physical page size differs from the target model's page size. To keep the target model's logical block granularity while storing the complete verification state safely, this PR also:\n\n- derives logical attention/Mamba block sizing from a target-only config;\n- preserves DSpark's heterogeneous KV-cache page sizes instead of padding every group to the largest page;\n- allocates page-size buckets in disjoint ranges of the shared backing allocation;\n- uses the bucketed bytes-per-block value consistently for memory admission, capacity calculation, block overrides, and final worker configuration.\n\nCurrent `main` already routes scheduler behavior through `SpeculativeConfig.use_eagle_block_drop()` and supports heterogeneous segment sizes in KV block zeroing, so the fix can use those shared mechanisms without adding a separate DSpark scheduler or zeroing path.\n\nRelated to #52317.\n\n## Test Plan\n\n```bash\nVLLM_TARGET_DEVICE=cpu python3 -m pytest -q tests/v1/core/test_kv_cache_utils.py\n\nVLLM_TARGET_DEVICE=cpu python3 -m pytest -q \\\n  tests/platforms/test_interface.py \\\n  tests/test_config.py::test_eagle_block_drop_can_be_disabled_without_disabling_eagle \\\n  tests/test_config.py::test_dspark_does_not_use_eagle_block_drop \\\n  tests/v1/core/test_contiguous_kv_packing.py\n\nuvx ruff check \\\n  vllm/platforms/interface.py \\\n  vllm/config/speculative.py \\\n  vllm/v1/core/kv_cache_utils.py \\\n  tests/platforms/test_interface.py \\\n  tests/test_config.py \\\n  tests/v1/core/test_kv_cache_utils.py\n\ngit diff --check\n```\n\nThe new tests cover DSpark's EAGLE block-drop decision, target-only logical Mamba page sizing, heterogeneous attention/Mamba page allocation and memory accounting, and compatibility with existing contiguous KV-cache packing paths.\n\n## Test Result\n\n```text\ntests/v1/core/test_kv_cache_utils.py:\n116 passed, 14 warnings in 45.51s\n\nplatform/config/contiguous-packing selection:\n27 passed, 14 warnings in 5.90s\n\nruff:\nAll checks passed!\n\ngit diff --check:\nclean\n```\n\n---\n<details>\n<summary>Essential Elements of an Effective PR Description Checklist</summary>\n\n- [x] The purpose of the PR, including the root cause and related issue.\n- [x] The test plan, including exact commands.\n- [x] The test results.\n- [x] Documentation update considered; this is an internal correctness fix with no user-facing API or configuration changes.\n\n</details>\n",
+    "created_at": "2026-09-16T03:37:54Z",
+    "updated_at": "2026-10-01T10:13:17Z",
+    "fetched_at": "2026-10-19T23:18:11Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 57110,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7614859318,
+          "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+          "name": "needs-rebase",
+          "color": "d4c5f9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777489391,
+          "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+          "name": "kv-cache-manager",
+          "color": "d065a7",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 2,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "75dc5882699be65eaee144cb7d0b06c1f86d3cec",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/dspark-hybrid-kv-cache",
+        "sha": "bfbfc0e7efcd0972271e5c6b626f867dd051fb00",
+        "label": "ZhangHandi:fix/dspark-hybrid-kv-cache"
+      },
+      "merge_commit_sha": null,
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:18:11Z"
+    },
+    "content_hash": "4742141071137ffe8704246afdd26d87bcbe9b1f5978c715bacb5b829e3992a8"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

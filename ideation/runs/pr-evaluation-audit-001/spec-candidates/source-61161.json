@@ -1,0 +1,104 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61161",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61161",
+    "title": "[Bugfix][Spec Decode] Avoid reusing random draws across block verification rounds",
+    "body": "## Overview\r\n\r\nFixes #61114. Give block verification fresh acceptance and draft random draws when an uncommitted position is revisited in a later round.\r\n\r\n## Claims\r\n\r\n- Removes the cross-round sampling bias for deterministic and probabilistic drafts in Model Runner V2.\r\n- Preserves seeded repeat, request-order and batch-splitting behavior in both verification modes. Standard probabilistic token sequences change, but their target distribution is retained.\r\n- Uses a shared step-seed helper without new forwarding parameters, round-position tensors, scheduler state, host synchronization or sampling kernel launches.\r\n- Covers ordinary draft sampling, the shared DFlash2/LiLiCorr candidate walk, DSpark and ordinary watermark fallback.\r\n\r\n## Validation\r\n\r\nReal V2 generation with one-layer, context-independent Llama target/draft models, TP=1, float32, two speculative tokens and 10,000 requests per configuration:\r\n\r\n| Draft | Verification | Expected P(third token = 0) | Before | After |\r\n| --- | --- | --- | --- | --- |\r\n| Deterministic | standard | 0.5000 | 0.5039 | 0.5039 |\r\n| Deterministic | block | 0.5000 | 0.4171 | 0.4989 |\r\n| Probabilistic | standard | 0.3000 | 0.3083 | 0.3055 |\r\n| Probabilistic | block | 0.3000 | 0.3558 | 0.2898 |\r\n\r\nAll six output marginals pass in each updated configuration; both original block cases fail. Worker types and nonzero acceptance metrics confirm the real V2 draft-model path. All four updated configurations pass seeded repeat, reordered requests and split batches. Standard deterministic output retains its original hash; standard probabilistic output does not. The probabilistic block run also passes with `VLLM_GPU_SYNC_CHECK=error`. Before-fix values are the retained original model measurements; the updated four-case matrix was rerun after this review.\r\n\r\nThe official multi-round regression fails before the fix. Disabling only the acceptance step helper fails the deterministic block distribution assertion. Disabling only the cached draft step helper while retaining the acceptance repair also fails the probabilistic distribution assertion. Disabling only the candidate-walk helper fails both FP32/FP64 parity cases. These negative controls contain actual assertion failures, not setup errors or skips. The mixed watermark test covers the fused ordinary fallback and unchanged raw-logit caching.\r\n\r\n```bash\r\n.venv/bin/python -m pytest -q tests/v1/spec_decode/test_rejection_sampler_utils.py tests/v1/spec_decode/test_synthetic_rejection_sampler_utils.py tests/v1/worker/test_gpu_rejection_sampler_i64.py tests/v1/worker/test_gpu_rejection_sampler_chunking.py tests/v1/worker/test_gpu_gumbel_sample.py tests/v1/spec_decode/test_dspark_topk.py tests/v1/spec_decode/test_lilicorr.py tests/v1/spec_decode/test_dflash2.py tests/v1/spec_decode/test_dflash_profile.py tests/watermarking --ignore=tests/watermarking/test_engine_compatibility.py --ignore=tests/watermarking/test_watermarking_e2e.py\r\n.venv/bin/pre-commit run --files vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py vllm/v1/worker/gpu/sample/gumbel.py vllm/v1/worker/gpu/sample/watermark.py vllm/v1/worker/gpu/spec_decode/dflash2/speculator.py tests/v1/spec_decode/test_rejection_sampler_utils.py tests/v1/spec_decode/test_lilicorr.py tests/v1/spec_decode/test_dspark_topk.py tests/watermarking/test_gumbel.py\r\ngit diff --check\r\n```\r\n\r\nResults: 350 official tests pass in the CUDA run, with three existing skips; all applicable native hooks pass. Separately, 175 CPU controls pass, with 76 accelerator-dependent skips. Five supplemental CUDA controls cover signed seeds, scalar/per-token cache columns, padding, graph replay and ordinary watermark fallback. Model tests use Triton attention and a bounded KV cache because this host's driver cannot run the reused CUDA 13 FlashAttention wheel. The candidate-walk tests cover FP32/FP64 step-seed parity and retain the existing conditional proposal-cache, padding and graph-replay checks. No AMD, full-runner CUDA graph, adaptive-policy model evaluation or throughput claim is made.\r\n\r\n## Details\r\n\r\nBlock verification reads uniforms for draft positions past the finally accepted prefix. Reusing `(request seed, position)` in the next round reuses randomness conditioned on the preceding decision. Probabilistic drafting has the same problem with its position-keyed Gumbel noise.\r\n\r\nFollowing review, `spec_step_seed(seed, step)` mixes the draft step into the seed's upper 32 bits. Cached Gumbel sampling uses its existing cache column; the DFlash2/LiLiCorr walk uses its loop step. A request's `(position, step)` pair does not repeat across rounds. Block acceptance calls the same helper with `i` inside its verification loop, always starting from the original request seed. No new flag is needed, including in DSpark and the watermark adapters. The fused ordinary watermark fallback uses the same cached step seed; context-keyed watermark draws are unchanged.\r\n\r\nCached draft seeding now applies under standard verification too. This changes standard probabilistic seeded sequences, not their target distribution; the updated implementation remains reproducible. This is distinct from #59355/#60945's residual lookahead bounds and #60652's grammar-invalid drafts, and complements #54282's within-round draft/target stream separation.\r\n\r\nRelated PR #61153 addresses the same bug with an explicit round-position tensor and a different seed mixer. This implementation instead uses the existing draft step inside the kernels. Both implementations passed the earlier shared four-case CUDA distribution comparison on #61153 at `170dcc217`; that comparison predates this reviewer-requested simplification. This is an alternative implementation of the same repair, not a claim that #61153 is incorrect.\r\n\r\n---\r\n\r\n<details>\r\n<summary> Pull Request Checklist </summary>\r\n\r\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\r\n- [x] AI assistance was used during the creation of this PR.\r\n\r\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\r\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\r\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\r\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\r\n</details>\r\n\r\n**BEFORE SUBMITTING, PLEASE READ <https://docs.vllm.ai/en/latest/contributing>** (anything written below this line will be removed by GitHub Actions)\r\n",
+    "created_at": "2026-10-12T05:34:11Z",
+    "updated_at": "2026-10-15T21:46:39Z",
+    "fetched_at": "2026-10-19T23:24:41Z",
+    "state": "merged",
+    "merged_at": "2026-10-15T21:46:38Z",
+    "parent": null,
+    "tags": [
+      "throughput",
+      "performance",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 61161,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 5,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "105605b8e9982af14351cd8260b21acda7ab5869",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/block-verification-round-noise",
+        "sha": "97b07665bc38d52772a18f546241ee8abb3302da",
+        "label": "DimensionSTP:fix/block-verification-round-noise"
+      },
+      "merge_commit_sha": "9edcc7fa7ec858e13d4dc10ed968b741e2c95d6a",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:24:41Z"
+    },
+    "content_hash": "38eb876defd218a05e2424be574d0727ac763722d0d2393632e18ac7be948b9b"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

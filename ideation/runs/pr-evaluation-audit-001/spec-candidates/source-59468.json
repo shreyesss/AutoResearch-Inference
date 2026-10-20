@@ -1,0 +1,96 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:59468",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/59468",
+    "title": "[Spec Decode] Don't reserve DFlash/DSpark draft slots in the scheduler token budget",
+    "body": "## Overview\n\nDFlash and DSpark reserve `max_num_new_slots_for_drafting` draft slots per request in the scheduler token budget (K for DFlash, K \u2212 1 for DSpark), but neither drafts in the target batch. This PR sets those slots to 0 and instead caps running requests (`max_num_active_seqs`) at `max_num_batched_tokens // num_lookahead_tokens`, so the separate draft pass still fits its buffers. Fixes #52922.\n\n## Claims\n\n- DFlash/DSpark requests no longer pay for draft slots. A DSpark decode with K = 5 is charged 6 tokens instead of 10. With `--max-num-batched-tokens 512` that raises running requests from 52 to 64 and output throughput from 1373 to 3390 tok/s (DeepSeek-V4.1-Flash + DSpark on GB300, table below).\n- The draft pass stays within its `max_num_batched_tokens`-row buffers. A request cap does this instead of the slots, and it only binds when `max_num_seqs \u00d7 num_lookahead_tokens > max_num_batched_tokens`.\n- This applies to DFlash on both model runners and to DSpark (MRV2-only), through the shared scheduler config. Slot accounting for P-EAGLE, PARD and draft models is unchanged.\n\n## Validation\n\n**Unit tests**, this revision (rebased on f26d9f432c), one GB300 node:\n\n```bash\npytest tests/test_config.py tests/v1/core/test_scheduler.py \\\n  tests/v1/kv_connector/unit/offloading_connector/test_scheduler.py \\\n  tests/v1/spec_decode/test_dflash2.py tests/v1/spec_decode/test_dflash_causality.py \\\n  tests/v1/spec_decode/test_dflash_lookahead.py tests/v1/spec_decode/test_dflash_prepare_inputs.py \\\n  tests/v1/spec_decode/test_dflash_profile.py tests/v1/spec_decode/test_dspark_topk.py \\\n  tests/v1/spec_decode/test_mtp.py tests/v1/worker/test_gpu_warmup_blocks.py\n```\n\n- Result: 1137 passed, 5 skipped (ROCm-only), 1 failed. The failure, `test_is_encoder_decoder[meta-llama/Llama-3.2-1B-Instruct-False]`, needs a gated repo and fails on `main` too.\n- New test `test_block_drafters_cap_requests_instead_of_draft_slots`, for DFlash and anchor-sampling DSpark, checks that admission stops at `max_num_batched_tokens // num_lookahead_tokens` and that admitted prompts are scheduled in full. It fails if the cap is removed or main's draft-slot charges return, and the DSpark case fails if the cap divides by K + 1.\n- pre-commit passes, including mypy.\n\n**End to end**, this PR against `main` (f26d9f432c), same build and node:\n- Setup: DeepSeek-V4.1-Flash + DSpark (K = 5), TP4 on one GB300, `VLLM_USE_V2_MODEL_RUNNER=1 vllm serve ... --max-num-seqs 64 --max-num-batched-tokens 512 --no-enable-prefix-caching`.\n- Load: `vllm bench serve --dataset-name random --random-input-len 256 --random-output-len 1536 --random-range-ratio 0.33 --ignore-eos --temperature 0 --max-concurrency 128 --num-prompts 512 --seed 0`, with `vllm:num_requests_running` scraped every 2 s. One run per side.\n\n| `--max-num-batched-tokens 512` | main | this PR |\n|---|---|---|\n| Max running requests | 52 | 64 |\n| Output throughput (tok/s) | 1373 | 3390 |\n| TPOT p50 / p99 (ms) | 29.2 / 63.5 | 15.7 / 36.0 |\n| TTFT p50, incl. queueing (s) | 93.6 | 30.0 |\n| Acceptance length | 4.72 | 4.73 |\n\n- Variability: the previous revision, measured the same way with 2048 prompts and two interleaved runs per side, gave 51 vs 64 running and 1354 vs 3448 tok/s, within 2% of these numbers.\n- With `--max-num-seqs 128`, this PR runs up to 85 requests (2167 tok/s). The request cap is 102 (512 // 5) and does not bind: each decode schedules 1 + K = 6 tokens, so the 512-token budget fills at 85.\n- With the default budget, greedy outputs for 20 fixed prompts are byte-identical between `main` and this PR (3197 completion tokens).\n- Measured on 299173db51. This revision moves the cap into `VllmConfig` and merges the startup check without changing admission: for this setup, its engine config leaves `max_num_active_seqs` unset at `--max-num-seqs 64` and lowers it to 102 at `--max-num-seqs 128`.\n- Not run: DFlash end to end on either runner.\n\n## Details\n\n- **Root cause.** Both drafters run a separate fixed-width query pass. Context KV is precomputed from the target's hidden states into its own buffers, and each request's query rows go into buffers of `max_num_batched_tokens` rows: `DFlashSpeculator`/`DSparkSpeculator` on MRV2, `DFlashProposer.input_ids` on MRV1. The slots only enforced `num_reqs \u00d7 query rows \u2264 max_num_batched_tokens`. A request cap gives the same bound without spending target budget.\n- **Why throughput gains more than 64/52.** On main, the 2\u201332 tokens left over split each new prefill into small chunks. Most steps then mix prefill into the decode batch and miss the FULL decode CUDA graph: ITL p50 is 169 ms on main vs 30 ms here.\n- **Divisor.** `num_lookahead_tokens` equals the draft pass's query rows per request: K for anchor-sampling DSpark, K + 1 for DFlash and fill-in DSpark. Each query row writes KV at a position that `allocate_slots(num_lookahead_tokens=...)` must cover. So it cannot fall below the query width without breaking draft KV allocation, and if it grows the cap only tightens. This also covers fill-in DSpark, whose old K \u2212 1 charge did not bound its K + 1 query rows.\n- **Where the cap lives.** Right after the startup check, `VllmConfig` lowers `scheduler_config.max_num_active_seqs` to the cap only when the cap is below the current limit, and logs why, e.g. `The dspark draft pass needs 5 query tokens per request within max_num_batched_tokens=512. Overriding max_num_active_seqs from 128 to 102.` The scheduler is unchanged. Only its admission check reads `max_num_active_seqs`; unlike `max_num_seqs`, it doesn't size runner buffers or CUDA graphs and isn't part of the config hash.\n- **Startup check.** The existing `max_num_batched_tokens` check in `VllmConfig` now compares against `num_lookahead_tokens` instead of the draft slots. `num_lookahead_tokens` is at least every method's slots and covers the DFlash/DSpark draft pass, so the check still rejects a budget too small for one request's draft pass. It is slightly stricter than before: EAGLE, MTP and draft models now need a budget above K, and DFlash above K + 1, far below any practical budget.\n- **MRV1.** DSpark is MRV2-only. MRV1 DFlash shares the scheduler and its drafter has the same structure, so it gets the same change. It is covered by unit tests only, not end to end.\n- **Review changes.** Following @TheEpicDolphin's review:\n  - the fix moved into `max_num_new_slots_for_drafting`, and the cap now applies on both runners instead of only MRV2;\n  - the cap divides by `num_lookahead_tokens`, so anchor-sampling DSpark uses K rather than K + 1.\n- **Not a duplicate.**\n  - #53080 (open, conflicting) replaces `max_num_new_slots_for_drafting` with a per-step draft budget for every method (+237/\u221277).\n  - #52996 (open, conflicting) adds a DSpark-only budget charged K per request, which leaves DFlash over-charged.\n  - #53970 resizes the drafter buffers; it is complementary.\n\nAI assistance (Claude Code) was used for the change, the tests, the test runs and this description.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n\n\n",
+    "created_at": "2026-09-30T17:19:35Z",
+    "updated_at": "2026-10-15T17:24:23Z",
+    "fetched_at": "2026-10-19T23:21:54Z",
+    "state": "merged",
+    "merged_at": "2026-10-15T17:23:58Z",
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "ttft",
+      "tpot",
+      "throughput",
+      "performance",
+      "speculation"
+    ],
+    "metadata": {
+      "number": 59468,
+      "labels": [
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777487818,
+          "node_id": "LA_kwDOI7xefs8AAAACvf4zyg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/scheduler",
+          "name": "scheduler",
+          "color": "f5d1c9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 11,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "429a3da6654facfa792995bbbc75ee64cf83be56",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "spec-decode-dspark-draft-budget",
+        "sha": "c6b0746d0d289cc14a888c7984bf377c44b24f7b",
+        "label": "zixi-qi:spec-decode-dspark-draft-budget"
+      },
+      "merge_commit_sha": "7cd7982dfda0d29c68f73c54cd343b674b290a47",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:21:54Z"
+    },
+    "content_hash": "fef627363ee1a10537bb7d96b2b67bcedcfcdf5088ac3bd352e524ac6615038b"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

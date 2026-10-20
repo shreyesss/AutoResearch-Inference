@@ -1,0 +1,103 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62278",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62278",
+    "title": "[Bugfix][Core] Treat a shared-prefix junction as a set of positions under EAGLE",
+    "body": "## Overview\n\nFixes the shared-prefix junction under per-group EAGLE flags (#61455): with a dropping EAGLE group in the lookup, siblings that share a prefix get 0 prefix-cache hits under sparse retention (default `prefix_cache_retention_interval=0`). The junction becomes a set of positions, `{J - A, J}`, computed in one place (`junction_boundaries()`) and used by every junction consumer. This is an alternative to #62206, which keeps an extra SWA tail at `J - block_size` inside the SWA mask only.\n\nThe MooncakeStore side (store lookup as a junction source, `store_mask` as a consumer) is a follow-up PR stacked on this one: #62400.\n\n## Claims\n\n- DeepSeek-V4-Flash + MTP (retention 0): siblings that diverge 8 tokens past an aligned shared prefix of 3840 tokens get 0 hit tokens on main and 3584 with this PR. Siblings that diverge 160 tokens past it get 3840 on both.\n- Shared-prefix GSM8K (1319 questions): the prefix-cache hit rate goes from 4.7% to 82.1%, and accuracy does not change (0.943 \u2192 0.945).\n- One helper produces the junction; all consumers read it: SWA and Mamba retention masks, the Mamba junction checkpoint, the scheduler's chunk stops (one per position) and `OffloadingConnector`.\n- No behavior change without EAGLE, or when no dropping (non-Mamba) EAGLE group takes part in the lookup.\n\n## Validation\n\n**End to end** (GB200, 4 GPUs, base 83c9a547bf):\n\n```\nvllm serve deepseek-ai/DeepSeek-V4-Flash --tensor-parallel-size 4 --kv-cache-dtype fp8 --block-size 256 \\\n  --enable-prefix-caching --enable-prompt-tokens-details \\\n  --speculative-config '{\"method\":\"mtp\",\"num_speculative_tokens\":2}'\n```\n\nJunction probe: requests A, B, C, D share exactly F + d token ids (F = 3840 = 15 \u00d7 256), then each has its own 1500-token suffix. They are sent one at a time; the table shows `cached_tokens` of C and D.\n\n| d | main | this PR |\n|---|---|---|\n| 8 | 0, 0 | 3584, 3584 |\n| 160 | 3840, 3840 | 3840, 3840 |\n\nShared-prefix GSM8K: every prompt is the same 3848-token prefix (instructions, 8 train exemplars, filler), then about 600 tokens of per-question distractor text, then the test question. 1319 questions, concurrency 32, greedy, `max_tokens` 512.\n\n| | main | this PR |\n|---|---|---|\n| accuracy | 0.943 | 0.945 |\n| prefix-cache hit rate (`vllm:prefix_cache_hits / queries`) | 4.7% | 82.1% |\n| `cached_tokens` per question | 0 for 1248 questions | 3584 for 1247, 3840 for 71 |\n\nThe per-question suffix is longer than the hit alignment on purpose. With a shorter suffix, a request's own prompt-end replay tail lands on the shared prefix and hides the bug.\n\n**Unit tests** (CPU):\n\n```\npytest -n 16 tests/v1/core/test_prefix_caching.py tests/v1/core/test_single_type_kv_cache_manager.py \\\n  tests/v1/core/test_kv_cache_utils.py tests/v1/core/prefix_cache tests/v1/core/test_scheduler.py \\\n  tests/v1/kv_connector/unit/offloading_connector tests/v1/kv_connector/unit/test_mooncake_store_*.py \\\n  --deselect tests/v1/core/test_prefix_caching.py::test_hybrid_prefix_cache_hit_rate \\\n  --deselect tests/v1/core/prefix_cache/test_hybrid_prefix_cache_hit_rate.py\n1695 passed\n```\n\n`test_swa_shared_prefix_reuse_under_zero_retention_eagle` covers uniform and mixed block sizes, with only the SWA draft group flagged and with all groups flagged. `test_mamba_shared_prefix_reuse_eagle_draft_group` covers a Mamba hybrid with a flagged draft group. The offloading scheduler test checks that every junction position is a reachable boundary. The flagged cases fail on main.\n\n## Details\n\n**Root cause.** The junction is where the longest single-group hit exceeds the reconciled hit. A dropping EAGLE group needs a peek block past its hit. So after #61455, a sibling that shares F tokens hits F in a non-EAGLE group but at most F \u2212 A in the dropping group (A = hit alignment). Main pinned only F, and no sibling can resume there.\n\n**Why a set.** Where a sibling resumes depends on how far past F it diverges. Divergence of less than the drop unit past F resumes at F \u2212 A; divergence further than that resumes at F. When the drop unit is smaller than A (DeepSeek-V4: SWA block 64, A 256), both cases occur, so a single position cannot serve both. The junction is therefore `{F \u2212 A, F}` whenever a dropping EAGLE group takes part in the lookup.\n\n**Why not #62206.** #62206 fixes the SWA mask only. The Mamba checkpoint, the scheduler chunk stop and `OffloadingConnector` keep the wrong junction.\n\n**Supersedes the first version of this PR.** The first version moved the junction to `F \u2212 A` only. That lost the hit at F for siblings that diverge further than the drop unit (a regression with mixed block sizes). This version keeps both positions.\n\n**Cost.** One extra retained tail per junction, only when a dropping EAGLE group exists. Without EAGLE, the junction is one position, as on main.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR. Claude Code wrote and verified the change and ran the GPU checks; a Kimi Code agent fleet reviewed the design and wrote test extensions; Codex reviewed the diff.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n",
+    "created_at": "2026-10-18T10:15:53Z",
+    "updated_at": "2026-10-19T12:54:50Z",
+    "fetched_at": "2026-10-20T08:05:54Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 62278,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7614859318,
+          "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+          "name": "needs-rebase",
+          "color": "d4c5f9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9306392211,
+          "node_id": "LA_kwDOI7xefs8AAAACKrRGkw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-connector",
+          "name": "kv-connector",
+          "color": "4417cb",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777487818,
+          "node_id": "LA_kwDOI7xefs8AAAACvf4zyg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/scheduler",
+          "name": "scheduler",
+          "color": "f5d1c9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777489391,
+          "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+          "name": "kv-cache-manager",
+          "color": "d065a7",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 1,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "d5b36699b21bd7b1c4ce01afe218e3c3eaacc27e",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/eagle-junction-unit",
+        "sha": "0e0508e77be5e17dcdde334dc3d8b9f3df1de886",
+        "label": "ivanium:fix/eagle-junction-unit"
+      },
+      "merge_commit_sha": null,
+      "draft": true,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:05:54Z"
+    },
+    "content_hash": "9711b6742a0532103da43805b4180b534b68090ead8ed57a942da56437008481"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

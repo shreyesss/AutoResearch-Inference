@@ -1,0 +1,60 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61773",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61773",
+    "title": "[Perf][MoE] Skip the TRTLLM fp8-block activation-scale transpose copy",
+    "body": "\n\n## Overview\n\nSkip the per-layer `a1q_scale.t().contiguous()` copy between per-token-group FP8 quantization and the FlashInfer TRTLLM fp8-block MoE experts by emitting the scales in the layout the experts consume. This is pure plumbing on top of the quant kernel's existing `column_major_scales` mode \u2014 no kernel changes. ~2% TPOT improvement at concurrency 4 on Qwen3.8-Flash-Next-FP8 (TP4+EP).\n\n## Claims\n\n- Removes one `direct_copy_kernel` per MoE layer per decode step (24/step -> 0 on Qwen3.8-Flash-Next) from the critical path.\n- ~2% TPOT p50 improvement at concurrency 4 on Qwen3.8-Flash-Next-FP8, TP4+EP on 4xGB300; parity at concurrency 1 (details below).\n- Bitwise-identical expert inputs: the scale bytes are the same values, just allocated in the final physical layout, so there is no accuracy impact.\n- Python-only change (+77/-14 across 5 files, mostly the test).\n\n## Validation\n\n### Correctness\n\n- `pytest tests/kernels/moe/test_flashinfer.py`: 49 passed (+2 mxfp8 skips), including the new `transposed` arm of `test_trtllm_fp8_block_moe_deferred_finalize`, which builds the quant config through the production oracle + `no_dp_ep` path, asserts the prepared activation scale is column-major (`a1q_scale.t().is_contiguous()`), and asserts bitwise-equal expert output against the non-transposed baseline.\n- No new test for the `column_major_scales` wrapper mode itself: it is a pre-existing feature already exercised by the CUTLASS/DeepGEMM/FlashInfer/PyTorch scaled-mm kernels on every CUDA run and by existing fusion/eplb tests.\n\n### Profiler evidence\n\nQwen3.8-Flash-Next-FP8, TP4+EP, decode step trace:\n\n| | main | this PR |\n| --- | ---: | ---: |\n| `per_token_group_quant` launches / step | 24 | 24 |\n| `direct_copy_kernel` launches / step | 24 | 0 |\n\n### E2E perf\n\nQwen3.8-Flash-Next-FP8, TP4+EP on 4xGB300, `vllm bench serve`, 2048 input / 256 output, `--ignore-eos`. main (`f46021a7fa`) and the branch (`9f75804588`) ran sequentially on the same node, two server instances each:\n\n| Concurrency | main TPOT p50 (ms) | this PR TPOT p50 (ms) | Change |\n| ---: | ---: | ---: | ---: |\n| 1 | 3.92-3.93 | parity (see below) | ~0% |\n| 4 | 5.11-5.12 | 4.98-5.00 | -2.3% |\n\nTPOT p99 at concurrency 4 improves from 5.67-6.04 ms to 5.57-5.58 ms. Concurrency-1 serve numbers were noisy across instances, so c=1 was A/B'd with interleaved `vllm bench latency` (bs=1, 2048/128): 0.756/0.704 s (this PR) vs 0.756/0.800 s (main) \u2014 no regression, as expected since the eliminated copies are nearly free inside a bs=1 CUDA graph.\n\n## Details\n\n- Root cause: the TRTLLM fp8-block kernels consume activation scales in the physical `[K/128, M]` (scale-major) layout, while the MoE per-token-group quant emits `[M, K/128]` row-major, so every layer paid a transpose copy between the quant kernel and the experts.\n- The quant kernel's existing `column_major_scales=True` mode already allocates the scale buffer as a contiguous `[G, M]` tensor viewed as `[M, G]`, so on that buffer the experts' `.t().contiguous()` is a no-op returning the same tensor. The change just threads a new `FusedMoEQuantConfig.is_scale_transposed` flag \u2014 set by the fp8 oracle only for `FLASHINFER_TRTLLM` + `[128, 128]` blocks \u2014 through `no_dp_ep` into `moe_kernel_quantize_input`. TRTLLM expert code is unchanged.\n- Scope: only `no_dp_ep` forwards the flag; dispatch-based paths (deepep, naive-dp, fi-nvl) keep row-major scales since their scales cross an all2all dispatch. Other MoE backends are unaffected.\n- No accuracy eval: the scale bytes handed to the experts are bitwise-identical (same values, different physical layout), so outputs cannot change; the e2e runs above exercised the modified path at c=1-4.\n- Duplicate-work check: nearest open PRs inspected \u2014 #59564 (value-only amax reduction inside the quant kernel, orthogonal), #53345 (deepep ep_scatter scale-stride bugfix), #44034 (XPU quant fallback); none touch the MoE activation-scale layout.\n\nAI assistance: Kimi Code helped develop, benchmark, and validate this change.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n",
+    "created_at": "2026-10-15T07:30:07Z",
+    "updated_at": "2026-10-16T07:15:03Z",
+    "fetched_at": "2026-10-19T23:25:42Z",
+    "state": "merged",
+    "merged_at": "2026-10-15T19:09:08Z",
+    "parent": null,
+    "tags": [
+      "moe",
+      "tpot",
+      "performance",
+      "communication"
+    ],
+    "metadata": {
+      "number": 61773,
+      "labels": [
+        {
+          "id": 9543357705,
+          "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+          "name": "nvidia",
+          "color": "76B900",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 2,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "91ed2859c7345dc160956781b4662dbf99870005",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "gau/ptg-transposed-scale",
+        "sha": "ab7dc1b9da4738723f9f0f92303e44d3f9ce1f10",
+        "label": "gau-nernst:gau/ptg-transposed-scale"
+      },
+      "merge_commit_sha": "82b9ccaa798eeec73f40ea7766d4044cfeaaff32",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:25:42Z"
+    },
+    "content_hash": "71a9f87f32cda1e68a706b4789d98dd32a99fc41a8f1f8ca8e05d231054f5e96"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

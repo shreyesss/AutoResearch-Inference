@@ -1,0 +1,122 @@
+{
+  "claims": [
+    {
+      "source_id": "github:vllm-project/vllm:62073",
+      "quote": "MegaMoE keeps a second, decode-sized workspace: `max_num_seqs × (1 + num_speculative_tokens)` tokens per sequence-parallel rank.",
+      "claim": "Hypothesis 1 — A decode-sized workspace could reduce MegaMoE address or capacity overhead on B200 decode.",
+      "relation": "supports",
+      "conditions": "First confirm the deployed B200 model actually selects `flashinfer_moe_ep_cutedsl`, reaches this workspace path, and uses FlashInfer with the required nightly APIs. All DP ranks must agree on the capacity used for peer offsets.",
+      "reported_result": "The PR reports a workspace design, not a decode speedup. Its 1.71× throughput claim is for Beam prefill on 4×GB300.",
+      "transfer_inference": "Compare the existing workspace with the decode-sized allocation at identical rank loads and DSpark settings. Measure decode latency, address overhead, workspace bytes, and KV cache capacity. A proposed success gate is at least 3% lower decode ITL p50 with no material goodput or KV capacity loss; this threshold is a design choice.",
+      "limitations": "The added allocation and warmup consume memory that could hold KV cache. B200 decode effect size is unknown."
+    },
+    {
+      "source_id": "code:vllm-project/vllm:86a5bbe75a7971275952477bb1ce03e715bcc339:vllm/model_executor/layers/fused_moe/experts/flashinfer_moe_ep.py",
+      "quote": "adapter = FlashInferMoeEp(",
+      "claim": "The supplied implementation excerpt identifies the MegaMoE adapter reached by `FlashInferMoeEpExperts`.",
+      "relation": "context",
+      "conditions": "Check actual backend selection and the adapter's runtime workspace branch in the deployment image.",
+      "reported_result": "Code structure is visible; no B200 runtime selection or measurement is supplied.",
+      "transfer_inference": "Instrument backend selection before treating Hypothesis 1 as applicable.",
+      "limitations": "This excerpt alone does not establish that the R7b or R10 baseline includes this backend."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62073",
+      "quote": "the DP-boundary MegaMoE test, which checks bit-exact output for unequal and empty batches with CUDA graph replay, needs FlashInfer nightly.",
+      "claim": "The key unequal-rank and zero-token-rank correctness test was skipped.",
+      "relation": "challenges",
+      "conditions": "Run zero and unequal token-count ranks, collective participation, and CUDA graph replay on the exact deployed FlashInfer build.",
+      "reported_result": "The PR reports 382 passed, 4 skipped, and 8 failures that its author says reproduce on main; the DP-boundary MegaMoE test was among the skipped cases.",
+      "transfer_inference": "Require bit-exact output and no collective hang before timing Hypothesis 1.",
+      "limitations": "The supplied results do not validate the new runtime path on B200."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:62541",
+      "quote": "On B200, DSpark verifies the full 5-token block (`enable_adaptive_verification:false`)",
+      "claim": "The refreshed B200 recipe supplies a concrete DSpark verification contract to check against workspace sizing.",
+      "relation": "context",
+      "conditions": "Verify the actual number of tokens that can enter MegaMoE per sequence during DSpark verification, including graph replay, against `1 + num_speculative_tokens`.",
+      "reported_result": "The PR reports a 17-point recipe sweep; it does not report a decode-workspace experiment.",
+      "transfer_inference": "Freeze the DSpark configuration before comparing workspace variants. The user-supplied archive setting `dspark_config=off` conflicts with the refreshed k5 description and must be reconciled.",
+      "limitations": "The source does not establish the runtime flags or image digest of the archived R7b run."
+    },
+    {
+      "source_id": "local:b200:pareto-findings:20261018",
+      "quote": "LAT-2XDEP4-R7b | 512 | 33.76 | 14.47 / 19.49",
+      "claim": "The archived B200 results give serving baselines for controlled comparisons.",
+      "relation": "context",
+      "conditions": "Use the same model, precision, workload, 75% cache target, load mode, graph settings, DSpark contract, runtime flags, and image digest for each A/B pair. Freeze the latter two after recovering them.",
+      "reported_result": "R7b 2×DEP4: concurrency 256, 21.67 req/s, E2E p50/p95 11.41/15.33 s; 384, 27.69 req/s, 13.44/18.30 s; 512, 33.76 req/s, 14.47/19.49 s. R10 DEP8: concurrency 1024, 43.55 req/s, 23.84/29.61 s.",
+      "transfer_inference": "Evaluate both hypotheses at all four operating points, with decode ITL, TTFT, E2E tails, throughput, KV occupancy, and correctness. Keep R7b custom goodput 6.6288 and AIPerf strict goodput 4.6727 as two separately labeled user-supplied metrics; the aggregate source does not document their reconciliation.",
+      "limitations": "These are archived observations, not results for either hypothesis. The archive's `dspark_config=off` versus refreshed k5 conflict, runtime flags, and image digest remain unresolved."
+    },
+    {
+      "source_id": "fulltext:2609.07536",
+      "quote": "it selects the communication-CTA count and the compute/communication resource partition before kernel launch.",
+      "claim": "Hypothesis 2 — Launch-time communication CTA and SM resource selection might improve B200 shared-expert/combine overlap.",
+      "relation": "supports",
+      "conditions": "Proceed only if the active B200 combine backend exposes a legal concurrency or resource knob and shared-expert work can overlap combine. Identify that knob and its safe range before implementation.",
+      "reported_result": "The authors report geometric-mean speedups over COMET of 2.528× for GEMM2+GatherRS, 1.771× for the post-router MoE layer, and 1.185× for complete-model prefill on four A100 GPUs.",
+      "transfer_inference": "Profile combine backlog, compute occupancy, CTA residency, and overlap at the R7b and R10 baseline points. If a legal knob exists, select its value at launch using measured B200 resource constraints. A proposed success gate is at least 3% lower decode ITL p50 without worse correctness or material goodput loss; this threshold is a design choice.",
+      "limitations": "The supplied paper excerpt does not show implementation details for the B200 backend. Its A100 prefill gains do not estimate B200 decode gains."
+    },
+    {
+      "source_id": "fulltext:2609.07536",
+      "quote": "Future work will evaluate the analytical model on newer GPU architectures and multi-node interconnects, and extend resource selection to decode",
+      "claim": "The paper explicitly leaves newer GPU architectures and decode unvalidated.",
+      "relation": "challenges",
+      "conditions": "Treat the paper as a mechanism hypothesis for B200 decode, not performance evidence.",
+      "reported_result": "No B200 or decode effect size is reported in the supplied excerpt.",
+      "transfer_inference": "Reject Hypothesis 2 if the active backend has no legal resource knob or profiling shows no resource contention during overlap.",
+      "limitations": "The supplied full-text record is truncated."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:52781",
+      "quote": "each combine kernel overlapped by shared-expert GEMMs ~9.7 us on average with the flag ON vs exactly 0 OFF.",
+      "claim": "A separate DeepEP v2 deployment report supports shared-expert/combine overlap as a measurable serving mechanism.",
+      "relation": "supports",
+      "conditions": "Its reported setup is DeepSeek-R1-671B FP8, EP8, GB300, multi-node NVLink, and `deepep_v2`; confirm whether this backend and overlap path are active on B200.",
+      "reported_result": "The author reports decode ITL p50 reductions of 8.8% at concurrency 1 and 5.3% at concurrency 24, with an event-wait ablation showing approximately zero gain when overlap is removed.",
+      "transfer_inference": "Use traces and an overlap-off control to separate genuine overlap from launch or synchronization changes.",
+      "limitations": "This PR exposes an overlap gate, not evidence of a legal communication CTA/SM selection knob. Its GB300 result cannot be transferred numerically to B200."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61962",
+      "quote": "Quantizing in `prepare()` moves that to once per token on the rank that owns it",
+      "claim": "Pre-dispatch quantization is a distinct alternative mechanism.",
+      "relation": "context",
+      "conditions": "The reported implementation is AMD MoRI/AITER MXFP8, with a narrow activation-dtype gate.",
+      "reported_result": "The author reports 1103.58→1309.33 output tokens/s and median TPOT 54.16→46.83 ms on 8×MI355X.",
+      "transfer_inference": "Consider the general duplicate-quantization and payload mechanism only after identifying a B200 backend with equivalent scale semantics. Do not assume a direct AMD-to-NVIDIA port.",
+      "limitations": "These MI355X measurements do not predict B200 gains."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:54683",
+      "quote": "the expert kernel accepts one per-tensor scale for the complete gathered tensor.",
+      "claim": "Per-rank quantization can violate the expert's scale contract, making pre-dispatch quantization a high-risk alternative.",
+      "relation": "challenges",
+      "conditions": "Any alternative must prove scale compatibility for equal and unequal rank token counts, including zero-token ranks.",
+      "reported_result": "The author reports four baseline distributed failures on two B200 GPUs and passing post-fix tests after moving dynamic per-tensor quantization after dispatch.",
+      "transfer_inference": "Use this as a correctness counterexample when assessing pre-dispatch quantization; preserve a global scale where the expert requires one.",
+      "limitations": "The affected naive DP/EP FP8 path may differ from the active MegaMoE path."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:57604",
+      "quote": "decode/draft are essentially unchanged.",
+      "claim": "A related MegaMoE optimization's large kernel-level prefill gains did not translate into material decode gains.",
+      "relation": "challenges",
+      "conditions": "Measure full serving decode and quality, not just isolated kernel latency, for both hypotheses.",
+      "reported_result": "The author reports a paired B32 adaptive-verification full-model change of 18.310→18.285 ms (0.14%) despite reduced summed staging-kernel time.",
+      "transfer_inference": "Use this as a counterexample to assuming a lower overhead kernel will improve R7b or R10 serving performance.",
+      "limitations": "This tests staging and gather changes, not the proposed workspace or resource selection."
+    }
+  ],
+  "unanswered": [
+    "Does the exact B200 deployment select `flashinfer_moe_ep_cutedsl` and reach the decode-workspace branch? Which FlashInfer version and APIs are present?",
+    "What globally agreed workspace capacity is used across DP ranks, and how much KV cache capacity does its extra allocation remove?",
+    "Does the active combine backend expose a legal communication CTA/SM resource knob? Is shared-expert/combine overlap active and resource constrained?",
+    "What are the archived R7b and R10 runtime flags, image digests, and actual DSpark settings? How should the archive's `dspark_config=off` conflict with refreshed k5 be resolved?",
+    "What are the B200 decode effect sizes, correctness results for zero and unequal ranks, and full-serving goodput changes? No GPU experiment was run.",
+    "What exact definition and source produce R7b custom goodput 6.6288 versus AIPerf strict goodput 4.6727?"
+  ]
+}

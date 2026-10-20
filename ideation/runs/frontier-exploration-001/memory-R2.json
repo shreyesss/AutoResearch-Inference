@@ -1,0 +1,955 @@
+{
+  "id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+  "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/frontier-exploration-001/routing/hypotheses",
+  "local_id": "B200-R7b-PREFILL-ADMIT-1",
+  "fingerprint": "991cf5b88d9d57d4052bcf7bee74502d8069844cee4fb669646e7fb002ff5b24",
+  "baseline": "baseline:0b72634bd203d436836eb7303221d2d7127a84910b6d4a4ccdbdc3ee803aab49",
+  "created_at": "2026-10-19T23:29:32Z",
+  "brief": {
+    "baseline": {
+      "desired_profile": "two TP1/DP4/EP4 engines; DSpark k5; prefix cache enabled; API2 per replica; seq128 override;16384 token budget",
+      "measured_closed_loop": "c384 27.69 req/s E2E p95 18.30s; c512 33.76 req/s E2E p95 19.49s; $296/Mreq at8GPU*$4.5/h scenario",
+      "presence_unknown": [
+        "actual router code and policy",
+        "actual running rank targeting",
+        "effective image/commit dirty tree",
+        "runtime adaptive prefill feature"
+      ],
+      "run": "LAT-2XDEP4-R7b",
+      "score_warning": "Existing custom length-aware goodput differs from AIPerf goodput; freeze scorer and output-length cohorts. Whole-trace inter-token-gap p95 not equivalent TPOT. Profile is desired state not runtimeproof."
+    },
+    "constraints": [
+      "Only inspect/design; no GPU execution",
+      "No transferring another model or GPU headline speedups",
+      "Route/cache locality must target exact DP rank, not only replica",
+      "Do not use public endpoint cost comparison",
+      "Change one factor at a time before composing"
+    ],
+    "count": 2,
+    "instructions": "Generate at most two DIFFERENT practical improvements: (1) engine/rank-aware prefix reuse with bounded load-skew and load-only fallback, accounting for API2 and internal DP4; (2) adaptive prefill admission budget protecting decode deadlines with bounded TTFT and starvation. Strongest static comparator mandatory. Known existing techniques welcome; scientific novelty irrelevant. Do not propose flags already verified present. Presence not established: use first inspection gate. Distinguish cacheability target from observed cache hit. Source grounded useful proposals, no speedup claim. Test cheap causal falsification first. Proposed numeric thresholds are design choices not observations. No GPU execution now. Use held-out skew/prefix distributions and length-aware scorer.",
+    "name": "B200 routing and prefill pressure frontier exploration",
+    "prior_decision_text": {},
+    "repos": [
+      "vllm-project/vllm"
+    ],
+    "selection": {
+      "require_novelty": false
+    },
+    "target": {
+      "gpu": "8 B200",
+      "metrics": [
+        "SLO goodput",
+        "cost per successful request",
+        "E2E p95",
+        "TTFT p95",
+        "ITL p95 by output-length cohort",
+        "completed throughput"
+      ],
+      "model": "DeepSeek-V4.1-Flash",
+      "workload": "agent-f75 8192 input /1024 output, 75% cacheability target; Mooncake median/burst/cache-heavy replay"
+    }
+  },
+  "card": {
+    "alternatives": [
+      {
+        "distinguishing_test": "Attribute missed decode deadlines in traces to prefill-bearing iterations, preemption events, and queueing before implementing the controller.",
+        "explanation": "Decode delays may mainly reflect KV pressure, preemption, or another source rather than prefill admission."
+      },
+      {
+        "distinguishing_test": "Compare against the best static budget and eligible fixed cadence chosen on a calibration split, then evaluate on held-out load regimes.",
+        "explanation": "A single well-tuned static token budget or cadence may already achieve the same tradeoff."
+      }
+    ],
+    "applicability": "Potentially useful if mixed prefill-decode iterations cause deadline misses in the target; the B200 response and safe admission bounds are unknown.",
+    "classification": "adaptation",
+    "code_surface": "V1 scheduler prefill admission, per-iteration timing telemetry, decode deadline estimate, per-request wait accounting.",
+    "evidence": [
+      {
+        "quote": "The global scheduler token budget remains unchanged.",
+        "relation": "supports",
+        "source_id": "github:vllm-project/vllm:52906"
+      },
+      {
+        "quote": "reduced average end-to-end latency by 8.5% relative to fixed MBT 2k",
+        "relation": "context",
+        "source_id": "github:vllm-project/vllm:52906"
+      },
+      {
+        "quote": "its magnitude depends on the model\u2013hardware configuration",
+        "relation": "challenges",
+        "source_id": "fulltext:2608.15171v1"
+      },
+      {
+        "quote": "starvation and admission control deserve separate study",
+        "relation": "challenges",
+        "source_id": "fulltext:2609.07883v1"
+      },
+      {
+        "quote": "at the cost of higher prefill TTFT / lower prefill throughput",
+        "relation": "challenges",
+        "source_id": "github:vllm-project/vllm:56848"
+      }
+    ],
+    "experiment": {
+      "control": "LAT-2XDEP4-R7b as actually running, plus the strongest static max_num_batched_tokens or eligible fixed cadence selected on a calibration split under the same scorer.",
+      "correctness": "Confirm each admitted request progresses within the wait bound and generated outputs remain unchanged; measure whole-trace inter-token gaps separately from per-request TPOT.",
+      "cost": "First inspect scheduler configuration and analyze existing traces without GPU execution; later conduct one-factor replay and a bounded static-policy sweep.",
+      "held_out_condition": "Mooncake median and burst traces plus unseen prompt and output-length mixes, including low-pressure periods and sustained prefill queues.",
+      "inconclusive_if": "Runtime policy presence is unknown, timing traces cannot separate interference from preemption, or the held-out replay lacks mixed prefill-decode pressure.",
+      "metrics": "Frozen length-aware SLO goodput; cost per successful request; E2E and TTFT p95; ITL p95 by output-length cohort; completed throughput; decode deadline misses; prefill wait tail and starvation count.",
+      "rejects_if": "The cheap trace check finds no association between prefill admission and deadline misses, or the strongest static control matches or exceeds goodput, or TTFT and waiting bounds fail.",
+      "supports_if": "Held-out mixed-load replay shows fewer decode deadline misses and better frozen SLO goodput than both controls while respecting the predeclared TTFT and waiting bounds.",
+      "treatment": "Deadline-aware adaptive prefill admission with a predeclared maximum wait bound; routing and other factors held fixed."
+    },
+    "id": "B200-R7b-PREFILL-ADMIT-1",
+    "mechanism": "Limit admitted prefill work during decode pressure to reduce long mixed iterations, while releasing the cap when pressure falls or a prefill wait bound is reached.",
+    "novelty": {
+      "implementation": "The possible delta is a deadline and wait-bounded admission policy in the verified R7b scheduler, if absent.",
+      "nearest_prior_art": "P-PAS RFC and paper propose pressure-adaptive prefill budgets; the deadline-aware chunking paper and decode-priority cadence PR identify related tradeoffs.",
+      "scientific": "No novelty claim; adaptive prefill budgets and deadline-aware chunking are prior work.",
+      "specific_delta": "Tie prefill admission to observed decode deadline slack and an explicit per-request waiting bound, then compare with the strongest static setting.",
+      "workload": "Long-input agent-f75 and Mooncake mixed-load replay; actual decode interference and B200 effect are unknown."
+    },
+    "observed_bottleneck": "Unknown. The R7b baseline gives throughput and E2E p95, but no measured prefill interference, decode deadline misses, TTFT, or starvation.",
+    "operation": "generate",
+    "parents": [],
+    "predicted_direction": "Conditional reduction in decode ITL deadline misses and higher SLO goodput, while TTFT and starvation remain within chosen bounds; no numerical gain predicted.",
+    "prior_art_query": "adaptive prefill deadline admission",
+    "proposed_change": "After the presence gate, add an optional V1 scheduler admission budget using current decode deadline slack and prefill pressure, with a maximum wait bound and fixed-budget fallback. Test this factor independently of routing.",
+    "revision_reason": "",
+    "statement": "First inspect the effective scheduler commit and runtime settings to establish whether adaptive prefill admission already exists. If absent, test a scheduler-local prefill budget that decreases when active decodes approach their measured iteration deadlines and increases when decode pressure eases. Keep the global token budget fixed; bound each prefill request\u2019s waiting time so decode protection cannot starve TTFT. This transfers the pressure-dependent budget mechanism described by P-PAS, while adding an explicit deadline and waiting bound for the R7b objective. The source reports results on other model and GPU configurations, so neither a B200 crossover nor an effect size is known. A cheap trace analysis should first test whether prefill-bearing iterations coincide with decode deadline misses before any GPU replay."
+  },
+  "policy": {
+    "baseline_comparison": "Compare each change separately with LAT-2XDEP4-R7b and the strongest tuned static policy on the same held-out skew, prefix, and request-length distributions. The task reports closed-loop c384 throughput of 27.69 req/s with E2E p95 of 18.30s, and c512 throughput of 33.76 req/s with E2E p95 of 19.49s. The stated engine profile is desired state, not verified runtime state. Freeze the length-aware scorer and output-length cohorts before comparing SLO goodput, cost per successful request, latency, and completed throughput.",
+    "criteria": [
+      {
+        "category": "improvement",
+        "description": "Required veto: show a credible, testable path to task value and either a delta from the verified baseline or a cheap inspection gate that determines whether the capability is already present. Unknown presence defers judgment.",
+        "id": "required_improvement",
+        "justification": "The router policy, rank targeting, effective commit, and adaptive prefill feature are unverified. Checking those first prevents proposing an already active flag while allowing useful experiments before a speedup is measured.",
+        "required": true,
+        "weight": 40
+      },
+      {
+        "category": "testability",
+        "description": "Specify the cheapest falsification test first, then a one-factor-at-a-time replay against the strongest tuned static comparator.",
+        "id": "causal_test",
+        "justification": "Cacheability is a target, not an observed cache hit. Replay must measure rank-local hits, load skew, decode deadline misses, TTFT, starvation, and the frozen length-aware goodput score.",
+        "required": false,
+        "weight": 25
+      },
+      {
+        "category": "feasibility",
+        "description": "Show a plausible integration at API2 and the internal DP4 rank, with bounded load skew or admission delay and a specified fallback.",
+        "id": "integration_and_bounds",
+        "justification": "Replica-only affinity cannot establish rank-local reuse. Admission control must protect decode without allowing unbounded prefill waiting.",
+        "required": false,
+        "weight": 20
+      },
+      {
+        "category": "evidence",
+        "description": "Ground mechanism and baseline claims in the supplied evidence; label unknown implementation, hardware, workload, effect size, and limitations.",
+        "id": "claim_discipline",
+        "justification": "The supplied PR and issue titles identify relevant work but provide no code, measurements, or implementation detail. The paper entries provide links and titles only.",
+        "required": false,
+        "weight": 15
+      }
+    ],
+    "evidence": {
+      "minimum_independent_sources": 1,
+      "rationale": "One relevant engineering source suffices for an implementation claim; two sources or a paper are not automatic requirements. Here the available metadata cannot verify implementation or effects. Positive claims about existing behavior therefore await the first code and runtime inspection gate. Hypotheses and proposed tests may proceed with unknowns recorded.",
+      "require_engineering": true,
+      "require_paper_fulltext": false
+    },
+    "novelty_request": "",
+    "novelty_required": false,
+    "objective": "Prioritize up to two practical improvements for the stated 8 B200 target: rank-aware prefix reuse with bounded load skew and load-only fallback, and adaptive prefill admission that protects decode deadlines while bounding TTFT and starvation.",
+    "rationale": "The 70-point threshold is an uncalibrated prioritization choice, not a measured success cutoff. Only the required improvement criterion is a veto; unknown judgments defer selection. Observed result: the task supplies the baseline figures quoted above, without independently verifiable run details. Author claims: titles such as \u201cAdd prefix-cache-aware routing for internal DP load balancing\u201d and \u201cAdaptive prefill token budget based on scheduling pressure\u201d indicate relevant ideas, not verified behavior. Transfer inference: both ideas could plausibly address the stated workload, but their cache-hit rate, bottlenecks, effect size, tested hardware, workload match, and limitations remain unknown. Published status and scientific novelty have no selection role.",
+    "retrieval": {
+      "github": false,
+      "literature": false,
+      "rationale": "This response uses only supplied material, as requested. A later authorized inspection should check the router, rank targeting, runtime configuration, and adaptive prefill presence before proposing implementation changes."
+    },
+    "threshold": 70
+  },
+  "events": [
+    {
+      "seq": 462,
+      "id": "event:81dbfe0ba55388a3f7675d3f6a52b27950a5866058ad6854aaab81ab6f5e3d59",
+      "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "type": "produced",
+      "at": "2026-10-19T23:29:32Z",
+      "actor": "generator",
+      "data": {
+        "local_id": "B200-R7b-PREFILL-ADMIT-1",
+        "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/frontier-exploration-001/routing/hypotheses"
+      }
+    },
+    {
+      "seq": 466,
+      "id": "event:e33cbc09e158d8b56d6f29c46b6a50d88da01ec1365202beecbe8e4acd4977ec",
+      "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "type": "reviewed",
+      "at": "2026-10-19T23:29:58Z",
+      "actor": "reviewer",
+      "data": {
+        "assessment": {
+          "eligible": false,
+          "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+          "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+          "reasons": [
+            "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+            "Priority below this task's threshold; reconsider with evidence or a revised policy"
+          ],
+          "score": 68.0,
+          "status": "deferred"
+        },
+        "context_id": "review_context:e3e178afb0b15b743f81314e92d0f02aaed128401e132921b115963074bce5c7",
+        "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+        "review": {
+          "criteria": {
+            "causal_test": {
+              "rationale": "The cheapest check asks whether prefill-bearing iterations coincide with decode deadline misses and separates preemption as an alternative. Association alone would not establish cause; the proposed one-factor held-out replay against R7b and tuned static controls provides the causal comparison. It includes TTFT, waiting, starvation, and output-length cohort metrics.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "claim_discipline": {
+              "rationale": "The RFC\u2019s \u201creduced average end-to-end latency by 8.5%\u201d is presented as an author report from other configurations, with no B200 speedup prediction. The supplied paper says the effect \u201cdepends on the model\u2013hardware configuration,\u201d and another flags that \u201cstarvation and admission control deserve separate study.\u201d Neither passage verifies this deployment\u2019s implementation.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "integration_and_bounds": {
+              "rationale": "Scheduler-local admission, a fixed global token budget, a maximum wait, and fixed-budget fallback are plausible. The RFC author states, \u201cThe global scheduler token budget remains unchanged.\u201d The actual V1 scheduler path is unverified, and the proposal must define how forced prefill progress interacts with a simultaneous decode deadline before its bounds are assessable.",
+              "score": 3,
+              "verdict": "unknown"
+            },
+            "required_improvement": {
+              "rationale": "The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+              "score": 3,
+              "verdict": "unknown"
+            }
+          },
+          "factual_support": "pass",
+          "id": "B200-R7b-PREFILL-ADMIT-1",
+          "objections": [
+            "Adaptive feature presence, decode deadline misses, TTFT, starvation, and B200 effect size are unknown.",
+            "A trace association is only a falsification screen; preemption and KV pressure remain alternative causes.",
+            "The static comparator should be chosen under the same frozen scorer and stated eligibility rules; the wait bound and fallback priority need precise definitions."
+          ],
+          "required_revision": "Inspect the effective scheduler and timing telemetry. Specify the maximum wait, decode deadline rule, and conflict fallback; then compare independently with the strongest eligible static policy on held-out replay."
+        },
+        "status": "deferred"
+      }
+    },
+    {
+      "seq": 474,
+      "id": "event:905da70d3b0f24eff71faf0bd9ffff39f726d6b99fc5fe874c744e28833e53fb",
+      "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "type": "test_planned",
+      "at": "2026-10-19T23:30:51Z",
+      "actor": "exploration-routing-subagent",
+      "data": {
+        "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+        "id": "test:abf2bf0e063aa6c3ad7be3992c6026db0e8398608cbf953a3a69d416f8de0eda",
+        "plan": {
+          "ablations": [
+            "static2K separatesadaptivityfromsmallchunkbenefit",
+            "pressuregate disabled",
+            "ageguard off solelyinsafeoffline/smallpilot toexposestarvation",
+            "cadencecomparatorN=2/4 withstrictTTFTstop; do notcopyN16other-modelheadline"
+          ],
+          "autoresearch_stages": [
+            {
+              "artifact": "scheduler_inventory.json +trace-schema",
+              "budget": "30minCPU",
+              "gate": "controllerabsent andDP/DSparkcompatibilityknown",
+              "stage": "0_presence_cpu"
+            },
+            {
+              "artifact": "static2K/16Kpairediterationtrace",
+              "budget": "30min8GPUwallclock ($18scenario)",
+              "gate": "measurableprefill/decodeinterference",
+              "stage": "1_mechanism_pilot"
+            },
+            {
+              "artifact": "fixed2K/4K/8K/16K +adaptive,pairedtrainingtraces",
+              "budget": "90min8GPUwallclock ($54scenario)",
+              "gate": "beatstrongeststaticwithoutguardrailfail",
+              "stage": "2_static_and_adaptive_screen"
+            },
+            {
+              "artifact": "heldouttraceand5pairedseeds withallrequestrows",
+              "budget": "max2h8GPUwallclock ($72scenario)",
+              "gate": "freezechosencontroller; donotretuneonholdout",
+              "stage": "3_confirm"
+            }
+          ],
+          "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+          "causal_falsification": "Measure decodeiterationtime conditionedonadmitteduncachedprefilltokens. If noburstinterference orcachehits eliminateprefillwork, prune. If adaptation onlytradesTTFTforITL withoutimprovinglength-awareSLOgoodput/E2E, reject.",
+          "control": "R7b static16K plus strongeststaticbudget from2K/4K/8K/16K screening ontrainingtrace; keepseq128/DSpark/cache/routingfixed.",
+          "correctness": "Schedulerchanges mustpreservecompletion/cancellation semantics and no starvation. Validategreedyoutput paritywithappropriatebatchnumericaltolerance, plusqualityregressiongate forsampling. CheckDP/EPcollectivealignment andKVallocationbeforefullrun.",
+          "decision": {
+            "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+            "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+            "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+          },
+          "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+          "freeze": [
+            "image digest, exact source commits plus dirty diff hash",
+            "model/tokenizer revision and precision",
+            "effective launch args, visible GPU/rank mapping, router policy",
+            "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+            "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+          ],
+          "hypothesis": "If transient uncached prefills under the fixed16384 token budget cause decode interference on R7b, a cheap scheduler-state pressure controller limitingaggregateprefill work when decode isactive can improve SLOcapacity or tail latency. It must beat a properlytunedstatic2K/4K/8K/16K comparator and account for DSparkk5 multi-tokenprogress.",
+          "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+          "id": "R2",
+          "implementation_surfaces": [
+            "vllm/v1/core/sched/scheduler.py",
+            "schedulerconfig + tracecounters",
+            "P-PAS repository https://github.com/TimoSaemann/ppas-vllm (vLLM0.22.1 report; sourcecompatibility notverified)",
+            "decode-priorityPR56848 headf2fe7307a504ee1c40ca127523a667bf1fda5ab2; useastradeoffcomparator not assumedB200compatible"
+          ],
+          "instrumentation": [
+            "periteration actualprefill/decode/spec-verificationtokens",
+            "running/waitingprefillcounts andoldestwaitage",
+            "iterationGPUtime,CUDAGraphmode andfallbackfrequency",
+            "acceptedDSparktokens perstep; distinguishstepsfromtokens",
+            "KVpreemption/recompute,rankbalance,queuegrowth"
+          ],
+          "metrics": {
+            "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+            "guardrails": [
+              "request failure/timeout rate",
+              "correctness and finish reason",
+              "queue growth slope and waiting-time tail",
+              "per-rank cache hit, running/waiting, preemptions",
+              "TTFT and E2E starvation by request length/prefix cohort"
+            ],
+            "latency": [
+              "E2E p50/p95/p99",
+              "TTFT p50/p95/p99",
+              "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+              "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+            ],
+            "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+          },
+          "phase": "presence_gate_then_conditional_evaluation",
+          "presence_gate": "Inspect running scheduler, decode-priority/prefillscheduleinterval features, effective MBT, active requests and pressure-to-iterationtime correlation. Detect existingadaptivecontroller beforeport. Confirm which requestsarepuredecode underDSpark and whetherDP ranksmustcoordinate schedules.",
+          "request_id": "frontier-exploration-001-routing-R2",
+          "risks": [
+            "B200MoE/DSparkcostcurvenonmonotonic atgraph/kernelboundaries",
+            "cappingprefillcanreducebatchutilization orraiseTTFT",
+            "observedstreamchunkITLisnottoken-deadlineclock",
+            "sourcepaperlong-inputshort-outputworkload differs8192/1024agent",
+            "unmodeledpreemption canwipecontrollerbenefit"
+          ],
+          "selection": {
+            "eligible": false,
+            "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+            "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+            "reasons": [
+              "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+              "Priority below this task's threshold; reconsider with evidence or a revised policy"
+            ],
+            "score": 68.0,
+            "status": "deferred"
+          },
+          "source_grounding": "RFC52906/P-PAS explicitly leaves globaltokenbudget unchanged while cappingaggregateprefillwork whenNp>=2 andNd>0; testedGPUs do notincludeB200. PR56848 documentsdecodecadence improvingdecodewhilehurtingprefill. SLOWeave explainsdeadline/cost-model approach but assumes oneprefillchunk anddoesnotmodelpreemption/KVtransfer.",
+          "source_ids": [
+            "github:vllm-project/vllm:52906",
+            "github:vllm-project/vllm:56848",
+            "fulltext:2608.15171v1",
+            "fulltext:2609.07883v1"
+          ],
+          "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+          "status": "design_only_not_executed",
+          "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+          "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+          "title": "Pressure-adaptive prefill admission with bounded starvation",
+          "treatments": [
+            "P-PAS lightweightcap:if>=2prefills pending/running andanydecode thenprefillcap2048 else16384; globalbudgetunchanged",
+            "capcontroller withage-basedprefillprogress guard (thresholdchosenfromexistingTTFTSLO, notinventedproductionSLO)",
+            "optional secondphase deadline-predictor controller onlyifpressurecounterpilotworks; monotoneLUT calibratedforactualB200/DSparkbatchshapes"
+          ],
+          "workload": {
+            "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+            "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+            "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+            "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+          }
+        },
+        "scope": {
+          "baseline": "LAT-2XDEP4-R7b desired profile plus seq128; effective runtime must be frozen before evaluation",
+          "hardware": "8 B200",
+          "scorer": "Exact custom length-aware scorer and AIPerf versions to be frozen; no result exists yet",
+          "workload": {
+            "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+            "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+            "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+            "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+          }
+        }
+      }
+    },
+    {
+      "seq": 483,
+      "id": "event:942908ba6f209f34f7bdc609f444d294cea712f732a47eb84033a8a0effde04e",
+      "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "type": "test_planned",
+      "at": "2026-10-19T23:37:02Z",
+      "actor": "frontier-exploration-primary-agent",
+      "data": {
+        "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+        "id": "test:b133752629efa82d1f8bfc5a1fa6f70101a91106b47cf1614858923860d479d6",
+        "plan": {
+          "baseline_snapshot": {
+            "path": "baseline-audit.json",
+            "sha256": "59287430bb877ffb9af07f49a66bd9181c8a797cc5e37ac419ddb8240d5c330d"
+          },
+          "design_id": "R2",
+          "detailed_design": {
+            "ablations": [
+              "static2K separatesadaptivityfromsmallchunkbenefit",
+              "pressuregate disabled",
+              "ageguard off solelyinsafeoffline/smallpilot toexposestarvation",
+              "cadencecomparatorN=2/4 withstrictTTFTstop; do notcopyN16other-modelheadline"
+            ],
+            "autoresearch_stages": [
+              {
+                "artifact": "scheduler_inventory.json +trace-schema",
+                "budget": "30minCPU",
+                "gate": "controllerabsent andDP/DSparkcompatibilityknown",
+                "stage": "0_presence_cpu"
+              },
+              {
+                "artifact": "static2K/16Kpairediterationtrace",
+                "budget": "30min8GPUwallclock ($18scenario)",
+                "gate": "measurableprefill/decodeinterference",
+                "stage": "1_mechanism_pilot"
+              },
+              {
+                "artifact": "fixed2K/4K/8K/16K +adaptive,pairedtrainingtraces",
+                "budget": "90min8GPUwallclock ($54scenario)",
+                "gate": "beatstrongeststaticwithoutguardrailfail",
+                "stage": "2_static_and_adaptive_screen"
+              },
+              {
+                "artifact": "heldouttraceand5pairedseeds withallrequestrows",
+                "budget": "max2h8GPUwallclock ($72scenario)",
+                "gate": "freezechosencontroller; donotretuneonholdout",
+                "stage": "3_confirm"
+              }
+            ],
+            "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+            "causal_falsification": "Measure decodeiterationtime conditionedonadmitteduncachedprefilltokens. If noburstinterference orcachehits eliminateprefillwork, prune. If adaptation onlytradesTTFTforITL withoutimprovinglength-awareSLOgoodput/E2E, reject.",
+            "control": "R7b static16K plus strongeststaticbudget from2K/4K/8K/16K screening ontrainingtrace; keepseq128/DSpark/cache/routingfixed.",
+            "correctness": "Schedulerchanges mustpreservecompletion/cancellation semantics and no starvation. Validategreedyoutput paritywithappropriatebatchnumericaltolerance, plusqualityregressiongate forsampling. CheckDP/EPcollectivealignment andKVallocationbeforefullrun.",
+            "decision": {
+              "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+              "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+              "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+            },
+            "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+            "freeze": [
+              "image digest, exact source commits plus dirty diff hash",
+              "model/tokenizer revision and precision",
+              "effective launch args, visible GPU/rank mapping, router policy",
+              "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+              "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+            ],
+            "hypothesis": "If transient uncached prefills under the fixed16384 token budget cause decode interference on R7b, a cheap scheduler-state pressure controller limitingaggregateprefill work when decode isactive can improve SLOcapacity or tail latency. It must beat a properlytunedstatic2K/4K/8K/16K comparator and account for DSparkk5 multi-tokenprogress.",
+            "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+            "id": "R2",
+            "implementation_surfaces": [
+              "vllm/v1/core/sched/scheduler.py",
+              "schedulerconfig + tracecounters",
+              "P-PAS repository https://github.com/TimoSaemann/ppas-vllm (vLLM0.22.1 report; sourcecompatibility notverified)",
+              "decode-priorityPR56848 headf2fe7307a504ee1c40ca127523a667bf1fda5ab2; useastradeoffcomparator not assumedB200compatible"
+            ],
+            "instrumentation": [
+              "periteration actualprefill/decode/spec-verificationtokens",
+              "running/waitingprefillcounts andoldestwaitage",
+              "iterationGPUtime,CUDAGraphmode andfallbackfrequency",
+              "acceptedDSparktokens perstep; distinguishstepsfromtokens",
+              "KVpreemption/recompute,rankbalance,queuegrowth"
+            ],
+            "metrics": {
+              "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+              "guardrails": [
+                "request failure/timeout rate",
+                "correctness and finish reason",
+                "queue growth slope and waiting-time tail",
+                "per-rank cache hit, running/waiting, preemptions",
+                "TTFT and E2E starvation by request length/prefix cohort"
+              ],
+              "latency": [
+                "E2E p50/p95/p99",
+                "TTFT p50/p95/p99",
+                "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+                "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+              ],
+              "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+            },
+            "presence_gate": "Inspect running scheduler, decode-priority/prefillscheduleinterval features, effective MBT, active requests and pressure-to-iterationtime correlation. Detect existingadaptivecontroller beforeport. Confirm which requestsarepuredecode underDSpark and whetherDP ranksmustcoordinate schedules.",
+            "risks": [
+              "B200MoE/DSparkcostcurvenonmonotonic atgraph/kernelboundaries",
+              "cappingprefillcanreducebatchutilization orraiseTTFT",
+              "observedstreamchunkITLisnottoken-deadlineclock",
+              "sourcepaperlong-inputshort-outputworkload differs8192/1024agent",
+              "unmodeledpreemption canwipecontrollerbenefit"
+            ],
+            "selection": {
+              "eligible": false,
+              "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+              "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+              "reasons": [
+                "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+                "Priority below this task's threshold; reconsider with evidence or a revised policy"
+              ],
+              "score": 68.0,
+              "status": "deferred"
+            },
+            "source_grounding": "RFC52906/P-PAS explicitly leaves globaltokenbudget unchanged while cappingaggregateprefillwork whenNp>=2 andNd>0; testedGPUs do notincludeB200. PR56848 documentsdecodecadence improvingdecodewhilehurtingprefill. SLOWeave explainsdeadline/cost-model approach but assumes oneprefillchunk anddoesnotmodelpreemption/KVtransfer.",
+            "source_ids": [
+              "github:vllm-project/vllm:52906",
+              "github:vllm-project/vllm:56848",
+              "fulltext:2608.15171v1",
+              "fulltext:2609.07883v1"
+            ],
+            "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+            "status": "design_only_not_executed",
+            "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+            "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+            "title": "Pressure-adaptive prefill admission with bounded starvation",
+            "treatments": [
+              "P-PAS lightweightcap:if>=2prefills pending/running andanydecode thenprefillcap2048 else16384; globalbudgetunchanged",
+              "capcontroller withage-basedprefillprogress guard (thresholdchosenfromexistingTTFTSLO, notinventedproductionSLO)",
+              "optional secondphase deadline-predictor controller onlyifpressurecounterpilotworks; monotoneLUT calibratedforactualB200/DSparkbatchshapes"
+            ],
+            "workload": {
+              "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+              "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+              "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+              "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+            }
+          },
+          "effective_contract": {
+            "baseline_audit": {
+              "path": "BASELINE_AUDIT.md",
+              "sha256": "f69d28d3ee26bb6d2f968e4a1f2f5de2445e728889c2e32529d28488cfbe1a56"
+            },
+            "confirmation": "separate approved budget; >=5 paired blocks, held-out traces and predeclared stopping; see protocol",
+            "fixed_load_alternative": ">=5% E2E p95 reduction at identical offered load with matched goodput and cost",
+            "initial_screening": {
+              "gpu_hours_max": 6,
+              "gpus": 8,
+              "includes_warmup": true,
+              "matrix": "CPU prerequisites first; one anchor current+strong static+treatment. Reduce matrix to fit cap; not every cell required.",
+              "node_minutes_max": 45,
+              "scenario_cost_usd_max": 27,
+              "scenario_node_hour_usd": 36,
+              "startup_compile": "record separately and budget before execution"
+            },
+            "precedence": "This effective contract overrides conflicting defaults in preserved agent draft designs; domain-specific correctness/prerequisites remain mandatory. No execution requested.",
+            "primary": "strict AIPerf0.13.0 SLO goodput with frozen per-request TTFT4000ms/ITL33.333ms/E2E75000ms scorer; campaign custom length-aware goodput reported separately",
+            "promotion": {
+              "correctness_and_quality": "no regression under preregistered exact/numerical/distributional contract appropriate to change",
+              "lower_effect_interval_must_exceed_zero": true,
+              "material_effect_percent": 5,
+              "max_tail_regression_percent": 2,
+              "paired_block_bootstrap_confidence": 0.95,
+              "wide_intervals": "inconclusive"
+            },
+            "protocol": {
+              "path": "EVALUATION_PROTOCOL.md",
+              "sha256": "f0d1000c93b9da1d2bb7894628108ca71352cd2856c64fe935491dffb74ee7c1"
+            },
+            "version": "frontier-eval-v1"
+          },
+          "execution": "No jobs started. Reconstruct terminated-host baseline first. CPU checks precede any conditional GPU stages.",
+          "kind": "conditional_experimental_design",
+          "next_action": "CPU/source baseline reconstruction and eligibility diagnosis only; GPU stages conditional and not executed",
+          "prerequisites": [],
+          "request_id": "frontier-exploration-001-consolidated-R2",
+          "source_artifact": {
+            "path": "routing/experiments.json",
+            "sha256": "328d2e4f0eb22a6366a804ec879a39b9184058ebb2163c4d95778ad5a13ef5ac"
+          },
+          "supersedes_draft_test_ids": [
+            "test:abf2bf0e063aa6c3ad7be3992c6026db0e8398608cbf953a3a69d416f8de0eda"
+          ],
+          "title": "Pressure-adaptive prefill admission with bounded starvation"
+        },
+        "scope": {
+          "baseline": "Archived R7b two TP1/DP4/EP4 engines plus seq128 overlay; runtime identity unresolved; host terminated",
+          "hardware": "8xB200; not provisioned by this task",
+          "model": "DeepSeek-V4.1-Flash; exact weights hash must be reconstructed",
+          "source_bundle": "frontier-exploration-001",
+          "status": "planned; not tested",
+          "workloads": [
+            "agent-f75 8192/1024",
+            "Mooncake median/burst/cache-heavy"
+          ]
+        }
+      }
+    }
+  ],
+  "status": "deferred",
+  "assessment": {
+    "eligible": false,
+    "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+    "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+    "reasons": [
+      "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+      "Priority below this task's threshold; reconsider with evidence or a revised policy"
+    ],
+    "score": 68.0,
+    "status": "deferred"
+  },
+  "tests": [
+    {
+      "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "id": "test:abf2bf0e063aa6c3ad7be3992c6026db0e8398608cbf953a3a69d416f8de0eda",
+      "plan": {
+        "ablations": [
+          "static2K separatesadaptivityfromsmallchunkbenefit",
+          "pressuregate disabled",
+          "ageguard off solelyinsafeoffline/smallpilot toexposestarvation",
+          "cadencecomparatorN=2/4 withstrictTTFTstop; do notcopyN16other-modelheadline"
+        ],
+        "autoresearch_stages": [
+          {
+            "artifact": "scheduler_inventory.json +trace-schema",
+            "budget": "30minCPU",
+            "gate": "controllerabsent andDP/DSparkcompatibilityknown",
+            "stage": "0_presence_cpu"
+          },
+          {
+            "artifact": "static2K/16Kpairediterationtrace",
+            "budget": "30min8GPUwallclock ($18scenario)",
+            "gate": "measurableprefill/decodeinterference",
+            "stage": "1_mechanism_pilot"
+          },
+          {
+            "artifact": "fixed2K/4K/8K/16K +adaptive,pairedtrainingtraces",
+            "budget": "90min8GPUwallclock ($54scenario)",
+            "gate": "beatstrongeststaticwithoutguardrailfail",
+            "stage": "2_static_and_adaptive_screen"
+          },
+          {
+            "artifact": "heldouttraceand5pairedseeds withallrequestrows",
+            "budget": "max2h8GPUwallclock ($72scenario)",
+            "gate": "freezechosencontroller; donotretuneonholdout",
+            "stage": "3_confirm"
+          }
+        ],
+        "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+        "causal_falsification": "Measure decodeiterationtime conditionedonadmitteduncachedprefilltokens. If noburstinterference orcachehits eliminateprefillwork, prune. If adaptation onlytradesTTFTforITL withoutimprovinglength-awareSLOgoodput/E2E, reject.",
+        "control": "R7b static16K plus strongeststaticbudget from2K/4K/8K/16K screening ontrainingtrace; keepseq128/DSpark/cache/routingfixed.",
+        "correctness": "Schedulerchanges mustpreservecompletion/cancellation semantics and no starvation. Validategreedyoutput paritywithappropriatebatchnumericaltolerance, plusqualityregressiongate forsampling. CheckDP/EPcollectivealignment andKVallocationbeforefullrun.",
+        "decision": {
+          "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+          "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+          "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+        },
+        "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+        "freeze": [
+          "image digest, exact source commits plus dirty diff hash",
+          "model/tokenizer revision and precision",
+          "effective launch args, visible GPU/rank mapping, router policy",
+          "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+          "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+        ],
+        "hypothesis": "If transient uncached prefills under the fixed16384 token budget cause decode interference on R7b, a cheap scheduler-state pressure controller limitingaggregateprefill work when decode isactive can improve SLOcapacity or tail latency. It must beat a properlytunedstatic2K/4K/8K/16K comparator and account for DSparkk5 multi-tokenprogress.",
+        "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+        "id": "R2",
+        "implementation_surfaces": [
+          "vllm/v1/core/sched/scheduler.py",
+          "schedulerconfig + tracecounters",
+          "P-PAS repository https://github.com/TimoSaemann/ppas-vllm (vLLM0.22.1 report; sourcecompatibility notverified)",
+          "decode-priorityPR56848 headf2fe7307a504ee1c40ca127523a667bf1fda5ab2; useastradeoffcomparator not assumedB200compatible"
+        ],
+        "instrumentation": [
+          "periteration actualprefill/decode/spec-verificationtokens",
+          "running/waitingprefillcounts andoldestwaitage",
+          "iterationGPUtime,CUDAGraphmode andfallbackfrequency",
+          "acceptedDSparktokens perstep; distinguishstepsfromtokens",
+          "KVpreemption/recompute,rankbalance,queuegrowth"
+        ],
+        "metrics": {
+          "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+          "guardrails": [
+            "request failure/timeout rate",
+            "correctness and finish reason",
+            "queue growth slope and waiting-time tail",
+            "per-rank cache hit, running/waiting, preemptions",
+            "TTFT and E2E starvation by request length/prefix cohort"
+          ],
+          "latency": [
+            "E2E p50/p95/p99",
+            "TTFT p50/p95/p99",
+            "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+            "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+          ],
+          "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+        },
+        "phase": "presence_gate_then_conditional_evaluation",
+        "presence_gate": "Inspect running scheduler, decode-priority/prefillscheduleinterval features, effective MBT, active requests and pressure-to-iterationtime correlation. Detect existingadaptivecontroller beforeport. Confirm which requestsarepuredecode underDSpark and whetherDP ranksmustcoordinate schedules.",
+        "request_id": "frontier-exploration-001-routing-R2",
+        "risks": [
+          "B200MoE/DSparkcostcurvenonmonotonic atgraph/kernelboundaries",
+          "cappingprefillcanreducebatchutilization orraiseTTFT",
+          "observedstreamchunkITLisnottoken-deadlineclock",
+          "sourcepaperlong-inputshort-outputworkload differs8192/1024agent",
+          "unmodeledpreemption canwipecontrollerbenefit"
+        ],
+        "selection": {
+          "eligible": false,
+          "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+          "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+          "reasons": [
+            "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+            "Priority below this task's threshold; reconsider with evidence or a revised policy"
+          ],
+          "score": 68.0,
+          "status": "deferred"
+        },
+        "source_grounding": "RFC52906/P-PAS explicitly leaves globaltokenbudget unchanged while cappingaggregateprefillwork whenNp>=2 andNd>0; testedGPUs do notincludeB200. PR56848 documentsdecodecadence improvingdecodewhilehurtingprefill. SLOWeave explainsdeadline/cost-model approach but assumes oneprefillchunk anddoesnotmodelpreemption/KVtransfer.",
+        "source_ids": [
+          "github:vllm-project/vllm:52906",
+          "github:vllm-project/vllm:56848",
+          "fulltext:2608.15171v1",
+          "fulltext:2609.07883v1"
+        ],
+        "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+        "status": "design_only_not_executed",
+        "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+        "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+        "title": "Pressure-adaptive prefill admission with bounded starvation",
+        "treatments": [
+          "P-PAS lightweightcap:if>=2prefills pending/running andanydecode thenprefillcap2048 else16384; globalbudgetunchanged",
+          "capcontroller withage-basedprefillprogress guard (thresholdchosenfromexistingTTFTSLO, notinventedproductionSLO)",
+          "optional secondphase deadline-predictor controller onlyifpressurecounterpilotworks; monotoneLUT calibratedforactualB200/DSparkbatchshapes"
+        ],
+        "workload": {
+          "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+          "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+          "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+          "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+        }
+      },
+      "scope": {
+        "baseline": "LAT-2XDEP4-R7b desired profile plus seq128; effective runtime must be frozen before evaluation",
+        "hardware": "8 B200",
+        "scorer": "Exact custom length-aware scorer and AIPerf versions to be frozen; no result exists yet",
+        "workload": {
+          "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+          "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+          "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+          "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+        }
+      },
+      "status": "planned",
+      "results": []
+    },
+    {
+      "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "id": "test:b133752629efa82d1f8bfc5a1fa6f70101a91106b47cf1614858923860d479d6",
+      "plan": {
+        "baseline_snapshot": {
+          "path": "baseline-audit.json",
+          "sha256": "59287430bb877ffb9af07f49a66bd9181c8a797cc5e37ac419ddb8240d5c330d"
+        },
+        "design_id": "R2",
+        "detailed_design": {
+          "ablations": [
+            "static2K separatesadaptivityfromsmallchunkbenefit",
+            "pressuregate disabled",
+            "ageguard off solelyinsafeoffline/smallpilot toexposestarvation",
+            "cadencecomparatorN=2/4 withstrictTTFTstop; do notcopyN16other-modelheadline"
+          ],
+          "autoresearch_stages": [
+            {
+              "artifact": "scheduler_inventory.json +trace-schema",
+              "budget": "30minCPU",
+              "gate": "controllerabsent andDP/DSparkcompatibilityknown",
+              "stage": "0_presence_cpu"
+            },
+            {
+              "artifact": "static2K/16Kpairediterationtrace",
+              "budget": "30min8GPUwallclock ($18scenario)",
+              "gate": "measurableprefill/decodeinterference",
+              "stage": "1_mechanism_pilot"
+            },
+            {
+              "artifact": "fixed2K/4K/8K/16K +adaptive,pairedtrainingtraces",
+              "budget": "90min8GPUwallclock ($54scenario)",
+              "gate": "beatstrongeststaticwithoutguardrailfail",
+              "stage": "2_static_and_adaptive_screen"
+            },
+            {
+              "artifact": "heldouttraceand5pairedseeds withallrequestrows",
+              "budget": "max2h8GPUwallclock ($72scenario)",
+              "gate": "freezechosencontroller; donotretuneonholdout",
+              "stage": "3_confirm"
+            }
+          ],
+          "baseline": "R7b two TP1/DP4/EP4 engines, DSpark k5, API2 per replica, prefix cache enabled, seq128 override; verify actual runtime before any treatment.",
+          "causal_falsification": "Measure decodeiterationtime conditionedonadmitteduncachedprefilltokens. If noburstinterference orcachehits eliminateprefillwork, prune. If adaptation onlytradesTTFTforITL withoutimprovinglength-awareSLOgoodput/E2E, reject.",
+          "control": "R7b static16K plus strongeststaticbudget from2K/4K/8K/16K screening ontrainingtrace; keepseq128/DSpark/cache/routingfixed.",
+          "correctness": "Schedulerchanges mustpreservecompletion/cancellation semantics and no starvation. Validategreedyoutput paritywithappropriatebatchnumericaltolerance, plusqualityregressiongate forsampling. CheckDP/EPcollectivealignment andKVallocationbeforefullrun.",
+          "decision": {
+            "inconclusive": "Baseline feature already enabled, absent prerequisite bottleneck, noisy baseline>5%CV, insufficient requests for tail, telemetry mismatch, or unreachable capacity knee.",
+            "reject": "After prerequisite mechanism confirmed, no improvement beyond noise at strongest comparator, or sustained>=5%guardrail regression, starvation, correctness failure. Reject onlywithin declared scope.",
+            "support": "At least5%increase in sustainable SLO goodput vs strongest static comparator with paired95%CI lower bound>0, without guardrail regression; OR atsame offeredload at least5%p95E2E reduction and throughput/error/correctness noninferiority.5%is a chosen threshold."
+          },
+          "execution_gate": "Deferred: CPU presence inspection and mechanism telemetry first. No GPU launch authorized by this plan registration.",
+          "freeze": [
+            "image digest, exact source commits plus dirty diff hash",
+            "model/tokenizer revision and precision",
+            "effective launch args, visible GPU/rank mapping, router policy",
+            "trace hashes, arrival timestamps, exact custom length-aware scorer and AIPerf scorer versions",
+            "prompt-prefix identities and actual served token-weighted cache-hit measurements"
+          ],
+          "hypothesis": "If transient uncached prefills under the fixed16384 token budget cause decode interference on R7b, a cheap scheduler-state pressure controller limitingaggregateprefill work when decode isactive can improve SLOcapacity or tail latency. It must beat a properlytunedstatic2K/4K/8K/16K comparator and account for DSparkk5 multi-tokenprogress.",
+          "hypothesis_id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+          "id": "R2",
+          "implementation_surfaces": [
+            "vllm/v1/core/sched/scheduler.py",
+            "schedulerconfig + tracecounters",
+            "P-PAS repository https://github.com/TimoSaemann/ppas-vllm (vLLM0.22.1 report; sourcecompatibility notverified)",
+            "decode-priorityPR56848 headf2fe7307a504ee1c40ca127523a667bf1fda5ab2; useastradeoffcomparator not assumedB200compatible"
+          ],
+          "instrumentation": [
+            "periteration actualprefill/decode/spec-verificationtokens",
+            "running/waitingprefillcounts andoldestwaitage",
+            "iterationGPUtime,CUDAGraphmode andfallbackfrequency",
+            "acceptedDSparktokens perstep; distinguishstepsfromtokens",
+            "KVpreemption/recompute,rankbalance,queuegrowth"
+          ],
+          "metrics": {
+            "cost": "8 GPUs at assumed $4.50/GPU-hour => $36/hour; $/M successful SLO requests=10000/goodput. Report scenario not bill; include measured router CPU resources separately.",
+            "guardrails": [
+              "request failure/timeout rate",
+              "correctness and finish reason",
+              "queue growth slope and waiting-time tail",
+              "per-rank cache hit, running/waiting, preemptions",
+              "TTFT and E2E starvation by request length/prefix cohort"
+            ],
+            "latency": [
+              "E2E p50/p95/p99",
+              "TTFT p50/p95/p99",
+              "inter-token-gap percentiles separately by >=50-output and short-output cohorts",
+              "TPOT per request calculated separately; do not equate streamed chunk gaps to token execution latency"
+            ],
+            "primary": "maximum sustainable SLO-qualified requests/s on identical offered-load traces, with non-growing queue and fixed error/SLO limits"
+          },
+          "presence_gate": "Inspect running scheduler, decode-priority/prefillscheduleinterval features, effective MBT, active requests and pressure-to-iterationtime correlation. Detect existingadaptivecontroller beforeport. Confirm which requestsarepuredecode underDSpark and whetherDP ranksmustcoordinate schedules.",
+          "risks": [
+            "B200MoE/DSparkcostcurvenonmonotonic atgraph/kernelboundaries",
+            "cappingprefillcanreducebatchutilization orraiseTTFT",
+            "observedstreamchunkITLisnottoken-deadlineclock",
+            "sourcepaperlong-inputshort-outputworkload differs8192/1024agent",
+            "unmodeledpreemption canwipecontrollerbenefit"
+          ],
+          "selection": {
+            "eligible": false,
+            "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+            "policy_id": "policy:36fda9813616387d9d9a445d522ea594b02ed20dd901e2b4f54f9a80b7c2ffe6",
+            "reasons": [
+              "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deployment, remains unknown. The supplied E2E results do not settle either question.",
+              "Priority below this task's threshold; reconsider with evidence or a revised policy"
+            ],
+            "score": 68.0,
+            "status": "deferred"
+          },
+          "source_grounding": "RFC52906/P-PAS explicitly leaves globaltokenbudget unchanged while cappingaggregateprefillwork whenNp>=2 andNd>0; testedGPUs do notincludeB200. PR56848 documentsdecodecadence improvingdecodewhilehurtingprefill. SLOWeave explainsdeadline/cost-model approach but assumes oneprefillchunk anddoesnotmodelpreemption/KVtransfer.",
+          "source_ids": [
+            "github:vllm-project/vllm:52906",
+            "github:vllm-project/vllm:56848",
+            "fulltext:2608.15171v1",
+            "fulltext:2609.07883v1"
+          ],
+          "statistics": "Paired identical arrival/prompt seeds; randomize treatment order; 3repeats forscreening,5repeats only finalists. Use trace-block bootstrap95%CI on paired primary deltas, and latency quantiles with requestcounts. Keep timeout requests in denominators. No adaptive choosing winning seeds.",
+          "status": "design_only_not_executed",
+          "stop": "Stop immediately on output correctness regression, OOM/repeated errors, unbounded queue growth, or p99TTFT>2x pairedbaseline for>60s. A crash is executionerror, not invalidation.",
+          "threshold_provenance": "All thresholds below are proposed engineering decision rules, not observed effects or literature promises.",
+          "title": "Pressure-adaptive prefill admission with bounded starvation",
+          "treatments": [
+            "P-PAS lightweightcap:if>=2prefills pending/running andanydecode thenprefillcap2048 else16384; globalbudgetunchanged",
+            "capcontroller withage-basedprefillprogress guard (thresholdchosenfromexistingTTFTSLO, notinventedproductionSLO)",
+            "optional secondphase deadline-predictor controller onlyifpressurecounterpilotworks; monotoneLUT calibratedforactualB200/DSparkbatchshapes"
+          ],
+          "workload": {
+            "baseline_ceiling_warning": "At1x R7b6.63goodput/6.65offered leaves no5%goodput headroom. Fixed-load wins must be latency/resource improvements; capacity claims require increased offered load.",
+            "closed_loop": "agent-f75 8192 input/1024 output at concurrency256,384,512; report separately from open-loop",
+            "held_out": "a different trace seed/time window plus prefix reuse0%,50%,75%target and skewed hot-prefix mixture; preserve actual observed hitrate",
+            "open_loop": "same Mooncake median/burst/cache-heavy traces at1,1.25,1.5,2x; if stable atceiling report right-censored capacity not maximum"
+          }
+        },
+        "effective_contract": {
+          "baseline_audit": {
+            "path": "BASELINE_AUDIT.md",
+            "sha256": "f69d28d3ee26bb6d2f968e4a1f2f5de2445e728889c2e32529d28488cfbe1a56"
+          },
+          "confirmation": "separate approved budget; >=5 paired blocks, held-out traces and predeclared stopping; see protocol",
+          "fixed_load_alternative": ">=5% E2E p95 reduction at identical offered load with matched goodput and cost",
+          "initial_screening": {
+            "gpu_hours_max": 6,
+            "gpus": 8,
+            "includes_warmup": true,
+            "matrix": "CPU prerequisites first; one anchor current+strong static+treatment. Reduce matrix to fit cap; not every cell required.",
+            "node_minutes_max": 45,
+            "scenario_cost_usd_max": 27,
+            "scenario_node_hour_usd": 36,
+            "startup_compile": "record separately and budget before execution"
+          },
+          "precedence": "This effective contract overrides conflicting defaults in preserved agent draft designs; domain-specific correctness/prerequisites remain mandatory. No execution requested.",
+          "primary": "strict AIPerf0.13.0 SLO goodput with frozen per-request TTFT4000ms/ITL33.333ms/E2E75000ms scorer; campaign custom length-aware goodput reported separately",
+          "promotion": {
+            "correctness_and_quality": "no regression under preregistered exact/numerical/distributional contract appropriate to change",
+            "lower_effect_interval_must_exceed_zero": true,
+            "material_effect_percent": 5,
+            "max_tail_regression_percent": 2,
+            "paired_block_bootstrap_confidence": 0.95,
+            "wide_intervals": "inconclusive"
+          },
+          "protocol": {
+            "path": "EVALUATION_PROTOCOL.md",
+            "sha256": "f0d1000c93b9da1d2bb7894628108ca71352cd2856c64fe935491dffb74ee7c1"
+          },
+          "version": "frontier-eval-v1"
+        },
+        "execution": "No jobs started. Reconstruct terminated-host baseline first. CPU checks precede any conditional GPU stages.",
+        "kind": "conditional_experimental_design",
+        "next_action": "CPU/source baseline reconstruction and eligibility diagnosis only; GPU stages conditional and not executed",
+        "prerequisites": [],
+        "request_id": "frontier-exploration-001-consolidated-R2",
+        "source_artifact": {
+          "path": "routing/experiments.json",
+          "sha256": "328d2e4f0eb22a6366a804ec879a39b9184058ebb2163c4d95778ad5a13ef5ac"
+        },
+        "supersedes_draft_test_ids": [
+          "test:abf2bf0e063aa6c3ad7be3992c6026db0e8398608cbf953a3a69d416f8de0eda"
+        ],
+        "title": "Pressure-adaptive prefill admission with bounded starvation"
+      },
+      "scope": {
+        "baseline": "Archived R7b two TP1/DP4/EP4 engines plus seq128 overlay; runtime identity unresolved; host terminated",
+        "hardware": "8xB200; not provisioned by this task",
+        "model": "DeepSeek-V4.1-Flash; exact weights hash must be reconstructed",
+        "source_bundle": "frontier-exploration-001",
+        "status": "planned; not tested",
+        "workloads": [
+          "agent-f75 8192/1024",
+          "Mooncake median/burst/cache-heavy"
+        ]
+      },
+      "status": "planned",
+      "results": []
+    }
+  ],
+  "outcomes_by_scope": [],
+  "experiment_status": "planned"
+}

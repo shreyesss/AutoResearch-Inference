@@ -1,0 +1,107 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:52783",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/52783",
+    "title": "[Spec Decode] Enable adaptive DSpark on SM100 sparse MLA",
+    "body": "## Purpose\r\n\r\nResolves #52785. This is part of the adaptive DSpark backend expansion tracked by #51303. Related GLM-5.2 DSpark bring-up context is in #50851.\r\n\r\nThis enables adaptive DSpark verification with `FlashInferMLASparseTRTLLMBackend`. It was validated end to end with `nvidia/GLM-5.2-NVFP4` and `RedHatAI/GLM-5.2-speculator.dspark` on 4\u00d7 NVIDIA B300.\r\n\r\n<img width=\"3960\" height=\"2520\" alt=\"glm52_dspark_adaptive\" src=\"https://github.com/user-attachments/assets/a3062d61-a6d5-446e-8809-b82e4b9b2de5\" />\r\n\r\nBefore this change, startup failed for two independent reasons:\r\n\r\n1. The sparse-MLA metadata builder derived token-to-request mappings from CPU query boundaries. Adaptive verification changes those boundaries on device without synchronizing them back to the CPU.\r\n2. The target graph capability check included the draft model's FlashAttention backend. Draft attention is captured and capability-checked by its own graph manager, and it never consumes the target's adaptive query lengths.\r\n\r\n## Changes\r\n\r\n- Add an SM100 FlashInfer sparse-MLA metadata builder that derives request IDs from device query boundaries and declares variable-length CUDA graph support.\r\n- Scope target CUDA graph and query-length compatibility checks to target attention layers while retaining draft groups needed by draft prefill.\r\n- Add a real B300 kernel regression using GLM-5.2 dimensions. It compares FlashInfer sparse MLA against SDPA with device query lengths `[1, 7, 3, 5]` and deliberately stale CPU lengths `[4, 4, 4, 4]`.\r\n- Add a unit regression proving draft-only groups are excluded without hiding mixed target/draft groups that still participate in target execution.\r\n\r\n## Performance\r\n\r\n<!-- Paste the GLM-5.2/B300 throughput-vs-interactivity chart here. -->\r\n\r\nScaled SPEED Bench qualitative sweep, 16K context, 512 output tokens, temperature 1.0, seed 0. The c1 run used 32 prompts, c16 used 128, and the remaining points used 256. Both configurations completed with zero failed requests.\r\n\r\n| Concurrency | Fixed k=7 tok/s | Adaptive tok/s | Gain |\r\n|---:|---:|---:|---:|\r\n| 1 | 306.7 | 310.6 | +1.3% |\r\n| 16 | 2,084.4 | 2,093.5 | +0.4% |\r\n| 32 | 3,525.0 | 3,595.8 | +2.0% |\r\n| 64 | 5,236.8 | 5,538.8 | +5.8% |\r\n| 128 | 7,172.9 | 8,190.7 | +14.2% |\r\n| 256 | 7,720.4 | 10,316.8 | +33.6% |\r\n\r\nAt c256, mean TPOT improved from 23.24 ms to 17.37 ms. A direct B300 kernel comparison also favored the selected FlashInfer SM100 backend over FlashMLA by 2.1\u20132.6\u00d7 for uniform decode batches and 31.9\u00d7 for a mixed 1/3/5/7-token adaptive shape.\r\n\r\n## Model evaluation\r\n\r\nGSM8K, five-shot, 200 examples, greedy decoding, 2,048-token output limit:\r\n\r\n| Configuration | Accuracy | Invalid/truncated |\r\n|---|---:|---:|\r\n| Fixed k=7 | 89.0% | 1.0% |\r\n| Adaptive k\u22647 | 91.0% | 0.5% |\r\n\r\nThis shows no detected accuracy regression at this sample size; the two-point difference is not presented as statistically significant. HLE was also exercised, but 38/40 sampled outputs still truncated at an 8,192-token limit, so no HLE accuracy result is reported.\r\n\r\n## Reproduction\r\n\r\n```bash\r\nchg run -g=4 -- vllm serve nvidia/GLM-5.2-NVFP4 \\\r\n  --tensor-parallel-size 4 \\\r\n  --enable-expert-parallel \\\r\n  --load-format instanttensor \\\r\n  --kv-cache-dtype fp8 \\\r\n  --block-size 64 \\\r\n  --max-model-len 16384 \\\r\n  --max-num-batched-tokens 16384 \\\r\n  --max-num-seqs 256 \\\r\n  --gpu-memory-utilization 0.8 \\\r\n  --compilation-config '{\"max_cudagraph_capture_size\":2048}' \\\r\n  --speculative-config '{\"method\":\"dspark\",\"model\":\"RedHatAI/GLM-5.2-speculator.dspark\",\"attention_backend\":\"FLASH_ATTN\",\"num_speculative_tokens\":7,\"draft_sample_method\":\"probabilistic\",\"enable_adaptive_verification\":true}'\r\n```\r\n\r\nThe full server completed target and draft CUDA graph capture and served the benchmark/evaluation requests successfully.\r\n\r\n## Test plan\r\n\r\n```bash\r\nchg run -g=1 -- .venv/bin/python -m pytest \\\r\n  tests/v1/attention/test_dspark_noncausal_sparse_mla.py -q\r\n# 21 passed, 8 skipped\r\n\r\n.venv/bin/python -m pytest tests/v1/worker/test_attn_utils.py -q\r\n# 7 passed\r\n\r\n.venv/bin/pre-commit run ruff-check --files <changed files>\r\n.venv/bin/pre-commit run ruff-format --files <changed files>\r\n.venv/bin/pre-commit run mypy-3.12 --hook-stage manual --files <runtime files>\r\n# all passed\r\n```\r\n\r\nThe focused CPU and B300 tests plus lint and mypy were rerun after rebasing onto current `main`.\r\n\r\n## Not a duplicate\r\n\r\nDuplicate checks covered #51303 and adaptive DSpark/sparse-MLA keywords. #52362 enables adaptive verification on ROCm and changes AMD model/indexer paths; it does not overlap this CUDA SM100 metadata and target/draft graph-scoping change. #50694 addresses earlier FA3 and DSpark/DFlash proposer wiring for GLM-5.2.\r\n\r\n## AI assistance\r\n\r\nAI assistance (OpenAI Codex) was used to investigate, implement, test, benchmark, and draft this change. The submitter reviewed every changed line, understands the change end to end, and ran the tests and model evaluations reported above.\r\n",
+    "created_at": "2026-08-18T14:55:34Z",
+    "updated_at": "2026-08-25T17:31:16Z",
+    "fetched_at": "2026-10-19T23:11:35Z",
+    "state": "merged",
+    "merged_at": "2026-08-25T17:31:16Z",
+    "parent": null,
+    "tags": [
+      "mla",
+      "tpot",
+      "throughput",
+      "performance",
+      "speculation",
+      "kv-cache",
+      "nvfp4"
+    ],
+    "metadata": {
+      "number": 52783,
+      "labels": [
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9543357705,
+          "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+          "name": "nvidia",
+          "color": "76B900",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 11,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "f620499ee3fe18131d71b02e1e8e5f1cf984cf1c",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "mgoin/dspark-adaptive-sparse-mla",
+        "sha": "5a014d40f2293bf9a86e2d9921a8490a01e675ef",
+        "label": "mgoin:mgoin/dspark-adaptive-sparse-mla"
+      },
+      "merge_commit_sha": "7de96050c530009eb8e81065aea76570fc6ed15b",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:11:35Z"
+    },
+    "content_hash": "a9e3a7e117c186408ad7fe9acf6d3d372a4efafadd3e69507932ce3f55713d0b"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

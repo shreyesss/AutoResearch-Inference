@@ -1,0 +1,8 @@
+ARG BASE_IMAGE=dsv41/vllm-openai:nvfp4-engram-1800929
+FROM ${BASE_IMAGE}
+
+RUN /usr/bin/python3 -m pip install --no-cache-dir \
+      nvshmem4py-cu13==0.4.0 \
+    && /usr/bin/python3 -c "import nvshmem.core"
+
+LABEL ai.deepseek.nvfp4.moe_ep_runtime="nvshmem4py-cu13-0.4.0"

@@ -1,0 +1,41 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:52922",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/vllm-project/vllm/issues/52922",
+    "title": "[Bug]: DSpark scheduling using an overly conservative input budget",
+    "body": "### Your current environment\n\n<details>\n<summary>The output of <code>python collect_env.py</code></summary>\n\n```text\nYour output of `python collect_env.py` here\n```\n\n</details>\n\n\n### \ud83d\udc1b Describe the bug\n\nThe scheduler charges each DSpark request `num_new_tokens + K - 1`, where `K` is `num_speculative_tokens`. However, the target/context tokens and the fixed-size draft query block are processed in separate stages. Combining them into one budget can unnecessarily restrict scheduling.\n\nFor example, assume:\n\n```text\nmax_num_batched_tokens = 16\nnum_speculative_tokens = 4\n2 requests, each scheduling 8 prefill tokens\n```\n\nBoth requests fit the two stages:\n\n```text\ntarget/context stage: 8 + 8 = 16 tokens\nDSpark query stage: 4 + 4 = 8 tokens\n```\n\nCurrent accounting charges `8 + (4 - 1) = 11` for the first request, so the two requests cannot be admitted in full despite fitting both stages.\n\nThis may also affect other speculative methods. A possible fix is to keep target and draft-input budgets separate, with each method defining its draft-stage input cost.\n\nWe may be missing some intended scheduling semantics; we are validating this experimentally and exploring a fix.\n\n\n### Before submitting a new issue...\n\n- [x] Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the [documentation page](https://docs.vllm.ai/en/latest/), which can answer lots of frequently asked questions.",
+    "created_at": "2026-08-19T09:35:43Z",
+    "updated_at": "2026-10-15T17:24:00Z",
+    "fetched_at": "2026-10-19T21:45:55Z",
+    "state": "closed",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "speculation"
+    ],
+    "metadata": {
+      "number": 52922,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 3,
+      "state_reason": "completed"
+    },
+    "content_hash": "9d10e06a176bb1a4e15852a35f28bf6355b6fd69b708dd57aaaa4184746caba7"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

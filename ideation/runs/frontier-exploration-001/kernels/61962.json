@@ -1,0 +1,77 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61962",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61962",
+    "title": "[AMD][DSV4.1Flash] Quantize MoE activations to MXFP8 before the MoRI dispatch",
+    "body": "## Motivation\n\nMXFP4 W4A16 experts declare BF16 activations, so MoRI dispatches raw BF16 and\nAITER quantizes to group-32 MXFP8 on arrival. A token routed to `k` distinct\nranks is therefore quantized `k` times \u2014 expected ~4.4 of 8 ranks at topk=6 for\nDeepSeek-V4.1-Flash \u2014 and the dispatch carries 2 bytes/element instead of\n1 + 1/32.\n\nQuantizing in `prepare()` moves that to once per token on the rank that owns it,\nand roughly halves the dispatch payload.\n\nAITER already consumes the result: with a pre-quantized FP8 operand and E8M0\nscales, its stage-1 path sorts the scales (`mxfp4_moe_sort_fwd`) instead of\nrunning its own quant. This mirrors the MXFP4 W4A4 dispatch added in #59596,\nwhich takes the same pre-quantized route for a4w4.\n\n## Summary of changes\n\n**`all2all_utils.py`** \u2014 adds `mori_use_mxfp8_dispatch()` and wires a third\ndispatch mode into `maybe_make_prepare_finalize()`. MoRI infers the payload\ndtype from the input tensor and transports `scale_dim` scales of\n`scale_type_size` bytes per token, so the new branch sets\n`scale_dim = hidden_dim / 32` and a 1-byte scale element. E8M0 exponents are\nbytes, not the fp32 the per-token/per-tensor FP8 paths use.\n\n**`prepare_finalize/mori.py`** \u2014 adds the `use_mxfp8_dispatch` flag and the\ncorresponding quant in `prepare()`, via `get_hip_quant(QuantType.per_1x32)` with\n`scale_type=dtypes.fp8_e8m0`, matching the FP4 branch directly above it. The\nmutual-exclusion assert becomes `sum(...) <= 1` now that there are three modes.\n\n**Gating is deliberately narrow.** A pre-quantized operand is only safe when\nAITER would have produced MXFP8 itself: a BF16-activation kernel would cast the\nFP8 payload back to BF16 and never apply the scales, silently losing the\nscaling. `mori_use_mxfp8_dispatch()` therefore asks AITER directly via\n`resolve_activation_dtype()`, which is documented for exactly this case (\"lets a\ncaller that produces the activations itself -- an all-to-all dispatch, a fused\nepilogue -- emit that dtype directly\") and returns `None` rather than guessing\nwhen the answer would have depended on a token count that does not exist yet.\nIt also fails closed on `ImportError` and on a hidden dim that is not a multiple\nof 32.\n\n## Results\n\n8x MI355X (gfx950), DeepSeek-V4.1-Flash, DP8/EP8 with `mori_high_throughput`,\nspeculative decoding off. 8192 in / 1024 out, 256 prompts at concurrency 64,\nagainst a stock nightly (`0.32.0rc1.dev190+g3f1bcfd82`) with **only this change\napplied** \u2014 this PR was measured on its own, with no AITER-side patches, so the\nnumbers are attributable to the dispatch change alone.\n\nEngagement was confirmed rather than assumed: `resolve_activation_dtype(M=None)`\nreturns `torch.float8_e4m3fn` under the `AITER_BF16_FP8_MOE_BOUND=0` that vLLM\npins for this model, and the dispatch kernel switches from\n`EpDispatchIntraNodeKernel_bf16` to `EpDispatchIntraNodeKernel_fp8_ocp`.\n\n### Performance\n\n| Metric | Baseline | With patch | Delta |\n|---|---|---|---|\n| Output token throughput (tok/s) | 1103.58 | 1309.33 | **+18.6%** |\n| Total token throughput (tok/s) | 9932.18 | 11783.95 | **+18.6%** |\n| Median TPOT (ms) | 54.16 | 46.83 | **-13.5%** |\n| Mean TPOT (ms) | 54.68 | 46.69 | **-14.6%** |\n| Median ITL (ms) | 51.40 | 44.29 | -13.8% |\n| Mean TTFT (ms) | 3392.14 | 2248.40 | -33.7% |\n| Benchmark duration (s) | 237.54 | 200.21 | -15.7% |\n\n### Accuracy\n\ngsm8k, 5-shot, all 1319 questions.\n\n| Arm | strict-match | stderr | Delta | flexible-extract |\n|---|---|---|---|---|\n| Baseline | 0.9196 | 0.0075 | \u2014 | 0.9196 |\n| With patch | 0.9280 | 0.0071 | +0.0084 | 0.9287 |\n\nWithin ~1 sigma of baseline. The same mxfp8 quantization is applied either way;\nthis only changes which rank performs it and how many times.\n\n### Reproduction\n\nServer:\n\n```bash\nexport VLLM_ROCM_USE_AITER=1\nexport VLLM_ROCM_USE_AITER_MOE=1\nexport VLLM_ROCM_USE_AITER_TRITON_SPARSE_MLA=True\nexport VLLM_USE_BREAKABLE_CUDAGRAPH=1\nexport VLLM_USE_RUST_FRONTEND=1\n\nvllm serve /model/DeepSeek-V4.1-Flash \\\n  --served-model-name deepseek-ai/DeepSeek-V4.1-Flash \\\n  --tensor-parallel-size 1 \\\n  --data-parallel-size 8 \\\n  --enable-expert-parallel \\\n  --all2all-backend mori_high_throughput \\\n  --moe-backend aiter \\\n  --max-model-len 16384 \\\n  --gpu-memory-utilization 0.9 \\\n  --max-num-batched-tokens 8192 \\\n  --max-cudagraph-capture-size 1024 \\\n  --block-size 128 \\\n  --tokenizer-mode deepseek_v41 \\\n  --tool-call-parser deepseek_v41 \\\n  --reasoning-parser deepseek_v41 \\\n  --enable-auto-tool-choice \\\n  --language-model-only \\\n  --no-swa-bounded-replay \\\n  --no-enable-prefix-caching \\\n  --disable-uvicorn-access-log \\\n  --attention-config '{\"indexer_kv_dtype\":\"mxfp4\",\"indexer_sparse_logits\":true}'\n```\n\nBenchmark:\n\n```bash\nvllm bench serve \\\n  --model deepseek-ai/DeepSeek-V4.1-Flash \\\n  --tokenizer /model/DeepSeek-V4.1-Flash \\\n  --dataset-name random \\\n  --random-input-len 8192 \\\n  --random-output-len 1024 \\\n  --ignore-eos \\\n  --num-prompts 256 \\\n  --max-concurrency 64 \\\n  --temperature 0 \\\n  --seed 0 \\\n  --percentile-metrics ttft,tpot,itl,e2el \\\n  --metric-percentiles 50,90,99\n```\n\nAccuracy:\n\n```bash\nlm_eval --model local-completions --tasks gsm8k --num_fewshot 5 \\\n  --model_args base_url=http://localhost:8000/v1/completions,model=deepseek-ai/DeepSeek-V4.1-Flash,tokenizer_backend=None,num_concurrent=64,max_retries=3,timeout=3600\n```",
+    "created_at": "2026-10-16T05:27:49Z",
+    "updated_at": "2026-10-16T19:50:33Z",
+    "fetched_at": "2026-10-19T23:25:59Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "moe",
+      "ttft",
+      "tpot",
+      "throughput",
+      "performance",
+      "speculation",
+      "communication",
+      "nvfp4"
+    ],
+    "metadata": {
+      "number": 61962,
+      "labels": [
+        {
+          "id": 6114440385,
+          "node_id": "LA_kwDOI7xefs8AAAABbHL0wQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/rocm",
+          "name": "rocm",
+          "color": "B60205",
+          "default": false,
+          "description": "Related to AMD ROCm",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9988761457,
+          "node_id": "LA_kwDOI7xefs8AAAACU2BncQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/quantization",
+          "name": "quantization",
+          "color": "62bfab",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 1,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "49cb2bbf71cfd36ee5aa33d1e184b1cddff55294",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "heachary/dsv41_flash/mori-mxfp8-dispatch",
+        "sha": "1332d475fd9b8a3a33ba1e708a5cd706e73e4abe",
+        "label": "heachary:heachary/dsv41_flash/mori-mxfp8-dispatch"
+      },
+      "merge_commit_sha": "4187ff8d45594847f52216d3b3991ff9b9be1d49",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:25:59Z"
+    },
+    "content_hash": "522de3d83ee94c2e02bed615c230a8e01ef7b61a8f0af8fd09d5481f98e3040c"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

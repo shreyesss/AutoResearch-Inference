@@ -1,0 +1,598 @@
+{
+  "id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+  "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/frontier-exploration-001/speculation/source-repair-review",
+  "local_id": "R1",
+  "fingerprint": "43a361dbe3b8e0e6954b9e51c1a16501497d67c3f168f727637505fe1aabe758",
+  "baseline": "baseline:20f33437d8e4b151363d0048f22a67f7b6658fba59fb18381c710895ea04e67f",
+  "created_at": "2026-10-19T23:31:51Z",
+  "brief": {
+    "baseline": {
+      "historical_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+      "observations": "R7b c512 33.76req/s E2Ep9519.49s; low-load 2xTP4 no-spec fastest; R10DEP8k2 c1024 43.55req/s E2Ep9529.61s. Those differentlayouts/loadpoints do not isolate speculation.",
+      "profile": "2xDEP4 R7b: seq128 overlay, prefix caching, API2, profile DSpark k5 adaptive false",
+      "reference": "b200-bench-analysis/PARETO_FINDINGS.md",
+      "runtime_uncertainty": "CSV dspark_config off contradicts profile on; runtime flags not inspected. Profile seq64 overridden by lat-seqs128. Manifest dirty, image empty; freeze checkout+patch+container before causal attribution.",
+      "scoring_caveat": "Mooncake custom lengthaware goodput differs AIPerf scorer; collect both, lengthcohorts, exact fixed tokenizer, avoid streamingburst artifacts."
+    },
+    "constraints": [
+      "No GPU execution in this session; experiment design only.",
+      "No claimed measured gains or assumed active bottleneck.",
+      "Test expected-gain threshold5% proposed engineering threshold not observed effect.",
+      "Guard exact sampling distribution and KV rollback; do not weaken acceptance or quality.",
+      "All dataparameter, source changes allowed but isolate adaptive toggle from safety patch and calibrator.",
+      "Report open/deferred failures, baseline unknowns, B300/GLM/A100 transferlimits."
+    ],
+    "count": 2,
+    "instructions": "Improve current cost-throughput frontier using deployment changes, not publication novelty. Generate at most two distinct hypotheses. First investigate safety-qualified activation of currently-profile-disabled DSpark adaptive verification, preserving draft k5 and graph-safe decode; require comparison against static k2/k5/no-spec within same topology, not claim topology comparison isolates k. Second only if justified investigate schedulable mixed-prefill verification cost calibration or graph-aware prefix allocation derived from DScale/EVICT, distinguishing already-existing upstream behavior. Treat source reports as claims, not reproduced facts. Strong negative evidence59970 and62541 must be addressed. Do not suggest blind batch-local dynamic k in DP because45963 disables it for collective divergence. Unknown deployed flags mandate cheap inspection before GPU execution.",
+    "name": "B200 counterexample-first speculation verification study",
+    "prior_decision_text": {},
+    "repos": [
+      "vllm-project/vllm"
+    ],
+    "selection": {
+      "require_novelty": false
+    },
+    "target": {
+      "gpu": "8xB200",
+      "metrics": [
+        "SLO-qualified goodput per GPU dollar",
+        "cost per successful million output tokens",
+        "TTFT p95/p99",
+        "E2E p95/p99",
+        "ITL length cohorts",
+        "correctness"
+      ],
+      "model": "DeepSeek-V4.1-Flash",
+      "workload": "agent-f75 8192 input/1024 output, cacheability target75%, plus Mooncake median/burst/cache-heavy fixed traces"
+    }
+  },
+  "card": {
+    "alternatives": [
+      {
+        "distinguishing_test": "Inspect effective runtime flags and startup logs before GPU benchmarking.",
+        "explanation": "Verification is already active, or DSpark is absent in the deployed runtime."
+      },
+      {
+        "distinguishing_test": "Qualify and freeze one graph-safe build, then change only the adaptive toggle within that build.",
+        "explanation": "Safety changes or different graph capture, rather than adaptive verification, account for any measured difference."
+      },
+      {
+        "distinguishing_test": "Compare adaptive k5 against static k5, static k2, and no speculation on identical topology and traces.",
+        "explanation": "Full k5 verification is already cheaper under the target acceptance and batch mix."
+      }
+    ],
+    "applicability": "DeepSeek-V4.1-Flash on 8\u00d7B200, 2\u00d7DEP4 baseline, agent-f75 and fixed Mooncake traces. Transfer from B300 and GLM is unproven.",
+    "classification": "activation",
+    "code_surface": "Deployed launch configuration; DSpark adaptive verification; DeepSeek-V4.1 sparse attention metadata builders and CUDA graph eligibility.",
+    "evidence": [
+      {
+        "quote": "CSV dspark_config off contradicts profile on; runtime flags not inspected.",
+        "relation": "context",
+        "source_id": "brief:baseline"
+      },
+      {
+        "quote": "IMA within 1 min at c96 (4/4)",
+        "relation": "challenges",
+        "source_id": "github:vllm-project/vllm:59970"
+      },
+      {
+        "quote": "Downgrade them to `UNIFORM_BATCH`",
+        "relation": "supports",
+        "source_id": "github:vllm-project/vllm:59986"
+      },
+      {
+        "quote": "On B200, DSpark verifies the full 5-token block",
+        "relation": "challenges",
+        "source_id": "github:vllm-project/vllm:62541"
+      },
+      {
+        "quote": "With DP, ranks can choose different K values",
+        "relation": "context",
+        "source_id": "github:vllm-project/vllm:45963"
+      }
+    ],
+    "experiment": {
+      "control": "Same frozen 2\u00d7DEP4 topology with static k5; also static k2 and no speculation.",
+      "correctness": "Check exact sampling distribution and rejection behavior, KV rollback, reproducible fixed-tokenizer outputs, and concurrent-prefill stability before performance scoring.",
+      "cost": "Cheap read-only flag and code inspection first; then targeted safety qualification and a bounded same-topology GPU sweep. No GPU execution in this session.",
+      "held_out_condition": "Mooncake burst and cache-heavy fixed traces after tuning on agent-f75; retain output-length cohorts.",
+      "inconclusive_if": "Effective flags, patch lineage, tokenizer, trace replay, graph path, or scorer attribution remain uncertain; or variance spans the decision threshold.",
+      "metrics": "Both Mooncake custom and AIPerf SLO-qualified goodput scorers; GPU-dollar cost; cost per successful million output tokens; TTFT and E2E p95/p99; ITL by output-length cohort; acceptance, errors, and correctness.",
+      "rejects_if": "Mixed-batch safety or exact sampling and KV rollback fails, or qualified adaptive k5 cannot outperform the strongest eligible static comparator under the prespecified decision rule.",
+      "supports_if": "Safety and correctness pass, and a prespecified repeatable improvement of at least the proposed 5% engineering threshold appears in target cost-throughput metrics without violating latency SLOs.",
+      "treatment": "Graph-safe adaptive verification with draft k5, with safety changes already fixed in every relevant arm."
+    },
+    "id": "R1",
+    "mechanism": "Adaptive verification may reduce target work while keeping the draft width at k5; mixed prefill must avoid unsafe FULL graph capture.",
+    "novelty": {
+      "implementation": "Potential activation after a DeepSeek-specific graph-safety qualification; deployed inclusion is unknown.",
+      "nearest_prior_art": "DSpark adaptive verification and the open DeepSeek graph-safety PR #59986.",
+      "scientific": "None claimed; adaptive verification is known.",
+      "specific_delta": "Keep draft k5 and compare the adaptive verification toggle under one qualified 2\u00d7DEP4 deployment.",
+      "workload": "The specified B200 agent and Mooncake traces have no supplied adaptive-versus-static result."
+    },
+    "observed_bottleneck": "Unknown on the target deployment. No supplied result isolates verification cost on 8\u00d7B200.",
+    "operation": "evolve",
+    "parents": [
+      "hypothesis:e5416985fa14d20d7065a0b9258657e509ad12d4ee0311f32c1a569676556fa6"
+    ],
+    "predicted_direction": "Possible increase in SLO-qualified goodput per GPU dollar and decrease in cost per successful million output tokens; size and even sign are unknown.",
+    "prior_art_query": "DSpark adaptive verification graphs",
+    "proposed_change": "After flag and code inspection, qualify graph-safe mixed prefill and decode, then toggle enable_adaptive_verification with draft k5 fixed. Keep any safety patch separate from the toggle.",
+    "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+    "statement": "Inspect the deployed launch flags, checkout, patch, and container first: the supplied profile says DSpark k5 has adaptive verification disabled, while its CSV says DSpark is off. If verification is inactive and the DeepSeek-specific graph safety conditions are present or can be qualified, enable adaptive verification while retaining draft k5. The proposed mechanism is to spend less target verification work when a full drafted block is unlikely to be useful. This is a transfer inference, not an observed B200 benefit. The B300 concurrent-prefill failure makes mixed-batch graph eligibility a prerequisite, and the B200 tuning PR favors fixed k5. Advance only if same-topology tests improve SLO-qualified cost and throughput without sampling, rollback, or latency regressions."
+  },
+  "policy": {
+    "baseline_comparison": "The supplied baseline reports a 2\u00d7DEP4 R7b profile with \u201cDSpark k5 adaptive false,\u201d while \u201cCSV dspark_config off contradicts profile on; runtime flags not inspected.\u201d Inspect deployed flags and freeze the checkout, patch, and container before attributing a delta. Compare adaptive verification with static k2, static k5, and no speculation within the same topology and fixed traces. The reported R7b and R10 results use different layouts and load points, so they do not isolate speculation.",
+    "criteria": [
+      {
+        "category": "improvement",
+        "description": "Required veto: a credible, testable path to the specified cost and latency metrics, plus either a baseline delta or a cheap deployed-flag inspection that resolves whether the feature is already active. Unknown bottlenecks defer judgment.",
+        "id": "task_value",
+        "justification": "The baseline flags conflict. The requested 5% expected-gain threshold is an engineering target, not an observed effect. A flag inspection can establish whether an activation experiment has a meaningful baseline.",
+        "required": true,
+        "weight": 40
+      },
+      {
+        "category": "feasibility",
+        "description": "Required veto: preserve the exact sampling distribution, KV rollback, draft k5, and graph-safe decode; qualify concurrent-prefill safety before activation.",
+        "id": "correctness_and_safety",
+        "justification": "The supplied issue title says \u201cillegal memory access under concurrent prefill.\u201d Its conditions and resolution are unknown from the title alone, so safety cannot be scored as established.",
+        "required": true,
+        "weight": 30
+      },
+      {
+        "category": "testability",
+        "description": "Specify same-topology static k2/k5/no-spec comparisons, fixed tokenizer and traces, both goodput scorers, latency tails, ITL length cohorts, and correctness. Isolate the adaptive toggle from any safety patch or calibrator.",
+        "id": "causal_test",
+        "justification": "These controls address the supplied layout and scorer confounds without demanding a measured speedup before an experiment is proposed.",
+        "required": false,
+        "weight": 20
+      },
+      {
+        "category": "evidence",
+        "description": "Inspect the relevant configuration and code paths, the reported negative evidence in 59970 and 62541, and existing upstream behavior before selecting a second hypothesis.",
+        "id": "implementation_evidence",
+        "justification": "The supplied items provide titles, not implementation details. Existing flags, ports, and parameter changes remain eligible; publication status has no selection penalty.",
+        "required": false,
+        "weight": 10
+      }
+    ],
+    "evidence": {
+      "minimum_independent_sources": 1,
+      "rationale": "One relevant engineering source can establish a known implementation path; two sources or a paper are not automatic requirements. The supplied PR and issue titles are insufficient to establish code behavior or resolve failures, so affected judgments remain deferred. Hardware, workload, effect size, and limitations for the three listed fulltexts are unknown because their contents were not supplied.",
+      "require_engineering": true,
+      "require_paper_fulltext": false
+    },
+    "novelty_request": "",
+    "novelty_required": false,
+    "objective": "Prioritize at most two testable deployment hypotheses for improving SLO-qualified goodput per GPU dollar and cost per successful million output tokens on the specified 8\u00d7B200 workload. Investigate safety-qualified DSpark adaptive verification first; consider verification-cost calibration or graph-aware prefix allocation only if the first investigation and upstream inspection justify it.",
+    "rationale": "Observed in the supplied baseline report, not reproduced here: R7b c512 is reported as 33.76 req/s with E2E p95 19.49 s; R10 DEP8 k2 c1024 is reported as 43.55 req/s with E2E p95 29.61 s. Author claims available here are limited to titles, including \u201cDisable dynamic speculative decoding when DP is enabled\u201d and the concurrent-prefill issue title; the negative details of 62541 are unknown. Transfer inference: adaptive verification could improve the target frontier only if deployed flags show a real inactive baseline, the safety conditions are resolved, and same-topology tests show SLO-qualified value. The 75-point threshold is an uncalibrated prioritization choice, not an estimated success probability. Failure of a required criterion vetoes selection; an unknown judgment defers it. No GPU result or gain is claimed, and transfer from B300, GLM, or A100 is unknown.",
+    "retrieval": {
+      "github": false,
+      "literature": false,
+      "rationale": "This response uses only supplied material, as requested. The rubric calls for later repository and runtime inspection before selection or GPU execution; literature adds no necessary evidence at this stage."
+    },
+    "threshold": 75
+  },
+  "events": [
+    {
+      "seq": 475,
+      "id": "event:9e5e8ad6dff665161e7c21a787860e857bd03041a3a8526ad158c13073790e00",
+      "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+      "type": "produced",
+      "at": "2026-10-19T23:31:51Z",
+      "actor": "generator",
+      "data": {
+        "local_id": "R1",
+        "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/frontier-exploration-001/speculation/source-repair-review"
+      }
+    },
+    {
+      "seq": 477,
+      "id": "event:83e41391e8e870d43aa51602854eed191a3bdb63aecf9956b232530b35337dd6",
+      "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+      "type": "reviewed",
+      "at": "2026-10-19T23:32:23Z",
+      "actor": "reviewer",
+      "data": {
+        "assessment": {
+          "eligible": false,
+          "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+          "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+          "reasons": [
+            "correctness_and_safety: The design retains draft k5 and gates activation on sampling, KV rollback, and graph-safe mixed-prefill checks. Safety is unresolved: issue #59970 reports \u201cIMA within 1 min at c96 (4/4)\u201d on B300, while PR #59986 says its B300 reproducer was \u201cNot run.\u201d Neither establishes safety on the target B200 deployment."
+          ],
+          "score": 76.0,
+          "status": "deferred"
+        },
+        "context_id": "review_context:a31bc84dbdcc7f6587202ad9980a256068d2192bc66f906d4439e24a469b26ab",
+        "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+        "review": {
+          "criteria": {
+            "causal_test": {
+              "rationale": "It compares adaptive k5 with static k5, static k2, and no speculation on the same topology and fixed traces, with both scorers, latency tails, ITL cohorts, and correctness checks. It isolates the adaptive toggle from a safety patch and calibrator. The proposed 5% threshold is a decision rule, not an observed gain.",
+              "score": 5,
+              "verdict": "pass"
+            },
+            "correctness_and_safety": {
+              "rationale": "The design retains draft k5 and gates activation on sampling, KV rollback, and graph-safe mixed-prefill checks. Safety is unresolved: issue #59970 reports \u201cIMA within 1 min at c96 (4/4)\u201d on B300, while PR #59986 says its B300 reproducer was \u201cNot run.\u201d Neither establishes safety on the target B200 deployment.",
+              "score": 3,
+              "verdict": "unknown"
+            },
+            "implementation_evidence": {
+              "rationale": "The supplied pinned-code excerpt shows an adaptive graph-mode resolver, and the issue and PR bodies describe relevant paths. The effective launch flags, DeepSeek builder behavior, patch lineage, and container have not been inspected. PR #62541 reports that its qualified B200 lanes use \u201cenable_adaptive_verification:false\u201d; that is adverse deployment evidence, not a measured adaptive comparison.",
+              "score": 3,
+              "verdict": "unknown"
+            },
+            "task_value": {
+              "rationale": "The proposed read-only flag inspection can resolve whether adaptive verification is a deployment change: the supplied brief says \u201cCSV dspark_config off contradicts profile on; runtime flags not inspected.\u201d Same-topology comparisons make the cost and latency hypothesis testable. Target benefit and bottleneck remain unknown. The reported R7b and R10 results do not isolate speculation.",
+              "score": 4,
+              "verdict": "pass"
+            }
+          },
+          "factual_support": "pass",
+          "id": "R1",
+          "objections": [
+            "Reported observation, not reproduced here: #59970 says throughput with adaptive verification disabled was \u201cthe same within noise\u201d as adaptive verification with FULL_DECODE_ONLY on its B300 workload. The proposal should name this negative result explicitly.",
+            "Author claim: #62541 describes a qualified B200 full-k5 setting and reports a successful sweep, but supplies no same-topology adaptive-versus-static effect for this target.",
+            "Transfer inference: reducing verification work might improve 8\u00d7B200 SLO-qualified cost-throughput. Its sign and effect size are unknown; B300 safety results and GLM/B300 gains do not establish them."
+          ],
+          "required_revision": "Explicitly carry forward #59970\u2019s reported no-gain result and #62541\u2019s fixed-k5 qualification as counterevidence. Inspect effective flags and freeze checkout, patch, and container; qualify mixed-prefill graph safety before any activation test."
+        },
+        "status": "deferred"
+      }
+    },
+    {
+      "seq": 485,
+      "id": "event:c3301b593f41bcc8f8a99c08819eb5b83963306aa4f1206807678a88827cdb4e",
+      "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+      "type": "test_planned",
+      "at": "2026-10-19T23:37:02Z",
+      "actor": "frontier-exploration-primary-agent",
+      "data": {
+        "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+        "id": "test:93dbfee506061f5ce0ae5e8961b2d21c55f139bc8a0129ffc6ed6f3b4b48e87c",
+        "plan": {
+          "baseline_snapshot": {
+            "path": "baseline-audit.json",
+            "sha256": "59287430bb877ffb9af07f49a66bd9181c8a797cc5e37ac419ddb8240d5c330d"
+          },
+          "design_id": "SPEC-1",
+          "detailed_design": {
+            "ablations": [
+              "adaptive off/on withsame graph mode",
+              "FULL_DECODE_ONLY safetycontrol versuspatchedFULL_AND_PIECEWISE",
+              "static k2/k5/no-spec whereexactdrafter supportsit",
+              "pure decode versusmixed prefill withsame output volume"
+            ],
+            "artifacts": [
+              "resolvedconfig.json",
+              "source.patch+commit/image/model hashes",
+              "requestevents.jsonl",
+              "metrics.prom",
+              "steptrace.parquet",
+              "cost table.json",
+              "profiler subset traces",
+              "scoreboth.json",
+              "quality.json",
+              "decision.json withCIs andscope"
+            ],
+            "baseline_delta": "Checkedprofile disablesadaptive verification whilek5draftingalreadyon; actualruntime unknown. Change verificationprefixbudget only after safe graph preflight.",
+            "control": "C0 originalfixed k5; C1 same safe graph patch/mode as treatment withadaptive off; static k2 andtrue no-spec controls atsame2xDEP4 layout wherecompatible. C0 versusC1 isolatesgraphpatch cost.",
+            "correctness": [
+              "Preserve exact rejection sampling and verification semantics; do not relax token acceptance for throughput.",
+              "Greedy token equivalence on matched prompts covering mixed prefills, rollback, EOS and batch drain; any mismatch blocks advancement until understood.",
+              "Sampling distribution checks on controlled logits plus task-quality noninferiority with a frozen tolerance. Task accuracy alone does not prove distribution preservation.",
+              "Exercise DP rank divergence, cancellation, batch drain and long contexts. Illegal memory access or hang is a failure, not an outlier to remove."
+            ],
+            "decision_rules": {
+              "inconclusive": "CI spans the decision threshold; baseline cannot be pinned; scorer disagreement changes ranking; unstable load; bottleneck not observable; or budget exhausted.",
+              "reject": "Correctness/safety violation; or confirmation CI upper bound excludes meaningful 5% benefit throughout target regimes; or >5% p95 guard regression. Distinguish mechanism failure from deployment inapplicability.",
+              "support": "Design choice: at least 5% SLO-capacity goodput improvement over the strongest matched static control, with paired 95% CI lower bound above zero and all guards met. At fixed offered load, use at least 5% p95 latency reduction with noninferior goodput. These thresholds are proposed, not predicted gains."
+            },
+            "execution_gate": "CPU source/runtime inspection only until baseline and safety gates are resolved; GPU stages are conditional designs, not executable approval.",
+            "falsifier": "If discardedcandidates saveverificationtime butendtoendgoodputunchanged duecompaction,draft,communication overhead, reject servingbenefit forscope.59970 alreadyreportsnoiseleveldifference inotherB300scope.",
+            "first_cheap_inspection": [
+              "Resolve CSV dspark_config=off versus profile dspark=true; obtain actual resolved command/config, runtime source SHA+dirty patch, image digest, model+drafter+tokenizer revisions, attention backend and graph descriptors. Abort causal comparisons until pinned.",
+              "Verify R7b lat-seqs-128 overlay instead of profile seq64; API2 per replica, prefix-cache warmup and host Engram fixed.",
+              "Check exact deployed implementation of adaptive verification, mixed-prefill FULL graph capability guards, schedulable profile-tail construction, and rank collective signatures. Do not assume PR merged means included.",
+              "Inspect issue61806 class: compare logical draft requests against target-padded DP sync request capacity and selected drafter graph. Prevent silently excessive draft padding; no claim current runtime contains the bug."
+            ],
+            "fixed_conditions": [
+              "same model/precision/KVdtype/tokenizer/sampling",
+              "same 8 GPUs andclock/power caps",
+              "sameprefix warmup trace andrequest arrival seed",
+              "same client streaming/tokenizer andrequest lengths",
+              "same scheduler seq128 andtoken budgets except explicit treatment",
+              "same safe graph patch in matchedcontrol andtreatment"
+            ],
+            "hardware": "one eight-B200 node; retain two TP1/DP4/EP4 replicas for primary experiment",
+            "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+            "id": "SPEC-1",
+            "implementation_unknowns": [
+              "Profile isnotresolvedcommand",
+              "PR59986 isopen; CPUtests only noB300E2E",
+              "SM100genericGLMbackend support doesnotestablish DSV4.1-specific support",
+              "Currentbaseline mayalreadyinclude safetyguard; inspectbeforeport"
+            ],
+            "metrics": {
+              "cost": "At the scenario of eight GPUs at $4.50/GPU-hour, cost per million SLO-qualified requests = 10000 / good_requests_per_second. Cost per million qualified output tokens = 10000 / good_output_tokens_per_second. This is a scenario, not a cloud bill.",
+              "diagnostic": [
+                "acceptedtokens/verifyround andperdraftposition",
+                "draft,verify,sample,metadataprep CPU/GPUms",
+                "scheduledprefill/decode tokens,active requests,context length",
+                "graphmode,replaypadding,capturefallback",
+                "rankwait/alltoall time andqueuegrowth",
+                "predicted versus realized stepcost",
+                "perrequest token timestamps; raw ITL andlengthconditioned ITL; AIPerf andcustom lengthaware goodput"
+              ],
+              "fixedload": "At 1x replay near the arrival-rate ceiling, compare latency tails rather than requiring a 5% goodput increase at unchanged arrivals.",
+              "primary": "Maximum sustainable offered rate satisfying frozen TTFT, E2E, ITL and quality SLOs without growing backlog; compare SLO-qualified goodput per GPU dollar."
+            },
+            "priority_score": 76.0,
+            "review_path": "source-repair-review/history.json",
+            "selection_status": "deferred",
+            "sequential_budget": {
+              "confirm": "Two finalists only; three paired AB/BA repeats per selected held-out trace/rate, frozen before results. Maximum 90 node-minutes including startup. Total cap 150 node-minutes = 20 GPU-hours per candidate. Record a new plan before extending.",
+              "inspection": "30 CPU minutes for source/config audit; no GPU needed.",
+              "screen": "Up to 12 cells, each 2 minutes measurement plus 1 minute warmup; stop obvious regression. Maximum 60 node-minutes including a 10-minute stress test.",
+              "stop": "Stop on correctness failure, baseline mismatch, sustained queue growth, or >10% tail regression. Preserve logs and scope."
+            },
+            "slo_contract": "Import exact scorer predicates andthresholds from baseline score/manifest artifacts before execution. Preserve both AIPerf andcustom scorer outputs. Predeclare chosen primary; do not tune after seeing results.",
+            "source_ids": [
+              "github:vllm-project/vllm:62541",
+              "github:vllm-project/vllm:59970",
+              "github:vllm-project/vllm:59986",
+              "github:vllm-project/vllm:52783",
+              "github:vllm-project/vllm:45963"
+            ],
+            "status": "planned_not_executed",
+            "title": "Safety-qualified DSpark adaptive-verification activation",
+            "treatment": "T1 fixed k5 drafter+adaptive verification andsafe mixed prefillgraph path; do not useper-rankdynamicdraftlength. If source lacks59986 classguard, smallreviewedport is separate prerequisite.",
+            "workloads": {
+              "confirm": "held-out Mooncake median/burst/cache-heavy at1x/1.25x/1.5x/2x; freeze trace hashes and arrival seeds before tuning",
+              "screen": "native agent-f75 8192/1024, concurrency64/256/512; cacheability target75% and measured cache hits reported separately",
+              "stress": "mixed arrivals with0.6K/8K/32K/118K contexts, short8-49 andlong>=50output cohorts; abort onOOM/illegalaccess/deadlock"
+            }
+          },
+          "effective_contract": {
+            "baseline_audit": {
+              "path": "BASELINE_AUDIT.md",
+              "sha256": "f69d28d3ee26bb6d2f968e4a1f2f5de2445e728889c2e32529d28488cfbe1a56"
+            },
+            "confirmation": "separate approved budget; >=5 paired blocks, held-out traces and predeclared stopping; see protocol",
+            "fixed_load_alternative": ">=5% E2E p95 reduction at identical offered load with matched goodput and cost",
+            "initial_screening": {
+              "gpu_hours_max": 6,
+              "gpus": 8,
+              "includes_warmup": true,
+              "matrix": "CPU prerequisites first; one anchor current+strong static+treatment. Reduce matrix to fit cap; not every cell required.",
+              "node_minutes_max": 45,
+              "scenario_cost_usd_max": 27,
+              "scenario_node_hour_usd": 36,
+              "startup_compile": "record separately and budget before execution"
+            },
+            "precedence": "This effective contract overrides conflicting defaults in preserved agent draft designs; domain-specific correctness/prerequisites remain mandatory. No execution requested.",
+            "primary": "strict AIPerf0.13.0 SLO goodput with frozen per-request TTFT4000ms/ITL33.333ms/E2E75000ms scorer; campaign custom length-aware goodput reported separately",
+            "promotion": {
+              "correctness_and_quality": "no regression under preregistered exact/numerical/distributional contract appropriate to change",
+              "lower_effect_interval_must_exceed_zero": true,
+              "material_effect_percent": 5,
+              "max_tail_regression_percent": 2,
+              "paired_block_bootstrap_confidence": 0.95,
+              "wide_intervals": "inconclusive"
+            },
+            "protocol": {
+              "path": "EVALUATION_PROTOCOL.md",
+              "sha256": "f0d1000c93b9da1d2bb7894628108ca71352cd2856c64fe935491dffb74ee7c1"
+            },
+            "version": "frontier-eval-v1"
+          },
+          "execution": "No jobs started. Reconstruct terminated-host baseline first. CPU checks precede any conditional GPU stages.",
+          "kind": "conditional_experimental_design",
+          "next_action": "CPU/source baseline reconstruction and eligibility diagnosis only; GPU stages conditional and not executed",
+          "prerequisites": [],
+          "request_id": "frontier-exploration-001-consolidated-SPEC-1",
+          "source_artifact": {
+            "path": "speculation/experiments.json",
+            "sha256": "da75ce5165b57ad4cc68c9ba381f7ee1414951f70ac4b4fb2ca8a069c2d4e5f7"
+          },
+          "supersedes_draft_test_ids": [],
+          "title": "Safety-qualified DSpark adaptive-verification activation"
+        },
+        "scope": {
+          "baseline": "Archived R7b two TP1/DP4/EP4 engines plus seq128 overlay; runtime identity unresolved; host terminated",
+          "hardware": "8xB200; not provisioned by this task",
+          "model": "DeepSeek-V4.1-Flash; exact weights hash must be reconstructed",
+          "source_bundle": "frontier-exploration-001",
+          "status": "planned; not tested",
+          "workloads": [
+            "agent-f75 8192/1024",
+            "Mooncake median/burst/cache-heavy"
+          ]
+        }
+      }
+    }
+  ],
+  "status": "deferred",
+  "assessment": {
+    "eligible": false,
+    "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+    "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+    "reasons": [
+      "correctness_and_safety: The design retains draft k5 and gates activation on sampling, KV rollback, and graph-safe mixed-prefill checks. Safety is unresolved: issue #59970 reports \u201cIMA within 1 min at c96 (4/4)\u201d on B300, while PR #59986 says its B300 reproducer was \u201cNot run.\u201d Neither establishes safety on the target B200 deployment."
+    ],
+    "score": 76.0,
+    "status": "deferred"
+  },
+  "tests": [
+    {
+      "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+      "id": "test:93dbfee506061f5ce0ae5e8961b2d21c55f139bc8a0129ffc6ed6f3b4b48e87c",
+      "plan": {
+        "baseline_snapshot": {
+          "path": "baseline-audit.json",
+          "sha256": "59287430bb877ffb9af07f49a66bd9181c8a797cc5e37ac419ddb8240d5c330d"
+        },
+        "design_id": "SPEC-1",
+        "detailed_design": {
+          "ablations": [
+            "adaptive off/on withsame graph mode",
+            "FULL_DECODE_ONLY safetycontrol versuspatchedFULL_AND_PIECEWISE",
+            "static k2/k5/no-spec whereexactdrafter supportsit",
+            "pure decode versusmixed prefill withsame output volume"
+          ],
+          "artifacts": [
+            "resolvedconfig.json",
+            "source.patch+commit/image/model hashes",
+            "requestevents.jsonl",
+            "metrics.prom",
+            "steptrace.parquet",
+            "cost table.json",
+            "profiler subset traces",
+            "scoreboth.json",
+            "quality.json",
+            "decision.json withCIs andscope"
+          ],
+          "baseline_delta": "Checkedprofile disablesadaptive verification whilek5draftingalreadyon; actualruntime unknown. Change verificationprefixbudget only after safe graph preflight.",
+          "control": "C0 originalfixed k5; C1 same safe graph patch/mode as treatment withadaptive off; static k2 andtrue no-spec controls atsame2xDEP4 layout wherecompatible. C0 versusC1 isolatesgraphpatch cost.",
+          "correctness": [
+            "Preserve exact rejection sampling and verification semantics; do not relax token acceptance for throughput.",
+            "Greedy token equivalence on matched prompts covering mixed prefills, rollback, EOS and batch drain; any mismatch blocks advancement until understood.",
+            "Sampling distribution checks on controlled logits plus task-quality noninferiority with a frozen tolerance. Task accuracy alone does not prove distribution preservation.",
+            "Exercise DP rank divergence, cancellation, batch drain and long contexts. Illegal memory access or hang is a failure, not an outlier to remove."
+          ],
+          "decision_rules": {
+            "inconclusive": "CI spans the decision threshold; baseline cannot be pinned; scorer disagreement changes ranking; unstable load; bottleneck not observable; or budget exhausted.",
+            "reject": "Correctness/safety violation; or confirmation CI upper bound excludes meaningful 5% benefit throughout target regimes; or >5% p95 guard regression. Distinguish mechanism failure from deployment inapplicability.",
+            "support": "Design choice: at least 5% SLO-capacity goodput improvement over the strongest matched static control, with paired 95% CI lower bound above zero and all guards met. At fixed offered load, use at least 5% p95 latency reduction with noninferior goodput. These thresholds are proposed, not predicted gains."
+          },
+          "execution_gate": "CPU source/runtime inspection only until baseline and safety gates are resolved; GPU stages are conditional designs, not executable approval.",
+          "falsifier": "If discardedcandidates saveverificationtime butendtoendgoodputunchanged duecompaction,draft,communication overhead, reject servingbenefit forscope.59970 alreadyreportsnoiseleveldifference inotherB300scope.",
+          "first_cheap_inspection": [
+            "Resolve CSV dspark_config=off versus profile dspark=true; obtain actual resolved command/config, runtime source SHA+dirty patch, image digest, model+drafter+tokenizer revisions, attention backend and graph descriptors. Abort causal comparisons until pinned.",
+            "Verify R7b lat-seqs-128 overlay instead of profile seq64; API2 per replica, prefix-cache warmup and host Engram fixed.",
+            "Check exact deployed implementation of adaptive verification, mixed-prefill FULL graph capability guards, schedulable profile-tail construction, and rank collective signatures. Do not assume PR merged means included.",
+            "Inspect issue61806 class: compare logical draft requests against target-padded DP sync request capacity and selected drafter graph. Prevent silently excessive draft padding; no claim current runtime contains the bug."
+          ],
+          "fixed_conditions": [
+            "same model/precision/KVdtype/tokenizer/sampling",
+            "same 8 GPUs andclock/power caps",
+            "sameprefix warmup trace andrequest arrival seed",
+            "same client streaming/tokenizer andrequest lengths",
+            "same scheduler seq128 andtoken budgets except explicit treatment",
+            "same safe graph patch in matchedcontrol andtreatment"
+          ],
+          "hardware": "one eight-B200 node; retain two TP1/DP4/EP4 replicas for primary experiment",
+          "hypothesis_id": "hypothesis:c04f9b8d2efc09f88b48cb83fad06df092ce9ad8ca6e7cd3cd73bdb928dc7f6b",
+          "id": "SPEC-1",
+          "implementation_unknowns": [
+            "Profile isnotresolvedcommand",
+            "PR59986 isopen; CPUtests only noB300E2E",
+            "SM100genericGLMbackend support doesnotestablish DSV4.1-specific support",
+            "Currentbaseline mayalreadyinclude safetyguard; inspectbeforeport"
+          ],
+          "metrics": {
+            "cost": "At the scenario of eight GPUs at $4.50/GPU-hour, cost per million SLO-qualified requests = 10000 / good_requests_per_second. Cost per million qualified output tokens = 10000 / good_output_tokens_per_second. This is a scenario, not a cloud bill.",
+            "diagnostic": [
+              "acceptedtokens/verifyround andperdraftposition",
+              "draft,verify,sample,metadataprep CPU/GPUms",
+              "scheduledprefill/decode tokens,active requests,context length",
+              "graphmode,replaypadding,capturefallback",
+              "rankwait/alltoall time andqueuegrowth",
+              "predicted versus realized stepcost",
+              "perrequest token timestamps; raw ITL andlengthconditioned ITL; AIPerf andcustom lengthaware goodput"
+            ],
+            "fixedload": "At 1x replay near the arrival-rate ceiling, compare latency tails rather than requiring a 5% goodput increase at unchanged arrivals.",
+            "primary": "Maximum sustainable offered rate satisfying frozen TTFT, E2E, ITL and quality SLOs without growing backlog; compare SLO-qualified goodput per GPU dollar."
+          },
+          "priority_score": 76.0,
+          "review_path": "source-repair-review/history.json",
+          "selection_status": "deferred",
+          "sequential_budget": {
+            "confirm": "Two finalists only; three paired AB/BA repeats per selected held-out trace/rate, frozen before results. Maximum 90 node-minutes including startup. Total cap 150 node-minutes = 20 GPU-hours per candidate. Record a new plan before extending.",
+            "inspection": "30 CPU minutes for source/config audit; no GPU needed.",
+            "screen": "Up to 12 cells, each 2 minutes measurement plus 1 minute warmup; stop obvious regression. Maximum 60 node-minutes including a 10-minute stress test.",
+            "stop": "Stop on correctness failure, baseline mismatch, sustained queue growth, or >10% tail regression. Preserve logs and scope."
+          },
+          "slo_contract": "Import exact scorer predicates andthresholds from baseline score/manifest artifacts before execution. Preserve both AIPerf andcustom scorer outputs. Predeclare chosen primary; do not tune after seeing results.",
+          "source_ids": [
+            "github:vllm-project/vllm:62541",
+            "github:vllm-project/vllm:59970",
+            "github:vllm-project/vllm:59986",
+            "github:vllm-project/vllm:52783",
+            "github:vllm-project/vllm:45963"
+          ],
+          "status": "planned_not_executed",
+          "title": "Safety-qualified DSpark adaptive-verification activation",
+          "treatment": "T1 fixed k5 drafter+adaptive verification andsafe mixed prefillgraph path; do not useper-rankdynamicdraftlength. If source lacks59986 classguard, smallreviewedport is separate prerequisite.",
+          "workloads": {
+            "confirm": "held-out Mooncake median/burst/cache-heavy at1x/1.25x/1.5x/2x; freeze trace hashes and arrival seeds before tuning",
+            "screen": "native agent-f75 8192/1024, concurrency64/256/512; cacheability target75% and measured cache hits reported separately",
+            "stress": "mixed arrivals with0.6K/8K/32K/118K contexts, short8-49 andlong>=50output cohorts; abort onOOM/illegalaccess/deadlock"
+          }
+        },
+        "effective_contract": {
+          "baseline_audit": {
+            "path": "BASELINE_AUDIT.md",
+            "sha256": "f69d28d3ee26bb6d2f968e4a1f2f5de2445e728889c2e32529d28488cfbe1a56"
+          },
+          "confirmation": "separate approved budget; >=5 paired blocks, held-out traces and predeclared stopping; see protocol",
+          "fixed_load_alternative": ">=5% E2E p95 reduction at identical offered load with matched goodput and cost",
+          "initial_screening": {
+            "gpu_hours_max": 6,
+            "gpus": 8,
+            "includes_warmup": true,
+            "matrix": "CPU prerequisites first; one anchor current+strong static+treatment. Reduce matrix to fit cap; not every cell required.",
+            "node_minutes_max": 45,
+            "scenario_cost_usd_max": 27,
+            "scenario_node_hour_usd": 36,
+            "startup_compile": "record separately and budget before execution"
+          },
+          "precedence": "This effective contract overrides conflicting defaults in preserved agent draft designs; domain-specific correctness/prerequisites remain mandatory. No execution requested.",
+          "primary": "strict AIPerf0.13.0 SLO goodput with frozen per-request TTFT4000ms/ITL33.333ms/E2E75000ms scorer; campaign custom length-aware goodput reported separately",
+          "promotion": {
+            "correctness_and_quality": "no regression under preregistered exact/numerical/distributional contract appropriate to change",
+            "lower_effect_interval_must_exceed_zero": true,
+            "material_effect_percent": 5,
+            "max_tail_regression_percent": 2,
+            "paired_block_bootstrap_confidence": 0.95,
+            "wide_intervals": "inconclusive"
+          },
+          "protocol": {
+            "path": "EVALUATION_PROTOCOL.md",
+            "sha256": "f0d1000c93b9da1d2bb7894628108ca71352cd2856c64fe935491dffb74ee7c1"
+          },
+          "version": "frontier-eval-v1"
+        },
+        "execution": "No jobs started. Reconstruct terminated-host baseline first. CPU checks precede any conditional GPU stages.",
+        "kind": "conditional_experimental_design",
+        "next_action": "CPU/source baseline reconstruction and eligibility diagnosis only; GPU stages conditional and not executed",
+        "prerequisites": [],
+        "request_id": "frontier-exploration-001-consolidated-SPEC-1",
+        "source_artifact": {
+          "path": "speculation/experiments.json",
+          "sha256": "da75ce5165b57ad4cc68c9ba381f7ee1414951f70ac4b4fb2ca8a069c2d4e5f7"
+        },
+        "supersedes_draft_test_ids": [],
+        "title": "Safety-qualified DSpark adaptive-verification activation"
+      },
+      "scope": {
+        "baseline": "Archived R7b two TP1/DP4/EP4 engines plus seq128 overlay; runtime identity unresolved; host terminated",
+        "hardware": "8xB200; not provisioned by this task",
+        "model": "DeepSeek-V4.1-Flash; exact weights hash must be reconstructed",
+        "source_bundle": "frontier-exploration-001",
+        "status": "planned; not tested",
+        "workloads": [
+          "agent-f75 8192/1024",
+          "Mooncake median/burst/cache-heavy"
+        ]
+      },
+      "status": "planned",
+      "results": []
+    }
+  ],
+  "outcomes_by_scope": [],
+  "experiment_status": "planned"
+}

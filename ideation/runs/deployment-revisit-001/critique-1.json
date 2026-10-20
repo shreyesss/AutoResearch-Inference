@@ -1,0 +1,42 @@
+{
+  "reviews": [
+    {
+      "id": "R1",
+      "criteria": {
+        "task_value": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "A shape policy has a testable path to lower TPOT, and the proposal begins with a cheap inspection of active dispatch and eligible backends. The target bottleneck and baseline delta remain unknown; an unmeasured bottleneck is a valid first falsification question. Transfer inference: pursue the policy only if complete decode traces show a useful backend crossover."
+        },
+        "deployment_fit": {
+          "verdict": "unknown",
+          "score": 2,
+          "rationale": "The pinned checkpoint format, active MoE backend, second eligible backend, B200 graph compatibility, and DEP8 versus two DEP4 behavior have not been established. The supplied staging code says “ids = tl.where(token_is_padding, -1, ids)” for one NVFP4 path at another commit; it does not establish the pinned path. PR #54520 reports GLM-5.2 on GB300, so its results do not establish DeepSeek-V4.1-Flash compatibility. Warmup and quality risks are identified but unresolved."
+        },
+        "discriminating_test": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Inspect resolved dispatch and checkpoint compatibility first; stop if fewer than two correct, graph compatible paths exist. Then trace host time, full MoE time, staging, GEMM, and TPOT; stop if backend choice has no plausible end-to-end headroom. The proposed repeated C1/C4 comparison against unchanged dispatch and the best eligible static backend can distinguish a serving gain from a kernel-only gain. It should also include the target approximately 8K/1K workload at its intended load and compare layouts separately."
+        },
+        "evidence_and_limits": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Directly supplied code establishes padding masking in one later staging path, not target performance. Author claims: PR #57977 reports “C1 ×3 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms” for a different change; PR #54520 reports backend throughput on GB300 with GLM-5.2. The EPS-MoE full-text excerpt says “switching from GroupedGemm to DenseGemm at a certain token number”; that supports prior use of shape selection, not this implementation. Transfer inference is conditional. Target effect size, bottleneck, active backend, and relevant limitations remain unknown."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "No supplied target trace shows that expert GEMM, rather than host scheduling, routing, staging, or communication, limits TPOT.",
+        "A second backend may be ineligible for the pinned weight format or graph mode; PR and paper results do not settle this.",
+        "The proposed C1/C4 study alone would not establish value for the approximately 8K input / 1K output target workload at its intended load.",
+        "The prior rejection for lack of novelty is not a veto under this rubric."
+      ],
+      "required_revision": "Keep R1 as a conditional candidate. State the resolved checkpoint, backend, graph mode, and eligible paths before implementation; add a matched target-workload serving point for each relevant eight-GPU layout, with output quality and startup cost alongside TPOT."
+    }
+  ],
+  "global_gaps": [
+    "The supplied material does not resolve the active backend, MTP/DSpark state, or DEP8 versus two DEP4 configuration at the pinned deployment.",
+    "No target decode trace establishes MoE share of TPOT, routed-row distribution, or backend crossover.",
+    "The reported 27.6882 req/s point is an author-reported aggregate without a kernel, rank, or request trace; the 75% cacheability target is not a measured hit rate."
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "name": "DeepSeek V4.1 Flash on B200",
+  "mode": "source_research",
+  "count": 5,
+  "target": {
+    "model": "DeepSeek-V4.1-Flash",
+    "gpu": "B200",
+    "topology": "single eight-GPU NVLink/NVSwitch node; DEP8 and two DEP4 are candidate layouts",
+    "workload": "agent-style approximately 8K input / 1K output; 75% target cacheability is not measured cache-hit rate",
+    "metrics": [
+      "TTFT",
+      "TPOT",
+      "throughput",
+      "cost per token",
+      "quality"
+    ]
+  },
+  "baseline": {
+    "vllm_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+    "deepseek_serve_commit": "2e6fa287d90adf7318ad314de27aa2f595aac821",
+    "note": "Historical source pin and refreshed configuration are distinct. Check resolved active backend and MTP/DSpark state. Imported aggregate metrics do not establish bottlenecks."
+  },
+  "after": "2026-01-01",
+  "seed_numbers": [
+    36037,
+    62541,
+    62073
+  ],
+  "code_sources": [
+    {
+      "repo": "vllm-project/vllm",
+      "ref": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+      "path": "vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "ref": "86a5bbe75a7971275952477bb1ce03e715bcc339",
+      "path": "vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py"
+    }
+  ],
+  "queries": [
+    "deepseek-v4.1-flash b200",
+    "speculation tpot",
+    "moe communication",
+    "kv-cache ttft",
+    "nvfp4"
+  ],
+  "paper_queries": [
+    "speculative decoding adaptive draft length inference",
+    "mixture of experts inference communication overlap",
+    "prefix caching routing serving"
+  ],
+  "prior_decisions": [
+    "context/b200-source-002-decision.md",
+    "context/single-gpu-source-002-decision.md"
+  ],
+  "constraints": [
+    "No GPU execution",
+    "No invented speedup estimates",
+    "Investigate negative evidence and branch/deployment applicability"
+  ],
+  "instructions": "Find useful improvements to the current serving system and cost/throughput Pareto frontier. Known techniques, parameter changes, feature activation, upstream ports, kernels, routing and vLLM source changes are allowed. Publication novelty is not required. Verify what the baseline already implements; if unknown, propose a cheap check. Do not invent measurements.",
+  "selection": {
+    "require_novelty": false
+  }
+}

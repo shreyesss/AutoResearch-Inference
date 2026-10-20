@@ -1,0 +1,90 @@
+schema_version: 1
+name: latency-classes
+description: "Latency campaign classes plus a 32K-capped production-shaped mix. Outputs use natural stop behavior; fixed-output diagnostics continue to use text-grid/offline workloads."
+minimum_requests: 512
+defaults:
+  temperature: 0
+  thinking: false
+  reasoning_effort: low
+  prefix_mode: none
+  prefix_tokens: 0
+  reuse_percent: 0
+  image_share: 0
+cases:
+  - name: chat-512-256
+    category: chat
+    isl: 512
+    max_tokens: 256
+  - name: code-2k-1k
+    category: code-reasoning
+    isl: 2048
+    max_tokens: 1024
+    thinking: true
+    reasoning_effort: high
+  - name: agent-8k-1k
+    category: agentic
+    isl: 8192
+    max_tokens: 1024
+    thinking: true
+    reasoning_effort: high
+    tools: true
+  - name: document-32k-512
+    category: long-doc
+    isl: 32768
+    max_tokens: 512
+  - name: multimodal-512-256
+    category: multimodal
+    isl: 512
+    max_tokens: 256
+    image_share: 100
+    image_count: 1
+    image_resolution: 1024
+    image_detail: auto
+  - name: long-context-128k-128
+    category: long-context
+    isl: 131072
+    max_tokens: 128
+  - name: long-context-512k-32
+    category: long-context
+    isl: 524288
+    max_tokens: 32
+  - name: long-context-1m-16
+    category: long-context
+    isl: 1040000
+    max_tokens: 16
+  - name: production-mix-32k
+    variants:
+      - name: chat
+        weight: 35
+        category: chat
+        isl: 512
+        max_tokens: 256
+      - name: agentic
+        weight: 20
+        category: agentic
+        isl: 8192
+        max_tokens: 1024
+        thinking: true
+        reasoning_effort: high
+        tools: true
+      - name: long-doc
+        weight: 15
+        category: long-doc
+        isl: 32768
+        max_tokens: 512
+      - name: code-reasoning
+        weight: 20
+        category: code-reasoning
+        isl: 2048
+        max_tokens: 1024
+        thinking: true
+        reasoning_effort: high
+      - name: multimodal
+        weight: 10
+        category: multimodal
+        isl: 512
+        max_tokens: 256
+        image_share: 100
+        image_count: 1
+        image_resolution: 1024
+        image_detail: auto

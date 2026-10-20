@@ -1,0 +1,53 @@
+{
+  "objective": "Prioritize at most two testable deployment hypotheses for improving SLO-qualified goodput per GPU dollar and cost per successful million output tokens on the specified 8×B200 workload. Investigate safety-qualified DSpark adaptive verification first; consider verification-cost calibration or graph-aware prefix allocation only if the first investigation and upstream inspection justify it.",
+  "baseline_comparison": "The supplied baseline reports a 2×DEP4 R7b profile with “DSpark k5 adaptive false,” while “CSV dspark_config off contradicts profile on; runtime flags not inspected.” Inspect deployed flags and freeze the checkout, patch, and container before attributing a delta. Compare adaptive verification with static k2, static k5, and no speculation within the same topology and fixed traces. The reported R7b and R10 results use different layouts and load points, so they do not isolate speculation.",
+  "novelty_required": false,
+  "novelty_request": "",
+  "criteria": [
+    {
+      "id": "task_value",
+      "description": "Required veto: a credible, testable path to the specified cost and latency metrics, plus either a baseline delta or a cheap deployed-flag inspection that resolves whether the feature is already active. Unknown bottlenecks defer judgment.",
+      "category": "improvement",
+      "weight": 40,
+      "required": true,
+      "justification": "The baseline flags conflict. The requested 5% expected-gain threshold is an engineering target, not an observed effect. A flag inspection can establish whether an activation experiment has a meaningful baseline."
+    },
+    {
+      "id": "correctness_and_safety",
+      "description": "Required veto: preserve the exact sampling distribution, KV rollback, draft k5, and graph-safe decode; qualify concurrent-prefill safety before activation.",
+      "category": "feasibility",
+      "weight": 30,
+      "required": true,
+      "justification": "The supplied issue title says “illegal memory access under concurrent prefill.” Its conditions and resolution are unknown from the title alone, so safety cannot be scored as established."
+    },
+    {
+      "id": "causal_test",
+      "description": "Specify same-topology static k2/k5/no-spec comparisons, fixed tokenizer and traces, both goodput scorers, latency tails, ITL length cohorts, and correctness. Isolate the adaptive toggle from any safety patch or calibrator.",
+      "category": "testability",
+      "weight": 20,
+      "required": false,
+      "justification": "These controls address the supplied layout and scorer confounds without demanding a measured speedup before an experiment is proposed."
+    },
+    {
+      "id": "implementation_evidence",
+      "description": "Inspect the relevant configuration and code paths, the reported negative evidence in 59970 and 62541, and existing upstream behavior before selecting a second hypothesis.",
+      "category": "evidence",
+      "weight": 10,
+      "required": false,
+      "justification": "The supplied items provide titles, not implementation details. Existing flags, ports, and parameter changes remain eligible; publication status has no selection penalty."
+    }
+  ],
+  "threshold": 75,
+  "evidence": {
+    "minimum_independent_sources": 1,
+    "require_engineering": true,
+    "require_paper_fulltext": false,
+    "rationale": "One relevant engineering source can establish a known implementation path; two sources or a paper are not automatic requirements. The supplied PR and issue titles are insufficient to establish code behavior or resolve failures, so affected judgments remain deferred. Hardware, workload, effect size, and limitations for the three listed fulltexts are unknown because their contents were not supplied."
+  },
+  "retrieval": {
+    "github": false,
+    "literature": false,
+    "rationale": "This response uses only supplied material, as requested. The rubric calls for later repository and runtime inspection before selection or GPU execution; literature adds no necessary evidence at this stage."
+  },
+  "rationale": "Observed in the supplied baseline report, not reproduced here: R7b c512 is reported as 33.76 req/s with E2E p95 19.49 s; R10 DEP8 k2 c1024 is reported as 43.55 req/s with E2E p95 29.61 s. Author claims available here are limited to titles, including “Disable dynamic speculative decoding when DP is enabled” and the concurrent-prefill issue title; the negative details of 62541 are unknown. Transfer inference: adaptive verification could improve the target frontier only if deployed flags show a real inactive baseline, the safety conditions are resolved, and same-topology tests show SLO-qualified value. The 75-point threshold is an uncalibrated prioritization choice, not an estimated success probability. Failure of a required criterion vetoes selection; an unknown judgment defers it. No GPU result or gain is claimed, and transfer from B300, GLM, or A100 is unknown."
+}

@@ -1,0 +1,113 @@
+[
+  {
+    "card": {
+      "id": "H1",
+      "parents": [],
+      "operation": "generate",
+      "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target’s TPOT or that its current dispatch is static. Prior work already switches between grouped and dense GEMM by token count, so this is a conditional workload adaptation. First identify eligible backends and trace complete decode steps. Then compare a predeclared selection policy with current dispatch and the best eligible static choice under the same CUDA Graph mode. A kernel-level gain alone would not justify the change: the policy must reduce repeated end-to-end TPOT.",
+      "observed_bottleneck": "Unknown for the target B200 DeepSeek setup. No supplied trace isolates expert GEMM, padding, launch, or host time there.",
+      "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+      "proposed_change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+      "code_surface": "Proposed vLLM fused MoE backend dispatch and DeepGEMM warmup; the exact target selector and checkpoint path have not been supplied. The supplied prepare_megamoe.py confirms padding-mask semantics for one NVFP4 staging path.",
+      "applicability": "A specified DeepSeek checkpoint, dtype, topology, and CUDA Graph configuration on B200 after backend eligibility is verified.",
+      "predicted_direction": "Lower TPOT only in routed-row regimes where the selected path wins end to end; no effect size is predicted.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "Host scheduling or other decode work limits TPOT despite faster GPU kernels.",
+          "distinguishing_test": "Measure host step time, GPU busy time, full MoE time, and TPOT together across repeated C1 and C4 runs."
+        },
+        {
+          "explanation": "Routing and staging launches, rather than expert GEMM choice, dominate the relevant interval.",
+          "distinguishing_test": "Attribute the full MoE interval to staging, routing, GEMM, and launch gaps; compare end-to-end results with the same staging path."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "fulltext:2410.12247",
+          "quote": "switching from GroupedGemm to DenseGemm at a certain token number",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:54520",
+          "quote": "M/rank | FlashInfer baseline (tok/s) | DeepGEMM fused (tok/s)",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:57977",
+          "quote": "C1 ×3 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "code:vllm-project/vllm:61aa7068b0f98677fa2166ff823d88330e70d47e:vllm/model_executor/layers/fused_moe/prepare_megamoe.py",
+          "quote": "ids = tl.where(token_is_padding, -1, ids)",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:46238",
+          "quote": "TMA (Tensor Memory Accelerator) alignment faults",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:60468",
+          "quote": "The DeepGEMM warmup covers `fp8_gemm_nt` and the grouped MoE GEMM.",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "Unestablished; token-dependent grouped versus dense selection is prior work.",
+        "implementation": "Unestablished until the target vLLM dispatcher and existing small-M paths are inspected.",
+        "workload": "Potential adaptation to a verified B200 DeepSeek decode configuration.",
+        "nearest_prior_art": "EPS-MoE token-dependent GEMM switching; existing vLLM MoE backend integrations.",
+        "specific_delta": "A capture-compatible selection policy validated against the best eligible static path on target end-to-end TPOT."
+      },
+      "prior_art_query": "MoE grouped dense GEMM dispatch",
+      "experiment": {
+        "control": "Current dispatch and the best eligible static backend, each with matched graph mode, warmup, and staging.",
+        "treatment": "Predeclared shape policy over those eligible backends; capture each selected path with stable buffers.",
+        "metrics": "Repeated C1/C4 TPOT, host step time, GPU busy time, full MoE interval, routed rows per expert, launch counts, capture and startup cost.",
+        "supports_if": "The treatment reproducibly lowers end-to-end TPOT versus both controls in its declared shape regime, with matching outputs and valid graph replay.",
+        "rejects_if": "Neither target regime improves TPOT over the best static control, or correctness or replay fails.",
+        "inconclusive_if": "The target path lacks multiple eligible backends, timing variability obscures the effect, or the traced bottleneck is outside MoE.",
+        "held_out_condition": "A predeclared prompt-length and routing distribution excluded from policy selection, measured at C1 and C4.",
+        "correctness": "Compare greedy outputs and expert routing, including padded tokens; repeat CUDA Graph capture and replay and verify safe low-M warmup candidates.",
+        "cost": "No GPU execution in this analysis. A later bounded B200 study must include compile, capture, and startup costs."
+      },
+      "revision_reason": "The supplied PR excerpt now includes the numerical TPOT passage missing from the earlier critique. Its author-reported C1 gain is small despite a larger reported GPU busy-time gain, so the experiment requires a full-path comparator."
+    },
+    "review": {
+      "id": "H1",
+      "gates": {
+        "evidence_entails_claims": true,
+        "distinct_from_prior_art": false,
+        "mechanism_plausible": true,
+        "test_discriminates_alternatives": true,
+        "feasible_within_constraints": true
+      },
+      "scores": {
+        "performance_value": 2,
+        "mechanistic_evidence": 2,
+        "feasibility": 3,
+        "novelty": 1,
+        "testability": 4
+      },
+      "objections": [
+        "Observed code: the supplied staging kernel sets padded routing IDs to -1 and weights to zero. It does not show the target dispatcher, active GEMM path, or TPOT bottleneck.",
+        "Author-reported result: PR #57977 gives C1 TPOT of 6.58 ms versus 6.50 ms while reporting GPU busy time of 7.64 ms versus 6.85 ms. That PR changes activation quantization and dense consumers; its numbers do not measure a shape-aware expert GEMM selector.",
+        "Author claim and prior art: EPS-MoE describes “switching from GroupedGemm to DenseGemm at a certain token number.” PR #46063 describes a small-M dispatcher on AMD. Scientific novelty is weak; implementation novelty in the target vLLM path is unknown. The possible B200 DeepSeek workload adaptation remains untested.",
+        "Transfer inference: low routed rows could change the best eligible GEMM path, but target per-expert row counts and the share of TPOT spent in GEMM are unknown. PR #49271 explicitly says a faster raw grouped GEMM can lose end to end to a fused path.",
+        "Systems correctness: routed rows per expert are produced by routing during the step. Selecting a captured path on the host from those rows may require synchronization; the proposal must specify how selection works without adding that cost. PR #46238 reports SM100 low-M autotune alignment faults, so candidate warmup and replay need validation.",
+        "The proposed full-path measurements and current-versus-best-static controls can distinguish a serving gain from a kernel-only gain. A later bounded B200 experiment is permitted by the no-GPU-execution constraint; no GPU result is claimed here."
+      ],
+      "required_revision": "Identify the exact checkpoint, format, topology, graph mode, current dispatch rule, and eligible paths. Trace C1/C4 decode before implementing the policy. Define selection using information available without a costly synchronization, then compare it with current dispatch and the best eligible static path under matched graph, staging, and warmup conditions. Report repeated TPOT, full MoE attribution, routed-row distributions, correctness, replay, and startup cost."
+    },
+    "assessment": {
+      "eligible": false,
+      "score": null,
+      "reasons": [
+        "Critic gate: distinct_from_prior_art"
+      ],
+      "meaning": "Eligible for experiment design, not scientifically validated or guaranteed novel"
+    }
+  }
+]

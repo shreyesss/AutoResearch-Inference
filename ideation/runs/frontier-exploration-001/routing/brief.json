@@ -1,0 +1,43 @@
+{
+  "name": "B200 routing and prefill pressure frontier exploration",
+  "instructions": "Generate at most two DIFFERENT practical improvements: (1) engine/rank-aware prefix reuse with bounded load-skew and load-only fallback, accounting for API2 and internal DP4; (2) adaptive prefill admission budget protecting decode deadlines with bounded TTFT and starvation. Strongest static comparator mandatory. Known existing techniques welcome; scientific novelty irrelevant. Do not propose flags already verified present. Presence not established: use first inspection gate. Distinguish cacheability target from observed cache hit. Source grounded useful proposals, no speedup claim. Test cheap causal falsification first. Proposed numeric thresholds are design choices not observations. No GPU execution now. Use held-out skew/prefix distributions and length-aware scorer.",
+  "count": 2,
+  "repos": [
+    "vllm-project/vllm"
+  ],
+  "selection": {
+    "require_novelty": false
+  },
+  "target": {
+    "model": "DeepSeek-V4.1-Flash",
+    "gpu": "8 B200",
+    "workload": "agent-f75 8192 input /1024 output, 75% cacheability target; Mooncake median/burst/cache-heavy replay",
+    "metrics": [
+      "SLO goodput",
+      "cost per successful request",
+      "E2E p95",
+      "TTFT p95",
+      "ITL p95 by output-length cohort",
+      "completed throughput"
+    ]
+  },
+  "baseline": {
+    "run": "LAT-2XDEP4-R7b",
+    "desired_profile": "two TP1/DP4/EP4 engines; DSpark k5; prefix cache enabled; API2 per replica; seq128 override;16384 token budget",
+    "measured_closed_loop": "c384 27.69 req/s E2E p95 18.30s; c512 33.76 req/s E2E p95 19.49s; $296/Mreq at8GPU*$4.5/h scenario",
+    "presence_unknown": [
+      "actual router code and policy",
+      "actual running rank targeting",
+      "effective image/commit dirty tree",
+      "runtime adaptive prefill feature"
+    ],
+    "score_warning": "Existing custom length-aware goodput differs from AIPerf goodput; freeze scorer and output-length cohorts. Whole-trace inter-token-gap p95 not equivalent TPOT. Profile is desired state not runtimeproof."
+  },
+  "constraints": [
+    "Only inspect/design; no GPU execution",
+    "No transferring another model or GPU headline speedups",
+    "Route/cache locality must target exact DP rank, not only replica",
+    "Do not use public endpoint cost comparison",
+    "Change one factor at a time before composing"
+  ]
+}

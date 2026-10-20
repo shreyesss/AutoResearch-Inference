@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "name": "prefix",
+  "description": "Sparse prefix-cache anchors. Cold uses a unique prefix; hot uses one dominant prefix; Zipf uses a rank-1.2 pool; multiturn reuses session IDs and prior turns.",
+  "dimensions": {
+    "prefix_mode": ["cold", "hot", "zipf", "multiturn"],
+    "prefix_tokens": [1024, 8192, 32768, 131072],
+    "reuse_percent": [0, 25, 50, 90]
+  },
+  "defaults": {
+    "category": "chat",
+    "max_tokens": 256,
+    "temperature": 0,
+    "thinking": false,
+    "reasoning_effort": "low",
+    "image_share": 0,
+    "prefix_pool_size": 16,
+    "turns_per_session": 4
+  },
+  "cases": [
+    {"name": "cold-prefix1k-reuse0", "prefix_mode": "cold", "prefix_tokens": 1024, "reuse_percent": 0, "isl": 3072},
+    {"name": "cold-prefix128k-reuse0", "prefix_mode": "cold", "prefix_tokens": 131072, "reuse_percent": 0, "isl": 133120},
+
+    {"name": "hot-prefix1k-reuse25", "prefix_mode": "hot", "prefix_tokens": 1024, "reuse_percent": 25, "isl": 3072},
+    {"name": "hot-prefix8k-reuse90", "prefix_mode": "hot", "prefix_tokens": 8192, "reuse_percent": 90, "isl": 10240},
+    {"name": "hot-prefix32k-reuse50", "prefix_mode": "hot", "prefix_tokens": 32768, "reuse_percent": 50, "isl": 34816},
+
+    {"name": "zipf-prefix1k-reuse25", "prefix_mode": "zipf", "prefix_tokens": 1024, "reuse_percent": 25, "isl": 3072},
+    {"name": "zipf-prefix8k-reuse50", "prefix_mode": "zipf", "prefix_tokens": 8192, "reuse_percent": 50, "isl": 10240},
+    {"name": "zipf-prefix32k-reuse90", "prefix_mode": "zipf", "prefix_tokens": 32768, "reuse_percent": 90, "isl": 34816},
+    {"name": "zipf-prefix128k-reuse90", "prefix_mode": "zipf", "prefix_tokens": 131072, "reuse_percent": 90, "isl": 133120},
+
+    {"name": "multiturn-prefix8k-reuse25", "prefix_mode": "multiturn", "prefix_tokens": 8192, "reuse_percent": 25, "isl": 10240},
+    {"name": "multiturn-prefix32k-reuse50", "prefix_mode": "multiturn", "prefix_tokens": 32768, "reuse_percent": 50, "isl": 34816},
+    {"name": "multiturn-prefix128k-reuse90", "prefix_mode": "multiturn", "prefix_tokens": 131072, "reuse_percent": 90, "isl": 133120}
+  ]
+}

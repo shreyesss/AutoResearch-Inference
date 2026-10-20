@@ -1,0 +1,62 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:52781",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/52781",
+    "title": "[Kernel][MoE] DeepEP v2: async finalize to overlap shared experts with combine",
+    "body": "> **Status (2026-08-31):** reviewer feedback addressed \u2014 overlap is now **default-on** (`VLLM_DEEPEP_V2_COMBINE_OVERLAP=1`, capability-gated fallback, env is a kill-switch), rebased clean onto current main (no conflicts). **Blocked only on a `ready` label** so Buildkite can run \u2014 the full suite has never executed on this fork PR. Contract tests included; EP8 A/B in comments.\n\n---\n\nFIX #52744\n\n### What\n\n`prepare_finalize/deepep_v2.py` issues the ElasticBuffer combine synchronously at both call sites, so the modular-kernel shared-expert overlap window (`finalize_async` -> shared experts on the compute stream -> receiver join, `MK_INTERNAL_OVERLAPPED`) is never used: for MoE models with a shared expert (DeepSeek-R1/V3) the shared-expert FFN serializes behind the cross-node all-to-all on every MoE layer during decode.\n\nThis PR makes `finalize_async` issue the combine with `async_with_compute_stream=True` (+ `allocate_on_comm_stream`) and return a receiver closure that joins via a device-side `event.current_stream_wait()` \u2014 graph-replay safe (the closure keeps `combined_x` and the event alive; no host synchronization inside the captured region).\n\n### Safety\n\n- **On by default** (per review feedback): `VLLM_DEEPEP_V2_COMBINE_OVERLAP=0` forces the synchronous combine. The flag is read once in `__init__` (never touches `os.environ` inside the captured region). Output is byte-identical either way.\n- **DBO**: overlap is disabled under DBO (`dbo_enabled()`), synchronous fallback, log-once.\n- **No-event capability gate**: if a DeepEP build returns no combine event, the overlap self-disables permanently (warn-once + a single eager full-sync join) \u2014 a pre-capture decision, since warmup always precedes capture; if it is ever hit during capture anyway, a hard `RuntimeError` is raised instead of hiding a sync inside the graph.\n\n### Tests\n\n- `tests/kernels/moe/test_deepep_v2_overlap_gate.py` (new, hermetic, no GPU collectives): contract tests for the gate \u2014 eager no-event self-disable / capture no-event raise / event-path deferred device-side join. (Ported from a validated harness; the same three contracts pass against this module logic.)\n- `tests/kernels/moe/test_deepep_v2_moe.py`: `test_deep_ep_v2_moe_backends` parametrized over the flag, so the existing torch-reference comparison doubles as the correctness oracle with overlap ON, across eager/cudagraph and both experts backends. That test's MoE has no shared expert, so it also covers the degenerate \"async combine with nothing to overlap\" path.\n\n### Performance (deployment observation)\n\nDeepSeek-R1-671B FP8, EP8 (2 nodes x TP4xDP2, GB300 / multi-node NVLink), full cudagraphs, `--all2all-backend deepep_v2`; pre-registered A/B, 4 independent server starts (ABBA), greedy, forced 128 output tokens, steady-state:\n\n| metric | OFF | ON | delta |\n|---|---|---|---|\n| C=1 decode ITL p50 | 15.71 ms | 14.32 ms | **-8.8%** |\n| C=24 decode ITL p50 | 22.05 ms | 20.89 ms | **-5.3%** |\n| C=1 TTFT p50 (negative control) | 236.9 ms | 236.8 ms | -0.1 ms |\n\nGreedy outputs bit-identical across all four arms. Serving traces: each combine kernel overlapped by shared-expert GEMMs ~9.7 us on average with the flag ON vs exactly 0 OFF. An ablation with the event-wait placed *before* the shared-expert GEMMs (offload without overlap) shows ~0 gain \u2014 the benefit is true overlap. Full evidence in #52744.\n\n### Validation scope\n\nGPU validation was performed on a v0.26.0-era tree; the finalize/combine region is unchanged between v0.26.0 and current main (the dispatch-side drift is unrelated), so the port is mechanical. The contract tests pass against this module logic; the parametrized cudagraph test covers the captured path wherever DeepEP v2 CI runners exist. Default flipped to on per review feedback; the env var remains as an escape hatch.\n",
+    "created_at": "2026-08-18T14:30:59Z",
+    "updated_at": "2026-09-15T04:04:22Z",
+    "fetched_at": "2026-10-19T23:11:35Z",
+    "state": "merged",
+    "merged_at": "2026-09-15T04:04:22Z",
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "moe",
+      "ttft",
+      "tpot",
+      "performance",
+      "communication"
+    ],
+    "metadata": {
+      "number": 52781,
+      "labels": [
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 14,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "a97dacb7106ee49f39f3d1fc6ae1800ff724e01d",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "deepep-v2-async-finalize",
+        "sha": "91c417ddc5a0e87c6c5b3edf5d98445f9b15f0b2",
+        "label": "404mario:deepep-v2-async-finalize"
+      },
+      "merge_commit_sha": "9d14fd3095eb169044e2da0a2a98dd1f2c77ce22",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:11:35Z"
+    },
+    "content_hash": "19b38bca093cd033529dc7c45243498991e5a4034273aa3589bccc6a65c41146"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

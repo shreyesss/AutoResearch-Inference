@@ -1,0 +1,45 @@
+{
+  "started_at": "2026-10-19T23:31:51Z",
+  "status": "completed_no_selection",
+  "rounds": [
+    {
+      "round": 1,
+      "proposed": 2,
+      "eligible": 0
+    }
+  ],
+  "requested": 2,
+  "dependency": "DiscoveryRSI Candidate/Episode/ReplayBuffer; domain gates are local",
+  "model": "existing agent configuration",
+  "gpu_experiments": 0,
+  "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+  "finished_at": "2026-10-19T23:32:23Z",
+  "selected": 0,
+  "shortfall": 2,
+  "evaluations": [
+    {
+      "id": "R1",
+      "eligible": false,
+      "status": "deferred",
+      "score": 76.0,
+      "reasons": [
+        "correctness_and_safety: The design retains draft k5 and gates activation on sampling, KV rollback, and graph-safe mixed-prefill checks. Safety is unresolved: issue #59970 reports “IMA within 1 min at c96 (4/4)” on B300, while PR #59986 says its B300 reproducer was “Not run.” Neither establishes safety on the target B200 deployment."
+      ],
+      "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    },
+    {
+      "id": "R2",
+      "eligible": false,
+      "status": "deferred",
+      "score": 64.0,
+      "reasons": [
+        "task_value: A cheap inspection can establish whether mixed-tail profiling is absent and adaptive verification is eligible. Issue #54046 reports a concrete shape mismatch for B200 at k7, but whether the target k5 deployment reaches the mismatch, changes policy decisions, or improves cost and latency is unknown. This is a valid first falsification question.",
+        "correctness_and_safety: The design keeps draft k5, acceptance and rollback rules, and captured decode shapes, and makes R1’s safety qualification a prerequisite. PR #54077 claims the change “does not modify sampling or verification kernels,” but also says “A full DSpark model-serving evaluation was not run.” Target correctness and graph safety remain unverified.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  ]
+}

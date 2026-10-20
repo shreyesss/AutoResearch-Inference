@@ -1,0 +1,43 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:48455",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/vllm-project/vllm/issues/48455",
+    "title": "HybridKVCacheCoordinator: DSpark draft-model KV-cache group's ephemeral content incorrectly vetoes GPU-tier prefix cache reuse",
+    "body": "## Summary\n\n`HybridKVCacheCoordinator.find_longest_cache_hit()` (`vllm/v1/core/kv_cache_coordinator.py`) requires every KV-cache group of a hybrid model to independently report a nonzero hit before confirming any prefix reuse for a request, on the GPU tier, independent of any KV connector. When serving DeepSeek-V4 with DSpark speculative decoding, the draft-model KV-cache group can never satisfy this, so it incorrectly vetoes reuse of the target model's own KV-cache groups (SWA, compressed C4A/C128A, indexer) even when those groups genuinely still hold valid, resident GPU blocks for a matching prefix.\n\nConcretely, this means: a follow-up request sharing a prefix with GPU blocks still resident from a previous request (shared system prompt, multi-turn conversation), or a request resumed after preemption, gets treated as having zero reusable prefix and is fully recomputed from scratch, even though the target model's real cache groups could have served part or all of that prefix.\n\n## Root cause\n\nSame underlying issue as #47890, at a different layer. `OffloadingConnectorScheduler._lookup()` and `HybridKVCacheCoordinator.find_longest_cache_hit()` independently reimplement the same iterative AND-convergence lookup algorithm, one for the RAM-tier offloading path, one for the GPU tier. #47890 covers the RAM-tier symptom (`external_prefix_cache_hits_total` stuck at 0). This issue is the same defect on the GPU-tier side of that same algorithm.\n\n`find_longest_cache_hit()`'s per-group loop calls `manager_cls.find_longest_cache_hit(...)` for every group and treats any group's `0`-block result as authoritative, truncating the confirmed hit length for the whole request to that group's result. DSpark's draft-model KV-cache group can never contribute a meaningful nonzero result here: `DSparkDeepseekV4Model.precompute_and_store_context_kv` (`vllm/models/deepseek_v4/nvidia/dspark.py`) derives that group's context KV directly from the target model's own auxiliary hidden states at each drafting round and overwrites it every round, so its content has no request-independent, stable meaning across a lookup boundary. It is a write-then-immediately-consume-within-round buffer, not an incrementally accumulated, reusable cache, unlike EAGLE/EAGLE3/MTP's draft KV, which is genuinely reusable because the draft model attends over its own previously drafted tokens the same way the target model attends over its own history.\n\n## Scope\n\nSame two boundaries as #47890's fix:\n\n- Speculative method: DSpark specifically. DFlash's drafter shares the same ephemeral-context property but is a separate, unvalidated case.\n- Model architecture: this only affects DeepSeek-V4-family models (Flash, Pro, and any other size variant), since the draft-model KV-cache group is only ever distinguished from other groups (`is_eagle_group`) for `model_version == \"deepseek_v4\"`. Other architectures are unaffected.\n\n## Status\n\nIdentified via code inspection while working on #47891 (the OffloadingConnector-side fix for the same root cause), not yet backed by a live before/after benchmark isolating the GPU-tier-only prefix caching path (all live validation done so far had the OffloadingConnector enabled). Flagging this as its own issue per maintainer request on #47891, since the core coordinator fix should be reviewed on its own merits before the connector is aligned to match it.\n\nRelated: #47890, #47891\n",
+    "created_at": "2026-07-13T03:33:20Z",
+    "updated_at": "2026-10-12T02:04:09Z",
+    "fetched_at": "2026-10-19T21:39:02Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 48455,
+      "labels": [
+        {
+          "id": 7648877658,
+          "node_id": "LA_kwDOI7xefs8AAAABx-icWg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/stale",
+          "name": "stale",
+          "color": "ededed",
+          "default": false,
+          "description": "Over 90 days of inactivity",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 1,
+      "state_reason": null
+    },
+    "content_hash": "e05fc1c196088a9e9eac1b1ed22f3aeed5159dc04e740b4796b8c86e803bcbf9"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

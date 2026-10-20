@@ -1,0 +1,115 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:47926",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/47926",
+    "title": "[Bugfix][Spec Decode] Mask prefix-cache-restored tokens out of the DFlash/DSpark draft context",
+    "body": "## Purpose\n\nDFlash/DSpark drafters build their context KV from the target's auxiliary hidden states, which only exist for tokens that flow through a target forward pass (`precompute_and_store_context_kv`, written per step for the scheduled tokens in `DFlashSpeculator.propose`). Tokens whose KV is restored at request (re)admission \u2014 automatic prefix caching hits, KV-connector restores, resumption after preemption \u2014 never run through the target, so their draft context KV slots are never written. The draft's attention nevertheless spans the full sequence (`seq_lens = last_valid_pos + 1 + num_query_per_req` in `_prepare_dflash_inputs_kernel`), so it reads uninitialized/stale KV for the whole restored region.\n\nThe impact scales with the cache-hit length: workloads where requests share a long common prefix degrade toward position-0-only acceptance with `mean acceptance length ~1.0` (drafts are garbage from the first position), while MTP/EAGLE-style drafters on the same workload are unaffected because they draft from the last decode hidden state and build no context KV \u2014 which is what makes this easy to misattribute to the speculator checkpoint or quantization. Existing public DSpark benchmark recipes work around it by serving with `--no-enable-prefix-caching`, giving up prefix caching entirely.\n\nThis PR keeps prefix caching enabled and instead hides the restored tokens from the draft's attention:\n\n- `RequestState.num_cached_tokens` (new): per request-slot count of tokens whose KV was restored at the most recent (re)admission, taken from the `num_computed_tokens` already passed to `add_request` (covers APC hits, connector restores, and resume-after-preemption uniformly).\n- `GPUModelRunner` hands the buffer to the speculator via `set_num_cached_tokens` (hasattr-guarded; only DFlash/DSpark opt in).\n- `_prepare_dflash_inputs_kernel` shortens the draft's `seq_lens` by the restored *whole blocks*, and a new Triton kernel (`shift_draft_block_tables`) left-shifts each request's draft block-table row in place by the same amount, so the draft attends only over slots that actually hold draft KV.\n\nDesign notes:\n\n- The in-place shift is safe: `input_block_tables` are regathered from the persistent block tables every step, the shift runs after `prepare_dflash_inputs` (slot mappings index the unshifted table), and all consumers are ordered on the same stream. It is CUDA-graph compatible \u2014 graphs read the live buffer contents at replay.\n- No position rewriting is needed: draft KV stores post-RoPE keys at absolute positions, and the shift is whole-block, so logical-to-physical block lookups agree between the (absolute) write path and the (shifted) read path.\n- Requests without cache hits shift by zero and are bit-identical to current behavior; same for dense DFlash/DSpark checkpoints.\n- Dummy runs skip the shift (their `idx_mapping` doesn't reference live requests) and the kernel clamps `seq_lens` to at least the query length as a guard.\n- Known limitation: when the restored count is not block-aligned (e.g. a full-prompt cache hit, which recomputes only the last token), up to `block_size - 1` restored slots remain visible to the draft. Output correctness is unaffected (rejection sampling), and the common APC case is block-aligned.\n\nThe draft loses the cached prefix from its visible context \u2014 bounded in practice by the drafter's training window anyway \u2014 in exchange for prefix caching and DFlash/DSpark composing at all. A follow-up could restore the full-context case by letting the draft KV cache group's blocks be reused with validity guarantees (the block-reuse machinery already exists; the gap is that `cache_full_blocks` is content-agnostic, so ingestion paths where the drafter never ran \u2014 e.g. KV-connector restores \u2014 can cache draft-group blocks that were never written). Happy to open that as a separate issue/RFC.\n\n## Test Plan\n\n- New unit tests: `tests/v1/spec_decode/test_dflash_prefix_cache_masking.py` \u2014 shift kernel correctness for aligned/unaligned/zero shifts, per-request shifts through `idx_mapping`, and the overlapping in-place copy on long rows.\n- End-to-end A/B with aiperf on GLM-5.2 (`eigen-ai-labs/GLM-5.2-NVFP4`, TP=4, B200) + `RedHatAI/GLM-5.2-speculator.dspark`, prefix caching **enabled** in both runs:\n\n```\n--speculative-config '{\"model\": \"RedHatAI/GLM-5.2-speculator.dspark\",\n  \"num_speculative_tokens\": 7, \"method\": \"dspark\",\n  \"attention_backend\": \"FLASH_ATTN\", \"draft_sample_method\": \"probabilistic\"}'\n```\n\naiperf: `--public-dataset spec-bench --extra-inputs temperature:0 top_p:1 --output-tokens-mean 256 --output-tokens-stddev 128 --concurrency 8 --request-count 200`, isolated pod, metrics from `vllm:spec_decode_num_accepted_tokens` / `vllm:spec_decode_num_draft_tokens` / draft-step counters over the run window.\n\n## Test Result\n\nSpecBench prompts are short, so cache hits only cover the shared chat-template/system prefix \u2014 even that is enough to measurably depress acceptance before the fix:\n\n| aiperf spec-bench (temp=0, 200/200 ok) | before (same nightly) | after (this PR) |\n|---|---|---|\n| Token acceptance (accepted / draft) | 20.6% | **27.6%** (19,871 / 71,890) |\n| Accepted draft tokens per step | 1.44 | **1.93** (19,871 / 10,270) |\n\nPer-position accepted counts after the fix decay smoothly (pos0\u2192pos6): 7,506 / 4,887 / 3,084 / 1,925 / 1,236 / 765 / 468 \u2014 versus an effectively position-0-only profile on cache-hit tokens before.\n\nThe improvement grows with the shared-prefix length of the workload. On an internal benchmark with a long shared system-prompt prefix (~20k tokens, near-total prefix-cache hit rate; same serve config, aiperf, temperature/top_p at serving defaults, concurrency 8, 200/200 ok):\n\n| internal long-shared-prefix benchmark | before (same nightly) | after (this PR) |\n|---|---|---|\n| Token acceptance (accepted / draft) | ~0.6% | **38.2%** (40,689 / 106,575) |\n| Mean acceptance length (vLLM log) | ~1.02 | **3.41** |\n| Per-position acceptance rate (log) | pos0-only ~2\u20135%, pos1+ \u2248 0 | **83.5 / 57.2 / 38.9 / 27.8 / 16.8 / 11.1 / 6.0 %** |\n\ni.e. speculative decoding goes from fully broken (drafts rejected from position 0) to a healthy per-position decay in line with the speculator's model card, without disabling prefix caching.\n\n---\n\n<details>\n<summary>Essential Elements checklist</summary>\n\n- [x] Purpose of the PR explained\n- [x] Test plan included\n- [x] Test results included\n- [ ] (docs update not applicable)\n</details>\n",
+    "created_at": "2026-07-07T22:38:15Z",
+    "updated_at": "2026-08-19T22:27:56Z",
+    "fetched_at": "2026-10-19T23:00:48Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "b200",
+      "speculation",
+      "kv-cache",
+      "nvfp4"
+    ],
+    "metadata": {
+      "number": 47926,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7614859318,
+          "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+          "name": "needs-rebase",
+          "color": "d4c5f9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8068298936,
+          "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+          "name": "v1",
+          "color": "9810B3",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 2,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "d99adcebdc9402c26346230ef2480d1cb72e654e",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/dflash-apc-valid-suffix",
+        "sha": "36ca8e5a1de06c86c68c1076a58d47df680f8788",
+        "label": "giorgiopiatti-caffeinated:fix/dflash-apc-valid-suffix"
+      },
+      "merge_commit_sha": null,
+      "draft": true,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:00:48Z"
+    },
+    "content_hash": "3c2cb74ee71b3e5bcd27516b8d2cd50002d94fb9508a916148b9c8f2b40b1c30"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

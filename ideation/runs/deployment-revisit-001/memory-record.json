@@ -1,0 +1,369 @@
+{
+  "id": "hypothesis:7edff72209a2cfe113c0caca6a02d4c06ee5d237d684daf27cb96b80bc0896d7",
+  "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/deployment-revisit-001",
+  "local_id": "R1",
+  "fingerprint": "4be2aca66fd885cf0cc29b4ed9ecc582454e957a375c3886d8613d9d1b404532",
+  "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+  "created_at": "2026-10-19T23:17:07Z",
+  "brief": {
+    "after": "2026-01-01",
+    "baseline": {
+      "deepseek_serve_commit": "2e6fa287d90adf7318ad314de27aa2f595aac821",
+      "note": "Historical source pin and refreshed configuration are distinct. Check resolved active backend and MTP/DSpark state. Imported aggregate metrics do not establish bottlenecks.",
+      "vllm_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516"
+    },
+    "code_sources": [
+      {
+        "path": "vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py",
+        "ref": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+        "repo": "vllm-project/vllm"
+      },
+      {
+        "path": "vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py",
+        "ref": "86a5bbe75a7971275952477bb1ce03e715bcc339",
+        "repo": "vllm-project/vllm"
+      }
+    ],
+    "constraints": [
+      "No GPU execution",
+      "No invented speedup estimates",
+      "Investigate negative evidence and branch/deployment applicability"
+    ],
+    "count": 1,
+    "instructions": "Find useful improvements to the current serving system and cost/throughput Pareto frontier. Known techniques, parameter changes, feature activation, upstream ports, kernels, routing and vLLM source changes are allowed. Publication novelty is not required. Verify what the baseline already implements; if unknown, propose a cheap check. Do not invent measurements. Reconsider the previous low-M MoE shape-policy candidate for usefulness. Preserve its uncertainty. Do not seek a publication contribution.",
+    "mode": "source_research",
+    "name": "DeepSeek V4.1 Flash on B200",
+    "paper_queries": [
+      "speculative decoding adaptive draft length inference",
+      "mixture of experts inference communication overlap",
+      "prefix caching routing serving"
+    ],
+    "prior_decision_text": {
+      "context/b200-source-002-decision.md": "# Decision \u2014 six new B200 inference-serving ideas\n\nResearch completed 2026-10-19 (Asia/Kolkata). This is a **ranked experiment-selection shortlist**, not a report of new measured gains or approval to patch/build/run GPUs. The imported `LAT-2XDEP4-R7b` c384 point is 27.6882 req/s, request TPOT p50/p99 12.850/19.329 ms, TTFT p99 2.180 s and reported cache-hit share 0.7736 on one eight-B200 node; it is one aggregate discovery run without a kernel, rank or request trace. Exact source/config/hardware limits are in [brief](brief.md). Each card's first serving point uses a contemporaneous unchanged R7b control and same request bodies, cache preparation, eight-GPU budget and load mode; candidate changes are recorded. A 120 s warmup + 150 s scored point per arm gives **1.2 GPU-hours of scheduled traffic for two arms**, excluding setup/build/startup/drain and any repeats. That is a planning baseline, not a required sample floor.\n\n| Rank | Idea and expected benefit / tradeoff | Evidence and required change | Confidence / readiness | Cheapest informative next test \u2192 first measured serving point | Cost before/at point |\n| ---: | --- | --- | --- | --- | --- |\n| **1** | [H04: DP-aligned prefill cadence](hypotheses/H04.md): less EP straggler wait and TPOT tail if misses desynchronize ranks; delayed TTFT possible. | Pinned `prefill_schedule_interval` exists and is unset in R7b; [#44558](https://github.com/vllm-project/vllm/pull/44558) review fixed saturation behavior. No rank-skew evidence. Config overlay interval 2. | Mechanism **moderate**, R7b benefit **low\u2013moderate**; configuration screen after trace. | Short unchanged-parent per-rank prefill/collective trace and CPU replay \u2192 matched c384 parent vs interval 2. | Low engineering; trace startup unknown; 1.2 GPU-h traffic if promoted. |\n| **2** | [H01: V4.1 SWA bounded replay](hypotheses/H01.md): trim upper-layer prefill and SWA cache work; approximate state may affect answers and graph overhead may regress. | [V4.1 paper](https://arxiv.org/html/2609.19969v1), [vLLM graph work #59532](https://github.com/vllm-project/vllm/pull/59532)/[#59894](https://github.com/vllm-project/vllm/pull/59894). R7b explicitly disables pinned eager replay. Activate and integrate compatible graph path. | Prefill mechanism **moderate**, R7b benefit **low**; quality/graph gate then integration. | Read-only support gate, cold/hit/128-boundary quality smoke \u2192 matched c384 parent vs integrated candidate. | Medium/high port and image qualification; smoke/startup unknown; 1.2 GPU-h traffic. |\n| **3** | [H02: conditional MegaMoE EPLB](hypotheses/H02.md): replicate hot experts to reduce slow-rank TPOT; extra HBM and rebalance stalls. | Pinned MegaMoE has EPLB hooks; default off. [DeepSeek EPLB](https://github.com/deepseek-ai/EPLB) supports mechanism, but R7b expert skew unknown. Activate only after route evidence. | Mechanism **moderate**, R7b benefit **low**; trace/placement replay first. | Parent expert/rank timing trace plus CPU assignment replay \u2192 matched c384 parent vs one qualified EPLB config. | Low analysis, medium activation; 1.2 GPU-h traffic if promoted. |\n| **4** | [H05: bounded token-prefix placement](hypotheses/H05.md): fewer repeated-prefix misses across engines and ranks; hot-key imbalance possible. | [Preble](https://arxiv.org/html/2407.00023) and [SGLang gateway](https://github.com/sgl-project/sglang/blob/main/sgl-model-gateway/src/policies/cache_aware.rs) show mechanism. Router session IDs scatter repeated Zipf keys, but aggregate 0.77 hit share gives no avoidable-miss proof. Add exact-token hash, two-level rank hint and bounded spill. | Locality mechanism **moderate**, R7b benefit **low**; trace-gated design. | Parent request-prefix/rank/cache join and CPU placement replay \u2192 matched c384 parent vs router policy. | Medium router/trace work, CPU replay cheap; 1.2 GPU-h traffic if promoted. |\n| **5** | [H03: FlashInfer CuteDSL MegaMoE](hypotheses/H03.md): potential large-step prefill throughput; small decode may regress, weight conversion changes arithmetic. | Pinned backend can load same MXFP4 checkpoint through requantization. [FlashInfer microbench](https://flashinfer.ai/2026/09/22/mega-moe.html) shows a small-token loss and different V4/EP8 gains. Select backend, qualify NVSHMEM/runtime and quality. | Shape mechanism **moderate**, R7b net benefit **low\u2013moderate**; component/runtime gate. | Read-only dependency check then four-B200 EP4 representative shape/quality component test \u2192 matched c384 fixed-backend comparison. | Medium runtime/memory/quality work; component minutes after setup; 1.2 GPU-h traffic if promoted. |\n| **6** | [H06: DP-coordinated adaptive DSpark k](hypotheses/H06.md): avoid low-value draft/verify work as load/acceptance changes; graph/coordination overhead. | [Nightjar](https://arxiv.org/html/2512.22420) and [SpecDec++](https://arxiv.org/abs/2405.19715) support adaptivity elsewhere. Pinned vLLM disables dynamic k at DP>1. New synchronized k-tier selection, graph dispatch and fallback are required. | General mechanism **moderate**, R7b benefit **low**; source design after trace. | Parent acceptance/cost trace and CPU policy replay \u2192 correctness/graph smoke \u2192 c384 policy vs fixed k5 (optional k2 arm). | High implementation; 1.2\u20131.8 GPU-h traffic plus unknown build/startup. |\n\nThe order favors cheap discriminating checks and the active node's likely operating range. It is conditional: evidence of no rank skew would remove H04/H02, no avoidable repeated-prefix misses would remove H05, and a strict bit-identical output contract would remove H01. H03's published crossover makes its fixed backend a component question before service promotion. No numeric R7b speedup is forecast.\n\n## Exploration coverage and alternatives\n\n| Direction | Selected or reason not selected |\n| --- | --- |\n| V4.1 replay / graph integration | **H01 selected**; separate from prior batch's H01 decode candidate-selection port, which stays prior work and is **not counted**. |\n| EP prefill/decode scheduling | **H04 selected.** Active-demand long-prefill chunk cap (S2 in [schedule note](notes/schedule_spec.md)) is a distinct cheap fallback if a parent trace shows long mixed steps without rank skew; it lost a slot to broader mechanisms because current vLLM already chunks/priors decodes and R7b miss-step evidence is absent. |\n| Speculation | **H06 selected** for draft-work adaptation. Adaptive **verification** activation (S3) lost to [issue #59970](https://github.com/vllm-project/vllm/issues/59970)'s backend-specific graph crash and weak safe-mode gain; MegaAttention compatibility remains a future question. Prior #59468 slot fix is unlikely to bind R7b's 16K budget. |\n| Prefix KV / routing | **H05 selected.** One-use KV probationary eviction is distinct but lower readiness; R7b has no hot-prefix eviction evidence and hybrid-cache correctness is costly. Generic waiting-queue affinity had a near-zero correct async result in [RFC #42185](https://github.com/vllm-project/vllm/issues/42185). CPU/SSD KV offload needs a larger working-set case and DSV4 layout fixes. |\n| MoE and Engram | **H02/H03 selected.** Direct DeepEP dispatch is inactive on the measured DeepGEMM MegaMoE path. Private-THP Engram #59923 had weak comparable small-row DEP4 effects; B200 Engram threshold adaptation remains a profile-gated alternative. Native W4A4 port overlaps H03's precision/backend question. |\n| Prefill/decode disaggregation | [RFC #57383](https://github.com/vllm-project/vllm/issues/57383) is design-only and would change topology, weight residency and transport; lower readiness/cost-effectiveness for this one-node batch than H01 replay activation. |\n\nSources and exact PR states/SHAs, code paths, positive/negative literature and access limits: [sources](sources.md), [delegated notes](notes/schedule_spec.md), [cache/routing](notes/cache_route.md), [MoE/backend](notes/moe_backend.md), [bounded replay](notes/bounded_replay.md). [Self-review](review.md) records substantive objections/revisions against the full rubric. **Next human checkpoint:** select a diagnostic/experiment and its execution scope; this run did not build, patch serving code or use GPUs. Process lesson for the meta coordinator: preserve the new batch's explicit source-path qualification and rank/cache/acceptance trace gates before promoting headline PR gains; no change to `research/META.md` was made here.\n",
+      "context/single-gpu-source-002-decision.md": "# Decision \u2014 five new mechanisms; one-idea shortfall\n\nRequested **six source-research ideas**. Five distinct conditional mechanisms survived; **shortfall: one**. Existing activations/unchanged ports are useful comparators below and do not fill the quota. No improvement is measured and no experiment was launched. [Brief](brief.md) \u00b7 [sources](sources.md) \u00b7 [self-review](review.md) \u00b7 [matched experiment contract](notes/experiment-contract.md).\n\nThe strongest next research screen is **H04's exposed metadata cost versus simple fusion**; H01 is the smaller scheduler prototype if its precise alignment-blocking pattern occurs. **No candidate is currently ready to promise a correct implementation and matched serving result overnight.** H01 is the only plausible single-evening prototype (estimated4\u20138h) after its incidence gate; the other source implementations are day-scale. A cheap relevance screen is available tonight, but its setup estimate is not measured GPU duration. The other mechanisms need prerequisites or appreciably more engineering. Ranking combines relevance, falsifiability and total cost, separately from source novelty.\n\n| Rank/card | New behavior and intended c32 effect | Evidence / decisive unknown | Cheapest isolated test \u2192 matched point | Cost and eligibility |\n|---|---|---|---|---|\n|1 [H04 persistent GDN descriptors](hypotheses/H04.md)|Retain unchanged state mappings across decode steps; potential TPOT/output-rate gain, possible invalidation overhead.|Exact image rebuilds descriptors; ordinary decode is active. Unknown exposed critical-path time after async and simple fusion.|Short c32 profile plus stock/fused/reuse metadata sequence; stop if fusion removes headroom. Then same trial10 c32 three-arm comparison.|Screen setup0.5\u20131day; prototype1\u20133days; capture/start separately; ~6min first three-arm point wall time+prep. **Cheap screen eligible; implementation conditional.**|\n|2 [H01 alignment-fit bypass](hypotheses/H01.md)|Use leftover token budget for fitting tails after alignment-zero head; potential TTFT/capacity gain, TPOT/long-head regression possible.|Exact waiting-loop break; seq64/c32 does not prove waiting+stranded-budget+fitting-follower coincidence.|CPU branch/progress cases and short original c32 incidence diagnostic. Then parent/static2048/candidate c32.|Prototype estimate4\u20138h, not a readiness promise; Python source helper insertion needed. ~6min point wall time+starts/prep. **CPU test eligible; serving only if incidence.**|\n|3 [H03 selected interior checkpoints](hypotheses/H03.md)|Materialize demanded sub-page GDN+conv+attention checkpoint without whole-model split; potential prefill/TTFT saving, export/memory cost.|Image tail-only boundary gap and Marconi/PR evidence; warmup+fine matching may already cover useful prefixes.|CPU exact token/checkpoint join against fine matching. If incremental reuse exists, isolated continuation oracle. Then fine-match parent/exporter c32.|Gate0.5\u20131day; prototype3\u20137days/integration1\u20132weeks; JIT/build separate. **CPU gate eligible; no overnight implementation.**|\n|4 [H02 committed-prefix followers](hypotheses/H02.md)|Suppress duplicate in-flight prefill using producer-completion/generation dependency; possible compute saving, deliberate wait risk.|SGLang heuristic exists, event-safe hybrid adaptation new. Frozen64-prefix warmup may eliminate opportunity.|CPU residual-prefix join, then simultaneous sibling-miss incidence. Parent/heuristic/candidate only if useful.|Gate1\u20133h; implementation1\u20133days; normal startup; pair~4min+prep. **CPU gate eligible; low exact-workload confidence.**|\n|5 [H05 ragged GDN MTP verification](hypotheses/H05.md)|Per-request verify budgets plus coherent device hybrid commit; possible TPOT/output gain, backend/draft/state overhead.|Real metadata/FA2 gap; safe MTP and useful c32 heterogeneity unproven.|Safe fixed-MTP acceptance/physical-bucket cost diagnostic, optimistic bound, component state/graph test. Same-stack fixed/ragged c32 plus original anchor.|4\u20138engineering days or more; backend/MRV2/capture startup substantial. **Diagnostic conditional on MTP safety; no overnight implementation.**|\n\nTimes are estimates. Historical c32 point was~117\u2013120s, excluding server setup and cache preparation; startup/compile/drain are additional and must be timed. A single matched point is provisional. Original BF16 model, workload bodies, forced lengths, warmup, streaming/API, concurrency and request-level scorer remain the route to comparable p90TTFT/p90TPOT/output-rate points. No cold, low-concurrency or operation-only result substitutes. Repeats/order/drift, neighboring loads and a distinct final split follow only promising results.\n\n## Useful upgrades and controls \u2014 excluded from five\n\n| Existing solution | Role |\n|---|---|\n|Fine-prefix matching activation|Strongest H03 control; may remove all justification for new snapshots. Previous batch H01 remains a cheap deployment experiment after checkpoint/quality gate.|\n|Fused align metadata gather, PR38020/SGLang-style refresh|Strongest H04 control and potentially simpler useful upgrade. Closed PR requires compatibility qualification; unchanged port is not source novelty.|\n|Safe fixed native MTP, uniform adaptive depth, eligible runner/attention backend|H05 prerequisites/controls; prior activation is not re-counted.|\n|Static2048 prefill cap and ordinary shortest-residual ordering|H01 practical controls; prior pressure-prefill policy remains historical, not forced into this round.|\n|Regular all-mode checkpoint export / FlashInfer prefill / fused ordinary GDN / FP8|Existing ports/activations remain alternative deployment investigations; precision change needs its own quality dimension.|\n\n## Exploration and why a sixth did not survive\n\n| Direction | Outcome |\n|---|---|\n|Queue fit/fairness|H01 new narrow legal-work bypass; generic cache affinity discarded after correct-async null result; output-length pairing has irrelevant capacity assumptions and negative real-EOS evidence.|\n|In-flight prefix reuse / stateless compute dedup|H02 completion-aware adaptation retained conditionally. Hybrid RadixMLP costs more and shares the unproven cold-duplicate opportunity; not padded into another slot.|\n|Hybrid state materialization|H03 selective export retained; raw fine-match/all-mode activation/port excluded. No generic eviction claim with zero recorded c32 preemptions.|\n|Host/GPU metadata|H04 reuse/invalidation retained. Raw gather fusion excluded as unchanged solution.|\n|Speculative verification|H05 coherent ragged integration retained conditionally. Native MTP, batch-only adaptiveK, ReplaySSM/TreeWY ports excluded as repeats/prerequisites.|\n|Multi-step execution|Two-step decode lease discarded: no exposed-gap evidence beyond existing async and MRV2, while admission/cancellation/graph work is substantial.|\n|Allocator/precision/communication|Allocator prototype evidence does not establish runtime value here; precision flags repeat prior batch; dense TP1 has no MoE inter-GPU communication opportunity.|\n\nReview was lead **self-review** with delegated research, not independent approval. Recommendations to coordinator: preserve source-novelty and exact-workload-value as separate judgments; save null activation/comparator outcomes, and require current-image traces before escalating a helper operation into a serving claim. No skills, prior batches, serving code or dependencies were changed by this worker; no GPU was launched. Human selection remains the next stage.\n"
+    },
+    "prior_decisions": [
+      "context/b200-source-002-decision.md",
+      "context/single-gpu-source-002-decision.md"
+    ],
+    "queries": [
+      "deepseek-v4.1-flash b200",
+      "speculation tpot",
+      "moe communication",
+      "kv-cache ttft",
+      "nvfp4"
+    ],
+    "seed_numbers": [
+      36037,
+      62541,
+      62073
+    ],
+    "selection": {
+      "require_novelty": false
+    },
+    "target": {
+      "gpu": "B200",
+      "metrics": [
+        "TTFT",
+        "TPOT",
+        "throughput",
+        "cost per token",
+        "quality"
+      ],
+      "model": "DeepSeek-V4.1-Flash",
+      "topology": "single eight-GPU NVLink/NVSwitch node; DEP8 and two DEP4 are candidate layouts",
+      "workload": "agent-style approximately 8K input / 1K output; 75% target cacheability is not measured cache-hit rate"
+    }
+  },
+  "card": {
+    "alternatives": [
+      {
+        "distinguishing_test": "Measure host step time, GPU busy time, full MoE time, and TPOT together across repeated C1 and C4 runs.",
+        "explanation": "Host scheduling or other decode work limits TPOT despite faster GPU kernels."
+      },
+      {
+        "distinguishing_test": "Attribute the full MoE interval to staging, routing, GEMM, and launch gaps; compare end-to-end results with the same staging path.",
+        "explanation": "Routing and staging launches, rather than expert GEMM choice, dominate the relevant interval."
+      }
+    ],
+    "applicability": "A specified DeepSeek checkpoint, dtype, topology, and CUDA Graph configuration on B200 after backend eligibility is verified.",
+    "classification": "adaptation",
+    "code_surface": "Proposed vLLM fused MoE backend dispatch and DeepGEMM warmup; the exact target selector and checkpoint path have not been supplied. The supplied prepare_megamoe.py confirms padding-mask semantics for one NVFP4 staging path.",
+    "evidence": [
+      {
+        "quote": "switching from GroupedGemm to DenseGemm at a certain token number",
+        "relation": "context",
+        "source_id": "fulltext:2410.12247"
+      },
+      {
+        "quote": "M/rank | FlashInfer baseline (tok/s) | DeepGEMM fused (tok/s)",
+        "relation": "context",
+        "source_id": "github:vllm-project/vllm:54520"
+      },
+      {
+        "quote": "C1 \u00d73 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms",
+        "relation": "challenges",
+        "source_id": "github:vllm-project/vllm:57977"
+      },
+      {
+        "quote": "ids = tl.where(token_is_padding, -1, ids)",
+        "relation": "context",
+        "source_id": "code:vllm-project/vllm:61aa7068b0f98677fa2166ff823d88330e70d47e:vllm/model_executor/layers/fused_moe/prepare_megamoe.py"
+      },
+      {
+        "quote": "TMA (Tensor Memory Accelerator) alignment faults",
+        "relation": "challenges",
+        "source_id": "github:vllm-project/vllm:46238"
+      },
+      {
+        "quote": "The DeepGEMM warmup covers `fp8_gemm_nt` and the grouped MoE GEMM.",
+        "relation": "context",
+        "source_id": "github:vllm-project/vllm:60468"
+      }
+    ],
+    "experiment": {
+      "control": "Current dispatch and the best eligible static backend, each with matched graph mode, warmup, and staging.",
+      "correctness": "Compare greedy outputs and expert routing, including padded tokens; repeat CUDA Graph capture and replay and verify safe low-M warmup candidates.",
+      "cost": "No GPU execution in this analysis. A later bounded B200 study must include compile, capture, and startup costs.",
+      "held_out_condition": "A predeclared prompt-length and routing distribution excluded from policy selection, measured at C1 and C4.",
+      "inconclusive_if": "The target path lacks multiple eligible backends, timing variability obscures the effect, or the traced bottleneck is outside MoE.",
+      "metrics": "Repeated C1/C4 TPOT, host step time, GPU busy time, full MoE interval, routed rows per expert, launch counts, capture and startup cost.",
+      "rejects_if": "Neither target regime improves TPOT over the best static control, or correctness or replay fails.",
+      "supports_if": "The treatment reproducibly lowers end-to-end TPOT versus both controls in its declared shape regime, with matching outputs and valid graph replay.",
+      "treatment": "Predeclared shape policy over those eligible backends; capture each selected path with stable buffers."
+    },
+    "id": "R1",
+    "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+    "novelty": {
+      "implementation": "Unestablished until the target vLLM dispatcher and existing small-M paths are inspected.",
+      "nearest_prior_art": "EPS-MoE token-dependent GEMM switching; existing vLLM MoE backend integrations.",
+      "scientific": "Unestablished; token-dependent grouped versus dense selection is prior work.",
+      "specific_delta": "A capture-compatible selection policy validated against the best eligible static path on target end-to-end TPOT.",
+      "workload": "Potential adaptation to a verified B200 DeepSeek decode configuration."
+    },
+    "observed_bottleneck": "Unknown for the target B200 DeepSeek setup. No supplied trace isolates expert GEMM, padding, launch, or host time there.",
+    "operation": "evolve",
+    "parents": [
+      "hypothesis:fe6386c8c04b442fb90410315a1e9bb26ffcea94a02f81d63a3416f025c4019a"
+    ],
+    "predicted_direction": "Lower TPOT only in routed-row regimes where the selected path wins end to end; no effect size is predicted.",
+    "prior_art_query": "MoE grouped dense GEMM dispatch",
+    "proposed_change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+    "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+    "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target\u2019s TPOT or that its current dispatch is static. Prior work already switches between grouped and dense GEMM by token count, so this is a conditional workload adaptation. First identify eligible backends and trace complete decode steps. Then compare a predeclared selection policy with current dispatch and the best eligible static choice under the same CUDA Graph mode. A kernel-level gain alone would not justify the change: the policy must reduce repeated end-to-end TPOT."
+  },
+  "policy": {
+    "baseline_comparison": "Compare each candidate with the unchanged current serving configuration at matched request bodies, cache preparation, load, and eight-GPU budget. Check the active backend, MTP, DSpark, and DEP8 versus two-DEP4 layout before claiming a baseline delta. A prior decision reports 27.6882 req/s at one c384 point, but calls it \u201cone aggregate discovery run without a kernel, rank or request trace.\u201d This is an author-reported aggregate, not an observed bottleneck. The 75% cacheability target is not a measured cache-hit rate.",
+    "criteria": [
+      {
+        "category": "improvement",
+        "description": "Required: Give a credible, testable path to improving a target metric or the cost/quality tradeoff, plus either a delta from the active baseline or a cheap inspection that establishes whether the feature is already active.",
+        "id": "task_value",
+        "justification": "The task seeks useful serving changes; existing flags, ports, and parameter changes qualify. Unknown bottlenecks can justify diagnostic experiments. If baseline status is unknown, defer judgment until the inspection.",
+        "required": true,
+        "weight": 40
+      },
+      {
+        "category": "feasibility",
+        "description": "Assess compatibility with the pinned code, actual backend, B200 runtime, and candidate node layouts, including quality and memory risks.",
+        "id": "deployment_fit",
+        "justification": "A mechanism that works elsewhere may miss this backend or workload. The supplied PR titles and code path identify leads but do not establish implementation or deployment compatibility.",
+        "required": false,
+        "weight": 25
+      },
+      {
+        "category": "testability",
+        "description": "Specify the cheapest informative inspection or experiment, its matched control, and a result that would stop or advance the candidate.",
+        "id": "discriminating_test",
+        "justification": "No GPU execution is available in this session, and no speedup estimate should be invented. A trace or source check can resolve uncertainty before an expensive serving comparison.",
+        "required": false,
+        "weight": 20
+      },
+      {
+        "category": "evidence",
+        "description": "Separate direct observations, author claims, and transfer inference; record unknown hardware, workload, effect size, and limitations.",
+        "id": "evidence_and_limits",
+        "justification": "The available evidence is mostly titles and prior-decision text. For example, the prior decision says \u201cNo rank-skew evidence.\u201d That is a reported limitation, not proof that rank skew is absent.",
+        "required": false,
+        "weight": 15
+      }
+    ],
+    "evidence": {
+      "minimum_independent_sources": 1,
+      "rationale": "One relevant code or configuration source, or a concrete cheap baseline-inspection test, can support an engineering candidate. A paper and two independent sources are unnecessary for a known implementation change. An abstract or PR title alone cannot establish implementation details. Unknown required judgments defer selection rather than reject it.",
+      "require_engineering": true,
+      "require_paper_fulltext": false
+    },
+    "novelty_request": "",
+    "novelty_required": false,
+    "objective": "Prioritize five testable ways to improve DeepSeek-V4.1-Flash serving on one eight-B200 node, considering TTFT, TPOT, throughput, cost per token, and quality.",
+    "rationale": "Observed in the supplied material: commit pins, candidate layouts, source identifiers, and PR titles; no full diffs, traces, or new measurements. Author-reported results are limited to the prior decision's aggregate serving point and its stated limitations. Transfer inference: prioritize cheap checks of active features and suspected bottlenecks, then matched experiments. The 70-point threshold is an uncalibrated prioritization choice, not a measured probability or acceptance guarantee. Only the task-value criterion is a veto; an unknown baseline state defers judgment.",
+    "retrieval": {
+      "github": true,
+      "literature": false,
+      "rationale": "Future branch-specific code and PR inspection is needed to verify active features and applicability; no retrieval was performed because this response is restricted to supplied sources. Additional literature is optional unless it resolves a specific mechanism or limitation."
+    },
+    "threshold": 70
+  },
+  "events": [
+    {
+      "seq": 275,
+      "id": "event:469cd8046853159330dab45370ae3100561f423bce382780cedb37d230337932",
+      "hypothesis_id": "hypothesis:7edff72209a2cfe113c0caca6a02d4c06ee5d237d684daf27cb96b80bc0896d7",
+      "type": "produced",
+      "at": "2026-10-19T23:17:07Z",
+      "actor": "generator",
+      "data": {
+        "local_id": "R1",
+        "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/deployment-revisit-001"
+      }
+    },
+    {
+      "seq": 276,
+      "id": "event:79c09f114b07f9c34deae209e8645b89fcc43b5612942a19f4deb6cf8b56959a",
+      "hypothesis_id": "hypothesis:7edff72209a2cfe113c0caca6a02d4c06ee5d237d684daf27cb96b80bc0896d7",
+      "type": "reviewed",
+      "at": "2026-10-19T23:17:24Z",
+      "actor": "reviewer",
+      "data": {
+        "assessment": {
+          "eligible": true,
+          "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+          "policy_id": "policy:1390641e6a44bbdd245a60246620a7da0f7e9821663979dbd39c7db26d3a1ae6",
+          "reasons": [],
+          "score": 70.0,
+          "status": "accepted"
+        },
+        "context_id": "review_context:f7507d7f089b056e80dccedd0311f067586bd4165a7c9aedd8268ae15c088d2d",
+        "policy_id": "policy:d6fe3b86570e5067bdf021a688d20d638d55a414cad7a0add103e71b76a34472",
+        "review": {
+          "criteria": {
+            "deployment_fit": {
+              "rationale": "The pinned checkpoint format, active MoE backend, second eligible backend, B200 graph compatibility, and DEP8 versus two DEP4 behavior have not been established. The supplied staging code says \u201cids = tl.where(token_is_padding, -1, ids)\u201d for one NVFP4 path at another commit; it does not establish the pinned path. PR #54520 reports GLM-5.2 on GB300, so its results do not establish DeepSeek-V4.1-Flash compatibility. Warmup and quality risks are identified but unresolved.",
+              "score": 2,
+              "verdict": "unknown"
+            },
+            "discriminating_test": {
+              "rationale": "Inspect resolved dispatch and checkpoint compatibility first; stop if fewer than two correct, graph compatible paths exist. Then trace host time, full MoE time, staging, GEMM, and TPOT; stop if backend choice has no plausible end-to-end headroom. The proposed repeated C1/C4 comparison against unchanged dispatch and the best eligible static backend can distinguish a serving gain from a kernel-only gain. It should also include the target approximately 8K/1K workload at its intended load and compare layouts separately.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "evidence_and_limits": {
+              "rationale": "Directly supplied code establishes padding masking in one later staging path, not target performance. Author claims: PR #57977 reports \u201cC1 \u00d73 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms\u201d for a different change; PR #54520 reports backend throughput on GB300 with GLM-5.2. The EPS-MoE full-text excerpt says \u201cswitching from GroupedGemm to DenseGemm at a certain token number\u201d; that supports prior use of shape selection, not this implementation. Transfer inference is conditional. Target effect size, bottleneck, active backend, and relevant limitations remain unknown.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "task_value": {
+              "rationale": "A shape policy has a testable path to lower TPOT, and the proposal begins with a cheap inspection of active dispatch and eligible backends. The target bottleneck and baseline delta remain unknown; an unmeasured bottleneck is a valid first falsification question. Transfer inference: pursue the policy only if complete decode traces show a useful backend crossover.",
+              "score": 4,
+              "verdict": "pass"
+            }
+          },
+          "factual_support": "pass",
+          "id": "R1",
+          "objections": [
+            "No supplied target trace shows that expert GEMM, rather than host scheduling, routing, staging, or communication, limits TPOT.",
+            "A second backend may be ineligible for the pinned weight format or graph mode; PR and paper results do not settle this.",
+            "The proposed C1/C4 study alone would not establish value for the approximately 8K input / 1K output target workload at its intended load.",
+            "The prior rejection for lack of novelty is not a veto under this rubric."
+          ],
+          "required_revision": "Keep R1 as a conditional candidate. State the resolved checkpoint, backend, graph mode, and eligible paths before implementation; add a matched target-workload serving point for each relevant eight-GPU layout, with output quality and startup cost alongside TPOT."
+        },
+        "status": "accepted"
+      }
+    },
+    {
+      "seq": 446,
+      "id": "event:3a4cb2f99d4a672fd511f30bb308bcd86b2246c657efb8d4954985af002a0957",
+      "hypothesis_id": "hypothesis:7edff72209a2cfe113c0caca6a02d4c06ee5d237d684daf27cb96b80bc0896d7",
+      "type": "reviewed",
+      "at": "2026-10-19T23:20:16Z",
+      "actor": "reviewer",
+      "data": {
+        "assessment": {
+          "eligible": true,
+          "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+          "policy_id": "policy:1390641e6a44bbdd245a60246620a7da0f7e9821663979dbd39c7db26d3a1ae6",
+          "reasons": [],
+          "score": 70.0,
+          "status": "accepted"
+        },
+        "policy_id": "policy:d6fe3b86570e5067bdf021a688d20d638d55a414cad7a0add103e71b76a34472",
+        "review": {
+          "criteria": {
+            "deployment_fit": {
+              "rationale": "The pinned checkpoint format, active MoE backend, second eligible backend, B200 graph compatibility, and DEP8 versus two DEP4 behavior have not been established. The supplied staging code says \u201cids = tl.where(token_is_padding, -1, ids)\u201d for one NVFP4 path at another commit; it does not establish the pinned path. PR #54520 reports GLM-5.2 on GB300, so its results do not establish DeepSeek-V4.1-Flash compatibility. Warmup and quality risks are identified but unresolved.",
+              "score": 2,
+              "verdict": "unknown"
+            },
+            "discriminating_test": {
+              "rationale": "Inspect resolved dispatch and checkpoint compatibility first; stop if fewer than two correct, graph compatible paths exist. Then trace host time, full MoE time, staging, GEMM, and TPOT; stop if backend choice has no plausible end-to-end headroom. The proposed repeated C1/C4 comparison against unchanged dispatch and the best eligible static backend can distinguish a serving gain from a kernel-only gain. It should also include the target approximately 8K/1K workload at its intended load and compare layouts separately.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "evidence_and_limits": {
+              "rationale": "Directly supplied code establishes padding masking in one later staging path, not target performance. Author claims: PR #57977 reports \u201cC1 \u00d73 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms\u201d for a different change; PR #54520 reports backend throughput on GB300 with GLM-5.2. The EPS-MoE full-text excerpt says \u201cswitching from GroupedGemm to DenseGemm at a certain token number\u201d; that supports prior use of shape selection, not this implementation. Transfer inference is conditional. Target effect size, bottleneck, active backend, and relevant limitations remain unknown.",
+              "score": 4,
+              "verdict": "pass"
+            },
+            "task_value": {
+              "rationale": "A shape policy has a testable path to lower TPOT, and the proposal begins with a cheap inspection of active dispatch and eligible backends. The target bottleneck and baseline delta remain unknown; an unmeasured bottleneck is a valid first falsification question. Transfer inference: pursue the policy only if complete decode traces show a useful backend crossover.",
+              "score": 4,
+              "verdict": "pass"
+            }
+          },
+          "factual_support": "pass",
+          "id": "R1",
+          "objections": [
+            "No supplied target trace shows that expert GEMM, rather than host scheduling, routing, staging, or communication, limits TPOT.",
+            "A second backend may be ineligible for the pinned weight format or graph mode; PR and paper results do not settle this.",
+            "The proposed C1/C4 study alone would not establish value for the approximately 8K input / 1K output target workload at its intended load.",
+            "The prior rejection for lack of novelty is not a veto under this rubric."
+          ],
+          "required_revision": "Keep R1 as a conditional candidate. State the resolved checkpoint, backend, graph mode, and eligible paths before implementation; add a matched target-workload serving point for each relevant eight-GPU layout, with output quality and startup cost alongside TPOT."
+        },
+        "status": "accepted"
+      }
+    },
+    {
+      "seq": 447,
+      "id": "event:0712b50fd168aaf7b78ba35ba0be847fe4eaaaa990a1cebd7ef7b55c68fdccf0",
+      "hypothesis_id": "hypothesis:7edff72209a2cfe113c0caca6a02d4c06ee5d237d684daf27cb96b80bc0896d7",
+      "type": "imported_from",
+      "at": "2026-10-19T23:20:16Z",
+      "actor": "migration",
+      "data": {
+        "card_sha256": "95ce1e2178dc8626ccb3a1330d8f66be60a4e3dd011fe0ac6d141891f05625bc",
+        "legacy": false,
+        "path": "/home/ubuntu/shreyas/skunk-work/ideation/runs/deployment-revisit-001/history.json",
+        "stage": "history"
+      }
+    },
+    {
+      "seq": 448,
+      "id": "event:f81ada75a078d36714799d38ee179e44e30444963b03ddc2fe2ad9616d746a32",
+      "hypothesis_id": "hypothesis:7edff72209a2cfe113c0caca6a02d4c06ee5d237d684daf27cb96b80bc0896d7",
+      "type": "imported_from",
+      "at": "2026-10-19T23:20:16Z",
+      "actor": "migration",
+      "data": {
+        "card_sha256": "95ce1e2178dc8626ccb3a1330d8f66be60a4e3dd011fe0ac6d141891f05625bc",
+        "legacy": false,
+        "path": "/home/ubuntu/shreyas/skunk-work/ideation/runs/deployment-revisit-001/propose-1.json",
+        "stage": "propose-1"
+      }
+    }
+  ],
+  "status": "accepted",
+  "assessment": {
+    "eligible": true,
+    "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement",
+    "policy_id": "policy:1390641e6a44bbdd245a60246620a7da0f7e9821663979dbd39c7db26d3a1ae6",
+    "reasons": [],
+    "score": 70.0,
+    "status": "accepted"
+  },
+  "tests": [],
+  "outcomes_by_scope": [],
+  "experiment_status": "untested"
+}

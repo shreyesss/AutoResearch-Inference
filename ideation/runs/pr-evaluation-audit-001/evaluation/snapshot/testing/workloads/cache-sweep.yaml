@@ -1,0 +1,323 @@
+{
+  "schema_version": 1,
+  "name": "cache-sweep",
+  "description": "default-mix request shapes with a controlled cacheable share f of each request's input: a prefix of f x ISL drawn from a Zipf(1.2) pool of 64 shared prefixes, reused by every request. Measures tasks/hr vs cache share at maximum batching (EXP-17A).",
+  "mix_weights_percent": {
+    "chat": 35,
+    "agentic": 20,
+    "long-doc": 15,
+    "code/reasoning": 20,
+    "multimodal": 10
+  },
+  "defaults": {
+    "temperature": 0,
+    "prefix_mode": "none",
+    "prefix_tokens": 0,
+    "reuse_percent": 0,
+    "image_share": 0,
+    "thinking": false,
+    "reasoning_effort": "low"
+  },
+  "cases": [
+    {
+      "name": "cache-f25",
+      "variants": [
+        {
+          "name": "chat",
+          "weight": 35,
+          "category": "chat",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 128
+        },
+        {
+          "name": "agentic",
+          "weight": 20,
+          "category": "agentic",
+          "isl": 8192,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "tools": true,
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 2048
+        },
+        {
+          "name": "long-doc",
+          "weight": 15,
+          "category": "long-doc",
+          "isl": 32768,
+          "max_tokens": 512,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_tokens": 8192,
+          "reuse_percent": 100,
+          "prefix_pool_size": 64
+        },
+        {
+          "name": "code/reasoning",
+          "weight": 20,
+          "category": "code-reasoning",
+          "isl": 2048,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 512
+        },
+        {
+          "name": "multimodal",
+          "weight": 10,
+          "category": "multimodal",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "image_share": 100,
+          "image_count": 1,
+          "image_resolution": 1024,
+          "image_detail": "auto",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 128
+        }
+      ]
+    },
+    {
+      "name": "cache-f50",
+      "variants": [
+        {
+          "name": "chat",
+          "weight": 35,
+          "category": "chat",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 256
+        },
+        {
+          "name": "agentic",
+          "weight": 20,
+          "category": "agentic",
+          "isl": 8192,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "tools": true,
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 4096
+        },
+        {
+          "name": "long-doc",
+          "weight": 15,
+          "category": "long-doc",
+          "isl": 32768,
+          "max_tokens": 512,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_tokens": 16384,
+          "reuse_percent": 100,
+          "prefix_pool_size": 64
+        },
+        {
+          "name": "code/reasoning",
+          "weight": 20,
+          "category": "code-reasoning",
+          "isl": 2048,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 1024
+        },
+        {
+          "name": "multimodal",
+          "weight": 10,
+          "category": "multimodal",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "image_share": 100,
+          "image_count": 1,
+          "image_resolution": 1024,
+          "image_detail": "auto",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 256
+        }
+      ]
+    },
+    {
+      "name": "cache-f75",
+      "variants": [
+        {
+          "name": "chat",
+          "weight": 35,
+          "category": "chat",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 384
+        },
+        {
+          "name": "agentic",
+          "weight": 20,
+          "category": "agentic",
+          "isl": 8192,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "tools": true,
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 6144
+        },
+        {
+          "name": "long-doc",
+          "weight": 15,
+          "category": "long-doc",
+          "isl": 32768,
+          "max_tokens": 512,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_tokens": 24576,
+          "reuse_percent": 100,
+          "prefix_pool_size": 64
+        },
+        {
+          "name": "code/reasoning",
+          "weight": 20,
+          "category": "code-reasoning",
+          "isl": 2048,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 1536
+        },
+        {
+          "name": "multimodal",
+          "weight": 10,
+          "category": "multimodal",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "image_share": 100,
+          "image_count": 1,
+          "image_resolution": 1024,
+          "image_detail": "auto",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 384
+        }
+      ]
+    },
+    {
+      "name": "cache-f90",
+      "variants": [
+        {
+          "name": "chat",
+          "weight": 35,
+          "category": "chat",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 460
+        },
+        {
+          "name": "agentic",
+          "weight": 20,
+          "category": "agentic",
+          "isl": 8192,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "tools": true,
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 7372
+        },
+        {
+          "name": "long-doc",
+          "weight": 15,
+          "category": "long-doc",
+          "isl": 32768,
+          "max_tokens": 512,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "prefix_mode": "zipf",
+          "prefix_tokens": 29491,
+          "reuse_percent": 100,
+          "prefix_pool_size": 64
+        },
+        {
+          "name": "code/reasoning",
+          "weight": 20,
+          "category": "code-reasoning",
+          "isl": 2048,
+          "max_tokens": 1024,
+          "thinking": true,
+          "reasoning_effort": "high",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 1843
+        },
+        {
+          "name": "multimodal",
+          "weight": 10,
+          "category": "multimodal",
+          "isl": 512,
+          "max_tokens": 256,
+          "thinking": false,
+          "reasoning_effort": "low",
+          "image_share": 100,
+          "image_count": 1,
+          "image_resolution": 1024,
+          "image_detail": "auto",
+          "prefix_mode": "zipf",
+          "prefix_pool_size": 64,
+          "reuse_percent": 100,
+          "prefix_tokens": 460
+        }
+      ]
+    }
+  ]
+}

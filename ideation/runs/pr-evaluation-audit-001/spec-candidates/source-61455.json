@@ -1,0 +1,105 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61455",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61455",
+    "title": "[Core][Spec Decode] Replace EAGLE group heuristics with explicit draft-layer tags",
+    "body": "<!-- markdownlint-disable -->\n\n## Overview\n\n`is_eagle_group` decides which KV cache groups take the EAGLE last-block drop. The planner used to guess these groups from `non_causal_multi_token_decode` and from \"the group holding the last registered layer\" (MTP, DeepSeek-V4), and only on some grouping paths. This PR replaces the guesses with an explicit per-layer tag that the runners report, so a group is flagged iff it holds a draft layer. Supersedes #41640 (closed; its compared per-model field changed grouping) and #56026 (adds another guessing rule).\n\n## Claims\n\n- DFlash / DSpark drafters on hybrid models no longer make every group take the drop, so Mamba groups keep their prefix-cache reuse (#57032, #54360).\n- A drafter spanning several groups (e.g. DeepSeek-V4 / V4.1 DSpark) gets every one of its groups flagged, not only the group holding the last layer.\n- Gemma4 MTP no longer flags an unrelated target group. Its drafter shares the target's KV, so no group holds draft-owned KV and the coordinator's existing \"flag all\" fallback applies.\n- The flags survive pipeline parallelism. Before, the scheduler config (worker 0's projection) cleared the flag of every group with no layers on worker 0, so with PP >= 2 the draft groups on the last stage were never flagged and the coordinator flagged every group.\n- New draft models need no planner code to be identified. Out-of-tree runners must tag draft specs to benefit; untagged runners keep the conservative \"flag all\" fallback.\n\n## Validation\n\nUnit tests (CPU; the only failures need a GPU and fail the same way without this PR):\n\n```\npytest tests/v1/core/test_kv_cache_planning.py tests/v1/core/test_kv_cache_utils.py tests/v1/worker/test_attn_utils.py tests/v1/spec_decode/test_mtp.py\n```\n\n`test_mtp.py` and `test_attn_utils.py` also pass in full on one GB200 (84 passed). `tests/v1/kv_connector/unit` gives identical results with and without this PR (1843 passed, 10 skipped; the same 97 GPU-only failures on CPU).\n\n`test_eagle_groups_are_the_groups_holding_draft_layers` checks, through `get_kv_cache_configs` and `generate_scheduler_kv_cache_config`, that the scheduler flags exactly the groups holding draft layers for a uniform model, a Qwen3.5-like GDN hybrid with MTP, and an MLA + SWA-MLA drafter spanning two groups, with pp=1 and pp=2. Reverting the PP projection fix makes the pp=2 case fail.\n\nEnd-to-end, Qwen/Qwen3.5-4B with `{\"method\": \"mtp\", \"num_speculative_tokens\": 3}`, prefix caching on, one GB200, main (`ae8f41238c`) vs this PR. The workload is 8 prompts sharing a ~2.2k-token prefix, sent in two waves, greedy, 128 output tokens:\n\n| Metric | main | PR | PR repeat |\n|---|---|---|---|\n| Prefix hit rate, wave 1 / wave 2 | 0.4409 / 0.5039 | 0.4409 / 0.5039 | 0.4409 / 0.5039 |\n| Mean acceptance length | 3.3065 | 3.3065 | 3.3065 |\n| Wave-2 outputs equal wave-1 outputs | yes | yes | yes |\n| GSM8K-250 flexible-extract | 0.760 | 0.764 | 0.752 |\n\nThe GSM8K delta (1/250) is below the PR repeat spread (3/250). Commands: `vllm serve Qwen/Qwen3.5-4B --enable-prefix-caching --max-model-len 8192 --speculative-config '{\"method\":\"mtp\",\"num_speculative_tokens\":3}'`, then `lm_eval --model local-completions --tasks gsm8k --limit 250 --gen_kwargs temperature=0.0`.\n\nThe DFlash-on-hybrid case could not be run end to end: the local Ornith-1.5-35B-A3B DFlash2 draft sets `sample_from_anchor: true`, which DFlash rejects at startup on main and on this PR alike.\n\n## Details\n\n- Speculators set `AttentionLayerBase.is_draft_layer` on their layers at load time (V2 already did; V1 now does too). Both runners copy it onto `KVCacheSpec.is_draft`.\n- `KVCacheSpec.is_draft` describes ownership, not cache format, so it uses `compare=False`: it never changes equality, hashing, grouping, or the cross-worker spec check. The `merge` assertions skip `compare=False` fields, because a group can mix target and draft layers (Qwen3.5 MTP). The field is only meaningful on per-layer specs; groups expose `KVCacheGroupSpec.is_eagle_group`.\n- `get_kv_cache_configs` sets `is_eagle_group` after `get_kv_cache_groups_from_builder`, so it also covers groupings from a model's `SupportsKVCacheGrouping` or a platform builder. Flags are only set when `use_eagle_block_drop()` is true.\n- `_project_kv_cache_groups_to_worker` now keeps the global flag. Every `is_eagle_group` consumer (coordinator, OffloadingConnector scheduler, Mooncake store coordinator) runs on the scheduler side.\n- Behavior change: on uniform models the OffloadingConnector now drops the tail chunk like the GPU coordinator. Newly flagged groups recompute one tail chunk on external hits; this is a performance cost, not a correctness one.\n- HiSparse resident/hot specs are not tagged; their groups are not prefix-cacheable, so no hit lookup reads the flag.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\nAI assistance (Claude) was used to prepare this change. The human submitters reviewed every changed line and ran the tests above.\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n",
+    "created_at": "2026-10-13T16:41:48Z",
+    "updated_at": "2026-10-17T08:22:35Z",
+    "fetched_at": "2026-10-19T23:25:09Z",
+    "state": "merged",
+    "merged_at": "2026-10-17T08:22:34Z",
+    "parent": null,
+    "tags": [
+      "deepseek",
+      "mla",
+      "performance",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 61455,
+      "labels": [
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9306392211,
+          "node_id": "LA_kwDOI7xefs8AAAACKrRGkw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-connector",
+          "name": "kv-connector",
+          "color": "4417cb",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777489391,
+          "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+          "name": "kv-cache-manager",
+          "color": "d065a7",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 4,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "5be4266f5c7c10c69e4be5f3ec01d6a1d8bae9a1",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "refactor/drafter-kv-spec-from-runner",
+        "sha": "693983d6565438ab018819b567943bd2ee72e9ad",
+        "label": "andakai:refactor/drafter-kv-spec-from-runner"
+      },
+      "merge_commit_sha": "c3de0b37e25fb4b59eaa3e292df928c61b3dc172",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:25:09Z"
+    },
+    "content_hash": "c535270d4bf6f1cd247cea4270f75a1b79f2abd030318854f8c42210d039a4d0"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

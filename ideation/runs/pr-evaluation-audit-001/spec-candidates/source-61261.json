@@ -1,0 +1,95 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61261",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61261",
+    "title": "[Spec Decode] Add draft_context_window to bound DFlash/DSpark draft attention",
+    "body": "## What this does\n\nAdds an opt-in `draft_context_window` to `--speculative-config` for DFlash and DSpark (MRV2). When set, the drafter only attends to the last N context tokens. Positions stay absolute. Target verification doesn't change. Default is `None`, so nothing changes unless you turn it on.\n\nContext: #47930. We run Kimi K3 with `Inferact/Kimi-K3-DSpark` on long agent sessions, and acceptance falls off a cliff past ~128K. This fixes it for us.\n\n## Why\n\nAccept length (k=3, out of 4) on main, DCP 1:\n\n| context | main | main + `draft_context_window: 32768` |\n|---|---|---|\n| 0-16K | 2.48 | 2.49 |\n| 16-64K | 2.39 | 2.40 |\n| 64-128K | 2.29 | 2.27 |\n| 128-256K | **1.45** | **2.29** |\n| 256K+ | **1.26** | **2.22** |\n| mixed 16-300K, c16 | 1.90 | 2.28 |\n\nBelow 128K: no change. Above it: back to short-context levels. Output tok/s goes up +31% at 128-256K and +23% at 256K+, +9% on the mixed run.\n\nSame thing with DCP 4 (with #59392 applied, since main still crashes there, see below):\n\n| context | main | window 32K |\n|---|---|---|\n| 64-128K | 2.26 | 2.29 |\n| 128-256K | 1.46 | 2.28 |\n| 256K+ | 1.26 | 2.20 |\n| mixed c16 | 1.92 | 2.27 |\n\n## Is it the kernel? No\n\nSame build, no window, only the drafter's attention backend swapped:\n\n| context | FLASHINFER_MLA | TRITON_MLA |\n|---|---|---|\n| 128-256K | 1.448 | 1.437 |\n| 256K+ | 1.257 | 1.253 |\n\nSame collapse on both. And on v0.30 it's the same with prefix caching and KV offload fully off (numbers in #47930), so it's not restored KV either. Looks like the drafter just doesn't generalise past what it was trained on (the model card only goes to ~95K). 64K behaves like 32K. I can't prove which shared bit is to blame (drafter weights vs. its RoPE/YaRN handling), but the window fixes it either way.\n\n## Quality\n\nGSM8K, first 200, `reasoning_effort: low`, temp 1.0:\n\n| | main | window 32K |\n|---|---|---|\n| plain prompts (window never kicks in) | 0.985 | 0.990 |\n| same problems behind a ~98K prefix (window drops ~65K) | 0.985 | 0.980 |\n\n1 problem out of 200 either way. Noise.\n\n## Soak\n\nc24, prompts 16-400K, 30 min, same seed. Prefill-bound on purpose (pool oversubscribed).\n\n| | main | window run A | window run B |\n|---|---|---|---|\n| requests | 331 | 341 | 345 |\n| errors / restarts | 0 / 0 | 0 / 0 | 0 / 0 |\n| accept length | 1.61 | 2.27 | 2.27 |\n| output tok/s | 130 | 153 | 146 |\n| TTFT p50 | 58 s | 48 s | 47 s |\n\nNo shm_broadcast hangs after load, no Xid. One heads-up: our repeated-tail detector flagged one output in run A (129K prompt, ran to `max_tokens`). Didn't capture the text that time, so I couldn't look at it. Run B captured text and flagged nothing. 1 in 686 vs 0 in 331, so no conclusion either way. The shift can't reach target inputs or target KV (more below), and with probabilistic drafting the output distribution doesn't depend on the drafter anyway.\n\n## How it works\n\nIn `DFlashSpeculator.propose`, right after `prepare_dflash_inputs` has computed slot mappings from the full table, a small Triton kernel does, per request:\n\n- excess = `max(seq_len - num_query - N, 0)`, rounded down to whole block-table entries\n- shift that request's `input_block_tables[gid]` row left by that many entries\n- subtract the dropped positions from `seq_lens`\n\nKeys already carry absolute RoPE, query positions aren't touched, so relative positions inside the window are unchanged. Draft sees at least N tokens, less than N plus one entry.\n\nWhy editing those buffers in place is fine:\n- `input_block_tables` get re-gathered from the persistent tables at the start of every step, before the target runs. Nothing after `propose` reads them in the same step.\n- `seq_lens` is the draft's own buffer.\n- Slot mappings are computed before the shift, so KV writes land where they should.\n- Dummy runs (capture, profiling) skip it.\n\nDCP: one entry covers `block_size * dcp_size` positions, and `block_size % cp_kv_cache_interleave_size == 0` is already enforced, so whole entries keep every position on its rank. Draft KV groups share `seq_lens`, so all groups drop the same count (a multiple of `dcp_size * lcm(block sizes)`), and only the last one writes it back.\n\nCUDA graphs: runs eagerly before replay and only writes buffers the graph already reads. No new host syncs.\n\nScope: all DFlash-family speculators go through this `propose`, so it covers `dflash` and `dspark`. Rejected for other methods and on V1, so it never gets silently ignored. Only measured on DSpark / Kimi K3 (MLA drafter). Non-MLA drafters take the same path with `dcp_size=1`, which the unit tests cover.\n\nTradeoffs: you lose long-range context the drafter could in theory use. For this drafter that's a net loss past ~128K anyway. The right N depends on the drafter, hence off by default. No memory saved, only attention is bounded.\n\n## Related\n\n- #47930: the issue. Our data there shows the collapse with nothing restored.\n- #47926: hides prefix-cache-restored blocks from the draft. On this model those blocks hold valid draft KV, so it only helps by accident (shorter context). Hand-rebased on 0.30 it got 2.07 / 1.89 vs 2.30 / 2.25 for the window. Independent of this PR.\n- #53827: similar bounded draft attention for EAGLE3 via sliding window. Different speculator and path. Happy to align the field name if both land.\n- #60320: trims DSpark context precompute for all-SWA drafters. Compute-only, complementary.\n- Side note: main still can't boot Kimi K3 + DSpark with DCP>1 on FlashInfer MLA (#59065). Our DCP 4 runs used #59392.\n\n## Tests\n\n```bash\npre-commit run --from-ref origin/main --to-ref HEAD                 # all pass\npytest tests/test_config.py -k draft_context_window -v               # CPU: 1 passed\npytest tests/v1/spec_decode/test_dflash_prepare_inputs.py -v         # B300: 10 passed (5 old + 5 new)\n```\n\n`tests/test_config.py -k \"spec or draft or dflash or dspark\"`: 98 passed, 5 failed. The same 5 fail on untouched main on this CPU box (three `test_vllm_config_defaults[RedHatAI/Qwen3-8B-speculator.eagle3-*]`, `test_draft_model_enables_async_scheduling_by_default`, `test_dflash_allows_async_scheduling`).\n\nRebased onto main 8c60cf07b on 2026-10-19. The one conflict was in `vllm/config/speculative.py`, where #53987 added the FLy fields next to `draft_context_window`; both are kept. Nothing on main has touched the DFlash speculator or its test file since the previous rebase. #59511 moved the context combine and `prepare_context_anchor` into the FULL graph. Neither reads the draft `seq_lens` or block tables the window shifts, and the context K/V slots are still computed from the full table before the shift. After the rebase, pre-commit passes, and `test_dflash_prepare_inputs.py` gives 10 passed on CPU under `TRITON_INTERPRET=1`; with the window turned into a no-op, the 5 new tests fail.\n\nNew tests: window applied after slot mappings (through `propose`, DCP 1 and 2), whole-entry rounding, two groups with different block sizes, a long in-place shift across kernel chunks, and config validation.\n\nGPU setup: TP8 on 8x B300, Kimi K3 fp8 KV, k=3, probabilistic drafting + block rejection. `vllm/vllm-openai:nightly-fe4df3df0` with the spec-decode files overlaid from this branch's base, so the draft path equals main. Synthetic multi-turn agent sessions over public-domain text, natural stop, `max_tokens` 2048, prefix caching and KV offload on.\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\nAI assistance was used for this one: the implementation, tests, GPU runs and this write-up. I went through every changed line and I'm happy to answer questions on any of it.\n\n\n",
+    "created_at": "2026-10-12T18:34:24Z",
+    "updated_at": "2026-10-19T23:04:51Z",
+    "fetched_at": "2026-10-20T08:05:10Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "mla",
+      "ttft",
+      "throughput",
+      "performance",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 61261,
+      "labels": [
+        {
+          "id": 5135047180,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaDA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/documentation",
+          "name": "documentation",
+          "color": "0075ca",
+          "default": true,
+          "description": "Improvements or additions to documentation",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 6915642480,
+          "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+          "name": "speculative-decoding",
+          "color": "6A493C",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10956162510,
+          "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+          "name": "dflash",
+          "color": "BFAC4B",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 4,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "8c60cf07b3df3b289c310fbd45a382a10709d9ab",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "feat/draft-context-window",
+        "sha": "5b64da60ce2c81ee4bb853ea13e56714362e88e2",
+        "label": "brokenlander:feat/draft-context-window"
+      },
+      "merge_commit_sha": "c414510fff9b33119dff27a494e9747728a69925",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:05:10Z"
+    },
+    "content_hash": "8abd232ba5e86245e8f2b9226a900e6eca48ab9e7225facc143f7d18ddd0c768"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

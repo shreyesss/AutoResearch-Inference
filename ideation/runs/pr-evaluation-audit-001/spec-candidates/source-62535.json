@@ -1,0 +1,81 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62535",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62535",
+    "title": "[Bugfix][Worker] Keep prefill-bearing batches out of FULL (decode-only) cudagraphs",
+    "body": "## Purpose\n\nFixes the DSpark speculative-decoding output corruption reported in #62417 (and any other model where a prefill-bearing batch can land in a FULL cudagraph).\n\n## Root cause\n\nUnder `cudagraph_mode=FULL`, MRV2's varlen decode graphs are captured on a decode-shaped batch (num_reqs x 1 token per request, bucketed by padded token count). At dispatch time, a batch that contains prefill tokens sets `max_query_len=None` (documented as \"varlen decode graphs replay decodes only\"), but `_is_compatible` treats `desc.max_query_len is None` as \"no constraint\" \u2014 so an unconstrained FULL descriptor matches, and the prefill batch is padded into a decode-shaped graph. The query block layout no longer matches the graph's capture shape, and the target's logits for the prefill's last position come out flattened (observed top-1 logit ~16.9 with the top-5 packed within 0.6, vs the usual 26-31 spike); every subsequently generated token is garbage.\n\nWe confirmed this on 8x RTX PRO 6000 (SM120) with DeepSeek-V4.1-Flash-1017 + DSpark k=3: `1 req / 6 tokens` was dispatched into a `num_tokens=8, num_reqs=8, cg=FULL` decode graph. Only 4-token prompts (= bucket size, no padding) looked unaffected, which made the bug look content-dependent.\n\n## Fix\n\nPass `allow_full=False` through `dispatch_cg_and_sync_dp` -> `CudaGraphManager.dispatch` whenever the batch has prefill tokens, and skip FULL candidates in that case. Decode-only batches are unaffected.\n\n## Validation (8x RTX PRO 6000, SM120, DeepSeek-V4.1-Flash-1017, DSpark k=3, fp8 KV)\n\nApplied on both v0.32.0 and the current nightly:\n\n- 7-probe corruption set (short prefill + thinking scaffold, CJK, cat-repeat, chat, tools): byte-identical to the `--enforce-eager` and cudagraph-NONE baselines after the patch; before the patch, 4/7 emitted degenerate loops from the first token.\n- chat + tools end-to-end: `17*19=? answer with the number only` -> reasoning + `content=323`; tools request -> structured `tool_calls` (`get_gpu_alert({\"node\":\"gpu-03\"})`).\n- token-length sweep 1-12 and 6/7/11/12/13/20/110/455: all clean after the patch.\n- `--no-swa-bounded-replay` and `engram cpu_offload=false` variants: logits unchanged (rules out replay/engram interactions).\n\nCo-worker evidence, dispatch debug lines, and the probe corpus are archived in xzwgit/llm-test `dsv41-flash-1017-sm120`; the issue thread has the full isolation matrix.\n\n## Notes\n\nA separate, subtler effect remains after this fix and is tracked in #62417: with DSpark on, greedy generation is not token-identical to no-speculation (first token always matches; occasional later-token divergences, e.g. `.` vs `.\\n`). Per-row attention bounds (SWA lens, indexer top-k bounds, verify positions) were verified correct by instrumentation; the divergence is k-independent and graph-mode-independent, pointing at multi-row verify numerics rather than dispatch. That is out of scope for this PR.\n",
+    "created_at": "2026-10-19T18:14:23Z",
+    "updated_at": "2026-10-19T18:15:02Z",
+    "fetched_at": "2026-10-20T08:05:31Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "speculation"
+    ],
+    "metadata": {
+      "number": 62535,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9543357705,
+          "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+          "name": "nvidia",
+          "color": "76B900",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 1,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "aa3564ceefbd605f1d28238fa0fbbb964201c6b8",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "fix/full-cudagraph-prefill-dispatch",
+        "sha": "111bf7f0c5f8c833465175eaa3cb93cd5a10a93b",
+        "label": "xzwgit:fix/full-cudagraph-prefill-dispatch"
+      },
+      "merge_commit_sha": "95ea637f0a12431882802bb48971f87bad7facf4",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:05:31Z"
+    },
+    "content_hash": "2441c884eabedd34ee29172539765495e656dc29b5e01cab7cdc449f5bcf3398"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

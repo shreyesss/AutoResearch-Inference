@@ -1,0 +1,71 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61724",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61724",
+    "title": "[Perf][Core] Skip the null head of sliding-window block tables",
+    "body": "## Purpose\n\nA sliding-window KV group keeps one null block per out-of-window block, so a long request's block table is almost all null (8,183 of 8,192 entries for a 128K-token prompt with a 128-token window and 16-token blocks). `KVCacheBlocks.get_unhashed_block_ids_all_groups` and `SingleTypeKVCacheManager.free` walked every entry in Python. This PR skips that null head.\n\n* `null_head_len()` finds the leading null run by binary search and checks it with one `list.count` of the shared null block. If the null blocks are not one contiguous head, it falls back to a scan.\n* `get_unhashed_block_ids_all_groups` and `pop_blocks_for_free` (so both `free` and the deferred-free path) start after the head. `free_blocks` skips any other null blocks; the null block's `ref_cnt` is not maintained (see `BlockPool.__init__`).\n* No behavior change: the same block ids are collected, and the same blocks reach the free queue in the same order.\n\nNot a duplicate: I searched open PRs for `null block sliding window free`, `null_block free_blocks`, `sliding window null blocks` and `get_unhashed_block_ids`. vllm-project/vllm#42276 and #55818 change SWA eviction and allocation, not these walks.\n\n## Where it matters\n\nThe cost is paid per sliding-window group, on the scheduler's critical path, each time a request is admitted with async KV loads or freed. It shows up when GPU steps are short and requests turn over quickly, as in **DeepSeek V4.1 Flash, WideEP DEP16 decode** (GB300, 64 requests/rank, 169.5K-token prompts):\n\n* A decode step takes ~22 ms on the GPU, and all 16 DP ranks wait for the slowest rank's scheduler.\n* Each rank admits and frees ~9 long requests per second.\n* Each request has 8 sliding-window groups x 5,298 blocks, 5,292 of them null.\n\n| Scheduler CPU per request | main | PR |\n| -- | --: | --: |\n| free | 2.0 ms | 0.5 ms |\n| async-KV admission (135K prompt) | 0.73 ms | 0.47 ms |\n\nEnd to end, output throughput went from 8,892 to 9,025 tok/s/GPU **(+1.5%).** \n\n## Microbenchmark\n\nOne request on one sliding-window group (window 128, block size 16): `KVCacheBlocks.get_unhashed_block_ids_all_groups` (collect) and `SlidingWindowManager.free` (free). Median of 300 calls on a Grace CPU, main (`8530aed2b7`) vs this PR, consistent across two runs.\n\n| Prompt tokens | Blocks (null) | Collect, main / PR (us) | Free, main / PR (us) |\n| -- | -- | --: | --: |\n| 32K | 2,048 (2,039) | 54.1 / 9.7 | 92.9 / 10.8 |\n| 128K | 8,192 (8,183) | 214.9 / 34.8 | 370.6 / 35.8 |\n| 512K | 32,768 (32,759) | 867.5 / 135.9 | 1471.7 / 137.5 |\n\n## Test Plan\n\n```bash\npytest tests/v1/core/test_kv_cache_utils.py tests/v1/core/test_single_type_kv_cache_manager.py tests/v1/core/test_prefix_caching.py -q\npre-commit run --files <changed files>\n```\n\nNew test `test_null_head_len`: empty, no-null, all-null, contiguous-head and non-contiguous tables, plus `get_unhashed_block_ids_all_groups` on two groups.\n\n## Test Result\n\n312 passed. Pre-commit (ruff, format, typos, mypy) passes.\n\n---\n\nAI assistance (Claude Code) was used to write and benchmark this change.\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n\n",
+    "created_at": "2026-10-15T01:00:22Z",
+    "updated_at": "2026-10-15T23:14:52Z",
+    "fetched_at": "2026-10-19T23:25:35Z",
+    "state": "merged",
+    "merged_at": "2026-10-15T23:14:52Z",
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "throughput",
+      "performance"
+    ],
+    "metadata": {
+      "number": 61724,
+      "labels": [
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777489391,
+          "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+          "name": "kv-cache-manager",
+          "color": "d065a7",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 7,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "f8460ef23659afd69046a81529ec2295e4c3f686",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "perf/swa-null-head-skip",
+        "sha": "e076e3f15992420893322578a63af1a50a09a10c",
+        "label": "Juntian777:perf/swa-null-head-skip"
+      },
+      "merge_commit_sha": "19b0efce308acf2db6c8740dae7bdbfcdcce21cb",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:25:35Z"
+    },
+    "content_hash": "7a0a6bcd951f90bffc509059d3923473a4c4a8b7d8817d7962a593624ea003f1"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

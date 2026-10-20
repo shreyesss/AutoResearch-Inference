@@ -1,0 +1,83 @@
+{
+  "question": "What code-level mechanisms make MoE GEMM and kernel selection affect DeepSeek decode TPOT on B200 at low concurrency, and what evidence challenges the suspected bottlenecks?",
+  "scope": "Search vllm-project/vllm code, issues, and PRs. Prioritize discovery since 2026-09-01, while retaining older implementation history and research. Trace low-M expert GEMM, static versus shape-aware backend and tile selection, launch costs, CUDA graph capture and replay, and their measured effect on TPOT. Propose at most two falsifiable adaptations, with no invented speedups.",
+  "excluded": [
+    "Speculative decoding",
+    "MTP",
+    "Generic performance tips",
+    "Unmeasured speedup claims"
+  ],
+  "selected_topics": [
+    "MoE routing and expert GEMM at small decode batches",
+    "Backend dispatch and shape-dependent kernel selection",
+    "Kernel launch and CUDA graph overhead",
+    "TPOT measurements and failure evidence"
+  ],
+  "github_queries": [
+    {
+      "query": "DeepSeek B200 fused_moe",
+      "match": "all",
+      "purpose": "Find model and device specific reports, configurations, and implementation references."
+    },
+    {
+      "query": "fused_moe grouped_gemm block_size_m",
+      "match": "all",
+      "purpose": "Locate low-M tile choices and grouped expert GEMM code."
+    },
+    {
+      "query": "fused_moe backend selection",
+      "match": "all",
+      "purpose": "Trace backend dispatch conditions and whether selection responds to runtime shape."
+    },
+    {
+      "query": "MoE GEMM decode",
+      "match": "all",
+      "purpose": "Broader mechanism search for decode-specific expert matmul paths."
+    },
+    {
+      "query": "DeepSeek TPOT B200",
+      "match": "all",
+      "purpose": "Find measurements tied to the target workload and hardware."
+    },
+    {
+      "query": "CUDA graph capture fused_moe",
+      "match": "all",
+      "purpose": "Inspect graph compatibility, capture boundaries, and replay behavior."
+    },
+    {
+      "query": "decode launch overhead MoE",
+      "match": "all",
+      "purpose": "Find evidence that per-step launches or dispatch contribute to latency."
+    },
+    {
+      "query": "fused_moe fallback regression",
+      "match": "all",
+      "purpose": "Seek counterevidence: fallbacks, regressions, and cases where a faster kernel loses end-to-end."
+    }
+  ],
+  "paper_queries": [
+    "low-M grouped MoE GEMM decode kernel tile scheduling",
+    "shape-aware MoE kernel dispatch small batch inference",
+    "CUDA graph replay launch overhead low batch autoregressive decoding"
+  ],
+  "web_queries": [
+    "B200 DeepSeek low concurrency MoE TPOT benchmark kernel trace",
+    "vLLM B200 fused MoE CUDA graph regression"
+  ],
+  "read_next": [
+    "Inspect matching vLLM source and tests to map routing, backend selection, GEMM configuration, and graph capture to the decode path.",
+    "Read relevant PR diffs and issue timelines, including older prior art, to distinguish intended dispatch policy from observed behavior.",
+    "Extract workload shape, precision, concurrency, graph mode, per-kernel timings, and TPOT from any benchmark or profiler evidence.",
+    "Check negative cases: unsupported shapes, fallbacks, graph capture failures, extra launches, and regressions after backend changes.",
+    "For each of at most two adaptations, state the code change, predicted mechanism, controlled comparison, falsifying result, and correctness checks."
+  ],
+  "stop_when": "The decode call path and selection rules are documented from code; target-specific measurements and counterevidence have been assessed; and no more than two adaptations have testable predictions without claimed speedups.",
+  "instructions": "Investigate DeepSeek on B200 at low concurrency: MoE low-M GEMM and kernel dispatch, static versus shape-aware selection, launch and CUDA graph overhead, and how these affect TPOT. Exclude speculative decoding and MTP. Find code-level mechanisms and negative evidence, not generic performance tips. Keep discovery recent, but do not date-limit prior art. Propose at most two falsifiable adaptations; no invented speedups.",
+  "repos": [
+    "vllm-project/vllm"
+  ],
+  "after": "2026-09-01",
+  "count": 2,
+  "date_field": "updated_at",
+  "execute_web": false
+}

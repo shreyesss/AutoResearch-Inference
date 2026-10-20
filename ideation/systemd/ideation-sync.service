@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh the vLLM issue and PR research corpus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/shreyas/skunk-work/ideation
+ExecStart=/usr/bin/python3 -m ideation sync --feeds issues --recent-days 3 --max-pages 30
+ExecStart=/usr/bin/python3 -m ideation sync --max-pages 1000
+TimeoutStartSec=7200
+Nice=10
+

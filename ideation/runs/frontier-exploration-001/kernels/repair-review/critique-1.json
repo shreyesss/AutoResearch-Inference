@@ -1,0 +1,41 @@
+{
+  "reviews": [
+    {
+      "id": "R1",
+      "criteria": {
+        "improvement_path": {
+          "verdict": "pass",
+          "score": 4,
+          "rationale": "Inspecting the deployed backend and workspace policy is a cheap eligibility check. A smaller decode workspace offers a testable path to lower TPOT or higher throughput, while KV capacity may offset any gain. The B200 bottleneck and effect size are unknown."
+        },
+        "legal_correct_integration": {
+          "verdict": "unknown",
+          "score": 2,
+          "rationale": "The newer adapter says, “Every EP rank must use the same capacity,” and the proposal plans a fallback and zero-rank tests. The active backend, required API, DSpark verification token bound, and multi-rank correctness remain unverified. PR #62073 says, “The MegaMoE runtime paths still need CI or a nightly-FlashInfer machine.”"
+        },
+        "source_support": {
+          "verdict": "pass",
+          "score": 3,
+          "rationale": "The PR author claims the workspace “is used when every DP rank's batch fits”; the supplied newer-head code independently shows a CuTeDSL workspace gate. The reported 1.71× result is for Beam prefill on GB300, not B200 decode. R1 correctly treats its B200 benefit as an inference with unknown effect size. The #57604 decode quote concerns a different staging change and does not challenge this workspace hypothesis."
+        },
+        "controlled_experiment": {
+          "verdict": "fail",
+          "score": 2,
+          "rationale": "R1 names the R7b and R10 concurrency points and appropriate serving, quality, and KV measurements, but omits their supplied baseline values and both required goodput definitions. It also does not explicitly freeze image digest, runtime flags, precision, and MTP/DSpark state before paired runs."
+        }
+      },
+      "factual_support": "pass",
+      "objections": [
+        "The active deployment may already select the decode workspace; the historical source pin does not establish absence in the refreshed configuration.",
+        "PR #62073 reports GB300 Beam prefill results and deferred MegaMoE runtime validation; B200 decode performance and correctness are unmeasured.",
+        "The #57604 decode result concerns staging and gather changes, so it is not counterevidence to workspace selection.",
+        "The baseline comparison must retain R7b custom goodput 6.6288 and AIPerf strict goodput 4.6727 as separate measurements."
+      ],
+      "required_revision": "Keep the eligibility-first hypothesis. Identify the newer code as PR-head evidence, verify the deployed backend and DSpark token bound, and remove the irrelevant #57604 counterevidence. Freeze the effective image, flags, precision, and MTP/DSpark state; state the supplied R7b 256/384/512 and R10 1024 baseline values and both goodput definitions before proposing paired runs."
+    }
+  ],
+  "global_gaps": [
+    "Only R1 is present in the supplied draft. The requested communication CTA/SM resource-selection hypothesis has no proposal ID to review.",
+    "For that second hypothesis, the supplied paper reports COMET results on four A100 GPUs and explicitly leaves newer architectures and decode for future work. Active B200 backend evidence of a legal CTA/SM control remains unknown."
+  ]
+}

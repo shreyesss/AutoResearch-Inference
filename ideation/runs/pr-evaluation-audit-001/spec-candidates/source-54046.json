@@ -1,0 +1,53 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:54046",
+    "source": "github",
+    "kind": "issue",
+    "url": "https://github.com/vllm-project/vllm/issues/54046",
+    "title": "[Bug]: [dspark] Adaptive verification profiles a batch shape the scheduler cannot produce",
+    "body": "### Your current environment\n\n<details>\n<summary>The output of <code>python collect_env.py</code></summary>\n\n```text\nOS                : Ubuntu 24.04.4 LTS (x86_64), glibc-2.39\nPyTorch version   : 2.13.0+cu130   (CUDA 13.0)\nPython version    : 3.11.16\nGPU               : 2x NVIDIA B200,  driver 580.126.20\nCPU               : INTEL(R) XEON(R) PLATINUM 8570, 224 cores, 4 NUMA nodes\nvLLM Version      : 0.26.1rc1.dev1194+g6758be749 (git sha: 6758be749)\n```\n\n</details>\n\n\n### \ud83d\udc1b Describe the bug\n\nIntroduced in [#47808](https://github.com/vllm-project/vllm/pull/47808), which added\nAdaptiveVerificationManager along with batches_to_profile and set_dummy_context.\n\n### Issue\n\nTo profile sizes past the cudagraph capture limit, batches_to_profile hands _dummy_run a token count. _dummy_run splits it evenly over min(num_tokens, max_num_seqs) requests, and set_dummy_context gives every request VLLM_ADAPTIVE_VERIFICATION_PROFILE_CONTEXT_LEN of context.\n\nWith max_num_seqs=128 and num_speculative_tokens=7, a real decode request has 1 + 7 = 8 queries, so a fully-occupied decode block is 128 x 8 = 1024 tokens.\nAnything the profiler measures above 1024 tokens cannot be decode.\n\n## Suggestion\n\nBelow the capture limit, leave it as is \u2014 the even split already gives every request atmost 8 queries, which is the real shape.\n\nAbove it, the surplus can only be prefill, so build it that way. Size the chunks by VLLM_ADAPTIVE_VERIFICATION_PROFILE_CONTEXT_LEN, which is already the profiler's stand-in for a sequence length:\n```\ndecode_query_len = 1 + num_speculative_tokens\nctx              = envs.VLLM_ADAPTIVE_VERIFICATION_PROFILE_CONTEXT_LEN\n\nsurplus          = max_tokens - max_num_seqs * decode_query_len\n\n## if surplus > 0\nnum_prefill_reqs = max(1, ceil(surplus / ctx))\n\n# Prefill slots come out of the request budget, freeing their decode tokens.\nnum_decode_reqs  = max_num_seqs - num_prefill_reqs\ndecode_tokens    = num_decode_reqs * decode_query_len\nprefill_tokens   = num_tokens - decode_tokens   # equal chunks, remainder spread\n```\n\n```\nmax_tokens=16384, ctx=8192, max_num_seqs=128, k=7:\n\nsurplus          = 16384 - 128*8 = 15360\nnum_prefill_reqs = ceil(15360 / 8192) = 2\nnum_decode_reqs  = 128 - 2 = 126\ndecode_tokens    = 126 * 8 = 1008        # the 2*8 freed tokens go back to prefill\nprefill_tokens   = 16384 - 1008 = 15376  # 2 chunks of 7688\n```\n\n### Before submitting a new issue...\n\n- [x] Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the [documentation page](https://docs.vllm.ai/en/latest/), which can answer lots of frequently asked questions.",
+    "created_at": "2026-08-27T12:19:04Z",
+    "updated_at": "2026-08-31T09:55:55Z",
+    "fetched_at": "2026-10-19T21:47:40Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "b200",
+      "speculation"
+    ],
+    "metadata": {
+      "number": 54046,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777487818,
+          "node_id": "LA_kwDOI7xefs8AAAACvf4zyg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/scheduler",
+          "name": "scheduler",
+          "color": "f5d1c9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 6,
+      "state_reason": null
+    },
+    "content_hash": "0a3f9909af4715969a6bb8b3ade255c5c484f5dac3d0dbc4569edf75cb3ddae4"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

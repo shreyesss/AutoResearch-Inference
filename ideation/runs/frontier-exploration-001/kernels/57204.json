@@ -1,0 +1,93 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:57204",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/57204",
+    "title": "[Perf][DSV4.1] Remove MegaMoE padding and shared padding workaround",
+    "body": "## Purpose\n\nRemove unnecessary MegaMoE intermediate-width padding for DeepSeek-V4.1-Flash and revert the production workaround added in #56568. Routed and shared experts both retain the checkpoint width of 2304, so native shared-expert fusion remains enabled without padding either to 2560.\n\nThe bundled DeepGEMM uses `layout::Data(..., false)` for activation-scale rows in `include/deep_gemm/layout/mega_moe.cuh`; the old 16-byte TMA-row alignment rationale no longer applies. The existing runtime check still requires intermediate dimensions divisible by 128.\n\nThis removes 10% of the intermediate dimension used by the padded expert GEMMs and avoids the separate padded shared-weight copies introduced by #56568. Fusion keeps its existing eligibility checks and disable flag. A bare revert of #56568 would leave routed padding in place and disable V4.1 shared fusion again, so this change removes both together.\n\nRetain the useful regression coverage from #56568, now checking exact checkpoint-shaped weight/scale preservation, native-width shared fusion, buffer reuse, and repeated finalization.\n\nRelated: #56217. Duplicate checks covered its issue/comments, open PRs mentioning #56217/#56568, and MegaMoE/shared-expert/padding searches. #56568 is already merged; this replaces its padding workaround. #54049 targets FlashInfer CuteDSL, #55275 adds GLM adapters, #40833 integrates a general fused-MoE backend, and #56697 targets SM90 Marlin. None removes this native DeepGEMM model-path padding.\n\n## Test Plan\n\n```bash\n.venv/bin/python -m pytest tests/models/test_deepseek_v4_mega_moe.py -q\npre-commit run --files vllm/models/deepseek_v4/nvidia/model.py tests/models/test_deepseek_v4_mega_moe.py\npre-commit run mypy-3.12 --files vllm/models/deepseek_v4/nvidia/model.py tests/models/test_deepseek_v4_mega_moe.py --hook-stage manual\n```\n\nAlso compare this implementation directly with upstream `42919b49c5` on four GB200 GPUs using identical random expert weights, inputs, routes, and routing weights: hidden size 5120, intermediate width 2304 versus 2560, 384 experts, top-6, token counts 1/8/32/128/1024/2048, shared fusion both disabled and enabled. For the reference, upstream itself pads the native checkpoint-shaped shared weights.\n\n## Test Result\n\nFocused suite: **30 passed** on GB200.\nFour-GPU operator comparison against upstream `42919b49c5`: **48/48 comparisons have exactly zero output error**, including all shared-fusion cases. Shared-expert outputs have nonzero contribution. Candidate commit: `21cda373e8`.\nApplicable pre-commit hooks, including mypy 3.10, and explicit mypy 3.12 passed.\n\nPreviously completed real-weight model evaluation used this exact production model file with `deepseek-ai/DeepSeek-V4.1-Flash`, revision `dba1be0a40aa45a94ad051997016db3960a90277`, TP4/EP4. Full GSM8K with lm-eval 0.4.12, five-shot multi-turn chat, thinking disabled, greedy generation, 1024 output tokens, seed 123:\n\n| Configuration | Correct / 1319 | Accuracy |\n| --- | ---: | ---: |\n| Auto-MoE/FlashMLA FP8-indexer baseline, three runs | 1270\u20131274 | 96.2851\u201396.5883% |\n| Native-width MegaMoE/FlashMLA FP8 indexer | 1271 | 96.3609% |\n| Combined optimized configuration, MXFP4 sparse indexer | 1266 | 95.9818% |\n\nThese are prior model-path validation results, not a newly measured isolated comparison against current upstream with #56568. The combined configuration includes separate attention/indexer optimizations. No new end-to-end speedup over #56568 is claimed here.\n\n## AI assistance\n\nCodex assisted with implementation, validation, and this description. Woosuk Kwon authorized submission after the prepared diff and validation results were presented for review.\n",
+    "created_at": "2026-09-16T16:18:27Z",
+    "updated_at": "2026-09-16T19:09:31Z",
+    "fetched_at": "2026-10-19T23:18:20Z",
+    "state": "merged",
+    "merged_at": "2026-09-16T19:09:30Z",
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "moe",
+      "performance"
+    ],
+    "metadata": {
+      "number": 57204,
+      "labels": [
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10799676958,
+          "node_id": "LA_kwDOI7xefs8AAAACg7X-Hg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4",
+          "name": "DSv4",
+          "color": "be3bfa",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 3,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "42919b49c573aa0b06710616a3b9785674f36ef5",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "mega-moe-native-width",
+        "sha": "21cda373e87bfe508993df2626679679f66cac1e",
+        "label": "WoosukKwon:mega-moe-native-width"
+      },
+      "merge_commit_sha": "30b847c1fa5461a590606cbc9b8dae4a490c6cdd",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:18:20Z"
+    },
+    "content_hash": "0d50162f99fc1bc158a9e298874ea81ef631bf0ec7b1df6bdd5058b8fa6d0d70"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

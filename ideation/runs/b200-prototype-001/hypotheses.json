@@ -1,0 +1,121 @@
+{
+  "hypotheses": [
+    {
+      "id": "H01",
+      "title": "Coordinate prefill admission within an active expert-parallel collective group",
+      "classification": "adaptation",
+      "mechanism": "Proposed, untested adaptation: ranks that must enter the same MoE collective agree on an iteration-level prefill limit based on the slowest predicted participating rank. Each rank retains local request ownership. The group is resolved from the active backend and process groups; independent replicas decide separately.",
+      "nearest_prior_art": "SLOWeave supplies the deadline-based chunk rule. P-PAS supplies online token-budget adaptation. FlowPrefill and fairness-aware scheduling address granularity and starvation. The earlier B200 shortlist proposed fixed cadence.",
+      "new_adaptation": "A group-scoped admission contract would account for rank skew, collective participation, graph-compatible shapes, and KV capacity. Its absence from the historical pinned runtime is unverified.",
+      "code_surface": "After active-backend resolution: scheduler admission and token budgeting, per-rank timing and deadline summaries, process-group coordination, graph-shape checks, KV reservation, and stale-state fallback.",
+      "online_policy": "Observe active decode deadlines, queued prefill tokens, supported graph shapes, free KV blocks, and recent per-rank iteration and collective-wait times. Calibrate a conservative per-shape cost estimate from completed iterations, including coordination. Each group iteration selects the largest shared prefill limit whose predicted slowest-rank completion precedes the earliest reported decode deadline; ranks admit local chunks within that limit. If no chunk fits, run decode-only when feasible. Prioritize overdue decode and record misses; with no active decode, admit bounded prefill. An age threshold guarantees prefill progress while recording any deadline tradeoff. Control messages, prediction, and smaller iterations add overhead. On stale timing, coordination failure, unsupported shapes, or insufficient KV, fall back to the best qualified fixed cadence and budget. Strongest static comparator: a matched fixed-cadence and token-budget sweep.",
+      "strongest_objection": "The central deadline rule and adaptive budgeting are prior art. The supplied participation requirement applies to a passthrough all-to-all path, while the pinned active backend is unknown. The supplied FlashInfer path already obtains cross-rank token metadata for workspace selection, so a separate admission exchange may duplicate existing coordination. Target traces may show little mixed-step rank skew, in which case coordination and smaller chunks could lose to fixed settings.",
+      "novelty": {
+        "deployment": "Unestablished for DeepSeek-V4.1-Flash on B200 in DEP8 or two DEP4 replicas.",
+        "implementation": "A collective-scoped scheduling contract is proposed; its absence from the pinned runtime is unproved.",
+        "publication": "Unestablished given close deadline-aware, adaptive-budget, and fairness-aware prior art."
+      },
+      "confidence": "Moderate mechanism plausibility; low confidence in target benefit or implementation novelty.",
+      "readiness": "Trace gate only. Resolve the historical active backend and process groups, then require material mixed prefill/decode rank skew before implementation.",
+      "evidence": [
+        {
+          "source_id": "arxiv:2609.07883",
+          "quote": "selects the largest prefill chunk predicted to finish before the earliest active decode deadline",
+          "relation": "challenges",
+          "claim": "The core deadline selection rule is prior art."
+        },
+        {
+          "source_id": "arxiv:2608.15171",
+          "quote": "dynamically adapts the global scheduling budget using concurrent prefill and decode state",
+          "relation": "challenges",
+          "claim": "Online budget adaptation is prior work."
+        },
+        {
+          "source_id": "arxiv:2606.09061",
+          "quote": "a lightweight aging-based scheduling policy",
+          "relation": "challenges",
+          "claim": "Aging to limit prefill starvation is also prior work."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62073:files:vllm/model_executor/layers/fused_moe/modular_kernel.py",
+          "quote": "dispatch happens inside the experts, so idle ranks must participate.",
+          "relation": "supports",
+          "claim": "The supplied diff identifies a participation requirement for its passthrough path; applicability to the pinned backend remains unknown."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62073:files:vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py",
+          "quote": "Every EP rank must use the same capacity:",
+          "relation": "context",
+          "claim": "This FlashInfer path constrains capacity across its EP group; the diff does not establish that the path is active at the historical pin."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62073:files:vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py",
+          "quote": "if metadata.local_sizes is not None:",
+          "relation": "challenges",
+          "claim": "The branch already consumes cross-rank token metadata for workspace selection; any new admission coordination must justify its additional role."
+        },
+        {
+          "source_id": "github:vllm-project/vllm:62541:files:recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml",
+          "quote": "It sets `--prefill-schedule-interval 48` at c96",
+          "relation": "context",
+          "claim": "The refreshed DEP4 guide supplies a fixed-cadence comparator at a qualified load, without proving historical-image inclusion."
+        },
+        {
+          "source_id": "hf:2602.16603",
+          "quote": "reducing chunk size improves response latency but degrades computational efficiency",
+          "relation": "challenges",
+          "claim": "Smaller chunks have an efficiency tradeoff in prior work."
+        }
+      ],
+      "rubric": {
+        "value": "Possible TPOT-tail protection during mixed prefill and decode; TTFT, throughput, and cost may worsen. No target gain is established.",
+        "mechanism": "Local admission under a shared limit for ranks that actually share an active collective.",
+        "evidence": "Prior-art abstracts and a branch diff motivate a trace-gated test. They establish neither measured B200 transfer nor implementation absence.",
+        "integration": "High until the pinned backend, process groups, graph repertoire, and scheduler contract are resolved.",
+        "correctness": "Preserve request token order, required collective participation, graph and KV bounds, and output agreement at matched precision and sampling.",
+        "experiment": "Check trace incidence and skew first; compare unchanged pin, tuned fixed settings, and an applicable SLOWeave-style controller.",
+        "cost": "Read-only trace analysis and CPU replay precede implementation or GPU serving experiments; later cost is unknown.",
+        "distinctness": "Potentially distinct group coordination. Deadline selection, adaptive budgeting, and aging are established ideas.",
+        "research_contribution": "Conditional implementation adaptation; publication novelty unestablished."
+      },
+      "experiment": {
+        "control": "Qualify DEP8 and two DEP4 replicas independently. At matched model, backend, precision, MTP/DSpark state, graph repertoire, KV capacity, cache preparation, request bodies, and concurrency, compare unchanged pinned behavior, a fixed cadence and budget sweep, and an applicable SLOWeave-style controller. Include the refreshed guide's DEP4 cadence only at applicable load and configuration.",
+        "treatment": "The proposed collective-group policy under the same graph and memory limits.",
+        "measurements": "For the approximately 8K-input/1K-output agent workload across loads: mixed-step incidence, per-rank work and collective wait, predictor error, decision overhead, graph choices, queue age, cache misses, TTFT, TPOT, throughput, cost per token, peak memory, and answer quality.",
+        "reject_if": "Rank skew is immaterial; no reliable group contract exists on the active backend; prediction or coordination consumes available slack; prefill starves; or the best matched comparator meets or beats the treatment on required service and quality criteria.",
+        "correctness": "Check unequal and empty rank batches under the active collective path, cancellation, cache hits and misses, graph replay, KV exhaustion, and output agreement at matched precision and sampling.",
+        "cost": "Trace analysis and CPU replay first. Build, capture, serving time, and memory overhead remain unknown."
+      },
+      "revision_after_critique": "Replaced both invalid excerpts with exact substrings from their specified diff bodies. Retained one trace-gated adaptation and made the existing FlashInfer cross-rank metadata a substantive objection. Group membership follows the resolved collective; independent replicas do not coordinate."
+    }
+  ],
+  "comparators": [
+    "Unchanged historical vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and deepseek_serve 2e6fa287d90adf7318ad314de27aa2f595aac821, recording the actual backend, precision, MTP/DSpark state, graph capture, and cache policy. Named pins alone do not prove runtime activation.",
+    "Supplied PR #62541 state: open and unmerged; main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8; guide-only head 64d4d308b50432449b25fdd4f73576f98b5ae5a5. Its DEP4 cadence and graph settings are qualified comparators where applicable. Main-branch targeting, guide availability, historical-image inclusion, and runtime use are separate.",
+    "Supplied PR #62073 state: open and unmerged; stacked branch base woosuk/beam-fused-allreduce at 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea; head 86a5bbe75a7971275952477bb1ce03e715bcc339. Its Beam-oriented deferred finalize and decode workspace are existing branch work. Nightly FlashInfer runtime validation is incomplete. An earlier conflict comment does not establish current conflict state.",
+    "SLOWeave-style deadline control, P-PAS, fairness-aware scheduling, FlowPrefill, the earlier fixed DP-aligned cadence, and a matched fixed chunk and budget sweep are scheduling alternatives.",
+    "For a separately justified cache study, compare the pinned policy, qualified LRU, tuned fixed partial eviction, compatible RR-EVICT and CacheWise integrations, and native CPU KV offload only in a supported layout. These are outside the mechanism shortlist."
+  ],
+  "rejected_leads": [
+    "Round-robin idle-history tail eviction closely matches RR-EVICT's implemented policy. A model-specific integration study requires demonstrated eviction pressure and exact ownership and invalidation rules.",
+    "Speculative speculative decoding has a distinct-hardware assumption in the supplied full text; maintainer discussion identifies substantial scheduler and KV redesign and questions value for MTP/EAGLE-style workloads. Target transfer is unshown.",
+    "Generic adaptive speculative length overlaps vLLM RFC #4565, FASER, and the earlier DP-coordinated DSpark-k idea; target acceptance and verification traces are absent.",
+    "An unchanged port of PR #62073's deferred finalize or decode workspace is existing stacked-branch work with unproved target applicability.",
+    "Mixed expert precision and generic MoE overlap have close prior art; target sensitivity, active kernels, conversion cost, bottleneck, and quality are unknown.",
+    "Feature activations, unchanged upstream ports, unrelated search-title matches, and abstract-only transfer claims do not fill the mechanism count."
+  ],
+  "gaps": [
+    "Five mechanisms were requested; one defensible conditional card survives, leaving a shortfall of four.",
+    "No supplied historical checkout or runtime trace resolves the active MoE backend, collective groups, precision path, MTP/DSpark state, graph shapes, KV representation, or memory fit for DEP8 versus two DEP4 replicas.",
+    "No target request, rank, collective, cache, memory, concurrency, or quality trace establishes the proposed bottleneck. The 75% cacheability target is not a measured cache-hit rate.",
+    "Branch availability, main-branch inclusion, historical-image inclusion, and runtime activation remain separate and unproved. PR #62541 reports its InferenceX #3837 relationship; independent ancestry evidence was not supplied.",
+    "Abstracts and results from other workloads do not establish implementation absence, correctness, or measured B200 transfer. The proposal is untested."
+  ],
+  "search_queries": [
+    "Inspect both historical source pins and serving configuration to resolve the active DeepSeek-V4.1-Flash backend, precision, MTP/DSpark, process groups, graph shapes, KV manager, and DEP8 versus two-DEP4 memory fit.",
+    "Trace PR #62541, InferenceX #3837, PR #62073, its parent #62366, and #62074 through branch ancestry, merge state, historical-image inclusion, and runtime activation.",
+    "Collect matched request and per-rank traces at target loads for mixed prefill/decode incidence, rank skew, collective waits, graph choices, KV occupancy, cache misses, TTFT, TPOT, and quality.",
+    "Replay fixed cadence and budget settings and an applicable SLOWeave-style policy on target traces before implementing group coordination.",
+    "For any later cache study, establish exact prefix ownership, dependent replay-state invalidation, returning-session recomputation, and supported offload layouts before comparing eviction policies."
+  ]
+}

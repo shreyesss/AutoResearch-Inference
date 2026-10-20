@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "author": "kernel exploration subagent",
+  "executed_gpu_experiments": 0,
+  "thresholds_are_proposed": true,
+  "experiments": [
+    {
+      "id": "K1",
+      "title": "Globally consistent decode-capacity MegaMoE workspace",
+      "status": "candidate experiment contract only; deferred by real reviewer after factual repair",
+      "source_ids": [
+        "github:vllm-project/vllm:62073",
+        "code:vllm-project/vllm:86a5bbe75a7971275952477bb1ce03e715bcc339:vllm/model_executor/layers/fused_moe/experts/flashinfer_moe_ep.py",
+        "code:vllm-project/vllm:86a5bbe75a7971275952477bb1ce03e715bcc339:vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py"
+      ],
+      "control": "Same eligible FlashInfer CuTeDSL engine using common prefill-capacity workspace",
+      "treatment": "Separate decode-capacity workspace and global rank capacity choice, overflow fallback; keep finalization mode unchanged",
+      "ablations": [
+        "allocate secondaryworkspace but forceprimary use (memorycostonly)",
+        "decodeworkspace selection on, defer-finalize off",
+        "forcedprimary vssecondary with matchedfixedtokenlengths"
+      ],
+      "code_surface": [
+        "vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py:FlashInferMoeEp",
+        "FlashInfer nightly create_workspace and forward dispatch",
+        "tests/kernels/moe/test_flashinfer_moe_ep.py"
+      ],
+      "eligibility": [
+        "proveactivebackend flashinfer_moe_ep_cutedsl and supportednightly APIs",
+        "determineifcurrentimagealreadycontains62073 code",
+        "freeze globally agreed max_num_seqs*(1+actualspeculative_tokens) capacity",
+        "verifydoubleworkspace KVcache impact"
+      ],
+      "correctness_cases": [
+        "ranktokenvectors [0,0,0,0], [1,0,0,0], [1,2,3,4], nearcapacity and capacity+1",
+        "capturedgraphreplay with changedlengths/restoredinputs",
+        "DSpark5verification1..6 tokenspersequence",
+        "mixedprefillfallback and short/longoutput cohorts"
+      ],
+      "causal_signature": "Changedworkspace engagement + reducedtargetedkernel/full-forwardwalltime without cachepressure, end-to-endgain survives memorycostonlyablation",
+      "evaluation": {
+        "baseline": {
+          "historical_reference": [
+            "LAT-2XDEP4-R7b",
+            "LAT-R10-DEP8-DSPARK2-S160-LP4K-B16K-G512"
+          ],
+          "intended_gpu_count": 8,
+          "runtime_identity": "unresolved until image digest, exact commit, dirty diff, model revision, quantization, all2all/MoE backend, DSpark flags, router and scheduler are archived",
+          "known_conflict": "archive dspark_config off vs refreshed k5 profile; do not infer runtime flags"
+        },
+        "matrix": {
+          "agent_f75": {
+            "input_tokens": 8192,
+            "output_tokens": 1024,
+            "cacheability_target": 0.75,
+            "actual_hits": "measure separately",
+            "concurrency_R7b": [
+              256,
+              384,
+              512
+            ],
+            "concurrency_R10": [
+              1024
+            ],
+            "stress": "add fixed8192input/1024output no-cache control without mixing its frontier withf75"
+          },
+          "production_replay": [
+            "same median/burst/cache-heavy trace at fixed1x tocompare tails",
+            "offeredrates1x/1.25x/1.5x/2x toidentify maximumstrictSLOeligiblecapacity",
+            "heldoutbursttrace withfrozenSLOscorer"
+          ]
+        },
+        "metrics": {
+          "primary": [
+            "strict AIPerf SLO goodput, scorer source frozen",
+            "custom campaign goodput reported separately",
+            "cost per million strict SLO-qualified requests",
+            "output tokens/sec at equivalent quality"
+          ],
+          "latency": [
+            "TTFT p50/p95/p99",
+            "ITL p50/p95/p99 wholetrace",
+            "ITL p50/p95/p99 output>=50tokens",
+            "E2E p50/p95/p99"
+          ],
+          "resource": [
+            "peak allocated/reserved GPU bytes",
+            "KV blocks and cache hit rate",
+            "preemption/eviction count",
+            "graph replay/fallback count",
+            "per-rank active and padding tokens",
+            "kernel walltime and overlap"
+          ],
+          "cost_formula": "8 * hourly_gpu_price / 3600 / goodput * 1e6; $4.50/GPU-hour only labeled scenario; also report actual provisioned cost if supplied"
+        },
+        "repetitions": "Randomized ABBA order, at least5 matched measured windows per retained load after warmup; retain all runs and bootstrap paired request-window differences; restart pairs to expose allocator/tactic drift",
+        "advance_rule": "Shared protocol design choice: >=5% strict SLO-goodput/capacity improvement with paired95%CI lowerbound>0 at matchedcapacitytest; no>2% p95 TTFT/ITL/E2E regression and nocorrectness/quality regression. At arrival-limited1x, compare tails instead: cannot claim5% goodputheadroom whenbaselinealreadyservesallarrivals. Thresholds are proposed, notmeasured.",
+        "reject_rule": "Numerical contract violation, collective mismatch/deadlock, quality outside preregistered tolerance, repeatable SLO regression, or sufficient precision to exclude a5% gain at target loads.",
+        "inconclusive_rule": "Unresolved baseline identity/inclusion, unsupported backend, confidence interval overlaps material gain and zero, changed acceptance/cache/workload, insufficient observation of targeted path, or bottleneck elsewhere.",
+        "quality": "For arithmetic-preserving workspace/scheduling changes require identical operator outputs against unchanged operator on fixedroutes and seeded repeated fullgeneration where deterministic execution permits; otherwise preregister upstream tolerances before seeing results, verify no new nonfinites and paired full1319 GSM8K plus application trace quality. Do not substitute a few prompts for full regression.",
+        "budgets": [
+          {
+            "stage": "identity and inclusion audit",
+            "gpu_hours_max": 0,
+            "wall_minutes": 20,
+            "stop": "missingruntimeidentity or alreadyimplemented -> record/defer"
+          },
+          {
+            "stage": "correctness and engagement trace",
+            "gpu_hours_max": 2,
+            "wall_minutes": 15,
+            "stop": "incorrect, unsupported, no measuredtargetedoverhead"
+          },
+          {
+            "stage": "operator and full-forward pairedscreen",
+            "gpu_hours_max": 4,
+            "wall_minutes": 30,
+            "stop": "nofull-forwardgain or memorypressure dominates"
+          },
+          {
+            "stage": "servingmatrix shortlist",
+            "gpu_hours_max": 8,
+            "wall_minutes": 60,
+            "stop": "failquality/SLO or aggregate noimprovement"
+          },
+          {
+            "stage": "held-out confirmation",
+            "gpu_hours_max": 4,
+            "wall_minutes": 30,
+            "stop": "doesnotgeneralize"
+          }
+        ],
+        "artifacts": [
+          "image+git+config+model hashes",
+          "raw request traces and exact scorer source hash",
+          "raw profiler trace not just screenshot",
+          "operator correctness output",
+          "complete stdout/stderr and all timing windows",
+          "cacheprep recipe and measuredhit-rate",
+          "test plan immutable hash and hypothesisID"
+        ],
+        "shared_protocol": "../EVALUATION_PROTOCOL.md"
+      },
+      "hypothesis_id": "hypothesis:cbaa74a8a3a2661e1ff93b400266631b5b89638f89512ba6cc4f6193551f3957",
+      "actual_runner_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 58.0,
+        "reasons": [
+          "Task rubric needs paper full-text evidence",
+          "legal_correct_integration: The newer adapter says, \u201cEvery EP rank must use the same capacity,\u201d and the proposal plans a fallback and zero-rank tests. The active backend, required API, DSpark verification token bound, and multi-rank correctness remain unverified. PR #62073 says, \u201cThe MegaMoE runtime paths still need CI or a nightly-FlashInfer machine.\u201d",
+          "Priority below this task's threshold; reconsider with evidence or a revised policy"
+        ],
+        "policy_id": "policy:8838a120ff289909220b47311fd1f9ec0de4a5dc81461c0c0199bcebaf0204ae",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "policy_id": "policy:8838a120ff289909220b47311fd1f9ec0de4a5dc81461c0c0199bcebaf0204ae",
+      "original_hypothesis_id": "hypothesis:e4f2843d5a7873fb39c4533c1eeb4d18758ebadc01bff67d8fc4cfc9235693fd",
+      "original_runner_assessment": {
+        "eligible": false,
+        "status": "rejected",
+        "score": 67.0,
+        "reasons": [
+          "Critic: factual claims unsupported or contradicted",
+          "Task rubric needs paper full-text evidence",
+          "legal_correct_integration: The proposed global capacity agreement, fixed-workspace fallback, idle-rank participation, unequal and zero-rank tests, and DSpark token-bound check address the stated hazards. The active backend, required FlashInfer APIs, actual token bound, and complete workspace implementation are not established.",
+          "Priority below this task's threshold; reconsider with evidence or a revised policy"
+        ],
+        "policy_id": "policy:8838a120ff289909220b47311fd1f9ec0de4a5dc81461c0c0199bcebaf0204ae",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "corrected_seed_id": "hypothesis:49e612f1ad8cffc2b83acf89f6a33f4d5062a606204262f327ad458722d41534",
+      "decision_artifact": "repair-review/decision.md",
+      "repair": "Ambiguous no-gain wording corrected; complete pinned adapter cited; unchanged policy; original rejection remains linked through corrected seed."
+    },
+    {
+      "id": "K2",
+      "title": "Resource-aware communication/shared-expert overlap",
+      "status": "candidate experiment contract only; deferred by runner",
+      "source_ids": [
+        "fulltext:2609.07536",
+        "github:vllm-project/vllm:52781"
+      ],
+      "control": "Eligible activebackend asynccombine with fixedresourcepartition",
+      "treatment": "Small offlinefrozen occupancy/routed-tile-informed resourcepartition table; no runtimecandidateexecution",
+      "ablations": [
+        "synchronous combine",
+        "async fixed partition",
+        "async selectedpartition",
+        "earlywait before sharedexpertGEMMs despiteasync launch"
+      ],
+      "code_surface": [
+        "backend-dependent MoE dispatch/combine launchconfiguration",
+        "vllm/model_executor/layers/fused_moe/prepare_finalize/deepep_v2.py (onlyifthisbackendactive)",
+        "sharedexpert compute stream/deviceevent join"
+      ],
+      "eligibility": [
+        "actual trace shows communication/sharedexpert contention",
+        "legal resourceknob exposed byactive B200backend",
+        "DBO/graphcapture restrictions honored",
+        "ifintegratedMegaMoE hasno legal knob, defer; do notsilently switchbackends"
+      ],
+      "correctness_cases": [
+        "emptyrank collectiveparticipation",
+        "uneven routedexpertload",
+        "captureeager consistency",
+        "eventlifetime andnohostsync",
+        "DBOdisabled/unsupported path explicitfallback"
+      ],
+      "causal_signature": "resourcepartition reduces measuredcontention andfull-forwardcriticalpath, gainsdisappear withearlywaitablation; selector overhead counted",
+      "evaluation": {
+        "baseline": {
+          "historical_reference": [
+            "LAT-2XDEP4-R7b",
+            "LAT-R10-DEP8-DSPARK2-S160-LP4K-B16K-G512"
+          ],
+          "intended_gpu_count": 8,
+          "runtime_identity": "unresolved until image digest, exact commit, dirty diff, model revision, quantization, all2all/MoE backend, DSpark flags, router and scheduler are archived",
+          "known_conflict": "archive dspark_config off vs refreshed k5 profile; do not infer runtime flags"
+        },
+        "matrix": {
+          "agent_f75": {
+            "input_tokens": 8192,
+            "output_tokens": 1024,
+            "cacheability_target": 0.75,
+            "actual_hits": "measure separately",
+            "concurrency_R7b": [
+              256,
+              384,
+              512
+            ],
+            "concurrency_R10": [
+              1024
+            ],
+            "stress": "add fixed8192input/1024output no-cache control without mixing its frontier withf75"
+          },
+          "production_replay": [
+            "same median/burst/cache-heavy trace at fixed1x tocompare tails",
+            "offeredrates1x/1.25x/1.5x/2x toidentify maximumstrictSLOeligiblecapacity",
+            "heldoutbursttrace withfrozenSLOscorer"
+          ]
+        },
+        "metrics": {
+          "primary": [
+            "strict AIPerf SLO goodput, scorer source frozen",
+            "custom campaign goodput reported separately",
+            "cost per million strict SLO-qualified requests",
+            "output tokens/sec at equivalent quality"
+          ],
+          "latency": [
+            "TTFT p50/p95/p99",
+            "ITL p50/p95/p99 wholetrace",
+            "ITL p50/p95/p99 output>=50tokens",
+            "E2E p50/p95/p99"
+          ],
+          "resource": [
+            "peak allocated/reserved GPU bytes",
+            "KV blocks and cache hit rate",
+            "preemption/eviction count",
+            "graph replay/fallback count",
+            "per-rank active and padding tokens",
+            "kernel walltime and overlap"
+          ],
+          "cost_formula": "8 * hourly_gpu_price / 3600 / goodput * 1e6; $4.50/GPU-hour only labeled scenario; also report actual provisioned cost if supplied"
+        },
+        "repetitions": "Randomized ABBA order, at least5 matched measured windows per retained load after warmup; retain all runs and bootstrap paired request-window differences; restart pairs to expose allocator/tactic drift",
+        "advance_rule": "Shared protocol design choice: >=5% strict SLO-goodput/capacity improvement with paired95%CI lowerbound>0 at matchedcapacitytest; no>2% p95 TTFT/ITL/E2E regression and nocorrectness/quality regression. At arrival-limited1x, compare tails instead: cannot claim5% goodputheadroom whenbaselinealreadyservesallarrivals. Thresholds are proposed, notmeasured.",
+        "reject_rule": "Numerical contract violation, collective mismatch/deadlock, quality outside preregistered tolerance, repeatable SLO regression, or sufficient precision to exclude a5% gain at target loads.",
+        "inconclusive_rule": "Unresolved baseline identity/inclusion, unsupported backend, confidence interval overlaps material gain and zero, changed acceptance/cache/workload, insufficient observation of targeted path, or bottleneck elsewhere.",
+        "quality": "For arithmetic-preserving workspace/scheduling changes require identical operator outputs against unchanged operator on fixedroutes and seeded repeated fullgeneration where deterministic execution permits; otherwise preregister upstream tolerances before seeing results, verify no new nonfinites and paired full1319 GSM8K plus application trace quality. Do not substitute a few prompts for full regression.",
+        "budgets": [
+          {
+            "stage": "identity and inclusion audit",
+            "gpu_hours_max": 0,
+            "wall_minutes": 20,
+            "stop": "missingruntimeidentity or alreadyimplemented -> record/defer"
+          },
+          {
+            "stage": "correctness and engagement trace",
+            "gpu_hours_max": 2,
+            "wall_minutes": 15,
+            "stop": "incorrect, unsupported, no measuredtargetedoverhead"
+          },
+          {
+            "stage": "operator and full-forward pairedscreen",
+            "gpu_hours_max": 4,
+            "wall_minutes": 30,
+            "stop": "nofull-forwardgain or memorypressure dominates"
+          },
+          {
+            "stage": "servingmatrix shortlist",
+            "gpu_hours_max": 8,
+            "wall_minutes": 60,
+            "stop": "failquality/SLO or aggregate noimprovement"
+          },
+          {
+            "stage": "held-out confirmation",
+            "gpu_hours_max": 4,
+            "wall_minutes": 30,
+            "stop": "doesnotgeneralize"
+          }
+        ],
+        "artifacts": [
+          "image+git+config+model hashes",
+          "raw request traces and exact scorer source hash",
+          "raw profiler trace not just screenshot",
+          "operator correctness output",
+          "complete stdout/stderr and all timing windows",
+          "cacheprep recipe and measuredhit-rate",
+          "test plan immutable hash and hypothesisID"
+        ],
+        "shared_protocol": "../EVALUATION_PROTOCOL.md"
+      },
+      "post_evidence_eligibility": "Pinned CuTeDSL adapter has can_overlap_shared_experts=False; defer on this backend. Reconsider only if actual baseline exposes another supported overlap path. This file was inspected after the frozen extraction packet.",
+      "hypothesis_id": "hypothesis:d6a6e253d7a287c7e1d05febf6ddd4c5bce5e576bb03685997c73ede6f53e78d",
+      "actual_runner_assessment": {
+        "eligible": false,
+        "status": "deferred",
+        "score": 66.0,
+        "reasons": [
+          "legal_correct_integration: The proposed collective-order, stream-dependency, and graph-replay checks are appropriate, but no supplied evidence identifies the active B200 combine backend or establishes a legal CTA/SM resource knob. The paper's COMET control cannot establish that precondition for this backend.",
+          "Priority below this task's threshold; reconsider with evidence or a revised policy"
+        ],
+        "policy_id": "policy:8838a120ff289909220b47311fd1f9ec0de4a5dc81461c0c0199bcebaf0204ae",
+        "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+      },
+      "policy_id": "policy:8838a120ff289909220b47311fd1f9ec0de4a5dc81461c0c0199bcebaf0204ae"
+    }
+  ]
+}

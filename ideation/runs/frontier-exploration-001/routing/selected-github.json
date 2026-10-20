@@ -1,0 +1,376 @@
+[
+  {
+    "document": {
+      "id": "github:vllm-project/vllm:43483",
+      "source": "github",
+      "kind": "pr",
+      "url": "https://github.com/vllm-project/vllm/pull/43483",
+      "title": "[Core] Add prefix-cache-aware routing for internal DP load balancing",
+      "body": "## Purpose\r\n\r\nThis PR adds an opt-in prefix-cache-aware routing path for V1 internal data-parallel load balancing.\r\n\r\nWhen `--data-parallel-prefix-cache-lb` is enabled, the frontend DP load balancer computes vLLM-compatible prompt block hashes and uses local best-effort prefix ownership state to choose a DP rank. The default behavior is unchanged.\r\n\r\nKey points:\r\n\r\n- Disabled by default.\r\n- Only supports internal/local DP load balancing.\r\n- Does not implement cross-DP KV import or warmup.\r\n- Does not report external KV hits.\r\n- Reuses vLLM prefix cache block hash semantics for routing signatures.\r\n- Passes the resolved `hash_block_size` from EngineCore back to the frontend.\r\n- Requires `PYTHONHASHSEED` when enabled so routing hashes are deterministic across processes.\r\n- Adds an internal scheduler branch-point hint for align-mode Mamba/GDN prefill splitting.\r\n- The branch-point hint only affects prefill chunk boundaries, not token contents or sampling semantics.\r\n\r\n## Test Plan\r\n\r\n```bash\r\npython -m pytest tests/v1/engine/test_dp_prefix_cache_router.py -q\r\n\r\npython -m ruff check \\\r\n  vllm/config/parallel.py \\\r\n  vllm/config/vllm.py \\\r\n  vllm/engine/arg_utils.py \\\r\n  vllm/v1/core/kv_cache_utils.py \\\r\n  vllm/v1/core/sched/scheduler.py \\\r\n  vllm/v1/engine/__init__.py \\\r\n  vllm/v1/engine/core.py \\\r\n  vllm/v1/engine/core_client.py \\\r\n  vllm/v1/request.py \\\r\n  vllm/v1/engine/dp_prefix_cache_router.py \\\r\n  tests/v1/engine/test_dp_prefix_cache_router.py\r\n\r\npython -m py_compile \\\r\n  vllm/config/parallel.py \\\r\n  vllm/config/vllm.py \\\r\n  vllm/engine/arg_utils.py \\\r\n  vllm/v1/core/kv_cache_utils.py \\\r\n  vllm/v1/core/sched/scheduler.py \\\r\n  vllm/v1/engine/__init__.py \\\r\n  vllm/v1/engine/core.py \\\r\n  vllm/v1/engine/core_client.py \\\r\n  vllm/v1/request.py \\\r\n  vllm/v1/engine/dp_prefix_cache_router.py \\\r\n  tests/v1/engine/test_dp_prefix_cache_router.py\r\n\r\ngit diff --check origin/main...HEAD\r\n```\r\n\r\n## Test Result\r\n\r\n```text\r\ntests/v1/engine/test_dp_prefix_cache_router.py\r\n16 passed\r\n\r\nruff check\r\nAll checks passed\r\n\r\npy_compile\r\npassed\r\n\r\ngit diff --check origin/main...HEAD\r\npassed\r\n```\r\n\r\nAdditional coverage:\r\n- Router hashes match Request block hashes.\r\n- Config validation covers unsupported DP modes and missing prefix caching.\r\n- Routing covers sticky prefix reuse, overlap routing, miss reroute, bounded prefix tracking, deterministic seed requirement, and scheduler branch-hint alignment.\r\n- Scheduler tests cover stopping at DP prefix branch points for align-mode Mamba/GDN splitting.\r\n\r\n---\r\n\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [x] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [x] The test plan, such as providing test command.\r\n- [x] The test results, such as pasting the results comparison before and after, or e2e results.\r\n- [x] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n\r\n</details>\r\n\r\n",
+      "created_at": "2026-05-23T14:37:46Z",
+      "updated_at": "2026-08-19T22:04:09Z",
+      "fetched_at": "2026-10-19T22:53:48Z",
+      "state": "open",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "kv-cache"
+      ],
+      "metadata": {
+        "number": 43483,
+        "labels": [
+          {
+            "id": 7614859318,
+            "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+            "name": "needs-rebase",
+            "color": "d4c5f9",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 8068298936,
+            "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+            "name": "v1",
+            "color": "9810B3",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 11777487818,
+            "node_id": "LA_kwDOI7xefs8AAAACvf4zyg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/scheduler",
+            "name": "scheduler",
+            "color": "f5d1c9",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 11777489391,
+            "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+            "name": "kv-cache-manager",
+            "color": "d065a7",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 10,
+        "state_reason": null,
+        "base": {
+          "ref": "main",
+          "sha": "7544286b04a860fcfb98725345f2b43a5023b844",
+          "label": "vllm-project:main"
+        },
+        "head": {
+          "ref": "dp-prefix-cache-lb",
+          "sha": "b4baf2df26b25c3ab39c5590656d3937c9ac6fb0",
+          "label": "abligail:dp-prefix-cache-lb"
+        },
+        "merge_commit_sha": null,
+        "draft": false,
+        "changed_files": null,
+        "additions": null,
+        "deletions": null,
+        "pr_detail_fetched_at": "2026-10-19T22:53:48Z"
+      },
+      "content_hash": "0257c7850065c3427342445ee898ec8907236d6c2413e98d3402ac47099a7484"
+    },
+    "children": [],
+    "hydration": null,
+    "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+  },
+  {
+    "document": {
+      "id": "github:vllm-project/vllm:58757",
+      "source": "github",
+      "kind": "pr",
+      "url": "https://github.com/vllm-project/vllm/pull/58757",
+      "title": "[Docs] Document engine-aware routing with vLLM Router for DP deployments",
+      "body": "Add a section to data_parallel_deployment.md explaining how vLLM Router's --intra-node-data-parallel-size flag combined with the consistent_hash policy enables session-affinity routing to individual DP engines within a single endpoint, useful for conversational/agentic workloads that benefit from prefix-cache reuse.\r\n\r\nCloses #58160\r\n\r\n\r\n\r\n\r\n## Purpose\r\n\r\nFixes #58160\r\n\r\nThe `data_parallel_deployment.md` page documents three ways to load-balance\r\nrequests across DP ranks (Internal, Hybrid, External), but doesn't mention\r\nthat [vLLM Router](https://github.com/vllm-project/router) can route\r\nrequests to *individual* DP engines within a deployment via\r\n`--intra-node-data-parallel-size N`, combined with the `consistent_hash`\r\npolicy for session-affinity routing.\r\n\r\nThis is particularly useful for conversational/agentic workloads, where\r\npinning a session's follow-up requests to the same DP engine lets that\r\nengine reuse its prefix/KV cache instead of recomputing it each turn.\r\n\r\nAs noted in the issue, this capability doesn't cleanly fit the existing\r\nInternal/Hybrid/External classification, since it's an external tool that\r\nis topology-aware rather than treating each endpoint as opaque. This PR\r\nadds a new section, \"Engine-Aware Routing with vLLM Router,\" after the\r\nExternal Load Balancing section, with an example that composes it with\r\nHybrid Load Balancing.\r\n\r\n\r\n## Test Plan\r\n\r\nThis is a documentation-only change (no code paths affected). Validated with:\r\n\r\n- `pre-commit run markdownlint-cli2 --files docs/serving/data_parallel_deployment.md`\r\n- Manual review of the rendered Markdown, including verifying the\r\n  `#hybrid-load-balancing` anchor link and all external links resolve\r\n  correctly.\r\n\r\n## Test Result\r\n\r\n`markdownlint-cli2` passed with no errors or warnings on the modified file.",
+      "created_at": "2026-09-25T17:49:44Z",
+      "updated_at": "2026-09-30T08:08:34Z",
+      "fetched_at": "2026-10-19T23:20:47Z",
+      "state": "open",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "kv-cache"
+      ],
+      "metadata": {
+        "number": 58757,
+        "labels": [
+          {
+            "id": 5135047180,
+            "node_id": "LA_kwDOI7xefs8AAAABMhKaDA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/documentation",
+            "name": "documentation",
+            "color": "0075ca",
+            "default": true,
+            "description": "Improvements or additions to documentation",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 3,
+        "state_reason": null,
+        "base": {
+          "ref": "main",
+          "sha": "b21757555ac5f853a8eff02a687d2777437e055b",
+          "label": "vllm-project:main"
+        },
+        "head": {
+          "ref": "docs/vllm-router-dp-session-affinity",
+          "sha": "9f57b3fbaf18ed0700de010fa3b8a0abbcd65141",
+          "label": "aman-singh315:docs/vllm-router-dp-session-affinity"
+        },
+        "merge_commit_sha": "52eaeca339ab66859de813e933276e3e41c4bf5a",
+        "draft": false,
+        "changed_files": null,
+        "additions": null,
+        "deletions": null,
+        "pr_detail_fetched_at": "2026-10-19T23:20:47Z"
+      },
+      "content_hash": "c7e1462eaf6aaae5b25f5355dc05324a56be0596c07bcd213a407082c3942db3"
+    },
+    "children": [],
+    "hydration": null,
+    "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+  },
+  {
+    "document": {
+      "id": "github:vllm-project/vllm:56848",
+      "source": "github",
+      "kind": "pr",
+      "url": "https://github.com/vllm-project/vllm/pull/56848",
+      "title": "[Core] Add decode-priority prefill cadence for single-node decode ITL",
+      "body": "Add a new scheduler option `--decode-priority-cadence N` (default 1, off). While any pure-decode request is running, run decode-only steps and admit prefill compute once every N engine steps. This removes prefill windows from decode steps, improving decode ITL under high concurrency with limited KV cache, at the cost of higher prefill TTFT.\r\n\r\nThe cadence reuses the existing `defer_prefills` mechanism but bypasses the `prefill_capacity_bound` gate (which only defers when the waiting queue is empty -- the opposite of the high-concurrency case it targets). It is computed in-scheduler from `current_step`, so no engine-core change is needed, and it is fully isolated from the DP-only `prefill_schedule_interval`.\r\n\r\n\r\n\r\n\r\n## Purpose\r\n\r\n#56847\r\n\r\nUnder high concurrency with a limited KV cache \u2014 typical of agent workloads with long contexts \u2014 decode requests starve: any step that admits a prefill chunk spends most of its wall-clock on prefill compute, so the co-running decode tokens crawl. On a deployment sized to exactly hold the running contexts (no KV headroom) this is compounded by frequent preemption/re-prefill.\r\n\r\nThis PR adds a scheduler option --decode-priority-cadence N (default 1, off). While any pure-decode request is running, the scheduler runs decode-only steps and admits prefill compute once every N engine steps. Prefill is thus removed from N-1 of every N steps, keeping decode ITL at the pure-decode level, at the cost of higher prefill TTFT / lower prefill throughput.\r\n\r\nMechanism: it reuses the existing defer_prefills path (the running loop skips in-flight prefill chunks, the waiting loop defers new prefills) but adds an independent cadence condition that bypasses the prefill_capacity_bound gate. That gate only defers when the waiting queue was drained on the last release step \u2014 the exact opposite of the always-full-queue, high-concurrency case this targets. The cadence is computed in-scheduler from the existing current_step counter, so no engine-core change is needed, and it is fully isolated from the DP-only prefill_schedule_interval.\r\n\r\nNot a duplicate: the existing --prefill-schedule-interval is implemented and documented for data-parallel deployments only (the single-node _should_throttle_prefills returns False), and its prefill_capacity_bound gate defers only when the queue is empty. This is a new single-node decode-priority mode that defers even when the queue is full.\r\n\r\n## Test Plan\r\n\r\n- Unit `tests in tests/v1/core/test_scheduler.py`:\r\n  - _test_decode_priority_cadence_defers_prefill_ \u2014 with a pure-decode request running, an in-flight prefill chunk is deferred on throttled steps (current_step % N != 0) and admitted on the release step (current_step % N == 0).\r\n  - _test_decode_priority_cadence_no_decode_no_defer_ \u2014 a prefill-only workload (no decode in flight) is unaffected: the prefill chunk is admitted on every step, including throttled ones, so TTFT is not stalled.\r\n- Commands:\r\n```\r\npython -m pytest tests/v1/core/test_scheduler.py \\\r\n       -k \"decode_priority_cadence or throttle or prefill_gating or capacity_bound\" -v\r\npython -m pytest tests/v1/core/test_scheduler.py -v   # regression\r\n```\r\n- Manual e2e: vllm serve a dense model with `--decode-priority-cadence 16` under a mixed prefill+decode load, comparing decode/prefill throughput with the flag off vs. on.\r\n\r\n## Test Result\r\n\r\n- Unit tests: both new tests pass; all existing throttle / cadence / prefill-gating tests pass (no regression). The full test_scheduler.py suite shows the same pass/fail set as the clean tree \u2014 the only failures are pre-existing multimodal / EC-connector tests that cannot load their model configs in this environment, unrelated to this change.\r\n- Correctness: this is a scheduling-only change \u2014 it changes which steps do prefill vs. decode, not the model outputs (same requests \u2192 same tokens).\r\n- E2E on Qwen3.8-27B (TP2, --max-num-seqs 2, limited KV, chunked + prefix caching), mixed prefill+decode load, --decode-priority-cadence 16:\r\n  - decode throughput: < 1 t/s \u2192 8 t/s (~8\u00d7)\r\n  - prefill throughput: ~2500 t/s \u2192 ~1600 t/s (~36% lower)\r\n  - Matches the intended tradeoff: decode ITL is dramatically improved because prefill is removed from N-1 of every N steps; prefill throughput drops because prefill is spread across fewer steps.\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n",
+      "created_at": "2026-09-14T14:52:11Z",
+      "updated_at": "2026-09-17T15:19:32Z",
+      "fetched_at": "2026-10-19T23:17:47Z",
+      "state": "closed",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "ttft",
+        "tpot",
+        "throughput",
+        "performance",
+        "kv-cache"
+      ],
+      "metadata": {
+        "number": 56848,
+        "labels": [
+          {
+            "id": 11777487818,
+            "node_id": "LA_kwDOI7xefs8AAAACvf4zyg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/scheduler",
+            "name": "scheduler",
+            "color": "f5d1c9",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 0,
+        "state_reason": null,
+        "base": {
+          "ref": "main",
+          "sha": "0eae9acd4d01574e12d4ecf6a0229813f7fdb799",
+          "label": "vllm-project:main"
+        },
+        "head": {
+          "ref": "decode-priority-cadence",
+          "sha": "f2fe7307a504ee1c40ca127523a667bf1fda5ab2",
+          "label": "ir1ka:decode-priority-cadence"
+        },
+        "merge_commit_sha": "58d33f7d7894ec4c49eac8ea82ce6d54a5e3c39b",
+        "draft": false,
+        "changed_files": null,
+        "additions": null,
+        "deletions": null,
+        "pr_detail_fetched_at": "2026-10-19T23:17:47Z"
+      },
+      "content_hash": "144d7b913f9edec0ef32777f2966e946b452a0fbe8ff98099abfd283c79cfe63"
+    },
+    "children": [],
+    "hydration": null,
+    "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+  },
+  {
+    "document": {
+      "id": "github:vllm-project/vllm:52906",
+      "source": "github",
+      "kind": "issue",
+      "url": "https://github.com/vllm-project/vllm/issues/52906",
+      "title": "[RFC]: Adaptive prefill token budget based on scheduling pressure",
+      "body": "### Motivation.\n\nvLLM exposes `max_num_batched_tokens` (MBT) as a static scheduling configuration. For long-context workloads, however, we observe that the latency-optimal token budget depends on the current scheduling pressure.\n\nUnder low scheduling pressure, a large MBT can improve prefill execution efficiency and reduce end-to-end latency. As concurrent prefill and decode work increases, a smaller prefill budget can become preferable by limiting prefill interference with active decoding.\n\nThis means that no single static MBT is optimal across changing load regimes.\n\nWe investigated this behavior across multiple models, workloads, and NVIDIA GPUs (RTX 5090, A100, and H100), including kernel-level profiling with Nsight Systems and Nsight Compute. Based on these observations, we developed Prefill-Pressure Adaptive Scheduling (P-PAS), a lightweight policy that adapts the amount of prefill work admitted by the scheduler.\n\nAcross the main load sweep, P-PAS reduced average end-to-end latency by 8.5% relative to fixed MBT 2k and by 11.3% relative to fixed MBT 16k.\n\nPaper: https://arxiv.org/abs/2608.15171\n\nImplementation, benchmarks, raw results, and profiling traces:\nhttps://github.com/TimoSaemann/ppas-vllm\n\n### Proposed Change.\n\nAdd an optional adaptive prefill-budget policy to the V1 scheduler.\n\nThe evaluated P-PAS policy uses scheduler state that is already available.\nLet:\n\n- `N_p` be the number of running and waiting prefill requests\n- `N_d` be the number of running decode requests\n- `N_th` be a prefill-pressure threshold\n- `B_max` be the normal prefill token budget\n- `B_cap` be the reduced prefill token budget\n\nThe policy is:\n\n```text\nif N_p >= N_th and N_d > 0:\n    prefill_budget = B_cap\nelse:\n    prefill_budget = B_max\n```\n\nFor the experiments in the paper:\n\n```text\nN_th  = 2\nB_max = 16384\nB_cap = 2048\n```\n\nThe global scheduler token budget remains unchanged. The adaptive budget only limits the aggregate amount of prefill work admitted within a scheduler iteration.\n\nThe current implementation is a small modification of the vLLM V1 scheduler and can be enabled or disabled without changing the standard scheduling behavior when disabled.\n\nI would be happy to adapt the implementation to the current vLLM scheduler and make the policy/configuration interface consistent with the maintainers' preferred design.\n\n### Feedback Period.\n\nTwo weeks.\n\n### CC List.\n\n_No response_\n\n### Any Other Things.\n\nA working implementation for vLLM 0.22.1 is available in the repository linked above. If there is interest in this direction, I would be happy to adapt the implementation to the current vLLM scheduler and prepare a PR.\n\n### Before submitting a new issue...\n\n- [x] Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the [documentation page](https://docs.vllm.ai/en/latest/), which can answer lots of frequently asked questions.",
+      "created_at": "2026-08-19T08:07:02Z",
+      "updated_at": "2026-10-12T06:45:39Z",
+      "fetched_at": "2026-10-19T21:45:52Z",
+      "state": "open",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "h100",
+        "performance"
+      ],
+      "metadata": {
+        "number": 52906,
+        "labels": [
+          {
+            "id": 6478559908,
+            "node_id": "LA_kwDOI7xefs8AAAABgib6pA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/RFC",
+            "name": "RFC",
+            "color": "DE9220",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 8,
+        "state_reason": null
+      },
+      "content_hash": "6cd2141c398acad4c315faa3123e7c785964ab33b1dca9d5f1cbc243fcce4719"
+    },
+    "children": [],
+    "hydration": null,
+    "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+  },
+  {
+    "document": {
+      "id": "github:vllm-project/vllm:44703",
+      "source": "github",
+      "kind": "issue",
+      "url": "https://github.com/vllm-project/vllm/issues/44703",
+      "title": "Benchmark request: mixed long-prefill / long-decode / repeated-prefix serving boundary",
+      "body": "### Checklist\n\n- [x] I searched related issues and PRs before opening this.\n- [x] This is a benchmark/repro proposal, not a claim that vLLM is incorrectly implemented.\n- [x] I can contribute a benchmark/docs PR if maintainers agree on the right location and metric surface.\n\n### Summary\n\nI am working on a serving-systems measurement study (TR164) around workload-dependent concurrency boundaries in modern LLM serving stacks. The gap I am trying to close is a small, reproducible benchmark that stresses mixed long-prefill, long-decode, and repeated-prefix traffic under increasing client concurrency.\n\nThis is not meant as a leaderboard issue or a \"vLLM is broken\" report. The signal is that the breakdown boundary is workload-dependent: long-decode traffic behaves very differently from long-prefill and repeated-prefix traffic, and the existing benchmark/docs surface does not make that boundary easy to reproduce.\n\n### Minimal benchmark shape\n\nThe reduced matrix I want to upstream is:\n\n- model: `Qwen/Qwen2.5-7B-Instruct`\n- hardware class: single A100 80GB class GPU\n- concurrency: `N in {1, 2, 4, 8, 16, 32}`\n- reps: 3\n- phases:\n  - `scaling`: requests issued as fast as the dispatcher accepts them\n  - `ttft`: paced enough to attribute time-to-first-token\n- workloads:\n  - `balanced_2k`: approximately 2k-token prompt with moderate decode\n  - `long_decode`: approximately 1k-token prompt, 512-token decode\n  - `long_prefill_8k`: approximately 8k-token prompt, short decode\n  - `repeated_prefix`: approximately 2k-token prompt with shared prefix reuse\n- metrics:\n  - aggregate decode tokens/sec per cell\n  - p50/p95 wall latency\n  - p50/p95 TTFT where streaming attribution is available\n  - p95 latency multiplier vs N=1\n  - status/error counts\n\n### Current TR164 observation\n\nOn a complete vLLM cloud run with this reduced matrix:\n\n- rows: 15,120 request-level metric rows\n- status: all `ok`\n- model: `Qwen/Qwen2.5-7B-Instruct`\n- suite: A100-class `cloud_core`\n\nSelected N=32 behavior (per-cell aggregate decode TPS, averaged over the 3 reps):\n\n| Phase | Workload | Aggregate decode TPS | p95 wall-latency multiplier vs N=1 |\n|---|---:|---:|---:|\n| scaling | `long_decode` | 2359 tok/s | 1.29x |\n| scaling | `long_prefill_8k` | 652 tok/s | 4.09x |\n| scaling | `repeated_prefix` | 1261 tok/s | 2.41x |\n| ttft | `long_decode` | 1673 tok/s | 1.30x |\n| ttft | `long_prefill_8k` | 537 tok/s | 4.06x |\n| ttft | `repeated_prefix` | 1009 tok/s | 2.41x |\n\nThe useful signal here is not just the throughput ranking. It is that long-decode remains comparatively stable through N=32, while long-prefill and repeated-prefix traffic cross a much sharper tail-latency boundary. That seems worth making reproducible in-tree because it is exactly the kind of deployment behavior operators tune with chunked-prefill and scheduling knobs.\n\n### Related upstream threads I found\n\nI am linking these to show the issue map, not to claim this proposal duplicates them:\n\n- #3130 - original upstream chunked prefill RFC\n- #41685 - long-context-optimized pipeline parallelism / dynamic chunking RFC\n- #42360 - user confusion around disabling chunked prefill in V1\n- #40063 - `max_num_batched_tokens > max_model_len` validation under chunked prefill\n- #39745 - exposing `num_prompt_tokens` under chunked prefill\n- #39945 - same-sized prefill batching fix\n- #42321 - enqueue-time KV prefetch for scheduler backlog / TTFT\n- #27441 - prior scheduler request-order/tail-latency issue under pressure\n\n### Proposed contribution\n\nIf this direction is welcome, I can start with a benchmark/docs PR rather than a scheduler behavior PR:\n\n1. Add a compact mixed-serving benchmark recipe or script under the preferred benchmark location.\n2. Emit the metrics above in a format suitable for comparing N=1 to higher concurrency.\n3. Include a small sweep over the relevant vLLM knobs, likely:\n   - `max_num_batched_tokens`\n   - `long_prefill_token_threshold`\n   - chunked-prefill enabled/disabled where supported\n4. Document how to interpret the boundary: long-decode stability vs long-prefill/repeated-prefix tail amplification.\n\nQuestion for maintainers: would this fit better as an extension to an existing benchmark, a new benchmark script, or docs around chunked-prefill tuning?\n",
+      "created_at": "2026-06-06T00:15:27Z",
+      "updated_at": "2026-10-06T01:53:55Z",
+      "fetched_at": "2026-10-19T21:33:15Z",
+      "state": "closed",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "ttft",
+        "throughput",
+        "performance"
+      ],
+      "metadata": {
+        "number": 44703,
+        "labels": [
+          {
+            "id": 7648877658,
+            "node_id": "LA_kwDOI7xefs8AAAABx-icWg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/stale",
+            "name": "stale",
+            "color": "ededed",
+            "default": false,
+            "description": "Over 90 days of inactivity",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 2,
+        "state_reason": "not_planned"
+      },
+      "content_hash": "2c12c41e57121f1c20de16c414cc770949aa1b62cc6ae1c684d30f50b0a572cf"
+    },
+    "children": [],
+    "hydration": null,
+    "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+  },
+  {
+    "document": {
+      "id": "github:vllm-project/vllm:33172",
+      "source": "github",
+      "kind": "pr",
+      "url": "https://github.com/vllm-project/vllm/pull/33172",
+      "title": "[Feature] Add prefix-aware routing for data parallel load balancing",
+      "body": "## Summary\n\nThis PR integrates prefix-aware routing logic into vLLM's data parallel load balancing system. The router directs requests with the same token prefix to the same engine to improve prefix cache hit rates, while load-balancing new prefixes across engines.\n\n## Motivation\n\nWhen serving models with data parallelism, routing requests with similar prefixes to the same engine can significantly improve cache hit rates. This is especially beneficial for workloads with repeated prompt patterns, such as:\n- Chat applications with system prompts\n- RAG systems with shared context\n- Batch processing with template-based prompts\n\n## Implementation Details\n\n### Architecture\n- **Current System**: Simple load balancing with `score = waiting * 4 + running`\n- **New System**: Prefix-aware routing that maintains prefix\u2192engine mappings\n  - Routes cached prefixes to same engine (better cache hits)\n  - Load-balances new prefixes across engines\n\n### Key Components\n\n1. **Configuration Layer** (`vllm/config/parallel.py`, `vllm/engine/arg_utils.py`)\n   - Add `enable_prefix_aware_routing: bool = False` (opt-in)\n   - Add `prefix_routing_length: int = 16` (configurable)\n   - CLI flags: `--enable-prefix-aware-routing` and `--prefix-routing-length`\n\n2. **Router Implementation** (`vllm/v1/engine/core_client.py`)\n   - New `PrefixAwareDPLBAsyncMPClient` class extends `DPLBAsyncMPClient`\n   - Maintains `prefix_to_engine_map: dict[tuple[int, ...], int]`\n   - Extracts prefix: `tuple(request.prompt_token_ids[:prefix_length])`\n   - Routes based on prefix history with fallback to load balancing\n\n3. **Testing** (`tests/v1/test_prefix_aware_routing.py`)\n   - Test same prefix routing (cache hits)\n   - Test load balancing new prefixes\n   - Test mixed workload scenarios\n   - Test short prompts handling\n   - Test configuration flags\n\n4. **Demonstration** (`examples/online_serving/prefix_routing_demo.py`)\n   - Practical demo showing cache benefits\n   - Shows load balancing behavior\n   - Includes usage examples\n\n## Usage\n\nStart server with prefix-aware routing enabled:\n\n```bash\nvllm serve meta-llama/Llama-3.2-3B-Instruct \\\n    --data-parallel-size 2 \\\n    --enable-prefix-aware-routing \\\n    --prefix-routing-length 16\n```\n\nRun the demo:\n\n```bash\npython examples/online_serving/prefix_routing_demo.py\n```\n\nRun tests:\n\n```bash\npytest tests/v1/test_prefix_aware_routing.py -v\n```\n\n## Design Rationale\n\n- **Why extend DPLBAsyncMPClient?** Reuses existing load balancing infrastructure, minimal code changes\n- **Why per-request routing?** Matches vLLM's architecture, no request buffering needed\n- **Why opt-in?** Backward compatible, allows users to choose based on workload\n- **Trade-offs**: Prefix map grows unbounded (future work: LRU cache)\n\n## Performance Considerations\n\n- Prefix map lookup: O(1) time complexity\n- Routing overhead: Negligible (< 1ms)\n- Memory: Grows with number of unique prefixes\n- Expected benefits:\n  - Improved prefix cache hit rates\n  - Reduced latency for repeated prefixes\n  - Better throughput for pattern-heavy workloads\n\n## Testing\n\n- [x] Unit tests for routing logic\n- [x] Integration tests with DP load balancing\n- [x] Short prompt handling\n- [x] Configuration validation\n- [x] Backward compatibility (flag disabled by default)\n\n## Documentation\n\n- Implementation guide: `PREFIX_ROUTING_IMPLEMENTATION.md`\n- Demo script with examples\n- Test suite showing all scenarios\n\n## Future Enhancements\n\n1. LRU cache for prefix map (prevent unbounded growth)\n2. Adaptive prefix length based on workload\n3. Cross-server prefix map coordination\n4. Prometheus metrics for prefix hit rates\n5. Cache warmup from common patterns\n\n## Checklist\n\n- [x] Code follows vLLM style guidelines\n- [x] Tests added and passing\n- [x] Documentation updated\n- [x] Backward compatible (opt-in feature)\n- [x] No breaking changes to existing APIs",
+      "created_at": "2026-01-27T14:31:52Z",
+      "updated_at": "2026-01-27T14:40:11Z",
+      "fetched_at": "2026-10-19T22:39:01Z",
+      "state": "closed",
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "throughput",
+        "performance",
+        "kv-cache"
+      ],
+      "metadata": {
+        "number": 33172,
+        "labels": [
+          {
+            "id": 5135047180,
+            "node_id": "LA_kwDOI7xefs8AAAABMhKaDA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/documentation",
+            "name": "documentation",
+            "color": "0075ca",
+            "default": true,
+            "description": "Improvements or additions to documentation",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 7614859318,
+            "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+            "name": "needs-rebase",
+            "color": "d4c5f9",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 8068298936,
+            "node_id": "LA_kwDOI7xefs8AAAAB4Oh4uA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/v1",
+            "name": "v1",
+            "color": "9810B3",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 3,
+        "state_reason": null,
+        "base": {
+          "ref": "main",
+          "sha": "1f3a2c2944f240ff043c3b7e01c4ae81461b09ed",
+          "label": "vllm-project:main"
+        },
+        "head": {
+          "ref": "router",
+          "sha": "1de95584391a4f9ca87655a81898ddddec7bbc2a",
+          "label": "toslali-ibm:router"
+        },
+        "merge_commit_sha": null,
+        "draft": false,
+        "changed_files": null,
+        "additions": null,
+        "deletions": null,
+        "pr_detail_fetched_at": "2026-10-19T22:39:01Z"
+      },
+      "content_hash": "7fe4ac8aae3fe4ca95e81083720b39d9c13e547fb7322b61d70650caf2a5f55f"
+    },
+    "children": [],
+    "hydration": null,
+    "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+  }
+]

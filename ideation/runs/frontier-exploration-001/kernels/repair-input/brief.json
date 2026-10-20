@@ -1,0 +1,64 @@
+{
+  "name": "B200 kernel workspace and communication boundary exploration",
+  "mode": "source_research",
+  "count": 1,
+  "target": {
+    "model": "DeepSeek-V4.1-Flash",
+    "gpu": "B200",
+    "topology": "single eight-GPU NVLink/NVSwitch node; DEP8 and two DEP4 are candidate layouts",
+    "workload": "agent-style approximately 8K input / 1K output; 75% target cacheability is not measured cache-hit rate",
+    "metrics": [
+      "TTFT",
+      "TPOT",
+      "throughput",
+      "cost per token",
+      "quality"
+    ]
+  },
+  "baseline": {
+    "vllm_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+    "deepseek_serve_commit": "2e6fa287d90adf7318ad314de27aa2f595aac821",
+    "note": "Historical source pin and refreshed configuration are distinct. Check resolved active backend and MTP/DSpark state. Imported aggregate metrics do not establish bottlenecks."
+  },
+  "after": "2026-01-01",
+  "seed_numbers": [
+    36037,
+    62541,
+    62073
+  ],
+  "code_sources": [
+    {
+      "repo": "vllm-project/vllm",
+      "ref": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+      "path": "vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "ref": "86a5bbe75a7971275952477bb1ce03e715bcc339",
+      "path": "vllm/model_executor/layers/fused_moe/flashinfer_moe_ep.py"
+    }
+  ],
+  "queries": [
+    "deepseek-v4.1-flash b200",
+    "speculation tpot",
+    "moe communication",
+    "kv-cache ttft",
+    "nvfp4"
+  ],
+  "paper_queries": [
+    "speculative decoding adaptive draft length inference",
+    "mixture of experts inference communication overlap",
+    "prefix caching routing serving"
+  ],
+  "prior_decisions": [],
+  "constraints": [
+    "No GPU execution in this session",
+    "No invented speedups",
+    "Active baseline engine/precision/backend/DSpark must be established before claiming feature absence",
+    "Treat source-side validation limitations and crosshardware transfer explicitly; no correctness compromise"
+  ],
+  "instructions": "Produce TWO distinct source-grounded hypotheses for improving our B200 deployment, no publication novelty gate. First investigate a decode-specific MegaMoE workspace for the active FlashInfer CuTeDSL backend using #62073: could lower address/capacity overhead improve decode while allocation steals KV cache? Require exact backend inclusion check, global capacity agreement, zero/unequal rank tests, DSpark verify token-bound contract. Second investigate transferring launch-time communication CTA/SM resource selection from paper2609.07536 to B200 shared-expert/combine overlap ONLY if active backend exposes a legal concurrency/resource knob. This is conditional mechanism transfer, not a claim A100 gains apply. Pre-dispatch quantization61962 is an alternative with severe scale-compatibility risk54683; do not invent a direct AMD-to-NVIDIA port. Avoid generic shape-switching GEMM proposal already in memory. Use source excerpts as author reports, concrete counterevidence, and compare to baseline R7b2xDEP4 at256/384/512 and R10DEP8 at1024 with controls. Baseline archive dspark_config=off conflicts refreshedk5; runtimeflags and image digest unknown and must be frozen before experiments. R7b customgoodput6.6288 vs AIPerf strict4.6727; reportboth. Novelty is irrelevant. No GPU execution now. All performance thresholds are proposed design choices.",
+  "selection": {
+    "require_novelty": false
+  }
+}

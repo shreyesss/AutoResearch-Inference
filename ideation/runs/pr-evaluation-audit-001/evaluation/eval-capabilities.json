@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "repository_commit": "2e6fa287d90adf7318ad314de27aa2f595aac821",
+  "source_audit_only": true,
+  "gpu_experiments": 0,
+  "guidellm": {
+    "tracked_matches": 0,
+    "implemented": false
+  },
+  "baseline": {
+    "hardware": "8 B200",
+    "model": "DeepSeek-V4.1-Flash",
+    "desired_profile": "latency-2xdep4-sla",
+    "required_r7b_override": "lat-seqs-128",
+    "convenience_script_seqs": 64,
+    "configured_vllm_source": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+    "configured_image": "vllm/vllm-openai@sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c",
+    "runtime_attested": false,
+    "citations": [
+      {
+        "path": "serving/b200/vllm/images.yaml",
+        "line": 2,
+        "sha256": "86feda713a10e80264921eeec7d3d2dfed93aec2636e7bb31499e1ec384e7736"
+      },
+      {
+        "path": "ops_latency/run_2xdep4.sh",
+        "line": 45,
+        "sha256": "7b7f66435ba499188c97de09afbb4eb4266137c38f27167a5580f042ea279626"
+      }
+    ]
+  },
+  "evaluations": [
+    {
+      "id": "native_agent_f75",
+      "driver": "native ops_latency + HTTP/SSE loadgen",
+      "input_tokens": 8192,
+      "output_tokens": 1024,
+      "ignore_eos": true,
+      "minimum_output_tokens": 1024,
+      "prefix_tokens": 6144,
+      "prefix_pool": 64,
+      "prefix_mode": "zipf",
+      "thinking": true,
+      "tools": true,
+      "load": "closed c256/384/512, 8 shards, 120s warmup, 150s measurement; generic existing open-loop modes also available",
+      "source": {
+        "path": "testing/workloads/latency-active-matrix.yaml",
+        "line": 121,
+        "sha256": "ebdd7cada11756b231ac973d42999c0c6997af7fd48211925cb0b67c6eb78c94"
+      },
+      "capabilities": [
+        "shapes",
+        "cache fractions",
+        "concurrency/rate",
+        "duration",
+        "repetitions",
+        "unique datasets"
+      ],
+      "limitations": [
+        "Not semantic quality or sampling equivalence",
+        "Generic loadgen alone can cycle prompts",
+        "Convenience script does not apply R7b seq128"
+      ]
+    },
+    {
+      "id": "mooncake",
+      "driver": "AIPerf0.13.0 fixed_schedule mooncake_trace",
+      "subsets": [
+        "median",
+        "burst",
+        "cache-heavy"
+      ],
+      "window_s": 600,
+      "trace_source_revision": "d750cddafa4b62387ca135949595008c51e05815",
+      "source_sha256": "b434f1816a707f4bac697235588184ebc374c9907cb981bb65fb0643471fe711",
+      "load_scaling_flag": "--trace-speedup",
+      "unsupported_substitutions": [
+        "--request-rate",
+        "--concurrency",
+        "--replay-speedup"
+      ],
+      "worker_default": 256,
+      "streaming": true,
+      "per_chunk_usage": true,
+      "score": {
+        "completion_min": 0.995,
+        "error_max": 0.001,
+        "good_fraction_min": 0.95,
+        "replay_lag_p99_ms_max": 500,
+        "long_output_min_tokens": 50,
+        "long_output_tokens_per_second_min": 30,
+        "long_output_attainment_min": 0.95,
+        "qualified_field": "metrics.slo_goodput_rps",
+        "distinct_raw_field": "metrics.aiperf_slo_goodput_rps"
+      },
+      "citations": [
+        {
+          "path": "ops_aiperf/campaign.yaml",
+          "line": 23,
+          "sha256": "c119949e69f9a237ed7581df857d1482e5b6b0cbf661592cc1fd4a13e7f87a1c"
+        },
+        {
+          "path": "ops_aiperf/runner.py",
+          "line": 329,
+          "sha256": "482e257271a03f55c174d26128d8b462b7b9695fa4041250bf46a2b16490be12"
+        },
+        {
+          "path": "ops_aiperf/analyze.py",
+          "line": 500,
+          "sha256": "32f440de30c554e8f7cecbcf6205d66861a5dcd9d37e913257f33c1f7979cd0d"
+        }
+      ]
+    }
+  ],
+  "supporting_synthetic_analog": {
+    "id": "aiperf_synthetic_agent",
+    "same_as_native_agent_f75": false,
+    "reason": "No native Zipf prefix layout",
+    "parameters": [
+      "--concurrency",
+      "--request-rate",
+      "--arrival-pattern",
+      "--arrival-smoothness",
+      "--duration",
+      "--warmup-duration",
+      "--random-seed",
+      "--phase"
+    ],
+    "source": {
+      "path": "ops_aiperf/runner.py",
+      "line": 670,
+      "sha256": "482e257271a03f55c174d26128d8b462b7b9695fa4041250bf46a2b16490be12"
+    }
+  },
+  "hypothesis_capability_mapping": [
+    {
+      "mechanism": "kernel_backend",
+      "classification": "reuse_plus_instrumentation",
+      "existing_evaluations": [
+        "native_agent_f75",
+        "mooncake"
+      ],
+      "gap_or_action": "Active backend, shape/precision and kernel timing; numerical reference tests if math changes."
+    },
+    {
+      "mechanism": "padded_drafter_rows",
+      "classification": "instrumentation_only",
+      "existing_evaluations": [
+        "native_agent_f75",
+        "mooncake"
+      ],
+      "gap_or_action": "Per-rank logical/padded draft counts and accepted/proposed tokens. Existing drivers remain."
+    },
+    {
+      "mechanism": "graph_scheduled_token_dispatch",
+      "classification": "parameter_extension_plus_instrumentation",
+      "existing_evaluations": [
+        "native_agent_f75",
+        "mooncake"
+      ],
+      "gap_or_action": "Sweep existing shape/concurrency parameters; record actual graph mode and scheduled-token counts."
+    },
+    {
+      "mechanism": "prefix_source_turn",
+      "classification": "reuse_plus_instrumentation",
+      "existing_evaluations": [
+        "native_prefix_cases",
+        "mooncake_cache_heavy",
+        "native_session"
+      ],
+      "gap_or_action": "Record final rank/frontend, source of KV hits and turn index; existing session driver reports cached tokens."
+    },
+    {
+      "mechanism": "routing",
+      "classification": "reuse_plus_instrumentation",
+      "existing_evaluations": [
+        "native_prefix_cases",
+        "mooncake"
+      ],
+      "gap_or_action": "Existing endpoint router already bounded session hashing; inspect final-rank locality before proposing delta."
+    },
+    {
+      "mechanism": "scheduler_prefill",
+      "classification": "reuse_plus_instrumentation",
+      "existing_evaluations": [
+        "native_agent_f75",
+        "mooncake_burst"
+      ],
+      "gap_or_action": "Existing load and trace sweeps; add iteration phase counts and oldest request age."
+    },
+    {
+      "mechanism": "idle_api2_resume",
+      "classification": "trace_inspection_then_schedule_fixture",
+      "existing_evaluations": [
+        "mooncake",
+        "native_loadgen"
+      ],
+      "gap_or_action": "Reuse natural idle intervals if adequate; otherwise add a bounded idle/burst fixture around existing driver."
+    },
+    {
+      "mechanism": "cold_start",
+      "classification": "lifecycle_measurement_wrapper",
+      "existing_evaluations": [],
+      "gap_or_action": "Existing warm performance evaluations exclude startup; time launcher/readiness and first request with explicit cold/warm cache states."
+    },
+    {
+      "mechanism": "sampling_distribution",
+      "classification": "new_targeted_correctness_fixture",
+      "existing_evaluations": [],
+      "gap_or_action": "Reference categorical sampling/rejection-correction tests under temperature/top-p/top-k; predeclared statistical test. GSM8K/NLL insufficient."
+    },
+    {
+      "mechanism": "tool_encoder",
+      "classification": "new_targeted_correctness_fixture",
+      "existing_evaluations": [],
+      "gap_or_action": "Pinned tool-role messages, tool-call IDs, arguments, full/incremental tokenizer reference outputs. Existing session driver removes tools."
+    },
+    {
+      "mechanism": "quality_quantization",
+      "classification": "additional_quality_evaluation",
+      "existing_evaluations": [],
+      "gap_or_action": "Held-out semantic quality and numerical references required; basic smoke is insufficient."
+    },
+    {
+      "mechanism": "real_tool_task_success",
+      "classification": "new_semantic_task_evaluator",
+      "existing_evaluations": [],
+      "gap_or_action": "Only if the claim concerns actual tool execution/task success; AgentX/Exgentic here replay requests only."
+    },
+    {
+      "mechanism": "cancellation",
+      "classification": "existing_probe_plus_assertions",
+      "existing_evaluations": [
+        "ops_latency/cancellation_probe.py"
+      ],
+      "gap_or_action": "Reuse existing cancellation probe; add specific post-abort memory/state assertions."
+    }
+  ],
+  "correctness_limits": {
+    "smoke": "Only arithmetic exact output asserted; other responses largely stored",
+    "session": "Removes tools/tool_choice and appends simulated tool text as user role",
+    "citations": [
+      {
+        "path": "testing/common/smoke.py",
+        "line": 68,
+        "sha256": "23b16ea92539b9eeb6c01fb56eec4c752a25674ebc75d5940a8ceb499b84cbe8"
+      },
+      {
+        "path": "testing/common/session_loadgen.py",
+        "line": 140,
+        "sha256": "cd6cb191b03dc3af6a04c9daa1e876b5d4a25b1759a501a3c07948126079aa17"
+      }
+    ]
+  },
+  "build_deploy": {
+    "image_override": "VLLM_IMAGE",
+    "override_source": {
+      "path": "lib/serve_recipe.py",
+      "line": 108,
+      "sha256": "db189785b13c8e74187df367e205629d70321e1c2f893729e681cb23a1dab80c"
+    },
+    "fork_build_pipeline": "Not generally provided/audited; only specialized NVFP4 Dockerfile found",
+    "runtime_manifest_gap": "selected_image is env VLLM_IMAGE, not actual running container digest",
+    "source": {
+      "path": "ops_aiperf/runner.py",
+      "line": 440,
+      "sha256": "482e257271a03f55c174d26128d8b462b7b9695fa4041250bf46a2b16490be12"
+    }
+  },
+  "verification": {
+    "successful": [
+      "system python3 -m ops_aiperf.runner --help",
+      "AIPerf synthetic agent dry-run",
+      "Mooncake median trace-speedup2 dry-run",
+      "bash ops_latency/run_2xdep4.sh --plan"
+    ],
+    "not_run": [
+      "GPU",
+      "AIPerf executable run",
+      "build",
+      "deploy"
+    ],
+    "environment_gaps": [
+      "Controller Deepseek_serve .venv absent",
+      "ideation research venv lacks PyYAML; system python3 works"
+    ],
+    "artifacts": [
+      "aiperf-help.txt",
+      "native-plan.txt",
+      "synthetic-dry-run.txt",
+      "mooncake-dry-run.txt"
+    ]
+  }
+}

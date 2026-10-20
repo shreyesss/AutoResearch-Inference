@@ -1,0 +1,83 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:56929",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/56929",
+    "title": "[Perf][Engram] Fuse head reordering with MXFP8 quantization",
+    "body": "## Purpose\r\n\r\nDeepSeek-V4.1 Engram shards embedding heads across TP ranks, but its replicated\r\n`wkv` projection consumes token-major inputs. On the non-SP path, gathering along\r\n`dim=1` reorders the rank-major collective output through a BF16 clone before\r\nMXFP8 quantization. At 8192 tokens and width 6144, that intermediate is 96 MiB.\r\n\r\nGather once along `dim=0`, then fuse head reordering and padded-head removal into\r\nMXFP8 quantization. The Triton kernel reads the gathered rank-major rows directly\r\nand produces token-major FP8 values and F8_128x4 scales. `wkv` consumes the\r\n`QuantizedActivation` directly, skipping its separate activation quantization.\r\nThere is still exactly one TP all-gather; the quantization helper performs no\r\ncommunication.\r\n\r\nThe SP path already gathered along `dim=0` and used `_engram_select_rows` to\r\ncopy this rank's token window into a `T/tp`-sized BF16 buffer before\r\nquantization. The same kernel takes `token_start` and `out_tokens`, so the SP\r\nshard is quantized straight out of the gathered buffer as well; rows past the\r\nlast token quantize as zeros, exactly as the select kernel produced them.\r\nEmbedding lookup is unchanged under SP: every rank still looks up all `T`\r\ntokens for its head shard, and only the projection and gate run on the shard.\r\n\r\nEligibility lives in the module-level `can_quantize_engram_gather`: TP>1 and a\r\n`wkv` whose advertised input key is `kMxfp8Dynamic` on a FlashInfer CuTe-DSL or\r\nCUTLASS MXFP8 kernel, because `QuantKey` does not encode the F8_128x4 scale\r\nlayout. The check goes through `get_input_quant_key`, so\r\nconsumers that require unquantized inputs fall back. Other configurations retain\r\ntheir existing path. The kernel is launched with the PDL launch attribute as well\r\nas the in-kernel `gdc_wait`/`gdc_launch_dependents`, matching the other Triton\r\nkernels in the tree.\r\n\r\n### Duplicate-work check\r\n\r\nOn 2026-09-15, searched open `vllm-project/vllm` PRs for `Engram`,\r\n`MXFP8 gather`, and `Engram quantize`. No PR implementing this non-SP\r\nreorder-plus-quantization fusion was found. Related\r\n[#56435](https://github.com/vllm-project/vllm/pull/56435) changes SP redistribution\r\nto all-to-all; [#56926](https://github.com/vllm-project/vllm/pull/56926) serializes\r\nlookup streams, and [#56436](https://github.com/vllm-project/vllm/pull/56436)\r\ncontrols lookup overlap. These address different operations. #56435 changes the\r\nSP data layout, so whichever lands second must re-derive the SP window indexing\r\nhere. No issue number was provided for this change.\r\n\r\n## Test Plan\r\n\r\nRun from the repository with its CUDA-enabled `.venv` and FlashInfer CuTe-DSL\r\navailable. Both `.venv/bin` (for `ninja`) and the CUDA toolkit must be on `PATH`,\r\notherwise FlashInfer detection fails and the CUTLASS cases error instead of\r\nskipping:\r\n\r\n```bash\r\nexport PATH=\"$PWD/.venv/bin:/usr/local/cuda/bin:$PATH\"\r\n.venv/bin/python -m pytest tests/kernels/test_engram.py -q --disable-warnings --maxfail=1\r\n.venv/bin/python -m pytest tests/kernels/test_engram.py -q \\\r\n  -k 'gather_quant or quantized_gather' --disable-warnings --maxfail=1\r\n.venv/bin/pre-commit run --files \\\r\n  vllm/models/deepseek_v41/common/engram.py \\\r\n  vllm/models/deepseek_v41/nvidia/engram.py \\\r\n  vllm/models/deepseek_v41/common/ops/engram_quant.py \\\r\n  tests/kernels/test_engram.py\r\ngit diff --check\r\n.venv/bin/python benchmarks/kernels/benchmark_engram_gather_quant.py\r\n```\r\n\r\n## Test Result\r\n\r\n- Full Engram suite: **157 passed**, including a real two-GPU all-gather comparison.\r\n- Focused tests: **73 passed, 84 deselected**.\r\n- Bitwise equality of FP8 values and the complete scale buffer, including scale\r\n  padding, across TP2/4/8 layouts, padded heads, zero tokens, decode and prefill\r\n  shapes, the full token range plus first and last SP windows (including the\r\n  zero-filled tail of the last shard), and CUDA Graph replay. Numerical tests cover every finite BF16 value\r\n  in constant and mixed groups, signed zero, and very small/large inputs.\r\n- Both real FlashInfer MXFP8 linear backends preserve bitwise-identical `wkv`\r\n  outputs for non-SP and for SP ranks 1 and 3 of TP4, in eager execution, `torch.compile` with the eager backend, full CUDA\r\n  Graph replay, and `BreakableCUDAGraphCapture` with the CPU-offload prefetch\r\n  wait as a real eager break (one break, replay against refreshed rows). Tests\r\n  reject accidental requantization of the fused input and check that\r\n  `requires_unquantized_input` disables the fusion.\r\n- Pre-commit and `git diff --check`: **passed**.\r\n\r\n### Checkpoint projection validation\r\n\r\nAn additional local harness loaded actual `wkv` weights and scales from layers\r\n1 and 14 of `deepseek-ai/DeepSeek-V4.1-Flash`, revision\r\n`dba1be0a40aa45a94ad051997016db3960a90277`. Both projections have weight shape\r\n`[25600, 6144]`. With synthetic BF16 embedding rows and TP4 layouts, baseline and\r\nfused CuTe-DSL projection outputs were bitwise identical at 1, 17, 128, and 8192\r\ntokens: **8/8 comparisons passed**. This harness is not included in the PR.\r\nFull-model generation, accuracy evaluation, and serving benchmarks were not run;\r\nthe fused path is bitwise identical to the existing quantization, so model output\r\nis unchanged.\r\n\r\n### Performance\r\n\r\nReproduced with `benchmarks/kernels/benchmark_engram_gather_quant.py`.\r\n\r\nOne NVIDIA GB200; PyTorch 2.13.0+cu132; FlashInfer 0.6.18; Triton 3.7.1; BF16\r\ninput, head dimension 256. Measurements use CUPTI, CUDA Graph replay, cold L2,\r\nand the median sum of kernel times, with compilation and warmup excluded. The\r\nbenchmark starts from a simulated rank-major collective output and excludes\r\nall-gather, embedding lookup, and GEMM. These are local operation timings, not\r\nend-to-end speedups.\r\n\r\n| TP | Heads | Tokens | Reorder + quantize (us) | Fused (us) | Speedup |\r\n| --- | --- | --- | --- | --- | --- |\r\n| 4 | 24 | 1 | 2.272 | 2.240 | 1.01x |\r\n| 4 | 24 | 16 | 6.240 | 2.368 | 2.64x |\r\n| 4 | 24 | 128 | 7.040 | 2.672 | 2.64x |\r\n| 4 | 24 | 1024 | 23.072 | 5.600 | 4.12x |\r\n| 4 | 24 | 8192 | 144.127 | 26.368 | 5.47x |\r\n| 4 | 23 (padded) | 8192 | 247.136 | 26.368 | 9.37x |\r\n\r\nFor the 8192-by-6144 case, the net saving is **117.8 us (81.7%)** per Engram\r\nlayer per forward. The table was measured with the final kernel, including the\r\n`token_start` / `out_tokens` window arguments; they are `do_not_specialize`\r\nruntime scalars, and calling with eleven different (num_tokens, token_start,\r\nout_tokens) combinations produced a single compiled variant. The kernel processes 128 MXFP8 groups per program with 4\r\nwarps, which measured about 2x faster than 32 groups at 1024 and 8192 tokens\r\nand equal at decode sizes. At 8192 tokens it streams at about 5.6 TB/s, faster\r\nthan a plain PyTorch BF16-to-FP8 cast of the same bytes (29.8 us). At 1 to 16\r\ntokens it is within 0.5 us of that cast and about 1 us above an empty launch,\r\nso decode-size timings are launch-bound.\r\n\r\nSP window, TP4, 24 heads, rank 1, same setup. Baseline is\r\n`_engram_select_rows` plus FlashInfer quantization of the `T/tp` window:\r\n\r\n| Tokens | Window | Select + quantize (us) | Fused (us) | Speedup |\r\n| --- | --- | --- | --- | --- |\r\n| 16 | 4 | 3.904 | 2.272 | 1.72x |\r\n| 128 | 32 | 4.224 | 2.528 | 1.67x |\r\n| 1024 | 256 | 7.776 | 3.328 | 2.34x |\r\n| 8192 | 2048 | 29.120 | 9.056 | 3.22x |\r\n\r\nPer Engram layer per forward this saves roughly 117 us (non-SP) or 20 us (SP)\r\nat 8192 prefill tokens and 0 to 4 us at decode batch sizes, so end-to-end\r\nthroughput impact is small.\r\n\r\nAI assistance was used for implementation, validation, and this PR description\r\n(OpenAI Codex), and for review, kernel tile tuning, PDL launch wiring, and the\r\nbreakable-capture test. Human review of every changed line and\r\nindependent execution of relevant tests are required before submission.\r\n",
+    "created_at": "2026-09-15T02:04:09Z",
+    "updated_at": "2026-09-17T21:08:02Z",
+    "fetched_at": "2026-10-19T23:17:56Z",
+    "state": "closed",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "throughput",
+      "performance",
+      "communication"
+    ],
+    "metadata": {
+      "number": 56929,
+      "labels": [
+        {
+          "id": 8746007475,
+          "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+          "name": "deepseek",
+          "color": "1995FE",
+          "default": false,
+          "description": "Related to DeepSeek models",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9988761457,
+          "node_id": "LA_kwDOI7xefs8AAAACU2BncQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/quantization",
+          "name": "quantization",
+          "color": "62bfab",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 12141724842,
+          "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+          "name": "DSv4.1",
+          "color": "2c52b7",
+          "default": false,
+          "description": "Related to DeepSeek-V4.1 models",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 0,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "31928987546ff6454f9a7d945f3ff132c5f9c531",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "perf/engram-gather-quant",
+        "sha": "584573ec1470e34a85267dcd4e85945a62edf7d9",
+        "label": "Juntian777:perf/engram-gather-quant"
+      },
+      "merge_commit_sha": "ed6d01c05e17fe2459e2d01c885cf3a0c904ebb7",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:17:56Z"
+    },
+    "content_hash": "d8489b5c057347c3ae6624250fb0f1f83fb162ecfbaa6baa496135430b61c92d"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

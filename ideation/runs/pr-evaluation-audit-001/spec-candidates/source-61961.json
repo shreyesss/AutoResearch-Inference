@@ -1,0 +1,82 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61961",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61961",
+    "title": "[KV Offload] Load small CPU-tier hits synchronously within the step",
+    "body": "## Overview\n\nOn wide-EP MoE prefill (such as GLM-5.3), a step takes 0.3 to 0.5 s. Almost every request has a small CPU-tier hit, and an async load parks it for about 2 steps although the copy takes ~1 ms.\n\nThis adds an opt-in `sync_load_max_tokens` option (`kv_connector_extra_config`, default 0, off): smaller hits load in the same step. The change stays in the offloading connector's scheduler and worker.\n\n## Changes\n\n- `scheduler.py`: hits up to `sync_load_max_tokens` return `load_async=False`, so the request is scheduled in this step; the load targets its blocks by position and is marked sync.\n- `worker.py`: waits for sync loads before the forward pass and does not report them in `finished_recving`.\n- `common.py`: a `TransferJob.sync` flag carries that decision from scheduler to worker.\n\n## Claims\n\n- Hits up to the limit load in the same step. The limit exists because the whole batch waits for the copy. A hit that would leave nothing to compute stays async.\n- Sync-load blocks are hashed at allocation, so the load range is found by position. Other requests can match them in the same step, which is safe since the forward pass waits for the copy.\n- The worker waits for sync loads with the existing `OffloadingWorker.wait()` before the forward pass.\n- With the option at 0, behavior is unchanged.\n\n## Validation\n\nQwen3-30B-A3B on H100, OffloadingConnector + TieringOffloadingSpec. 12k-token prefix in GPU cache, 2k-token tail only in the CPU tier. Median extra TTFT vs a GPU-hit control:\n\n| Setup | Without fix | With fix (limit 4096) |\n|---|---|---|\n| 1 node: DP=2 + EP (this version, 10 reps) | +219 ms | +1 ms |\n| 2 nodes: TP=8, DP=2, EP over 16 GPUs (12 reps) | +344 ms | +8 ms |\n\nGLM-5.3, one prefill group (4x8 H100, wide EP), request latency with a CPU-tier hit: ~1.9 s without the fix or above the limit, ~0.85 s under it (hits of 2k to 15k tokens).\n\nCorrectness: greedy continuation with the tail served from the CPU tier is correct 7/7 (Qwen3 and GLM-5.3).\n\n    pytest tests/v1/kv_connector/unit/offloading_connector/   # 595 passed\n\n## Details\n\nNot a duplicate: no open PR adds sync offload loads (closest: #60574, #58198).\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [ ] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n\n",
+    "created_at": "2026-10-16T05:25:07Z",
+    "updated_at": "2026-10-20T06:45:41Z",
+    "fetched_at": "2026-10-20T08:04:30Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "h100",
+      "moe",
+      "ttft",
+      "performance"
+    ],
+    "metadata": {
+      "number": 61961,
+      "labels": [
+        {
+          "id": 5135047180,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaDA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/documentation",
+          "name": "documentation",
+          "color": "0075ca",
+          "default": true,
+          "description": "Improvements or additions to documentation",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 7197733874,
+          "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+          "name": "ready",
+          "color": "ededed",
+          "default": false,
+          "description": "ONLY add when PR is ready to merge/full CI is needed",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9306392211,
+          "node_id": "LA_kwDOI7xefs8AAAACKrRGkw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-connector",
+          "name": "kv-connector",
+          "color": "4417cb",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 5,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "fce64bc5c2c939a4521bfb9b462c8c74c1c13893",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "offload-sync-small-loads",
+        "sha": "473da74c6e5d42ac1ceb3f613271b735be012b9f",
+        "label": "kfirtoledo:offload-sync-small-loads"
+      },
+      "merge_commit_sha": "86a6e3617de5b852b0e65c73c193c5a82d24555f",
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T08:04:30Z"
+    },
+    "content_hash": "2d4fbdb89d017634f532493135ed02f3c82eccff03e5197e3fb6d37112a000a1"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

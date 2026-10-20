@@ -1,0 +1,1852 @@
+[
+  {
+    "id": "hypothesis:94dd50d3be4681019165c8881da3126ce250322542059f4b310d0baac279579d",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/three-tools-002/hypotheses",
+    "local_id": "H01",
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Trace draft wait on the unchanged qualified baseline; reject this direction if little exposed wait remains.",
+          "explanation": "Fixed MTP already hides most drafting time."
+        },
+        {
+          "distinguishing_test": "Hold backend, layout, MTP depth, recipe settings, and DP coordination fixed across arms; record their resolved states.",
+          "explanation": "Any apparent gain comes from asynchronous DP coordination or configuration drift."
+        }
+      ],
+      "applicability": "Conditional on compatible MTP/DSpark and backend state, measurable draft wait, affordable outcome prediction, and spare capacity under DEP8 or two DEP4 layouts.",
+      "classification": "adaptation",
+      "code_surface": "Proposed speculative scheduler, draft/verify handoff, KV-state accounting, and preemption handling; the supplied sources do not establish the active implementation path at the pinned commit.",
+      "evidence": [
+        {
+          "quote": "pre-speculates tokens for those outcomes in advance",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:36037"
+        },
+        {
+          "quote": "which parallelizes even this sequential dependence",
+          "relation": "supports",
+          "source_id": "fulltext:2603.03251"
+        },
+        {
+          "quote": "generally ineffective for throughput-bound workloads",
+          "relation": "challenges",
+          "source_id": "fulltext:2603.03251"
+        },
+        {
+          "quote": "preempted after a speculative decode frame has been dispatched but before its output returns",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:49620"
+        },
+        {
+          "quote": "It changes only `recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml` (guide text).",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:62541"
+        },
+        {
+          "quote": "mean TPOT: 268.02 ms -> 260.72 = 2.7% speedup",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:30980"
+        }
+      ],
+      "experiment": {
+        "control": "Qualified unchanged fixed-MTP/DSpark recipe at the pinned serving stack, plus a static branch-budget SSD comparator if an implementation is available; use the same eight-GPU budget.",
+        "correctness": "Check deterministic output equivalence where applicable and quality evaluations otherwise; exercise mismatch, partial acceptance, cancellation, preemption, repeated preemption, and prefix-cache reset.",
+        "cost": "Implementation and setup cost are unknown and potentially substantial. No GPU execution is authorized in this analysis; any later serving experiment must account for all eight GPUs, warmup, and repeats.",
+        "held_out_condition": "Separate agent-style request bodies with different prefix repetition and concurrency from policy tuning; include cold and repeated-prefix traffic and both candidate layouts.",
+        "inconclusive_if": "The active backend or MTP state cannot be resolved, the static comparator is unavailable, configuration drifts, or measurement uncertainty exceeds the observed differences.",
+        "metrics": "Draft wait, branch match and discard rates, added draft tokens and memory, TTFT, TPOT, throughput, cost per token, and output quality; report distributions by load and cache condition.",
+        "rejects_if": "Exposed draft wait is negligible, branch matches are too rare, stale-state correctness fails, or added work erases the latency gain under the equal-resource comparison.",
+        "supports_if": "On held-out requests, prepared branches repeatedly remove exposed draft wait and improve TPOT beyond run variance while quality holds and throughput and cost remain acceptable under a prespecified service objective.",
+        "treatment": "Capped asynchronous outcome branches with trace-gated spending, expiry, and epoch-based invalidation."
+      },
+      "id": "H01",
+      "mechanism": "Prepare a bounded set of possible next drafts during verification, reuse a matching continuation, and invalidate unmatched or stale state.",
+      "novelty": {
+        "implementation": "A bounded, epoch-safe integration with the resolved DeepSeek-V4.1-Flash serving path is proposed, not demonstrated.",
+        "nearest_prior_art": "SSD/Saguaro; AMUSD and SwiftSpec abstracts describe related asynchronous systems. The earlier B200 H06 decision proposes adaptive DSpark depth, a different control mechanism.",
+        "scientific": "Unestablished; SSD and asynchronous drafting are prior art.",
+        "specific_delta": "Conditionally prepare verification-outcome continuations under an explicit shared-node work and memory budget, with stale-state invalidation and fixed-MTP fallback.",
+        "workload": "Agent-style approximately 8K input / 1K output on one eight-B200 node; the 75% cacheability target is not a measured hit rate."
+      },
+      "observed_bottleneck": "Unknown. The supplied DeepSeek-V4.1-Flash material reports recipe validation, not a draft-wait or verification trace.",
+      "operation": "generate",
+      "parents": [],
+      "predicted_direction": "Conditional TPOT reduction; throughput and cost per token may worsen if unused drafts consume scarce capacity. TTFT benefit is unestablished.",
+      "prior_art_query": "bounded speculative speculative decoding branches",
+      "proposed_change": "Add a trace-gated branch budget, request/KV epochs, expiry and preemption handling, plus a fixed-MTP fallback.",
+      "revision_reason": "The proposal limits speculative work because the supplied paper cautions about throughput-bound use, while the open preemption PR identifies a stale-output hazard. No source establishes a target bottleneck or speedup.",
+      "statement": "On the eight-B200 DeepSeek-V4.1-Flash node, trial a capped asynchronous draft cache that prepares likely verification continuations while the target verifies the current MTP batch. A scheduler would spend a per-request token and memory budget only when traces show material draft wait and verification outcomes that can be predicted affordably; otherwise it would use fixed MTP. Prepared continuations would carry request and KV-state epochs and expire on mismatch, preemption, prefix-cache reset, or budget pressure. This could reduce TPOT when a prepared continuation matches, but discarded work could reduce throughput. No supplied source measures draft wait, outcome predictability, or discarded-work cost for this model. Reported SSD gains elsewhere are author claims. Compare within the same eight-GPU budget against qualified fixed MTP and a static branch policy."
+    },
+    "fingerprint": "bbb9df2fde9f7193ecd77f38d9bdb4b3d4096db7cfa07a351135534c4047ac60",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "eligible": false,
+      "meaning": "Eligible for experiment design, not scientifically validated or guaranteed novel",
+      "reasons": [
+        "Critic gate: evidence_entails_claims",
+        "Critic gate: distinct_from_prior_art",
+        "Critic gate: test_discriminates_alternatives",
+        "Critic gate: feasible_within_constraints"
+      ],
+      "score": null
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:fe6386c8c04b442fb90410315a1e9bb26ffcea94a02f81d63a3416f025c4019a",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/moe-low-m-002",
+    "local_id": "H1",
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Measure host step time, GPU busy time, full MoE time, and TPOT together across repeated C1 and C4 runs.",
+          "explanation": "Host scheduling or other decode work limits TPOT despite faster GPU kernels."
+        },
+        {
+          "distinguishing_test": "Attribute the full MoE interval to staging, routing, GEMM, and launch gaps; compare end-to-end results with the same staging path.",
+          "explanation": "Routing and staging launches, rather than expert GEMM choice, dominate the relevant interval."
+        }
+      ],
+      "applicability": "A specified DeepSeek checkpoint, dtype, topology, and CUDA Graph configuration on B200 after backend eligibility is verified.",
+      "classification": "adaptation",
+      "code_surface": "Proposed vLLM fused MoE backend dispatch and DeepGEMM warmup; the exact target selector and checkpoint path have not been supplied. The supplied prepare_megamoe.py confirms padding-mask semantics for one NVFP4 staging path.",
+      "evidence": [
+        {
+          "quote": "switching from GroupedGemm to DenseGemm at a certain token number",
+          "relation": "context",
+          "source_id": "fulltext:2410.12247"
+        },
+        {
+          "quote": "M/rank | FlashInfer baseline (tok/s) | DeepGEMM fused (tok/s)",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:54520"
+        },
+        {
+          "quote": "C1 ×3 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:57977"
+        },
+        {
+          "quote": "ids = tl.where(token_is_padding, -1, ids)",
+          "relation": "context",
+          "source_id": "code:vllm-project/vllm:61aa7068b0f98677fa2166ff823d88330e70d47e:vllm/model_executor/layers/fused_moe/prepare_megamoe.py"
+        },
+        {
+          "quote": "TMA (Tensor Memory Accelerator) alignment faults",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:46238"
+        },
+        {
+          "quote": "The DeepGEMM warmup covers `fp8_gemm_nt` and the grouped MoE GEMM.",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:60468"
+        }
+      ],
+      "experiment": {
+        "control": "Current dispatch and the best eligible static backend, each with matched graph mode, warmup, and staging.",
+        "correctness": "Compare greedy outputs and expert routing, including padded tokens; repeat CUDA Graph capture and replay and verify safe low-M warmup candidates.",
+        "cost": "No GPU execution in this analysis. A later bounded B200 study must include compile, capture, and startup costs.",
+        "held_out_condition": "A predeclared prompt-length and routing distribution excluded from policy selection, measured at C1 and C4.",
+        "inconclusive_if": "The target path lacks multiple eligible backends, timing variability obscures the effect, or the traced bottleneck is outside MoE.",
+        "metrics": "Repeated C1/C4 TPOT, host step time, GPU busy time, full MoE interval, routed rows per expert, launch counts, capture and startup cost.",
+        "rejects_if": "Neither target regime improves TPOT over the best static control, or correctness or replay fails.",
+        "supports_if": "The treatment reproducibly lowers end-to-end TPOT versus both controls in its declared shape regime, with matching outputs and valid graph replay.",
+        "treatment": "Predeclared shape policy over those eligible backends; capture each selected path with stable buffers."
+      },
+      "id": "H1",
+      "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+      "novelty": {
+        "implementation": "Unestablished until the target vLLM dispatcher and existing small-M paths are inspected.",
+        "nearest_prior_art": "EPS-MoE token-dependent GEMM switching; existing vLLM MoE backend integrations.",
+        "scientific": "Unestablished; token-dependent grouped versus dense selection is prior work.",
+        "specific_delta": "A capture-compatible selection policy validated against the best eligible static path on target end-to-end TPOT.",
+        "workload": "Potential adaptation to a verified B200 DeepSeek decode configuration."
+      },
+      "observed_bottleneck": "Unknown for the target B200 DeepSeek setup. No supplied trace isolates expert GEMM, padding, launch, or host time there.",
+      "operation": "generate",
+      "parents": [],
+      "predicted_direction": "Lower TPOT only in routed-row regimes where the selected path wins end to end; no effect size is predicted.",
+      "prior_art_query": "MoE grouped dense GEMM dispatch",
+      "proposed_change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+      "revision_reason": "The supplied PR excerpt now includes the numerical TPOT passage missing from the earlier critique. Its author-reported C1 gain is small despite a larger reported GPU busy-time gain, so the experiment requires a full-path comparator.",
+      "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target’s TPOT or that its current dispatch is static. Prior work already switches between grouped and dense GEMM by token count, so this is a conditional workload adaptation. First identify eligible backends and trace complete decode steps. Then compare a predeclared selection policy with current dispatch and the best eligible static choice under the same CUDA Graph mode. A kernel-level gain alone would not justify the change: the policy must reduce repeated end-to-end TPOT."
+    },
+    "fingerprint": "4be2aca66fd885cf0cc29b4ed9ecc582454e957a375c3886d8613d9d1b404532",
+    "status": "rejected",
+    "baseline": "baseline:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "eligible": false,
+      "meaning": "Eligible for experiment design, not scientifically validated or guaranteed novel",
+      "reasons": [
+        "Critic gate: distinct_from_prior_art"
+      ],
+      "score": null
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:5635596cc17f8714a2bcb500c1631bf31c97c3fa2be67c6bb7f28e6df74fcf1c",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/moe-low-m-001-analysis/hypotheses",
+    "local_id": "H1",
+    "card": {
+      "alternatives": [
+        {
+          "distinguishing_test": "Compare repeated TPOT with GPU busy time and host-loop timing. The supplied V4.1 PR reports a larger GPU-time reduction than TPOT reduction.",
+          "explanation": "Host scheduling or graph replay limits TPOT even when GPU work falls."
+        },
+        {
+          "distinguishing_test": "Measure full-path time alongside expert GEMM time, routed rows, and padded rows by batch-shape bucket.",
+          "explanation": "Routing, staging, communication, or padding dominates the MoE path rather than expert GEMM."
+        }
+      ],
+      "applicability": "Conditional on the target DeepSeek checkpoint, dtype, weight layout, routing semantics, and graph mode supporting at least two correct backends. These details are unknown.",
+      "classification": "adaptation",
+      "code_surface": "vLLM fused-MoE backend dispatch, expert GEMM adapters, model warmup, and CUDA Graph capture setup; exact target call sites are unknown from the supplied sources.",
+      "evidence": [
+        {
+          "quote": "switching from GroupedGemm to DenseGemm at a certain token number",
+          "relation": "supports",
+          "source_id": "fulltext:2410.12247"
+        },
+        {
+          "quote": "M/rank | FlashInfer baseline (tok/s) | DeepGEMM fused (tok/s)",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:54520"
+        },
+        {
+          "quote": "C1 ×3 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:57977"
+        },
+        {
+          "quote": "Keep symmetric-buffer allocation/rendezvous outside forward and CUDA Graph capture.",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:54520"
+        },
+        {
+          "quote": "TMA (Tensor Memory Accelerator) alignment faults",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:46238"
+        },
+        {
+          "quote": "The DeepGEMM warmup covers `fp8_gemm_nt` and the grouped MoE GEMM.",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:60468"
+        }
+      ],
+      "experiment": {
+        "control": "Current vLLM dispatch, plus the best eligible existing static backend chosen using a separate tuning set.",
+        "correctness": "Check output agreement within the target dtype's accepted tolerance, routing and padding semantics, and repeated CUDA Graph replay across bucket boundaries.",
+        "cost": "Requires target B200 GPU profiling and serving runs, graph capture for each eligible variant, and warmup accounting. No GPU execution was performed for this analysis.",
+        "held_out_condition": "Prompt lengths and routing distributions excluded from bucket tuning, including C4 decode.",
+        "inconclusive_if": "Kernel time improves without a resolvable TPOT change, measurement noise obscures the comparison, or concurrent effects prevent attribution.",
+        "metrics": "Repeated C1/C4 decode TPOT, GPU busy time, expert GEMM time, full MoE time, host-loop time, routed and padded rows, graph replay failures, startup and warmup cost.",
+        "rejects_if": "No eligible second backend exists, graph replay or correctness fails, or treatment does not improve TPOT against the best static control.",
+        "supports_if": "Treatment lowers repeated TPOT against both controls in prespecified low-M buckets, remains correct under graph replay, and the full-path trace attributes the difference to backend choice.",
+        "treatment": "Predeclared shape-bucket selection among the same eligible backends, with a captured path per bucket."
+      },
+      "id": "H1",
+      "mechanism": "Small per-expert M can change the relative cost of grouped GEMM, dense GEMM, routing, and staging. A batch-shape bucket can select an eligible captured backend without changing allocations during graph replay.",
+      "novelty": {
+        "implementation": "Potentially a B200 DeepSeek-specific, graph-compatible selection policy, contingent on confirming that equivalent backend choice is absent.",
+        "nearest_prior_art": "EPS-MoE token-count switching; existing vLLM FlashInfer and DeepGEMM MoE integrations.",
+        "scientific": "Unestablished; load-dependent grouped-versus-dense selection is prior work.",
+        "specific_delta": "Measured batch-shape buckets and captured backend variants for the target configuration, if current dispatch is static.",
+        "workload": "Low-concurrency B200 DeepSeek decode; the supplied backend comparison instead used GB300 and GLM-5.2."
+      },
+      "observed_bottleneck": "Unknown for B200 DeepSeek. The supplied code confirms padding masking in an NVFP4 staging path, but supplies no target trace or measured expert GEMM share of TPOT.",
+      "operation": "generate",
+      "parents": [],
+      "predicted_direction": "Potentially lower repeated C1/C4 decode TPOT in measured low-M buckets; effect size unknown. Other buckets may regress.",
+      "prior_art_query": "MoE grouped dense GEMM dispatch",
+      "proposed_change": "After profiling and contract checks, add a small, predeclared batch-shape selection table using existing eligible backends and capture each selected path with stable buffers.",
+      "revision_reason": "The proposal is conditional because the supplied sources contain no B200 DeepSeek expert-GEMM trace and no verified target backend dispatch.",
+      "statement": "Test a shape-aware choice among eligible existing expert GEMM backends for low-concurrency DeepSeek decode on B200. EPS-MoE establishes grouped-versus-dense selection by token count as prior work; a vLLM PR reports a small-load backend comparison on GB300 and GLM-5.2, but neither establishes the best choice or a bottleneck for this target. Profile routed tokens per expert and the full MoE path first. If backend eligibility and distinct performance regions are confirmed, capture a fixed backend for each supported batch-shape bucket and select its graph before replay. The prediction is lower decode TPOT only in buckets where expert computation exceeds selection and staging costs. A kernel-time improvement alone would not establish a serving benefit."
+    },
+    "fingerprint": "9aeb5dde2ab791fd22eaf7c414c6ff9c4cf0e936cc135aa122a27e6f0461a8e6",
+    "status": "rejected",
+    "baseline": "baseline:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "eligible": false,
+      "meaning": "Eligible for experiment design, not scientifically validated or guaranteed novel",
+      "reasons": [
+        "Critic gate: evidence_entails_claims",
+        "Critic gate: distinct_from_prior_art"
+      ],
+      "score": null
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:5650cf72d555cb4643736fe7e446d11bf6bfac74efe28156c494f71ed2b4bf41",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "comparators:6",
+    "card": {
+      "id": "comparators:6",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "No speculation and fixed DSpark depth remain quality and performance controls. The #62417 chat/tool report is for the 1017 checkpoint on SM120, not a demonstrated B200 failure.",
+      "original_record": "No speculation and fixed DSpark depth remain quality and performance controls. The #62417 chat/tool report is for the 1017 checkpoint on SM120, not a demonstrated B200 failure.",
+      "proposed_change": "",
+      "statement": "No speculation and fixed DSpark depth remain quality and performance controls. The #62417 chat/tool report is for the 1017 checkpoint on SM120, not a demonstrated B200 failure."
+    },
+    "fingerprint": "902ac511065615c276f4f74aaadc0c422883f7c0b376e2bcd0ce3bf9601bce9b",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:6c337e16b1e58dd618c86ebc1da6168df17ea7fd26db318e9a24d018416fc3b2",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "comparators:5",
+    "card": {
+      "id": "comparators:5",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "For H01: stock cache admission, #51981 request no-store, RR-Evict tail eviction, and #54625/#58837 waiting-queue policies. For H02: EPLB off, best fixed placement, qualified async cadence, #61839 rebalance cap, and #59168 routing if applicable.",
+      "original_record": "For H01: stock cache admission, #51981 request no-store, RR-Evict tail eviction, and #54625/#58837 waiting-queue policies. For H02: EPLB off, best fixed placement, qualified async cadence, #61839 rebalance cap, and #59168 routing if applicable.",
+      "proposed_change": "",
+      "statement": "For H01: stock cache admission, #51981 request no-store, RR-Evict tail eviction, and #54625/#58837 waiting-queue policies. For H02: EPLB off, best fixed placement, qualified async cadence, #61839 rebalance cap, and #59168 routing if applicable."
+    },
+    "fingerprint": "cbe51001f9731c818d7c3aba6cb623fc6cd351e1ecdd6fde7e4cf2a4eee1082a",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:5a4cdc6db42be7df0b162406a87ed8cd95721aa62e5ba0eb3b50cd7311e8ccb9",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "comparators:4",
+    "card": {
+      "id": "comparators:4",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Open #62009 has no supplied base/head SHAs; its inclusion in either pinned deployment is unknown. The later #62073 flashinfer_moe_ep.py body cannot establish the pinned B200 backend.",
+      "original_record": "Open #62009 has no supplied base/head SHAs; its inclusion in either pinned deployment is unknown. The later #62073 flashinfer_moe_ep.py body cannot establish the pinned B200 backend.",
+      "proposed_change": "",
+      "statement": "Open #62009 has no supplied base/head SHAs; its inclusion in either pinned deployment is unknown. The later #62073 flashinfer_moe_ep.py body cannot establish the pinned B200 backend."
+    },
+    "fingerprint": "ca63369c5d42d5dcb0344e7b9e8d68e63afe78e7e0316a41f56749c17699ff28",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:4815feb21e41ff1318379b4594e9d76afb2956e55332c5e1036955f16555d5e9",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "comparators:3",
+    "card": {
+      "id": "comparators:3",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Open #62073 is stacked on woosuk/beam-fused-allreduce base 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea at woosuk/beam-moe head 86a5bbe75a7971275952477bb1ce03e715bcc339. A supplied comment reports conflicts. Its merge_commit_sha field is not proof of merge, and its Beam paths are not V4.1 serving evidence.",
+      "original_record": "Open #62073 is stacked on woosuk/beam-fused-allreduce base 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea at woosuk/beam-moe head 86a5bbe75a7971275952477bb1ce03e715bcc339. A supplied comment reports conflicts. Its merge_commit_sha field is not proof of merge, and its Beam paths are not V4.1 serving evidence.",
+      "proposed_change": "",
+      "statement": "Open #62073 is stacked on woosuk/beam-fused-allreduce base 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea at woosuk/beam-moe head 86a5bbe75a7971275952477bb1ce03e715bcc339. A supplied comment reports conflicts. Its merge_commit_sha field is not proof of merge, and its Beam paths are not V4.1 serving evidence."
+    },
+    "fingerprint": "810820de279fca6033078f465c2dc3ac3a2894f69f99945464e2c7edce106ddd",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:9ad5ee59eeb96bbd0d0a5868ee7679675228b9f21f8bf9821cfe21fc0a86ab04",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "comparators:2",
+    "card": {
+      "id": "comparators:2",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Open #62541 targets main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5 and changes guide text only; its validated recipe is not thereby in the historical baseline.",
+      "original_record": "Open #62541 targets main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5 and changes guide text only; its validated recipe is not thereby in the historical baseline.",
+      "proposed_change": "",
+      "statement": "Open #62541 targets main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5 and changes guide text only; its validated recipe is not thereby in the historical baseline."
+    },
+    "fingerprint": "84fc9501f35d770e83685a64dd6ed738720bb94a6b987f73517640456ca185ec",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:cf38e9ff6b52d0b6227b6258516854d6258eeabd597eab03c42099699e2dcdc2",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "comparators:1",
+    "card": {
+      "id": "comparators:1",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "DEP8 and two DEP4 are separate eight-B200 topology controls. Match checkpoint, request bodies and arrival order, cache preparation, concurrency, precision, KV format, MTP/DSpark state, active MoE backend, sampler, and quality scorer within each comparison.",
+      "original_record": "DEP8 and two DEP4 are separate eight-B200 topology controls. Match checkpoint, request bodies and arrival order, cache preparation, concurrency, precision, KV format, MTP/DSpark state, active MoE backend, sampler, and quality scorer within each comparison.",
+      "proposed_change": "",
+      "statement": "DEP8 and two DEP4 are separate eight-B200 topology controls. Match checkpoint, request bodies and arrival order, cache preparation, concurrency, precision, KV format, MTP/DSpark state, active MoE backend, sampler, and quality scorer within each comparison."
+    },
+    "fingerprint": "77af276ba47c8d822c6338190f64700ddd33cd26498859b6976269978093cd34",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:f6c1a4d9e1b08c0c08feabf7d41ff5b343810ef9cb869920f9d1e8b028a18776",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "comparators:0",
+    "card": {
+      "id": "comparators:0",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Historical baseline: vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and DeepSeek Serve 2e6fa287d90adf7318ad314de27aa2f595aac821. Refreshed configuration and later main-branch availability are separate from inclusion in these pins.",
+      "original_record": "Historical baseline: vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and DeepSeek Serve 2e6fa287d90adf7318ad314de27aa2f595aac821. Refreshed configuration and later main-branch availability are separate from inclusion in these pins.",
+      "proposed_change": "",
+      "statement": "Historical baseline: vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and DeepSeek Serve 2e6fa287d90adf7318ad314de27aa2f595aac821. Refreshed configuration and later main-branch availability are separate from inclusion in these pins."
+    },
+    "fingerprint": "58aec2160241f46c909dc4bf006279aa6b41f295b7b32ef9a304b16516f67841",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:f661e568d19ab61b3444f55f12a5bbe88990c921b49e4a5a69acd793fd4b9bc2",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "rejected_leads:4",
+    "card": {
+      "id": "rejected_leads:4",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "Distributed cache-affinity routing repeats the prior B200 proposal and overlaps documented engine-aware consistent hashing; no target evidence separates avoidable misses from load imbalance.",
+      "original_record": "Distributed cache-affinity routing repeats the prior B200 proposal and overlaps documented engine-aware consistent hashing; no target evidence separates avoidable misses from load imbalance.",
+      "proposed_change": "",
+      "statement": "Distributed cache-affinity routing repeats the prior B200 proposal and overlaps documented engine-aware consistent hashing; no target evidence separates avoidable misses from load imbalance."
+    },
+    "fingerprint": "f53f9526a357f97db448df6674d9872e608f1113170671e57683d5ae81401ecf",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:519885ef1b0baa512417fcc6f33cdcbfd3310b06e948edd4f970e3f34a5dced4",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "rejected_leads:3",
+    "card": {
+      "id": "rejected_leads:3",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "FP4 KV or mixed expert precision from title matches lacks pinned B200 sparse-MLA and quality support; #50416's prefill regression is on SM120.",
+      "original_record": "FP4 KV or mixed expert precision from title matches lacks pinned B200 sparse-MLA and quality support; #50416's prefill regression is on SM120.",
+      "proposed_change": "",
+      "statement": "FP4 KV or mixed expert precision from title matches lacks pinned B200 sparse-MLA and quality support; #50416's prefill regression is on SM120."
+    },
+    "fingerprint": "d7f549f2e78b79e07a7b863b742c34c9fc622d36a09d587fe51614d477950ea2",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:d60a9785735e3c6acf1315bf44413546c2dfaed38f8058a5248d8f9ba8e54966",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "rejected_leads:2",
+    "card": {
+      "id": "rejected_leads:2",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "CuTeDSL MegaMoE selection and #62073 decode-workspace behavior are existing backend work on an open stacked Beam PR, not a new V4.1 mechanism.",
+      "original_record": "CuTeDSL MegaMoE selection and #62073 decode-workspace behavior are existing backend work on an open stacked Beam PR, not a new V4.1 mechanism.",
+      "proposed_change": "",
+      "statement": "CuTeDSL MegaMoE selection and #62073 decode-workspace behavior are existing backend work on an open stacked Beam PR, not a new V4.1 mechanism."
+    },
+    "fingerprint": "10ad6c8d99af6ca8b9096878ce364e242db2afc77a1453b0499b260a49a0cbb5",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:3849cc6d1d33e3848e8f58c53adb4af3d283ac25eb180f8c2f029baa39a1f71a",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "rejected_leads:1",
+    "card": {
+      "id": "rejected_leads:1",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "Fixed-to-adaptive DSpark depth alone repeats the prior B200 decision and existing dynamic-k/adaptive-verification work; an unchanged activation is a comparator.",
+      "original_record": "Fixed-to-adaptive DSpark depth alone repeats the prior B200 decision and existing dynamic-k/adaptive-verification work; an unchanged activation is a comparator.",
+      "proposed_change": "",
+      "statement": "Fixed-to-adaptive DSpark depth alone repeats the prior B200 decision and existing dynamic-k/adaptive-verification work; an unchanged activation is a comparator."
+    },
+    "fingerprint": "2b5c5c980378679c087e824bc8d007733498c84128c22822b4867e292ca1a0b7",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:b605f3f52b006dbf1fb674ea2d62c771c9f663f808bb943b9dbf2fbc581b2642",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "rejected_leads:0",
+    "card": {
+      "id": "rejected_leads:0",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "SSD or FASER as a direct B200 port: supplied evidence does not establish the required scheduler, KV, hardware-placement, or active-backend transfer; #36037 includes a maintainer objection.",
+      "original_record": "SSD or FASER as a direct B200 port: supplied evidence does not establish the required scheduler, KV, hardware-placement, or active-backend transfer; #36037 includes a maintainer objection.",
+      "proposed_change": "",
+      "statement": "SSD or FASER as a direct B200 port: supplied evidence does not establish the required scheduler, KV, hardware-placement, or active-backend transfer; #36037 includes a maintainer objection."
+    },
+    "fingerprint": "32e25732c13f76ab338490aebfab91dff5b49f35043f9562e690e9bbc5fc55d6",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:ef9b1db9f33a025bef79d38dfaabcf7bd6c0ee0db1dd4be178bf1ef7a4f6ac10",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "H02",
+    "card": {
+      "classification": "adaptation",
+      "code_surface": "EPLB plan state, migration scheduler and communicator, per-rank weight/map version tracking, and the active MoE backend's map publication path. The pinned active backend and #62009 base/head are unresolved.",
+      "confidence": "Moderate in the migration-versus-skew tradeoff; low in target benefit.",
+      "evidence": [
+        {
+          "claim": "Existing work already addresses a major source of EPLB overhead.",
+          "quote": "takes async EPLB's host work off the decode critical path",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62009"
+        },
+        {
+          "claim": "The reported cross-node migration advantage is not a single-node B200 prediction.",
+          "quote": "Within one node, `symm_mem` and NIXL (CUDA IPC) move weights at a similar rate",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62009"
+        },
+        {
+          "claim": "Commit frequency and timing can affect service latency.",
+          "quote": "Every rebalance point blocks all EP ranks.",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:61839"
+        },
+        {
+          "claim": "A simple rebalance cap is a strong low-complexity comparator.",
+          "quote": "stop after N rebalance points and keep the placement",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:61839"
+        },
+        {
+          "claim": "Improved rank balance can still lose total throughput after migration.",
+          "quote": "Synchronous rearrangement dominates EPLB wall time",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:50647"
+        },
+        {
+          "claim": "Placement refresh and replica routing are existing alternative mechanisms.",
+          "quote": "UltraEP's online refresh re-solves placement and per-replica quotas every N representative batches",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:59168"
+        }
+      ],
+      "experiment": {
+        "control": "EPLB off, best fixed placement, qualified existing async cadence, and a rebalance cap at equal redundant-expert memory.",
+        "correctness": "Test plan-version agreement, idle and unequal DP batches, graph replay, no request admitted during in-place mutation, timeout before mutation, and fail-closed behavior after mutation. Compare expert outputs at fixed precision and evaluate agent/tool quality.",
+        "cost": "Component measurement and host replay first; serving duration and setup remain unknown. No GPU work was performed.",
+        "measurements": "Per-layer rank skew and MoE time, migration bytes and serving pause, per-rank free HBM, prefill queue delay, TTFT/TPOT tails, throughput, cost per token, and agent/tool quality at matched concurrency on DEP8 and two DEP4.",
+        "reject_if": "The component test finds no durable skew, insufficient HBM or migration payback, or matched serving loses to the best fixed/async/capped control.",
+        "treatment": "Same placement algorithm and migration backend with only the pending-plan commit gate added."
+      },
+      "id": "H02",
+      "mechanism": "Keep a computed EPLB placement plan pending until recent rank skew is likely to repay migration and the serving state can tolerate the commit. Change the timing of weight movement and map publication, without changing the placement algorithm, token routing, or expert precision.",
+      "nearest_prior_art": "Open #62009 adds asynchronous EPLB work, MegaMoE mapping fusion, and a migration backend; open #61839 adds a rebalance cap; open #59168 describes online placement and replica routing. These are direct controls. #62009's GB200 multi-node, decode-only result does not establish single-node B200 transfer.",
+      "new_adaptation": "Add a pending-plan state and payback gate to the EPLB controller. The first implementation uses a quiescent all-rank serving boundary for in-place migration: drain in-flight forwards and graph replays, agree on plan version and source map, migrate weights, verify each rank's destination rows, then publish the new map version before serving resumes. Before any weight mutation, timeout safely discards or defers the plan and leaves the old map active. After mutation starts, a failed collective must fail closed and recover from a known placement or restart; it cannot claim to roll back merely by restoring the old map. Shadow slots are an optional alternative only if measured free HBM supports them.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DEP8 and two DEP4; reported #62009 gains use a different GB200 topology and decode-only workload.",
+        "implementation": "Proposed timing gate and versioned commit protocol, conditional on the active backend and on a similar gate not already existing in the pinned tree.",
+        "publication": "Unestablished; online expert placement and refresh already have close prior art."
+      },
+      "online_policy": "Observable state: recent per-layer rank load and MoE step time, migration bytes and measured pause cost, queued prefills, active decodes, per-rank free HBM, and pending-plan age. Decision rule: at a safe boundary, commit only if estimated saved slow-rank time over a bounded horizon exceeds migration and queueing cost by a hysteresis margin; otherwise defer or discard at expiry. Action: either execute one versioned all-rank migration and publish the map, or keep the old placement. Overhead: host scoring, existing load collection, and measured coordination cost. Fallback: existing fixed placement or qualified async EPLB cadence. Strongest static comparator: best fixed placement and a capped rebalance schedule with equal expert memory.",
+      "readiness": "Low. A host policy replay is straightforward, but safe migration integration requires backend and memory qualification.",
+      "revision_after_critique": "Explored enabling existing EPLB, a fixed rebalance cap, per-token replica routing, and a payback-gated commit. EPLB activation is existing work; a component test of skew versus migration cost can falsify its value here. A cap is simpler but cannot react to changing load; a host cadence replay is its cheapest comparison. Replica routing overlaps #59168 and needs redundant capacity; a memory and routing component check can rule it out. Retained commit timing with a quiescent, versioned in-place protocol and safe defer/discard before mutation.",
+      "rubric": {
+        "correctness": "No forward may use a map version until all corresponding expert weights are valid on every rank; mid-migration failure must fail closed.",
+        "cost": "Cheap host replay; multi-GPU correctness and matched serving work substantial and unestimated.",
+        "distinctness": "Changes commit timing, rather than enabling EPLB, changing placement, or routing replicas per token.",
+        "evidence": "Other deployments show both EPLB benefits and costly rearrangement; target transfer is unmeasured.",
+        "experiment": "Start with a component comparison of rank skew, migration pause, and free HBM, then host policy replay; use serving A/B only if the payback case survives.",
+        "integration": "Requires collective version agreement, quiescent migration or shadow storage, and active-backend support.",
+        "mechanism": "Gate a prepared placement plan using measured migration cost, rank skew, queue pressure, and memory headroom.",
+        "research_contribution": "A load-dependent commit policy may be useful; publication novelty unestablished.",
+        "value": "Conditional TPOT-tail and throughput opportunity if rank skew persists long enough to repay migration."
+      },
+      "strongest_objection": "Single-node migration may be cheap enough that gating only prolongs imbalance, while quiescent in-place migration may stall serving and shadow migration may exceed HBM. #62009 already removes host work from the decode critical path. Durable rank skew, migration payback, and support in either B200 layout are unmeasured.",
+      "title": "Payback-gated expert-placement commits"
+    },
+    "fingerprint": "637be14d549d622b50d3bd9965919785e50855c562c3f4e2dc417a2221804212",
+    "status": "proposed",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": null,
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:f0052217eb836c5cc5147fc1728580635a01b4f7dbb7a51de0bd6fdda0b22f02",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/hypotheses",
+    "local_id": "H01",
+    "card": {
+      "classification": "adaptation",
+      "code_surface": "V1 block-pool commit and eviction hooks, hybrid KV-cache group coordinator, asynchronous cache-commit completion, and per-run cache accounting. Exact pinned-file locations remain unknown.",
+      "confidence": "Moderate in the cache invariant and plausible failure mode; low in workload benefit.",
+      "evidence": [
+        {
+          "claim": "Request-level no-store is an existing comparator.",
+          "quote": "A request can still reuse existing prefix-cache entries, but newly computed blocks from that request are not admitted",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:51981"
+        },
+        {
+          "claim": "The abstract motivates retaining contiguous agent prefixes under pressure; it does not validate this admission rule.",
+          "quote": "evicts a tail chunk from each, preserving reusable prefixes for more agents",
+          "relation": "context",
+          "source_id": "arxiv:2609.32278"
+        },
+        {
+          "claim": "Promotion must wait for a complete recomputed block.",
+          "quote": "Block-hash prefix caching only registers a **complete** block",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:48401"
+        },
+        {
+          "claim": "Asynchronous and speculative paths require a commit fence before hash metadata becomes usable.",
+          "quote": "the scheduler can advance its token count optimistically before `block_hashes` are extended to match",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:51820"
+        },
+        {
+          "claim": "Cold-request TTFT and scheduler overhead remain necessary checks for cache-aware alternatives.",
+          "quote": "Cached-prefix ranking can delay cold requests",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:58837"
+        }
+      ],
+      "experiment": {
+        "control": "Stock admission, #51981-style request no-store, and RR-Evict-style tail eviction at equal effective KV capacity and identical request order.",
+        "correctness": "Exercise shared and divergent prefixes, incomplete blocks, asynchronous completion, cancellation, speculative rollback, group mismatch, and output/logprob parity at fixed precision and sampling.",
+        "cost": "CPU component test and replay first; matched serving cost remains unestimated. No GPU work was performed.",
+        "measurements": "Exact per-run hit and recomputed prompt tokens, evictions, scheduler CPU time, HBM occupancy, TTFT tails, TPOT, throughput, cost per token, and agent/tool quality; report DEP8 and two DEP4 separately across relevant concurrency.",
+        "reject_if": "The lifecycle test violates contiguous group commits, CPU replay does not reduce recomputation against the strongest static control, or matched serving loses after scheduler cost.",
+        "treatment": "Ghost-hash probation with ancestry-preserving promotion; keep checkpoint, precision, sampler, cache preparation, and active backend fixed within each topology."
+      },
+      "id": "H01",
+      "mechanism": "Under local KV pressure, retain complete reusable prefix blocks and decline optional cache writes for an unproven private suffix. Record each declined block's exact hash and parent hash in a bounded metadata-only ghost table. If the block is recomputed on a later request, promote it only after its parent is resident and all required cache groups can commit it. Once one block is declined, decline its descendants for that trajectory until a later request rebuilds the contiguous admission frontier. Active generation KV remains allocated normally.",
+      "nearest_prior_art": "The open #51981 PR supplies request-level no-store; RR-Evict proposes tail-first reclamation for agent histories; open #54625 and #58837 reorder waiting-request admission; PEEK proposes queue-informed protection. A write-admission policy at the contiguous block frontier is a narrower adaptation. None of these sources proves a gain on the target deployment.",
+      "new_adaptation": "Add bounded ghost metadata and a per-trajectory admission frontier at completed-block commit. Promote only after a repeat exact hash is observed through recomputation. Treat the cache-group bundle as the admission unit: publish a prefix hit only after every required group has committed the same complete token span. For asynchronous commits, use a completion fence and generation identifier before publishing; cancellation or speculative rollback invalidates pending writes and ghost observations from uncommitted tokens. If the pinned cache manager cannot provide this lifecycle, disable the policy for that configuration.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DEP8 or two DEP4. The 75% cacheability target is not a measured hit rate.",
+        "implementation": "Proposed block-frontier write behavior differs from #51981's request-level switch, subject to inspection of the pinned cache lifecycle and overlap with existing policies.",
+        "publication": "Unestablished; cache admission, tail eviction, and queue-informed protection have close prior art."
+      },
+      "online_policy": "Observable state: completed exact block hashes with parent hashes, ghost repeat counts, free-block pressure, active-block pins, and group commit status. Decision rule: with ample free blocks, use stock admission; under pressure, retain the contiguous proven prefix and place newly computed private suffix blocks on metadata-only probation. On later recomputation, admit repeated blocks in ancestor order if every required group has capacity. Action: change optional local cache retention only. Overhead: bounded host hash-table updates and commit checks. Fallback: stock admission when metadata, group, or async guarantees are unavailable. Strongest static comparator: application-supplied #51981-style request no-store, alongside stock admission and RR-Evict at equal KV capacity.",
+      "readiness": "Low-to-moderate for a CPU lifecycle prototype; low for serving integration until pinned hybrid-group and asynchronous-commit semantics are resolved.",
+      "revision_after_critique": "Explored request-level no-store, RR-Evict tail eviction, queue admission ordering, and block probation. No-store fails to distinguish reusable and one-use segments within a request; a capacity-matched CPU replay is its cheapest falsifier. Tail eviction cannot prevent pollution before reclamation; the same replay compares its recomputed tokens. Queue ordering needs eligible waiting peers and may delay cold requests; a scheduler replay checks both conditions. Retained probation with explicit ancestry, recomputation-based promotion, group commit, and async rollback rules.",
+      "rubric": {
+        "correctness": "A hit must reference a contiguous committed ancestry across every required group; active KV, cancellation, and speculative rollback must remain safe.",
+        "cost": "Low CPU-screen cost; serving integration and GPU cost unestimated.",
+        "distinctness": "Changes local cache write admission, separate from request-level no-store, queue ordering, and eviction order.",
+        "evidence": "Agent-cache and request no-store sources support the opportunity and comparator; target eviction behavior is unknown.",
+        "experiment": "Use a small block-lifecycle test, then CPU replay of frozen request hashes and capacity; promote only if recomputed tokens improve against static controls.",
+        "integration": "Hybrid group atomicity, asynchronous publication, and rollback make integration nontrivial.",
+        "mechanism": "Bounded ghost hashes guide optional writes at a contiguous, complete-block cache frontier.",
+        "research_contribution": "Potential workload-specific policy study; publication novelty unestablished.",
+        "value": "Conditional reduction in recomputed prompt tokens and TTFT tails for repeated agent histories; no target gain established."
+      },
+      "strongest_objection": "Declining a suffix may discard precisely the block needed on the next agent turn; ghost metadata cannot supply its KV and promotion requires recomputation. The extra policy may lose to simple request no-store or tail-first eviction, and no supplied B200 block trace establishes avoidable eviction.",
+      "title": "Ancestry-preserving prefix-cache admission with ghost hashes"
+    },
+    "fingerprint": "d5523bd794f12d7e47bfb02fa0684bc5bb5897da1423b14edde7cb665e3b2f93",
+    "status": "proposed",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": null,
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:1349b85cd1fce05a0ee8a462c118d75c3bbd0bfdcc850c0bc1411091040dcfb6",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "comparators:6",
+    "card": {
+      "id": "comparators:6",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "No speculation and fixed DSpark depth remain quality and performance controls. The #62417 chat/tool report is for the 1017 checkpoint on SM120, not a demonstrated B200 failure.",
+      "original_record": "No speculation and fixed DSpark depth remain quality and performance controls. The #62417 chat/tool report is for the 1017 checkpoint on SM120, not a demonstrated B200 failure.",
+      "proposed_change": "",
+      "statement": "No speculation and fixed DSpark depth remain quality and performance controls. The #62417 chat/tool report is for the 1017 checkpoint on SM120, not a demonstrated B200 failure."
+    },
+    "fingerprint": "902ac511065615c276f4f74aaadc0c422883f7c0b376e2bcd0ce3bf9601bce9b",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:b216d908f1e04e9115d1554440b06b8bf9a060f9c3149152fb912bd1eaf39d6f",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "comparators:5",
+    "card": {
+      "id": "comparators:5",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "For H01: stock cache admission, #51981 request no-store, RR-Evict tail eviction, and #54625/#58837 waiting-queue policies. For H02: EPLB off, best fixed placement, qualified async cadence, #61839 rebalance cap, and #59168 routing if applicable.",
+      "original_record": "For H01: stock cache admission, #51981 request no-store, RR-Evict tail eviction, and #54625/#58837 waiting-queue policies. For H02: EPLB off, best fixed placement, qualified async cadence, #61839 rebalance cap, and #59168 routing if applicable.",
+      "proposed_change": "",
+      "statement": "For H01: stock cache admission, #51981 request no-store, RR-Evict tail eviction, and #54625/#58837 waiting-queue policies. For H02: EPLB off, best fixed placement, qualified async cadence, #61839 rebalance cap, and #59168 routing if applicable."
+    },
+    "fingerprint": "cbe51001f9731c818d7c3aba6cb623fc6cd351e1ecdd6fde7e4cf2a4eee1082a",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:a71a3d4fd15274b96363e7d1dbdc7740adc2acd2be8a08ef4f3ed93c96e7d5d2",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "comparators:4",
+    "card": {
+      "id": "comparators:4",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Open #62009 has no supplied base/head SHAs; its inclusion in either pinned deployment is unknown. The later #62073 flashinfer_moe_ep.py body cannot establish the pinned B200 backend.",
+      "original_record": "Open #62009 has no supplied base/head SHAs; its inclusion in either pinned deployment is unknown. The later #62073 flashinfer_moe_ep.py body cannot establish the pinned B200 backend.",
+      "proposed_change": "",
+      "statement": "Open #62009 has no supplied base/head SHAs; its inclusion in either pinned deployment is unknown. The later #62073 flashinfer_moe_ep.py body cannot establish the pinned B200 backend."
+    },
+    "fingerprint": "ca63369c5d42d5dcb0344e7b9e8d68e63afe78e7e0316a41f56749c17699ff28",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:3ef990c885fc3e2012cddc305f7e69e0a117a739577883da2c5cc29871c4b979",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "comparators:3",
+    "card": {
+      "id": "comparators:3",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Open #62073 is stacked on woosuk/beam-fused-allreduce base 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea at woosuk/beam-moe head 86a5bbe75a7971275952477bb1ce03e715bcc339. A supplied comment reports conflicts. Its merge_commit_sha field is not proof of merge, and its Beam paths are not V4.1 serving evidence.",
+      "original_record": "Open #62073 is stacked on woosuk/beam-fused-allreduce base 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea at woosuk/beam-moe head 86a5bbe75a7971275952477bb1ce03e715bcc339. A supplied comment reports conflicts. Its merge_commit_sha field is not proof of merge, and its Beam paths are not V4.1 serving evidence.",
+      "proposed_change": "",
+      "statement": "Open #62073 is stacked on woosuk/beam-fused-allreduce base 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea at woosuk/beam-moe head 86a5bbe75a7971275952477bb1ce03e715bcc339. A supplied comment reports conflicts. Its merge_commit_sha field is not proof of merge, and its Beam paths are not V4.1 serving evidence."
+    },
+    "fingerprint": "810820de279fca6033078f465c2dc3ac3a2894f69f99945464e2c7edce106ddd",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:34Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:e41e756b057b8e730689072c2e845ea3abebc6f06d9d220d1e0a75a2dfa33ee6",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "comparators:2",
+    "card": {
+      "id": "comparators:2",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Open #62541 targets main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5 and changes guide text only; its validated recipe is not thereby in the historical baseline.",
+      "original_record": "Open #62541 targets main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5 and changes guide text only; its validated recipe is not thereby in the historical baseline.",
+      "proposed_change": "",
+      "statement": "Open #62541 targets main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5 and changes guide text only; its validated recipe is not thereby in the historical baseline."
+    },
+    "fingerprint": "84fc9501f35d770e83685a64dd6ed738720bb94a6b987f73517640456ca185ec",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:9e6487a181c230ad76357f6256311f81eb94b96a39bcd94803b32d3557b2c65b",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "comparators:1",
+    "card": {
+      "id": "comparators:1",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "DEP8 and two DEP4 are separate eight-B200 topology controls. Match checkpoint, request bodies and arrival order, cache preparation, concurrency, precision, KV format, MTP/DSpark state, active MoE backend, sampler, and quality scorer within each comparison.",
+      "original_record": "DEP8 and two DEP4 are separate eight-B200 topology controls. Match checkpoint, request bodies and arrival order, cache preparation, concurrency, precision, KV format, MTP/DSpark state, active MoE backend, sampler, and quality scorer within each comparison.",
+      "proposed_change": "",
+      "statement": "DEP8 and two DEP4 are separate eight-B200 topology controls. Match checkpoint, request bodies and arrival order, cache preparation, concurrency, precision, KV format, MTP/DSpark state, active MoE backend, sampler, and quality scorer within each comparison."
+    },
+    "fingerprint": "77af276ba47c8d822c6338190f64700ddd33cd26498859b6976269978093cd34",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:c1aebf297caa0f2105c39800bb4afa928609476ca76f71a4bfb20a36103fdedc",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "comparators:0",
+    "card": {
+      "id": "comparators:0",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Historical baseline: vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and DeepSeek Serve 2e6fa287d90adf7318ad314de27aa2f595aac821. Refreshed configuration and later main-branch availability are separate from inclusion in these pins.",
+      "original_record": "Historical baseline: vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and DeepSeek Serve 2e6fa287d90adf7318ad314de27aa2f595aac821. Refreshed configuration and later main-branch availability are separate from inclusion in these pins.",
+      "proposed_change": "",
+      "statement": "Historical baseline: vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and DeepSeek Serve 2e6fa287d90adf7318ad314de27aa2f595aac821. Refreshed configuration and later main-branch availability are separate from inclusion in these pins."
+    },
+    "fingerprint": "58aec2160241f46c909dc4bf006279aa6b41f295b7b32ef9a304b16516f67841",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:510ef97d471a34f2756caa519b701e4c1cedea57883e545c5ea9f0c760ed111a",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "rejected_leads:4",
+    "card": {
+      "id": "rejected_leads:4",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "Distributed cache-affinity routing repeats the prior B200 proposal and overlaps documented engine-aware consistent hashing; no target evidence separates avoidable misses from load imbalance.",
+      "original_record": "Distributed cache-affinity routing repeats the prior B200 proposal and overlaps documented engine-aware consistent hashing; no target evidence separates avoidable misses from load imbalance.",
+      "proposed_change": "",
+      "statement": "Distributed cache-affinity routing repeats the prior B200 proposal and overlaps documented engine-aware consistent hashing; no target evidence separates avoidable misses from load imbalance."
+    },
+    "fingerprint": "f53f9526a357f97db448df6674d9872e608f1113170671e57683d5ae81401ecf",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:6cc9039a6344251a62ae1dae7cc54e0583d91c9a2a4f3d0d3e6d12a85c434230",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "rejected_leads:3",
+    "card": {
+      "id": "rejected_leads:3",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "FP4 KV or mixed expert precision from title matches lacks pinned B200 sparse-MLA and quality support; #50416's prefill regression is on SM120.",
+      "original_record": "FP4 KV or mixed expert precision from title matches lacks pinned B200 sparse-MLA and quality support; #50416's prefill regression is on SM120.",
+      "proposed_change": "",
+      "statement": "FP4 KV or mixed expert precision from title matches lacks pinned B200 sparse-MLA and quality support; #50416's prefill regression is on SM120."
+    },
+    "fingerprint": "d7f549f2e78b79e07a7b863b742c34c9fc622d36a09d587fe51614d477950ea2",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:ed2d11c4a6a2503ed3326ac6596664fbfc0d95b3166c144772ffdceb12b21d3d",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "rejected_leads:2",
+    "card": {
+      "id": "rejected_leads:2",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "CuTeDSL MegaMoE selection and #62073 decode-workspace behavior are existing backend work on an open stacked Beam PR, not a new V4.1 mechanism.",
+      "original_record": "CuTeDSL MegaMoE selection and #62073 decode-workspace behavior are existing backend work on an open stacked Beam PR, not a new V4.1 mechanism.",
+      "proposed_change": "",
+      "statement": "CuTeDSL MegaMoE selection and #62073 decode-workspace behavior are existing backend work on an open stacked Beam PR, not a new V4.1 mechanism."
+    },
+    "fingerprint": "10ad6c8d99af6ca8b9096878ce364e242db2afc77a1453b0499b260a49a0cbb5",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:7575805ec725947d95ccb75ec9537cebbfb8b8d9944802d9ec58df836407e68f",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "rejected_leads:1",
+    "card": {
+      "id": "rejected_leads:1",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "Fixed-to-adaptive DSpark depth alone repeats the prior B200 decision and existing dynamic-k/adaptive-verification work; an unchanged activation is a comparator.",
+      "original_record": "Fixed-to-adaptive DSpark depth alone repeats the prior B200 decision and existing dynamic-k/adaptive-verification work; an unchanged activation is a comparator.",
+      "proposed_change": "",
+      "statement": "Fixed-to-adaptive DSpark depth alone repeats the prior B200 decision and existing dynamic-k/adaptive-verification work; an unchanged activation is a comparator."
+    },
+    "fingerprint": "2b5c5c980378679c087e824bc8d007733498c84128c22822b4867e292ca1a0b7",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:1ebf832d808ab1429da3200b88fab76be5fa734a527bb2b758531b895f637e49",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "rejected_leads:0",
+    "card": {
+      "id": "rejected_leads:0",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "SSD or FASER as a direct B200 port: supplied evidence does not establish the required scheduler, KV, hardware-placement, or active-backend transfer; #36037 includes a maintainer objection.",
+      "original_record": "SSD or FASER as a direct B200 port: supplied evidence does not establish the required scheduler, KV, hardware-placement, or active-backend transfer; #36037 includes a maintainer objection.",
+      "proposed_change": "",
+      "statement": "SSD or FASER as a direct B200 port: supplied evidence does not establish the required scheduler, KV, hardware-placement, or active-backend transfer; #36037 includes a maintainer objection."
+    },
+    "fingerprint": "32e25732c13f76ab338490aebfab91dff5b49f35043f9562e690e9bbc5fc55d6",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:eac92b8cb721dc1c22a9285629ec4131dc78b6bf599fb47fdccf5004d0b11f82",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "H02",
+    "card": {
+      "classification": "adaptation",
+      "code_surface": "EPLB plan state, migration scheduler and communicator, per-rank weight/map version tracking, and the active MoE backend's map publication path. The pinned active backend and #62009 base/head are unresolved.",
+      "confidence": "Moderate in the migration-versus-skew tradeoff; low in target benefit.",
+      "evidence": [
+        {
+          "claim": "Existing work already addresses a major source of EPLB overhead.",
+          "quote": "takes async EPLB's host work off the decode critical path",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62009"
+        },
+        {
+          "claim": "The reported cross-node migration advantage is not a single-node B200 prediction.",
+          "quote": "Within one node, `symm_mem` and NIXL (CUDA IPC) move weights at a similar rate",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62009"
+        },
+        {
+          "claim": "Commit frequency and timing can affect service latency.",
+          "quote": "Every rebalance point blocks all EP ranks.",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:61839"
+        },
+        {
+          "claim": "A simple rebalance cap is a strong low-complexity comparator.",
+          "quote": "stop after N rebalance points and keep the placement",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:61839"
+        },
+        {
+          "claim": "Improved rank balance can still lose total throughput after migration.",
+          "quote": "Synchronous rearrangement dominates EPLB wall time",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:50647"
+        },
+        {
+          "claim": "Placement refresh and replica routing are existing alternative mechanisms.",
+          "quote": "UltraEP's online refresh re-solves placement and per-replica quotas every N representative batches",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:59168"
+        }
+      ],
+      "experiment": {
+        "control": "EPLB off, best fixed placement, qualified existing async cadence, and a rebalance cap at equal redundant-expert memory.",
+        "correctness": "Test plan-version agreement, idle and unequal DP batches, graph replay, no request admitted during in-place mutation, timeout before mutation, and fail-closed behavior after mutation. Compare expert outputs at fixed precision and evaluate agent/tool quality.",
+        "cost": "Component measurement and host replay first; serving duration and setup remain unknown. No GPU work was performed.",
+        "measurements": "Per-layer rank skew and MoE time, migration bytes and serving pause, per-rank free HBM, prefill queue delay, TTFT/TPOT tails, throughput, cost per token, and agent/tool quality at matched concurrency on DEP8 and two DEP4.",
+        "reject_if": "The component test finds no durable skew, insufficient HBM or migration payback, or matched serving loses to the best fixed/async/capped control.",
+        "treatment": "Same placement algorithm and migration backend with only the pending-plan commit gate added."
+      },
+      "id": "H02",
+      "mechanism": "Keep a computed EPLB placement plan pending until recent rank skew is likely to repay migration and the serving state can tolerate the commit. Change the timing of weight movement and map publication, without changing the placement algorithm, token routing, or expert precision.",
+      "nearest_prior_art": "Open #62009 adds asynchronous EPLB work, MegaMoE mapping fusion, and a migration backend; open #61839 adds a rebalance cap; open #59168 describes online placement and replica routing. These are direct controls. #62009's GB200 multi-node, decode-only result does not establish single-node B200 transfer.",
+      "new_adaptation": "Add a pending-plan state and payback gate to the EPLB controller. The first implementation uses a quiescent all-rank serving boundary for in-place migration: drain in-flight forwards and graph replays, agree on plan version and source map, migrate weights, verify each rank's destination rows, then publish the new map version before serving resumes. Before any weight mutation, timeout safely discards or defers the plan and leaves the old map active. After mutation starts, a failed collective must fail closed and recover from a known placement or restart; it cannot claim to roll back merely by restoring the old map. Shadow slots are an optional alternative only if measured free HBM supports them.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DEP8 and two DEP4; reported #62009 gains use a different GB200 topology and decode-only workload.",
+        "implementation": "Proposed timing gate and versioned commit protocol, conditional on the active backend and on a similar gate not already existing in the pinned tree.",
+        "publication": "Unestablished; online expert placement and refresh already have close prior art."
+      },
+      "online_policy": "Observable state: recent per-layer rank load and MoE step time, migration bytes and measured pause cost, queued prefills, active decodes, per-rank free HBM, and pending-plan age. Decision rule: at a safe boundary, commit only if estimated saved slow-rank time over a bounded horizon exceeds migration and queueing cost by a hysteresis margin; otherwise defer or discard at expiry. Action: either execute one versioned all-rank migration and publish the map, or keep the old placement. Overhead: host scoring, existing load collection, and measured coordination cost. Fallback: existing fixed placement or qualified async EPLB cadence. Strongest static comparator: best fixed placement and a capped rebalance schedule with equal expert memory.",
+      "readiness": "Low. A host policy replay is straightforward, but safe migration integration requires backend and memory qualification.",
+      "revision_after_critique": "Explored enabling existing EPLB, a fixed rebalance cap, per-token replica routing, and a payback-gated commit. EPLB activation is existing work; a component test of skew versus migration cost can falsify its value here. A cap is simpler but cannot react to changing load; a host cadence replay is its cheapest comparison. Replica routing overlaps #59168 and needs redundant capacity; a memory and routing component check can rule it out. Retained commit timing with a quiescent, versioned in-place protocol and safe defer/discard before mutation.",
+      "rubric": {
+        "correctness": "No forward may use a map version until all corresponding expert weights are valid on every rank; mid-migration failure must fail closed.",
+        "cost": "Cheap host replay; multi-GPU correctness and matched serving work substantial and unestimated.",
+        "distinctness": "Changes commit timing, rather than enabling EPLB, changing placement, or routing replicas per token.",
+        "evidence": "Other deployments show both EPLB benefits and costly rearrangement; target transfer is unmeasured.",
+        "experiment": "Start with a component comparison of rank skew, migration pause, and free HBM, then host policy replay; use serving A/B only if the payback case survives.",
+        "integration": "Requires collective version agreement, quiescent migration or shadow storage, and active-backend support.",
+        "mechanism": "Gate a prepared placement plan using measured migration cost, rank skew, queue pressure, and memory headroom.",
+        "research_contribution": "A load-dependent commit policy may be useful; publication novelty unestablished.",
+        "value": "Conditional TPOT-tail and throughput opportunity if rank skew persists long enough to repay migration."
+      },
+      "strongest_objection": "Single-node migration may be cheap enough that gating only prolongs imbalance, while quiescent in-place migration may stall serving and shadow migration may exceed HBM. #62009 already removes host work from the decode critical path. Durable rank skew, migration payback, and support in either B200 layout are unmeasured.",
+      "title": "Payback-gated expert-placement commits"
+    },
+    "fingerprint": "637be14d549d622b50d3bd9965919785e50855c562c3f4e2dc417a2221804212",
+    "status": "proposed",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": null,
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:0688f9d45c5f16702e4cf848293aae1d5746dcd8f7b2a75d3e16174c73b9ccec",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/final",
+    "local_id": "H01",
+    "card": {
+      "classification": "adaptation",
+      "code_surface": "V1 block-pool commit and eviction hooks, hybrid KV-cache group coordinator, asynchronous cache-commit completion, and per-run cache accounting. Exact pinned-file locations remain unknown.",
+      "confidence": "Moderate in the cache invariant and plausible failure mode; low in workload benefit.",
+      "evidence": [
+        {
+          "claim": "Request-level no-store is an existing comparator.",
+          "quote": "A request can still reuse existing prefix-cache entries, but newly computed blocks from that request are not admitted",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:51981"
+        },
+        {
+          "claim": "The abstract motivates retaining contiguous agent prefixes under pressure; it does not validate this admission rule.",
+          "quote": "evicts a tail chunk from each, preserving reusable prefixes for more agents",
+          "relation": "context",
+          "source_id": "arxiv:2609.32278"
+        },
+        {
+          "claim": "Promotion must wait for a complete recomputed block.",
+          "quote": "Block-hash prefix caching only registers a **complete** block",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:48401"
+        },
+        {
+          "claim": "Asynchronous and speculative paths require a commit fence before hash metadata becomes usable.",
+          "quote": "the scheduler can advance its token count optimistically before `block_hashes` are extended to match",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:51820"
+        },
+        {
+          "claim": "Cold-request TTFT and scheduler overhead remain necessary checks for cache-aware alternatives.",
+          "quote": "Cached-prefix ranking can delay cold requests",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:58837"
+        }
+      ],
+      "experiment": {
+        "control": "Stock admission, #51981-style request no-store, and RR-Evict-style tail eviction at equal effective KV capacity and identical request order.",
+        "correctness": "Exercise shared and divergent prefixes, incomplete blocks, asynchronous completion, cancellation, speculative rollback, group mismatch, and output/logprob parity at fixed precision and sampling.",
+        "cost": "CPU component test and replay first; matched serving cost remains unestimated. No GPU work was performed.",
+        "measurements": "Exact per-run hit and recomputed prompt tokens, evictions, scheduler CPU time, HBM occupancy, TTFT tails, TPOT, throughput, cost per token, and agent/tool quality; report DEP8 and two DEP4 separately across relevant concurrency.",
+        "reject_if": "The lifecycle test violates contiguous group commits, CPU replay does not reduce recomputation against the strongest static control, or matched serving loses after scheduler cost.",
+        "treatment": "Ghost-hash probation with ancestry-preserving promotion; keep checkpoint, precision, sampler, cache preparation, and active backend fixed within each topology."
+      },
+      "id": "H01",
+      "mechanism": "Under local KV pressure, retain complete reusable prefix blocks and decline optional cache writes for an unproven private suffix. Record each declined block's exact hash and parent hash in a bounded metadata-only ghost table. If the block is recomputed on a later request, promote it only after its parent is resident and all required cache groups can commit it. Once one block is declined, decline its descendants for that trajectory until a later request rebuilds the contiguous admission frontier. Active generation KV remains allocated normally.",
+      "nearest_prior_art": "The open #51981 PR supplies request-level no-store; RR-Evict proposes tail-first reclamation for agent histories; open #54625 and #58837 reorder waiting-request admission; PEEK proposes queue-informed protection. A write-admission policy at the contiguous block frontier is a narrower adaptation. None of these sources proves a gain on the target deployment.",
+      "new_adaptation": "Add bounded ghost metadata and a per-trajectory admission frontier at completed-block commit. Promote only after a repeat exact hash is observed through recomputation. Treat the cache-group bundle as the admission unit: publish a prefix hit only after every required group has committed the same complete token span. For asynchronous commits, use a completion fence and generation identifier before publishing; cancellation or speculative rollback invalidates pending writes and ghost observations from uncommitted tokens. If the pinned cache manager cannot provide this lifecycle, disable the policy for that configuration.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DEP8 or two DEP4. The 75% cacheability target is not a measured hit rate.",
+        "implementation": "Proposed block-frontier write behavior differs from #51981's request-level switch, subject to inspection of the pinned cache lifecycle and overlap with existing policies.",
+        "publication": "Unestablished; cache admission, tail eviction, and queue-informed protection have close prior art."
+      },
+      "online_policy": "Observable state: completed exact block hashes with parent hashes, ghost repeat counts, free-block pressure, active-block pins, and group commit status. Decision rule: with ample free blocks, use stock admission; under pressure, retain the contiguous proven prefix and place newly computed private suffix blocks on metadata-only probation. On later recomputation, admit repeated blocks in ancestor order if every required group has capacity. Action: change optional local cache retention only. Overhead: bounded host hash-table updates and commit checks. Fallback: stock admission when metadata, group, or async guarantees are unavailable. Strongest static comparator: application-supplied #51981-style request no-store, alongside stock admission and RR-Evict at equal KV capacity.",
+      "readiness": "Low-to-moderate for a CPU lifecycle prototype; low for serving integration until pinned hybrid-group and asynchronous-commit semantics are resolved.",
+      "revision_after_critique": "Explored request-level no-store, RR-Evict tail eviction, queue admission ordering, and block probation. No-store fails to distinguish reusable and one-use segments within a request; a capacity-matched CPU replay is its cheapest falsifier. Tail eviction cannot prevent pollution before reclamation; the same replay compares its recomputed tokens. Queue ordering needs eligible waiting peers and may delay cold requests; a scheduler replay checks both conditions. Retained probation with explicit ancestry, recomputation-based promotion, group commit, and async rollback rules.",
+      "rubric": {
+        "correctness": "A hit must reference a contiguous committed ancestry across every required group; active KV, cancellation, and speculative rollback must remain safe.",
+        "cost": "Low CPU-screen cost; serving integration and GPU cost unestimated.",
+        "distinctness": "Changes local cache write admission, separate from request-level no-store, queue ordering, and eviction order.",
+        "evidence": "Agent-cache and request no-store sources support the opportunity and comparator; target eviction behavior is unknown.",
+        "experiment": "Use a small block-lifecycle test, then CPU replay of frozen request hashes and capacity; promote only if recomputed tokens improve against static controls.",
+        "integration": "Hybrid group atomicity, asynchronous publication, and rollback make integration nontrivial.",
+        "mechanism": "Bounded ghost hashes guide optional writes at a contiguous, complete-block cache frontier.",
+        "research_contribution": "Potential workload-specific policy study; publication novelty unestablished.",
+        "value": "Conditional reduction in recomputed prompt tokens and TTFT tails for repeated agent histories; no target gain established."
+      },
+      "strongest_objection": "Declining a suffix may discard precisely the block needed on the next agent turn; ghost metadata cannot supply its KV and promotion requires recomputation. The extra policy may lose to simple request no-store or tail-first eviction, and no supplied B200 block trace establishes avoidable eviction.",
+      "title": "Ancestry-preserving prefix-cache admission with ghost hashes"
+    },
+    "fingerprint": "d5523bd794f12d7e47bfb02fa0684bc5bb5897da1423b14edde7cb665e3b2f93",
+    "status": "proposed",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": null,
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:bf631b70b5175d29a0b6a6423082aa1c1eb8fad4668349572fa6d01e680dbb2d",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "comparators:6",
+    "card": {
+      "id": "comparators:6",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "For speculation: no speculation, fixed DSpark depth, and existing adaptive verification are controls; the supplied #62417 chat-quality report makes quality qualification essential for the 1017 checkpoint.",
+      "original_record": "For speculation: no speculation, fixed DSpark depth, and existing adaptive verification are controls; the supplied #62417 chat-quality report makes quality qualification essential for the 1017 checkpoint.",
+      "proposed_change": "",
+      "statement": "For speculation: no speculation, fixed DSpark depth, and existing adaptive verification are controls; the supplied #62417 chat-quality report makes quality qualification essential for the 1017 checkpoint."
+    },
+    "fingerprint": "919be73d3960ddbffd4788451983b54fb883780042db0f0c0131e209529c6540",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:d83968b35ba5cd47bfef16a10e7b54c80e1861c77c5102f7be1d44c5f411e0e8",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "comparators:5",
+    "card": {
+      "id": "comparators:5",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "For H02: EPLB off, best fixed EPLB, #62009-style async EPLB if qualified, and #59168-style placement/replica routing if available.",
+      "original_record": "For H02: EPLB off, best fixed EPLB, #62009-style async EPLB if qualified, and #59168-style placement/replica routing if available.",
+      "proposed_change": "",
+      "statement": "For H02: EPLB off, best fixed EPLB, #62009-style async EPLB if qualified, and #59168-style placement/replica routing if available."
+    },
+    "fingerprint": "24ee5d4aebe42d584d3d0c57750ac16cc34f2abbb1103e9f077b1faa01a6ab04",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:d44efeb4095e42424c6e29e51e700a6a7bb5df5800d56ce6d697eebeddf9ef9b",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "comparators:4",
+    "card": {
+      "id": "comparators:4",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "For H01: stock LRU, #51981-style request no-store, #54625/#58837 cache-aware admission, and RR-Evict-style tail eviction.",
+      "original_record": "For H01: stock LRU, #51981-style request no-store, #54625/#58837 cache-aware admission, and RR-Evict-style tail eviction.",
+      "proposed_change": "",
+      "statement": "For H01: stock LRU, #51981-style request no-store, #54625/#58837 cache-aware admission, and RR-Evict-style tail eviction."
+    },
+    "fingerprint": "60a5debfeec8b6f9273f41f2bbd23ff7d92b87abe057beb389eecefd15f71157",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:e4ecc035e51be532c199f9b9e0090517c404ef8214e2971bdfd3d620aafd42e5",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "comparators:3",
+    "card": {
+      "id": "comparators:3",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "PR #62073 is open and stacked: base woosuk/beam-fused-allreduce 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea, head woosuk/beam-moe 86a5bbe75a7971275952477bb1ce03e715bcc339. Its merge_commit_sha field is not proof of merge. A supplied comment reports conflicts. Its Beam result and deferred-finalize path are not V4.1 serving results.",
+      "original_record": "PR #62073 is open and stacked: base woosuk/beam-fused-allreduce 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea, head woosuk/beam-moe 86a5bbe75a7971275952477bb1ce03e715bcc339. Its merge_commit_sha field is not proof of merge. A supplied comment reports conflicts. Its Beam result and deferred-finalize path are not V4.1 serving results.",
+      "proposed_change": "",
+      "statement": "PR #62073 is open and stacked: base woosuk/beam-fused-allreduce 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea, head woosuk/beam-moe 86a5bbe75a7971275952477bb1ce03e715bcc339. Its merge_commit_sha field is not proof of merge. A supplied comment reports conflicts. Its Beam result and deferred-finalize path are not V4.1 serving results."
+    },
+    "fingerprint": "0769b944196d25a1b86a9c27325ada615f789afb7f3e825ef80314cc6776dfa2",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:67686082dc0753dde64c5db59157412590156a71d65c742be36071412a8b136e",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "comparators:2",
+    "card": {
+      "id": "comparators:2",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "PR #62541 is open against main aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5; its supplied diff changes guide text only. The referenced validated recipe is not thereby part of the pinned baseline.",
+      "original_record": "PR #62541 is open against main aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5; its supplied diff changes guide text only. The referenced validated recipe is not thereby part of the pinned baseline.",
+      "proposed_change": "",
+      "statement": "PR #62541 is open against main aa3564ceefbd605f1d28238fa0fbbb964201c6b8 at head 64d4d308b50432449b25fdd4f73576f98b5ae5a5; its supplied diff changes guide text only. The referenced validated recipe is not thereby part of the pinned baseline."
+    },
+    "fingerprint": "efef845538f7c1ec3aec3f1b0d3795e89bf4c835b169805ecd7916cc371f3d63",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:4d17e28626b6e96f916f89ef0ee4c97a8144897e4674bba317aaffc97e3630eb",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "comparators:1",
+    "card": {
+      "id": "comparators:1",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "DEP8 and two DEP4 are separate topology controls at the same eight-B200 budget. Compare equal request bodies, arrival process, cache preparation, concurrency, model/checkpoint, and quality scorer.",
+      "original_record": "DEP8 and two DEP4 are separate topology controls at the same eight-B200 budget. Compare equal request bodies, arrival process, cache preparation, concurrency, model/checkpoint, and quality scorer.",
+      "proposed_change": "",
+      "statement": "DEP8 and two DEP4 are separate topology controls at the same eight-B200 budget. Compare equal request bodies, arrival process, cache preparation, concurrency, model/checkpoint, and quality scorer."
+    },
+    "fingerprint": "59a93e68cb6621f73598926b961ed729aa8f175b037aab7b70757928b9e3f3f7",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:bdb0ed7558a412459d4bbb7239137600e93dc2abe6056e59286aa74d34b20d1d",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "comparators:0",
+    "card": {
+      "id": "comparators:0",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Pinned vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 with DeepSeek serve 2e6fa287d90adf7318ad314de27aa2f595aac821; refreshed configuration is separate from historical source pin. Resolve active MoE backend, MTP/DSpark state, precision, and prefix-cache behavior before comparing.",
+      "original_record": "Pinned vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 with DeepSeek serve 2e6fa287d90adf7318ad314de27aa2f595aac821; refreshed configuration is separate from historical source pin. Resolve active MoE backend, MTP/DSpark state, precision, and prefix-cache behavior before comparing.",
+      "proposed_change": "",
+      "statement": "Pinned vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 with DeepSeek serve 2e6fa287d90adf7318ad314de27aa2f595aac821; refreshed configuration is separate from historical source pin. Resolve active MoE backend, MTP/DSpark state, precision, and prefix-cache behavior before comparing."
+    },
+    "fingerprint": "d76217dbbdd1f8526f621c21f6944c534b252ca17c2d153ffb5239830c751258",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:de6074357fa6803cb165b7e1a85949cd0ee181d408d7a65419059add637ddab0",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "rejected_leads:4",
+    "card": {
+      "id": "rejected_leads:4",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "Distributed cache-affinity routing: prior B200 decision already proposed bounded prefix placement; #58757 documents engine-aware consistent hashing. No supplied trace separates avoidable misses from load imbalance.",
+      "original_record": "Distributed cache-affinity routing: prior B200 decision already proposed bounded prefix placement; #58757 documents engine-aware consistent hashing. No supplied trace separates avoidable misses from load imbalance.",
+      "proposed_change": "",
+      "statement": "Distributed cache-affinity routing: prior B200 decision already proposed bounded prefix placement; #58757 documents engine-aware consistent hashing. No supplied trace separates avoidable misses from load imbalance."
+    },
+    "fingerprint": "a55a65267986a60713c063c2b6f32e64794976892027ade6f265d4abf8ec5a9b",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:588f812147a27042b2b9d33c10a304417c2422aa722bb85f352d37ce92dca306",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "rejected_leads:3",
+    "card": {
+      "id": "rejected_leads:3",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "FP4 KV or mixed expert precision from title matches: the supplied KV prefill regression is on SM120, while B200 active sparse-MLA and V4.1 quality/format compatibility are not established. Existing mixed-precision proposals also make a bare flag or unchanged port insufficient.",
+      "original_record": "FP4 KV or mixed expert precision from title matches: the supplied KV prefill regression is on SM120, while B200 active sparse-MLA and V4.1 quality/format compatibility are not established. Existing mixed-precision proposals also make a bare flag or unchanged port insufficient.",
+      "proposed_change": "",
+      "statement": "FP4 KV or mixed expert precision from title matches: the supplied KV prefill regression is on SM120, while B200 active sparse-MLA and V4.1 quality/format compatibility are not established. Existing mixed-precision proposals also make a bare flag or unchanged port insufficient."
+    },
+    "fingerprint": "eff05f2577a20f6bbd001652ad1275c3d559fea47c0a05092bba0136bf0e81b9",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:f54dab999fa60afba7e92f31f66ba55629fd7dd1abab125cb75291dfd50b7668",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "rejected_leads:2",
+    "card": {
+      "id": "rejected_leads:2",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "CuTeDSL MegaMoE selection or PR #62073's decode workspace as a new idea: backend activation and the workspace selection are already described in supplied code; #62073 remains open, stacked, and Beam-specific.",
+      "original_record": "CuTeDSL MegaMoE selection or PR #62073's decode workspace as a new idea: backend activation and the workspace selection are already described in supplied code; #62073 remains open, stacked, and Beam-specific.",
+      "proposed_change": "",
+      "statement": "CuTeDSL MegaMoE selection or PR #62073's decode workspace as a new idea: backend activation and the workspace selection are already described in supplied code; #62073 remains open, stacked, and Beam-specific."
+    },
+    "fingerprint": "ccb19bdabfb9232cc4352ea78d75ace8d3e29c704f911e21058a3f6a07d9510a",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:6cab03b6bd710e72ca2bb9e4b1a02c488302d302a0c8b22ede756c5606ea0319",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "rejected_leads:1",
+    "card": {
+      "id": "rejected_leads:1",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "Fixed-to-adaptive DSpark depth alone: the prior decision already proposed DP-coordinated adaptive k, #44506 describes per-request utility, and existing dynamic-k/adaptive-verification work is substantial. A repeat would not be a distinct card.",
+      "original_record": "Fixed-to-adaptive DSpark depth alone: the prior decision already proposed DP-coordinated adaptive k, #44506 describes per-request utility, and existing dynamic-k/adaptive-verification work is substantial. A repeat would not be a distinct card.",
+      "proposed_change": "",
+      "statement": "Fixed-to-adaptive DSpark depth alone: the prior decision already proposed DP-coordinated adaptive k, #44506 describes per-request utility, and existing dynamic-k/adaptive-verification work is substantial. A repeat would not be a distinct card."
+    },
+    "fingerprint": "dde3eda42a6d23ecdbdecfb7722e8a44ec9baea460a694f0ee5e5e3a5ffe9ca5",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:4316c234981cc6a7c61ef68b8c9749b422ee7d3ceb8945ac82b0a534c54fb972",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "rejected_leads:0",
+    "card": {
+      "id": "rejected_leads:0",
+      "legacy_partial_record": true,
+      "legacy_section": "rejected_leads",
+      "mechanism": "SSD or FASER as a direct B200 feature: the paper evidence describes other implementations, while #36037's maintainer objects to scheduler/KV complexity and questions representative acceptance and hardware placement. No supplied source establishes same-node V4.1 transfer.",
+      "original_record": "SSD or FASER as a direct B200 feature: the paper evidence describes other implementations, while #36037's maintainer objects to scheduler/KV complexity and questions representative acceptance and hardware placement. No supplied source establishes same-node V4.1 transfer.",
+      "proposed_change": "",
+      "statement": "SSD or FASER as a direct B200 feature: the paper evidence describes other implementations, while #36037's maintainer objects to scheduler/KV complexity and questions representative acceptance and hardware placement. No supplied source establishes same-node V4.1 transfer."
+    },
+    "fingerprint": "bd02dc2754cd0d706dcaa7d247b57c3d59197fc0db3db7df048b395b7aea7cf8",
+    "status": "rejected",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+      ],
+      "status": "rejected"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:8fb2fc809e09f6634d6538592e975ce4cfb4f0f2948e2917e26a5d5cb7ac82c7",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "H02",
+    "card": {
+      "classification": "adaptation",
+      "code_surface": "vLLM EPLB state/policy and migration scheduler, DeepGEMM MegaMoE expert-map commit path, and DP-rank coordination. #62009's exact base/head SHAs were not supplied. The specified pinned baseline's EPLB enablement and active backend must be resolved before integration.",
+      "confidence": "Mechanism: moderate; workload benefit: low pending rank skew, migration cost, and HBM headroom on the actual layouts.",
+      "evidence": [
+        {
+          "claim": "An existing open PR already addresses part of EPLB's decode overhead.",
+          "quote": "takes async EPLB's host work off the decode critical path",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:62009"
+        },
+        {
+          "claim": "Cross-node migration advantage does not directly transfer to the specified single node.",
+          "quote": "Within one node, `symm_mem` and NIXL (CUDA IPC) move weights at a similar rate",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:62009"
+        },
+        {
+          "claim": "Rebalance timing can affect serving latency.",
+          "quote": "Every rebalance point blocks all EP ranks.",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:61839"
+        },
+        {
+          "claim": "A better expert balance can still lose overall throughput.",
+          "quote": "Synchronous rearrangement dominates EPLB wall time",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:50647"
+        },
+        {
+          "claim": "Any implementation sharing this MegaMoE path must preserve rank-consistent workspace capacity.",
+          "quote": "since peer buffer offsets depend on the capacity",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:62073"
+        }
+      ],
+      "experiment": {
+        "control": "Pinned deployment with EPLB off and the strongest qualified fixed or async EPLB configuration at equal HBM reservation.",
+        "correctness": "Exercise idle and unequal DP batches, all-rank commit and rollback, graph replay, map versions, and exact expert-output comparison at fixed precision; evaluate agent/tool outputs after deployment-level changes.",
+        "cost": "CPU policy replay first; GPU validation is deferred and its setup/runtime cost remains unknown.",
+        "measurements": "Per-rank MoE step time, rank load skew, migration bytes and pause, free HBM, prefill wait, TTFT/TPOT tails, output throughput, cost per token, and quality at matched request bodies and concurrency.",
+        "reject_if": "A component replay shows no migration-stall exposure or no durable rank skew, or the matched serving result loses to fixed/async EPLB after migration cost.",
+        "treatment": "Same expert-placement algorithm and migration backend, adding only the pending-plan commit gate."
+      },
+      "id": "H02",
+      "mechanism": "Keep an already computed expert-placement plan pending while prefill pressure or insufficient free HBM makes its migration expensive. Commit at a bounded later step when the predicted reduction in slow-rank MoE time exceeds migration and queueing cost. This acts on when EPLB moves weights, not on token routing or expert precision.",
+      "nearest_prior_art": "PR #62009 adds asynchronous EPLB, fused MegaMoE mapping, and symmetric-memory migration for V4.1 on a larger GB200 topology. PR #61839 adds a rebalance cap on ROCm and reports costly migration. PR #59168 describes online placement and quota refresh. Those implementations are direct comparators, not evidence of transfer to the specified B200 node.",
+      "new_adaptation": "Add a pending-plan state and a commit gate to the existing EPLB controller. Evaluate rank imbalance, pending-plan age, migration bytes, per-rank free HBM, and current prefill/decode pressure before all-rank commit. Keep the old expert map active until every rank acknowledges a complete migration; on timeout retain the old map and retry or discard the plan.",
+      "novelty": {
+        "deployment": "Unestablished for B200 DEP8 and two DEP4; #62009 reports a different GB200 multi-node setup.",
+        "implementation": "A proposed commit-timing adaptation to existing EPLB, subject to checking whether a similar gate already exists on the active branch.",
+        "publication": "Unestablished; online expert placement and refresh are already represented by #59168 and prior literature."
+      },
+      "online_policy": "Observable state: recent per-layer max/mean routed load, recent MoE step time, queued prefills, decode demand, migration bytes, free HBM per EP rank, and pending-plan age. Rule: commit only when an estimated payback within a bounded horizon clears a hysteresis margin and every rank has memory headroom; force a bounded decision at plan expiry. Action: migrate and atomically publish the new map at an all-rank boundary, or retain the current map. Overhead: existing load collection plus small host-side scoring and coordination; any added synchronization must be measured. Fallback: current static placement or existing async EPLB schedule. Strongest static comparator: best fixed EPLB configuration with the same redundant-expert memory budget.",
+      "readiness": "Low-to-moderate. A host-side policy replay is cheap, but production integration depends on resolved backend, EPLB compatibility, and atomic map-commit semantics.",
+      "revision_after_critique": "Explored three mechanisms: enable existing EPLB, change per-token replica routing, and gate migration commits. Existing EPLB is a comparator; #59168 already covers replica routing. Retained commit timing as a narrower code change. Removed any claim that #62009's GB200 multi-node gain predicts a B200 single-node gain.",
+      "rubric": {
+        "correctness": "No rank may route with a new map before all relevant expert weights are present and acknowledged.",
+        "cost": "Host replay is cheap; integration and multi-GPU validation are substantial, duration unestimated.",
+        "distinctness": "Changes migration timing; does not duplicate EPLB activation, mapping fusion, or replica routing.",
+        "evidence": "Real EPLB wins and migration costs exist on other topologies; transfer to B200 and this workload is unmeasured.",
+        "experiment": "Compare existing best fixed and async EPLB with commit gating; use a small policy replay before a serving A/B.",
+        "integration": "Needs collective agreement, map-version discipline, memory accounting, and compatibility with active MegaMoE backend.",
+        "mechanism": "Delay or commit an already prepared expert map using pressure, memory, and payback estimates.",
+        "research_contribution": "A load-dependent commit policy might be useful, but publication novelty is unestablished.",
+        "value": "Conditional TPOT-tail and throughput opportunity if expert skew persists long enough to repay migration."
+      },
+      "strongest_objection": "The one-node NVLink/NVSwitch migration cost may already be small enough that delaying a useful rebalance only extends straggler time. Conversely, an eight-GPU layout may lack HBM for redundant experts. #62009's larger-topology decode-only results do not establish this workload's 8K-prefill/1K-output benefit, and synchronous EPLB has shown severe wall-time regressions elsewhere.",
+      "title": "Pressure-aware commit timing for expert rebalancing"
+    },
+    "fingerprint": "e4879b3360d72440e5b64c4f9b67837582876e7e8b31433befc5ffab0d5403e3",
+    "status": "proposed",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": null,
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:fa0fc134d8d99e428aa4647444f2880738c4986af67250b81d5bd91268146188",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-002/draft",
+    "local_id": "H01",
+    "card": {
+      "classification": "adaptation",
+      "code_surface": "vLLM V1 KV-cache manager/block-pool commit and eviction hooks, plus scheduler metrics for per-run hit and recomputed-token accounting. Exact pinned-file locations are unknown from supplied evidence.",
+      "confidence": "Mechanism: moderate; benefit on this workload: low pending exact-prefix reuse and eviction evidence.",
+      "evidence": [
+        {
+          "claim": "Request-level no-store is a strong existing comparator.",
+          "quote": "A request can still reuse existing prefix-cache entries, but newly computed blocks from that request are not admitted",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:51981"
+        },
+        {
+          "claim": "Agent histories can benefit from retaining partial prefixes under pressure; this is abstract-level evidence only.",
+          "quote": "evicts a tail chunk from each, preserving reusable prefixes for more agents",
+          "relation": "supports",
+          "source_id": "arxiv:2609.32278"
+        },
+        {
+          "claim": "Cache-aware policies need fairness and cold-request TTFT checks.",
+          "quote": "Cached-prefix ranking can delay cold requests",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:58837"
+        },
+        {
+          "claim": "A measured-run hit rate must use counter deltas rather than a startup-to-date value.",
+          "quote": "the Prometheus counters are cumulative since server start",
+          "relation": "supports",
+          "source_id": "github:vllm-project/vllm:46938"
+        }
+      ],
+      "experiment": {
+        "control": "Same pinned image and checkpoint, stock prefix-cache policy; include a separately configured #51981-style request no-store control if available.",
+        "correctness": "Check repeated and partially shared prefixes, cancellation, block reuse, speculative draft rollback, and token/logprob parity under the same precision and sampler.",
+        "cost": "CPU replay first; component and serving durations to be measured, with no GPU work performed here.",
+        "measurements": "Per-run exact hit tokens, recomputed prompt tokens, evictions, scheduler CPU time, GPU KV occupancy, TTFT/TPOT distributions, throughput, cost per token, and agent answer/tool quality.",
+        "reject_if": "CPU replay shows no reduction in recomputed tokens under realistic pressure, or matched serving loses TTFT/throughput against the strongest static control.",
+        "treatment": "Block-level probation and promotion on identical request bodies, arrival order, cache preparation, and GPU budget, separately for DEP8 and two DEP4."
+      },
+      "id": "H01",
+      "mechanism": "At completion of each cache block, distinguish an exact prefix already reused across turns from a newly computed suffix. Under KV pressure, admit proven reusable prefix blocks while putting one-use suffix blocks on probation. Promote a probationary block after a later exact-hash reuse. This targets TTFT and cache capacity for repeated agent histories with changing tool output. The target's 75% cacheability is a goal, not a measured hit rate.",
+      "nearest_prior_art": "PR #51981 provides per-request no-store while preserving reads; RR-Evict spreads eviction across agent histories; PRs #54625 and #58837 reorder admission around resident prefixes. The proposed behavior changes cache writes at block granularity and requires a separate comparison with each.",
+      "new_adaptation": "Add a bounded per-prefix reuse table and a probation state to the local block-pool commit path. A complete block receives normal cache residency only after repeat use, except for a bounded protected shared-prefix budget. Preserve content hashes and never treat speculative or incomplete blocks as committed. The novel implementation claim is conditional until the pinned scheduler and hybrid V4.1 cache lifecycle are inspected.",
+      "novelty": {
+        "deployment": "Unestablished on the specified B200 DEP8 or two DEP4 layouts; the supplied 75% target is not an observed cache-hit rate.",
+        "implementation": "Potential block-level adaptation beyond #51981's request-level switch; pinned-baseline inclusion and overlap with other cache policies remain unverified.",
+        "publication": "Unestablished. RR-Evict, PEEK, and existing cache-admission work already cover closely related policy space."
+      },
+      "online_policy": "Observable state: exact block-hash repeat count, block completion, free-block pressure, waiting requests' matched prefixes, and per-session cached-prefix coverage. Rule: at low pressure use current admission; at pressure admit repeated hashes and bounded shared ancestors, probationarily decline new private suffix writes; age probation entries and revert to ordinary admission if reuse evidence is sparse. Action affects optional cache retention only, never active KV required for generation. Overhead is hash-table bookkeeping on block commit plus bounded eviction work. Fallback is current cache admission. Strongest static comparator is PR #51981-style per-request no-store supplied by the application, alongside stock LRU.",
+      "readiness": "Design and CPU replay are plausible now; integration readiness is low until V4.1 cache-group commit semantics and active prefix-cache behavior are checked.",
+      "revision_after_critique": "Explored three mechanisms: request-level no-store activation (#51981), round-robin tail eviction (RR-Evict), and block-level probation. The first two are comparators; retained probation because it adds specific per-block write behavior. Narrowed the claim to optional local cache retention and made exact reuse, pressure, and cold-request latency decisive measurements.",
+      "rubric": {
+        "correctness": "Exact committed-block hashes, active-block pinning, cancellation, and prefix-hit versus cold output parity are required.",
+        "cost": "Low CPU-screen cost; moderate code work; eight-GPU serving cost is unestimated.",
+        "distinctness": "Different from request-level no-store and queue reordering; closely related to RR-Evict and PEEK.",
+        "evidence": "Prior cache policies support the failure mode, but supplied evidence has no target trace.",
+        "experiment": "Start with CPU replay of frozen request hashes and cache capacity; promote to matched serving A/B only if it reduces recomputed prompt tokens.",
+        "integration": "Medium-to-high complexity because hybrid cache groups, speculative tokens, and eviction references must stay coherent.",
+        "mechanism": "Optional block-write admission at commit time, with exact-hash promotion and pressure fallback.",
+        "research_contribution": "Potential workload-specific policy result; publication novelty is unestablished.",
+        "value": "Conditional TTFT-tail and prefill-work opportunity for recurring agent prefixes; no B200 gain established."
+      },
+      "strongest_objection": "The candidate may discard exactly the suffix needed by the next agent turn. A per-request no-store hint or RR-Evict may achieve the same benefit with less scheduler work. No supplied B200 request/block trace establishes cache thrashing, avoidable misses, or a performance gain.",
+      "title": "Segment-level prefix-cache admission for agent turns"
+    },
+    "fingerprint": "fd6c0102c24762af760e3a907f868f2dfd43cc886b633cd9f8bcac015e3f563c",
+    "status": "proposed",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": null,
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:4180cef1acf03929f6e63800288096c557757d096e36588733ca9fff31151092",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-001/repair",
+    "local_id": "comparators:4",
+    "card": {
+      "id": "comparators:4",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "For a separately justified cache study, compare the pinned policy, qualified LRU, tuned fixed partial eviction, compatible RR-EVICT and CacheWise integrations, and native CPU KV offload only in a supported layout. These are outside the mechanism shortlist.",
+      "original_record": "For a separately justified cache study, compare the pinned policy, qualified LRU, tuned fixed partial eviction, compatible RR-EVICT and CacheWise integrations, and native CPU KV offload only in a supported layout. These are outside the mechanism shortlist.",
+      "proposed_change": "",
+      "statement": "For a separately justified cache study, compare the pinned policy, qualified LRU, tuned fixed partial eviction, compatible RR-EVICT and CacheWise integrations, and native CPU KV offload only in a supported layout. These are outside the mechanism shortlist."
+    },
+    "fingerprint": "628fca2304914f6bc2a6f56493a4ed22f7d599c88244a779d8692118b13d95cd",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:11ef61c21e6f6aad9da554ca956dc6da4e125f77de81eb0f4a22a2a57ce819c2",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-001/repair",
+    "local_id": "comparators:3",
+    "card": {
+      "id": "comparators:3",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "SLOWeave-style deadline control, P-PAS, fairness-aware scheduling, FlowPrefill, the earlier fixed DP-aligned cadence, and a matched fixed chunk and budget sweep are scheduling alternatives.",
+      "original_record": "SLOWeave-style deadline control, P-PAS, fairness-aware scheduling, FlowPrefill, the earlier fixed DP-aligned cadence, and a matched fixed chunk and budget sweep are scheduling alternatives.",
+      "proposed_change": "",
+      "statement": "SLOWeave-style deadline control, P-PAS, fairness-aware scheduling, FlowPrefill, the earlier fixed DP-aligned cadence, and a matched fixed chunk and budget sweep are scheduling alternatives."
+    },
+    "fingerprint": "9a0803da69bb613cc1047ec87921f19443772409e1721cde529b38506fcfded3",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:397159d63b294d69884d0346db3206dbb753508dd3c4102e935e54c535534d87",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-001/repair",
+    "local_id": "comparators:2",
+    "card": {
+      "id": "comparators:2",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Supplied PR #62073 state: open and unmerged; stacked branch base woosuk/beam-fused-allreduce at 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea; head 86a5bbe75a7971275952477bb1ce03e715bcc339. Its Beam-oriented deferred finalize and decode workspace are existing branch work. Nightly FlashInfer runtime validation is incomplete. An earlier conflict comment does not establish current conflict state.",
+      "original_record": "Supplied PR #62073 state: open and unmerged; stacked branch base woosuk/beam-fused-allreduce at 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea; head 86a5bbe75a7971275952477bb1ce03e715bcc339. Its Beam-oriented deferred finalize and decode workspace are existing branch work. Nightly FlashInfer runtime validation is incomplete. An earlier conflict comment does not establish current conflict state.",
+      "proposed_change": "",
+      "statement": "Supplied PR #62073 state: open and unmerged; stacked branch base woosuk/beam-fused-allreduce at 4fb4e7530ef9b2b558c842853edb6c7bb087d7ea; head 86a5bbe75a7971275952477bb1ce03e715bcc339. Its Beam-oriented deferred finalize and decode workspace are existing branch work. Nightly FlashInfer runtime validation is incomplete. An earlier conflict comment does not establish current conflict state."
+    },
+    "fingerprint": "ca3dd1105447fd633fccf91cbca961571d7f3045632b19f40fee233c48abef8b",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:e2152b5905d439474395a5d8b38e8634a2f559d66dbea430b98aa77e91fabf4f",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-001/repair",
+    "local_id": "comparators:1",
+    "card": {
+      "id": "comparators:1",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Supplied PR #62541 state: open and unmerged; main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8; guide-only head 64d4d308b50432449b25fdd4f73576f98b5ae5a5. Its DEP4 cadence and graph settings are qualified comparators where applicable. Main-branch targeting, guide availability, historical-image inclusion, and runtime use are separate.",
+      "original_record": "Supplied PR #62541 state: open and unmerged; main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8; guide-only head 64d4d308b50432449b25fdd4f73576f98b5ae5a5. Its DEP4 cadence and graph settings are qualified comparators where applicable. Main-branch targeting, guide availability, historical-image inclusion, and runtime use are separate.",
+      "proposed_change": "",
+      "statement": "Supplied PR #62541 state: open and unmerged; main base aa3564ceefbd605f1d28238fa0fbbb964201c6b8; guide-only head 64d4d308b50432449b25fdd4f73576f98b5ae5a5. Its DEP4 cadence and graph settings are qualified comparators where applicable. Main-branch targeting, guide availability, historical-image inclusion, and runtime use are separate."
+    },
+    "fingerprint": "fecf506ce3e9d48d4f8bf8f602f7ffecfb5ed4225a418735fd87fd2e778542f0",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  },
+  {
+    "id": "hypothesis:d9b73a69c33ade6131169433d34e9013b560bb4b11b5f8d3fdd58b59ca925fb6",
+    "run": "/home/ubuntu/shreyas/skunk-work/ideation/runs/b200-prototype-001/repair",
+    "local_id": "comparators:0",
+    "card": {
+      "id": "comparators:0",
+      "legacy_partial_record": true,
+      "legacy_section": "comparators",
+      "mechanism": "Unchanged historical vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and deepseek_serve 2e6fa287d90adf7318ad314de27aa2f595aac821, recording the actual backend, precision, MTP/DSpark state, graph capture, and cache policy. Named pins alone do not prove runtime activation.",
+      "original_record": "Unchanged historical vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and deepseek_serve 2e6fa287d90adf7318ad314de27aa2f595aac821, recording the actual backend, precision, MTP/DSpark state, graph capture, and cache policy. Named pins alone do not prove runtime activation.",
+      "proposed_change": "",
+      "statement": "Unchanged historical vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and deepseek_serve 2e6fa287d90adf7318ad314de27aa2f595aac821, recording the actual backend, precision, MTP/DSpark state, graph capture, and cache policy. Named pins alone do not prove runtime activation."
+    },
+    "fingerprint": "57a097ceb86c98113c5bafa53ef427f8048a474ed55db393ba4215cfea08863c",
+    "status": "deferred",
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "created_at": "2026-10-19T23:16:33Z",
+    "assessment": {
+      "reasons": [
+        "Original legacy comparators; no full hypothesis card or experiment recorded"
+      ],
+      "status": "deferred"
+    },
+    "experiment_status": "untested",
+    "outcomes_by_scope": []
+  }
+]

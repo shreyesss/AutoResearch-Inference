@@ -1,0 +1,48 @@
+{
+  "started_at": "2026-10-19T23:28:36Z",
+  "status": "completed_no_selection",
+  "rounds": [
+    {
+      "round": 1,
+      "proposed": 2,
+      "eligible": 0
+    }
+  ],
+  "requested": 2,
+  "dependency": "DiscoveryRSI Candidate/Episode/ReplayBuffer; domain gates are local",
+  "model": "existing agent configuration",
+  "gpu_experiments": 0,
+  "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+  "finished_at": "2026-10-19T23:30:07Z",
+  "selected": 0,
+  "shortfall": 2,
+  "evaluations": [
+    {
+      "id": "b200-adaptive-verification-1",
+      "eligible": false,
+      "status": "rejected",
+      "score": 62.0,
+      "reasons": [
+        "Unknown source: brief:baseline",
+        "task_value: The cheap flag inspection can resolve whether activation is a real baseline delta: the brief says “CSV dspark_config off contradicts profile on; runtime flags not inspected.” The same-topology experiment targets the required cost and latency metrics. The target verification bottleneck and benefit remain unknown.",
+        "correctness_and_safety: The proposal retains draft k5 and calls for sampling, KV rollback, and graph-safe decode checks. Safety is unqualified: issue #59970 reports “IMA within 1 min at c96 (4/4)” on B300, while PR #59986 says its end-to-end reproducer was “Not run.” Neither establishes safety on this B200 deployment.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    },
+    {
+      "id": "b200-schedulable-cost-calibration-2",
+      "eligible": false,
+      "status": "deferred",
+      "score": 50.0,
+      "reasons": [
+        "task_value: Issue #54046 describes a concrete profiling mismatch: “Anything the profiler measures above 1024 tokens cannot be decode” for its k7, seq128 example. Whether the frozen k5 runtime has the behavior, reaches relevant tail shapes, changes decisions, or improves target cost and latency is unknown. The proposed code-presence and shape checks are cheap.",
+        "correctness_and_safety: The proposal preserves draft k5 and makes graph safety and adaptive eligibility prerequisites. PR #54077 claims it changes startup profiling shapes and “does not modify sampling or verification kernels,” but target sampling, rollback, and concurrent-prefill safety have not been qualified.",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "policy_id": "policy:e98e573ac6855fd542ed9ef81c8712316f1e135d530a5f07610ff7a09f7f0970",
+      "meaning": "Eligible for experiment design only; not scientifically validated or a measured improvement"
+    }
+  ]
+}

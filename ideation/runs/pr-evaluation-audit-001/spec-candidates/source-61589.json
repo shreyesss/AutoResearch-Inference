@@ -1,0 +1,116 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:61589",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/61589",
+    "title": "[Core][Spec Decode] Lookahead block hashes for EAGLE prefix caching",
+    "body": "\n\n## Overview\n\nPart 1 of 2 split from vllm-project/vllm#50897 (implements vllm-project/vllm#50438): **lookahead block hashes** for the local prefix cache. EAGLE-family drafters write the draft KV at a block's last position from the token after the block, so `main` drops the last matched block on every hit. This PR puts that token into the block hash and removes the drop when no KV connector is configured. KV connector support is in the stacked PR (part 2).\n\n## Claims\n\n- Local prefix-cache hits with EAGLE, EAGLE3, MTP, DFlash and DSpark reach `floor((N - 1) / B) * B`, the same as without speculative decoding, instead of one cache unit less (544\u20131600 tokens on hybrid attention + Mamba/GDN models).\n- A block is reused only when its lookahead token matches, so a hit reads the same draft KV as a cold run.\n- New `SpeculativeConfig.disable_lookahead_block_hashes` restores `main`'s behavior. With any KV connector configured, this PR keeps the legacy hashes.\n- Model runners are unchanged; no new CPU/GPU synchronization.\n\n## Validation\n\nUnit tests on this branch (CPU, local):\n\n```bash\npython -m pytest tests/v1/core tests/v1/streaming_input/test_scheduler_streaming.py \\\n  tests/v1/kv_connector/unit/test_nixl_connector_hma.py tests/models/kimi_k3/test_kda_metadata.py \\\n  --ignore tests/v1/core/prefix_cache/test_hybrid_prefix_cache_hit_rate.py -k \"not ray\"\n```\n\nResult: 1,184 passed. `test_hybrid_prefix_cache_hit_rate.py` is excluded because it launches the `vllm` CLI and needs a GPU node.\n\nEnd-to-end and draft-KV results from the combined PR (vllm-project/vllm#50897, earlier revision; not yet re-run on this split):\n\n| Qwen/Qwen3.6-27B, MTP k=4, 1x GB200, `prefix_repetition` | `main` | lookahead hashes |\n|---|---|---|\n| Prefix-cache hit rate | 72.7% | **85.0%** |\n| Request throughput | 9.09 req/s | **12.43 req/s** |\n| Mean / median TTFT | 404 / 304 ms | **318 / 226 ms** |\n| GSM8K 5-shot | 0.4359 | 0.4359 |\n\nHit length, Qwen3.5-2B + MTP k=1, unit 544, 1,367-token prompt sent twice: `main` without spec decode 1088, `main` with MTP 544, lookahead hashes 1088.\n\nDraft-KV check (KV of the hit blocks vs a cold run, bf16 max abs diff): Qwen3-8B + EAGLE3 0.09\u20130.14 (negative control with a stale lookahead token: 7.55); Qwen3.5-2B MTP 0.19 (control: 14.53).\n\nTODO before review: re-run `tests/v1/e2e/general/test_mamba_prefix_cache.py`, `tests/v1/core/prefix_cache/test_hybrid_prefix_cache_hit_rate.py` and the benchmark on GPU.\n\n## Details\n\n**Enablement.** `is_lookahead_block_hashing_enabled` (`v1/core/kv_cache_utils.py`) requires `use_eagle_block_drop()`, `not disable_lookahead_block_hashes`, `num_prefill_lookahead_tokens == 1`, no HiSparse, prefix caching on, and no KV transfer config. Part 2 replaces the last condition with a per-connector capability.\n\n**Hashing.** `get_request_block_hasher(..., use_lookahead_block_hashes=True)` hashes a block ending at `e` only once token `e` is in `all_token_ids`, with `(block_keys, token_e, token_e_keys)` as extra keys. All KV cache groups share these hashes. KV events carry the same extra keys.\n\n**Caching.** Blocks are cached at allocation, as without lookahead hashes; `SingleTypeKVCacheManager.cache_blocks` stops at the last hashed block. At request finish, `update_from_output` caches the block whose lookahead token is the last sampled one.\n\n**Drop removal.** The scheduler clears `use_eagle_block_drop`. `KVCacheCoordinator.drop_eagle_group_ids` is empty in this mode and drives the per-group drop and `replay_boundaries`, so the last-block drop, the Mamba checkpoint back-off and the replay-boundary shift are all skipped from one place. `eagle_group_ids` stays, since `mamba_shared_prefix_checkpoint` still applies.\n\n**Why it is correct.** The drafter writes the draft KV at `e - 1` (input `(h_{e-1}, token e)`) in the step that prefills or samples token `e`. The hash exists only once token `e` is in `all_token_ids`, which never holds draft or in-flight tokens, so a cached block's draft KV is written by the end of that step.\n\n**Limitations**\n\n- Multi-module MTP (`num_nextn_predict_layers > 1`) keeps the block drop: module j at position p reads token p + j.\n- HiSparse keeps the block drop; it is not validated with lookahead hashes yet.\n- Hybrid models lose the hit when a prompt diverges exactly at the producer's last retained Mamba boundary (0 vs one unit on `main`); see vllm-project/vllm#50897 for the reproducer.\n- KV event extra keys become `(block_keys, lookahead_token_id, lookahead_keys)` in this mode, with no field marking the scheme.\n\n<details><summary>Duplicate-work check</summary>\n\nSplit from vllm-project/vllm#50897 by the same author. No other open PR adds the successor token to the prefix-cache key (vllm-project/vllm#44986, vllm-project/vllm#45614, vllm-project/vllm#48375 and vllm-project/vllm#39171 change when the drop applies, not the key).\n\n</details>\n\nAI assistance (Claude Code) was used to split, implement, test and describe this change. The submitting human reviews every changed line and is responsible for it end to end.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [ ] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [ ] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [ ] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [ ] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n",
+    "created_at": "2026-10-14T08:03:17Z",
+    "updated_at": "2026-10-19T03:32:54Z",
+    "fetched_at": "2026-10-20T04:05:57Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "ttft",
+      "throughput",
+      "performance",
+      "speculation",
+      "kv-cache"
+    ],
+    "metadata": {
+      "number": 61589,
+      "labels": [
+        {
+          "id": 7614859318,
+          "node_id": "LA_kwDOI7xefs8AAAABxeGINg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/needs-rebase",
+          "name": "needs-rebase",
+          "color": "d4c5f9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9306392211,
+          "node_id": "LA_kwDOI7xefs8AAAACKrRGkw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-connector",
+          "name": "kv-connector",
+          "color": "4417cb",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11639749480,
+          "node_id": "LA_kwDOI7xefs8AAAACtch7aA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kimi",
+          "name": "kimi",
+          "color": "78d0bd",
+          "default": false,
+          "description": null,
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11639749575,
+          "node_id": "LA_kwDOI7xefs8AAAACtch7xw",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/k3",
+          "name": "k3",
+          "color": "e429eb",
+          "default": false,
+          "description": null,
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777487818,
+          "node_id": "LA_kwDOI7xefs8AAAACvf4zyg",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/scheduler",
+          "name": "scheduler",
+          "color": "f5d1c9",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 11777489391,
+          "node_id": "LA_kwDOI7xefs8AAAACvf457w",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/kv-cache-manager",
+          "name": "kv-cache-manager",
+          "color": "d065a7",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 6,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "7115b70c0170797cb3f0ed98b7ae761f6fe9bcb3",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "lookahead-hash-core",
+        "sha": "86a47da888ceca739134503d3c2a76d317b7450a",
+        "label": "ZJY0516:lookahead-hash-core"
+      },
+      "merge_commit_sha": null,
+      "draft": false,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-20T04:05:57Z"
+    },
+    "content_hash": "c9f251dcc560307db693c9a17570fbd86f834577ad0bfacd985f600e8dd641c8"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

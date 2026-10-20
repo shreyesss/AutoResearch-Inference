@@ -1,0 +1,35 @@
+{
+  "directions": [
+    {
+      "mechanism": "Investigate per-request speculation admission: use observed draft acceptance, verifier cost, and queue pressure to decide whether to draft or decode normally. Specify measurement overhead, a safe fallback, and fixed-k speculation as the strongest comparator. Check the active MTP/DSpark backend and DEP4/DEP8 support.",
+      "corpus_query": "DeepSeek-V4.1-Flash B200 vLLM DSpark MTP verifier acceptance draft cost DP branch base head merge 36037",
+      "paper_query": "speculative decoding request-level admission acceptance rate verifier cost serving",
+      "counterevidence_query": "speculative decoding low acceptance verifier overhead graph capture DP synchronization quality fixed k no speculation"
+    },
+    {
+      "mechanism": "Investigate MoE dispatch/combine overlap with expert computation across the single-node expert-parallel layouts. Identify the active communication backend and the token shapes where overlap is possible; compare with unchanged backend selection and expert load balancing.",
+      "corpus_query": "DeepSeek V4.1 Flash B200 MoE DeepEP MegaMoE dispatch combine overlap NVLink DEP8 DEP4 62541 branch base head merge",
+      "paper_query": "mixture of experts inference all-to-all dispatch combine communication computation overlap small batch",
+      "counterevidence_query": "MoE overlap serialization small token batch launch overhead NVSwitch contention expert skew existing DeepEP MegaMoE overlap"
+    },
+    {
+      "mechanism": "Investigate reuse-weighted KV admission and eviction using exact prefix identity, observed reuse, and available cache memory. Define the online decision, bookkeeping cost, and fallback; compare with existing eviction and the prior prefix-placement proposal.",
+      "corpus_query": "DeepSeek V4.1 Flash vLLM prefix KV cache admission eviction reuse hybrid cache B200 8K 1K branch base head merge",
+      "paper_query": "LLM serving prefix cache admission eviction reuse prediction memory pressure",
+      "counterevidence_query": "prefix cache high hit rate no eviction one-use prefixes routing locality overhead hybrid KV correctness cache churn"
+    },
+    {
+      "mechanism": "Investigate selective precision for MoE experts or layers, with a quality gate and explicit memory accounting. Establish whether it needs new conversion and dispatch code or is only an existing NVFP4/MXFP4 activation; compare against the unchanged precision backend.",
+      "corpus_query": "DeepSeek V4.1 Flash B200 NVFP4 MXFP4 expert precision outlier quality active backend 62073 branch base head merge",
+      "paper_query": "mixture of experts inference mixed precision expert sensitivity FP4 quality memory",
+      "counterevidence_query": "FP4 MoE quality degradation conversion overhead mixed precision dispatch overhead native NVFP4 unchanged port"
+    },
+    {
+      "mechanism": "Investigate a queue-pressure policy that limits prefill work when decode latency debt grows. Use pending requests, prefill size, and observed TPOT as state; specify the chunk decision, overhead, fairness fallback, and the strongest fixed chunk or interval comparator.",
+      "corpus_query": "DeepSeek V4.1 Flash vLLM B200 prefill decode scheduling chunk queue TTFT TPOT DEP4 DEP8 active backend branch base head merge",
+      "paper_query": "LLM serving prefill decode scheduling adaptive chunk size latency fairness",
+      "counterevidence_query": "adaptive prefill scheduling starvation TTFT regression existing chunked prefill decode priority fixed interval no rank skew"
+    }
+  ],
+  "selection_reason": "These five investigations cover distinct code boundaries: speculation, MoE communication, KV memory, precision, and scheduling. The supplied prior decisions make existing flags, unchanged ports, fixed policies, and earlier proposals essential comparators. Each investigation must first verify branch/base/head/merge state, baseline inclusion, and the resolved backend. Workload-specific bottlenecks, quality, and measured benefit remain unknown."
+}

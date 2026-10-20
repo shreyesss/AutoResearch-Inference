@@ -1,0 +1,41 @@
+{
+  "name": "B200 counterexample-first speculation verification study",
+  "instructions": "Improve current cost-throughput frontier using deployment changes, not publication novelty. Generate at most two distinct hypotheses. First investigate safety-qualified activation of currently-profile-disabled DSpark adaptive verification, preserving draft k5 and graph-safe decode; require comparison against static k2/k5/no-spec within same topology, not claim topology comparison isolates k. Second only if justified investigate schedulable mixed-prefill verification cost calibration or graph-aware prefix allocation derived from DScale/EVICT, distinguishing already-existing upstream behavior. Treat source reports as claims, not reproduced facts. Strong negative evidence59970 and62541 must be addressed. Do not suggest blind batch-local dynamic k in DP because45963 disables it for collective divergence. Unknown deployed flags mandate cheap inspection before GPU execution.",
+  "selection": {
+    "require_novelty": false
+  },
+  "count": 2,
+  "repos": [
+    "vllm-project/vllm"
+  ],
+  "target": {
+    "model": "DeepSeek-V4.1-Flash",
+    "gpu": "8xB200",
+    "workload": "agent-f75 8192 input/1024 output, cacheability target75%, plus Mooncake median/burst/cache-heavy fixed traces",
+    "metrics": [
+      "SLO-qualified goodput per GPU dollar",
+      "cost per successful million output tokens",
+      "TTFT p95/p99",
+      "E2E p95/p99",
+      "ITL length cohorts",
+      "correctness"
+    ]
+  },
+  "baseline": {
+    "reference": "b200-bench-analysis/PARETO_FINDINGS.md",
+    "profile": "2xDEP4 R7b: seq128 overlay, prefix caching, API2, profile DSpark k5 adaptive false",
+    "runtime_uncertainty": "CSV dspark_config off contradicts profile on; runtime flags not inspected. Profile seq64 overridden by lat-seqs128. Manifest dirty, image empty; freeze checkout+patch+container before causal attribution.",
+    "historical_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+    "observations": "R7b c512 33.76req/s E2Ep9519.49s; low-load 2xTP4 no-spec fastest; R10DEP8k2 c1024 43.55req/s E2Ep9529.61s. Those differentlayouts/loadpoints do not isolate speculation.",
+    "scoring_caveat": "Mooncake custom lengthaware goodput differs AIPerf scorer; collect both, lengthcohorts, exact fixed tokenizer, avoid streamingburst artifacts."
+  },
+  "constraints": [
+    "No GPU execution in this session; experiment design only.",
+    "No claimed measured gains or assumed active bottleneck.",
+    "Test expected-gain threshold5% proposed engineering threshold not observed effect.",
+    "Guard exact sampling distribution and KV rollback; do not weaken acceptance or quality.",
+    "All dataparameter, source changes allowed but isolate adaptive toggle from safety patch and calibrator.",
+    "Report open/deferred failures, baseline unknowns, B300/GLM/A100 transferlimits."
+  ],
+  "prior_decision_text": {}
+}

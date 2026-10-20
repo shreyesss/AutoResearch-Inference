@@ -1,0 +1,228 @@
+{
+  "source": "sofia-gpu-mumbai:/home/ubuntu/shreyas/skunk-work/ideation/data/corpus.sqlite",
+  "note": "Read from stored opening records, no GitHub/web fetch. Selected basic fields only; these three records also have separately hydrated details.",
+  "records": [
+    {
+      "id": "github:vllm-project/vllm:36037",
+      "kind": "issue",
+      "title": "[Feature]: Supports Speculative Speculative Decoding",
+      "body": "### 🚀 The feature, motivation and pitch\n\n\n# Motivation\n\nvLLM already supports speculative decoding to accelerate autoregressive generation using a draft model. However, speculative decoding still suffers from a sequential dependency between drafting and verification: the draft model must wait for the target model to finish verifying tokens before generating the next speculation batch.\n\nRecent work proposes Speculative Speculative Decoding (SSD), which removes this dependency by running drafting and verification asynchronously and precomputing speculations for predicted verification outcomes. \n\npaper link: [https://arxiv.org/pdf/2603.03251](https://arxiv.org/pdf/2603.03251)\n\nIn SSD, while the target model verifies a speculation, the draft model predicts likely verification outcomes and pre-speculates tokens for those outcomes in advance. If the actual verification result matches one of the predicted outcomes, the next speculation can be returned immediately, eliminating drafting latency. \n\nThis approach enables overlapping speculation and verification and significantly reduces idle GPU time.\n\nThe paper reports:\n\n- Up to 2× speedup over optimized speculative decoding\n\n- Up to 5× speedup over autoregressive decoding\nacross several workloads and datasets. \n\nGiven that vLLM is widely used for high-performance inference, supporting SSD could provide meaningful latency improvements.\n\n\n<div align=\"center\">\n  <table><tr><td width=\"800\">\n    <video src=\"https://github.com/user-attachments/assets/588eaa70-d6e5-4522-9e94-e54fc6074aba\" />\n  </td></tr></table>\n</div>\n\n\n### Additional context\n\n[_No response_](https://github.com/tanishqkumar/ssd)\n\n### Before submitting a new issue...\n\n- [x] Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the [documentation page](https://docs.vllm.ai/en/latest/), which can answer lots of frequently asked questions.",
+      "url": "https://github.com/vllm-project/vllm/issues/36037",
+      "state": "closed",
+      "created_at": "2026-03-04T19:27:36Z",
+      "updated_at": "2026-08-18T02:54:14Z",
+      "merged_at": null,
+      "fetched_at": "2026-10-19T21:20:38Z",
+      "metadata": {
+        "number": 36037,
+        "labels": [
+          {
+            "id": 5645279504,
+            "node_id": "LA_kwDOI7xefs8AAAABUHwhEA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/feature%20request",
+            "name": "feature request",
+            "color": "a2eeef",
+            "default": false,
+            "description": "New feature or request",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 7648877658,
+            "node_id": "LA_kwDOI7xefs8AAAABx-icWg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/stale",
+            "name": "stale",
+            "color": "ededed",
+            "default": false,
+            "description": "Over 90 days of inactivity",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 16,
+        "state_reason": "not_planned"
+      }
+    },
+    {
+      "id": "github:vllm-project/vllm:62541",
+      "kind": "pr",
+      "title": "[Doc] Update DeepSeek-V4.1-Flash B200 AgentX tuning (InferenceX #3837)",
+      "body": "## Overview\n\nUpdate the DeepSeek-V4.1-Flash \"B200 AgentX tuning\" guide with the settings qualified in [SemiAnalysisAI/InferenceX#3837](https://github.com/SemiAnalysisAI/InferenceX/pull/3837) (head `d2d90439`). This re-files [vllm-project/recipes#1106](https://github.com/vllm-project/recipes/pull/1106), which targeted the old recipes copy before recipes moved here in #61302. It changes only `recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml` (guide text).\n\n## Claims\n\n- **DEP2:** document c24 alongside c32 (piecewise graphs to 4096 tokens, `--prefill-schedule-interval 64`). State the per-concurrency `--max-num-seqs`: 16 at c8/c16 and 32 at c24/c32. #1106 said it \"matches the concurrency\", which is wrong for c8 and c24.\n- **DEP4:** document c96 alongside c128 (`--prefill-schedule-interval 48`, `--max-num-seqs` equal to concurrency), and add the DEP4 `--compilation-config` with separate decode-replay capture sizes.\n- **DEP2 host KV:** extend native CPU KV offload (32 GiB per DP rank, `--gpu-memory-utilization 0.955`, `--max-num-seqs 48`) from c128 to c64 as well, with graph capture stopping at 576 tokens.\n\n## Validation\n\n- `node scripts/validate-source.mjs --source vllm --dir <this checkout>/recipes` (from vllm-project/recipes) passes, and `git diff --check` is clean.\n- The values match the InferenceX recipe at #3837 head `d2d90439` (`benchmarks/single_node/srt-slurm-recipes/dsv41flash/vllm/b200-fp4-mtp/agentic.yaml`). Full sweep [run 38438383633](https://github.com/SemiAnalysisAI/InferenceX/actions/runs/38438383633) passed all 17 points and both evals on image `vllm/vllm-openai:nightly-dev-x86_64-cu130-ac9126e58aa7`.\n\n## Details\n\nGuide text only; the command builder's B200 DEP override (the c32 settings) is unchanged.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n",
+      "url": "https://github.com/vllm-project/vllm/pull/62541",
+      "state": "open",
+      "created_at": "2026-10-19T18:40:56Z",
+      "updated_at": "2026-10-19T18:41:32Z",
+      "merged_at": null,
+      "fetched_at": "2026-10-19T22:02:06Z",
+      "metadata": {
+        "number": 62541,
+        "labels": [
+          {
+            "id": 8746007475,
+            "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+            "name": "deepseek",
+            "color": "1995FE",
+            "default": false,
+            "description": "Related to DeepSeek models",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 12141724842,
+            "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+            "name": "DSv4.1",
+            "color": "2c52b7",
+            "default": false,
+            "description": "Related to DeepSeek-V4.1 models",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 1,
+        "state_reason": null
+      }
+    },
+    {
+      "id": "github:vllm-project/vllm:62073",
+      "kind": "pr",
+      "title": "[Beam] Enable CuTeDSL NVFP4 MegaMoE",
+      "body": "<!-- markdownlint-disable -->\n\n## Overview\n\nRun Reflection Beam with attention DP + expert parallelism on FlashInfer CuTeDSL MegaMoE (`--moe-backend flashinfer_moe_ep_cutedsl`). **Stacked on #62366** (Beam's fused all-reduce, base branch `woosuk/beam-fused-allreduce`), which builds on the merged #62074. The diff shows only this PR's commit.\n\n**Depends on FlashInfer nightly** for `forward_unfinalized`, `do_finalize` and `create_workspace`. These are detected at runtime, and the new paths stay off with older FlashInfer.\n\n## Claims\n\n- **Prefill throughput:** attention DP4 + MegaMoE reaches 1.71× TP4's peak prefill throughput for Beam.\n- **MegaMoE deferred finalize:** `defer_moe_finalize(allow_ep=True)` now also covers MegaMoE under DP/EP. MegaMoE returns `UnfinalizedMoEOutput` through `forward_unfinalized`. Beam finalizes the local rows in a new kernel (`moe_finalize.cu`) fused with the post-MoE norms and residual.\n- **Decode workspace:** MegaMoE keeps a second, decode-sized workspace: `max_num_seqs × (1 + num_speculative_tokens)` tokens per sequence-parallel rank. It is used when every DP rank's batch fits, since peer buffer offsets depend on the capacity.\n- **Idle ranks:** passthrough-all2all experts now run on ranks with zero tokens instead of returning early, because these experts own the EP collective that every rank must join.\n\n## Validation\n\n**Prefill**, 4×GB300, 32K input / 1 output token, FlashInfer nightly:\n\n| Configuration | Peak input throughput (tok/s) |\n|---|---:|\n| Attention DP + MegaMoE | 168.8K |\n| TP4 | 98.7K |\n\n**Unit tests** on this branch (rebased onto #62366), GB200 with FlashInfer 0.7.2, which has none of the nightly APIs:\n\n```bash\npytest tests/models/test_beam_construction.py tests/models/test_beam_numerics.py \\\n  tests/models/test_beam_weight_mapping.py tests/transformers_utils/test_beam_config.py \\\n  tests/v1/spec_decode/test_dflash2.py tests/kernels/moe/test_trtllm_nvfp4_moe.py \\\n  tests/kernels/moe/test_flashinfer_moe_ep.py \\\n  \"tests/test_config.py::test_dflash_candidate_draft_forces_v2_model_runner\"\n# 382 passed, 4 skipped, 8 failed\n```\n\n- **Failures:** the 8 are `test_flashinfer_moe_ep.py::test_init_warmup_forward_is_exact_on_grid_inputs`, which fail identically on `main` in this environment.\n- **Skipped:** the DP-boundary MegaMoE test, which checks bit-exact output for unequal and empty batches with CUDA graph replay, needs FlashInfer nightly. The MegaMoE runtime paths still need CI or a nightly-FlashInfer machine.\n\n## Details\n\n- **Effect on existing MegaMoE users (e.g. DeepSeek-V4 with `flashinfer_moe_ep_cutedsl`):**\n  - With FlashInfer nightly, they also get the decode workspace. This adds one more workspace allocation and its warmup.\n  - Idle ranks now run the experts and join the collective.\n  - Deferral stays off unless a model asks for it.\n- **Rebase onto the released Beam schema:** Beam now hardcodes its post-feedforward norm and depth-scaled residuals, so the MegaMoE boundary always receives a post-norm weight and scales. `beam_norm_residual_norm` regains an optional post-norm only for the fused finalize, which applies the post-norm itself.\n- **Not a duplicate:** no open PR adds EP deferral or MegaMoE workspace selection.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [ ] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n",
+      "url": "https://github.com/vllm-project/vllm/pull/62073",
+      "state": "open",
+      "created_at": "2026-10-16T19:10:25Z",
+      "updated_at": "2026-10-19T20:28:36Z",
+      "merged_at": null,
+      "fetched_at": "2026-10-19T22:01:18Z",
+      "metadata": {
+        "number": 62073,
+        "labels": [
+          {
+            "id": 5135047180,
+            "node_id": "LA_kwDOI7xefs8AAAABMhKaDA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/documentation",
+            "name": "documentation",
+            "color": "0075ca",
+            "default": true,
+            "description": "Improvements or additions to documentation",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 5490716130,
+            "node_id": "LA_kwDOI7xefs8AAAABR0Wt4g",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/new-model",
+            "name": "new-model",
+            "color": "815D32",
+            "default": false,
+            "description": "Requests to new models",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 6915642480,
+            "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+            "name": "speculative-decoding",
+            "color": "6A493C",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 7614859685,
+            "node_id": "LA_kwDOI7xefs8AAAABxeGJpQ",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/ci/build",
+            "name": "ci/build",
+            "color": "EF9EEA",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 8745996664,
+            "node_id": "LA_kwDOI7xefs8AAAACCU1ReA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/qwen",
+            "name": "qwen",
+            "color": "DBB0FE",
+            "default": false,
+            "description": "Related to Qwen models",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 9543357705,
+            "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+            "name": "nvidia",
+            "color": "76B900",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 10292436636,
+            "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+            "name": "mrv2",
+            "color": "7E1A2D",
+            "default": false,
+            "description": "Model Runner V2 specific",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 10956162510,
+            "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+            "name": "dflash",
+            "color": "BFAC4B",
+            "default": false,
+            "description": "",
+            "archived_at": null,
+            "archived_by": null
+          },
+          {
+            "id": 12722137986,
+            "node_id": "LA_kwDOI7xefs8AAAAC9kxrgg",
+            "url": "https://api.github.com/repos/vllm-project/vllm/labels/beam",
+            "name": "beam",
+            "color": "0E5E2A",
+            "default": false,
+            "description": "Reflection Beam model support",
+            "archived_at": null,
+            "archived_by": null
+          }
+        ],
+        "comments": 3,
+        "state_reason": null
+      }
+    }
+  ],
+  "issue_search": {
+    "query": "\"Speculative Speculative Decoding\"",
+    "after": "2026-01-01",
+    "date_field": "updated_at",
+    "hits": [
+      {
+        "id": "hf:2603.03251",
+        "title": "Speculative Speculative Decoding",
+        "updated_at": "2026-03-03T18:41:32.000Z"
+      },
+      {
+        "id": "github:vllm-project/vllm:36037",
+        "title": "[Feature]: Supports Speculative Speculative Decoding",
+        "updated_at": "2026-08-18T02:54:14Z"
+      },
+      {
+        "id": "github:vllm-project/vllm:44802",
+        "title": "[Core][Spec Decode] SSD: async verify/draft overlap via OutcomePredictor (closes #36037)",
+        "updated_at": "2026-06-09T20:49:28Z"
+      }
+    ]
+  }
+}

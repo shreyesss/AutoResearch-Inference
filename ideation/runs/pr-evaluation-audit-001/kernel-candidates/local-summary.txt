@@ -1,0 +1,1899 @@
+61039 [Perf][DSv4.1] Length-aware candidate block selection in the decode indexer STATE merged 2026-10-14T20:15:59Z HEAD 5e952d607749297e28d96050e2023fc3a6295b5f 
+ ## Purpose
+
+DeepSeek-V4.1's decode indexer writes its logits into a `[rows, max_model_len]` buffer, a width that must stay static for CUDA graphs (1M with the default `max_model_len`). Each row only holds its own context, but `select_candidate_blocks` scored every block of the full width and then ran `torch.topk(2048)` over all of them. At 1M that costs about 850 us per decode step, whatever the actual context length. This PR makes candidate selection length-aware.
+
+- **Score only valid blocks.** `_block_scores_kernel` now runs a fixed `(rows, 32)` grid that walks each row's tiles only up to the row's end, and it writes each row's valid block count.
+- **DeepSelect instead of `torch.topk`.** On the DeepSelect path, the block count is passed as DeepSelect's per-row `end`. Short rows are padded with -1. Candidate order does not matter, because the sparse expansion sorts. The full-width `torch.topk` path stays as the fallback for no DeepSelect, non-contiguous output, `topk > 4096` and narrow logits, and its behaviour is unchanged.
+- **NaN rows.** DeepSelect leaves NaN rows only partly written, which can happen during warmup or capture on an uninitialized KV cache. On the DeepSelect path, NaN blocks are pinned like the newest block, as `torch.topk` ranks NaN first. NaN rows therefore still get complete, in-range candidates.
+- **bf16 decode logits.** The decode indexer now asks DeepGEMM for bf16 logits when the top-k backend is `deep_select` and DCP is off. This halves the bytes that the top-k and candidate passes read. The logits kernel still accumulates in fp32 and only rounds the output, which is byte-identical to `bf16(fp32 logits)`. The other top-k backends and the DCP merge still get fp32.
+- **Footprint.** `candidate_blocks.py`, the decode call in `sparse_attn_indexer.py`, and a `logits_dtype` passthrough on `fp8_fp4_paged_mqa_logits` (default fp32). The DeepSelect availability check reuses `has_deep_select()`.
+
+## Kernel microbenchmark
+
+`select_candidate_blocks` alone, DeepSeek-V4.1-Flash decode shapes: 384 rows (64 requests x 6 tokens), logits width 1,048,576 (default `max_model_len`, ratio-1 candidate-source layer), 2048 candidate blocks of 8. 1 x GB300, FlashInfer CUPTI timing with CUDA graph replay and cold L2, median. Logits are continuous random values; random FP4 inputs give heavily tied logits, which is pathological for radix selection and does not match the model.
+
+| context (tokens) | main, fp32 logits (us) | this PR, fp32 logits (us) | this PR, bf16 logits (us) | speedup (bf16 vs main) |
+|---:|---:|---:|---:|---:|
+| 131,072 | 847.8 | 77.0 | 42.9 | 19.8x |
+| 176,000 | 861.2 | 116.8 | 62.2 | 13.8x |
+| 400,000 | 884.0 | 205.9 | 119.9 | 7.4x |
+| 1,048,576 | 939.0 | 408.2 | 254.9 | 3.7x |
+
+main's cost is flat because it always scores and sorts the full width. This PR scales with the context and is still faster at the full 1M.
+
+The dense indexer top-k reads the same logits, so the bf16 switch also speeds it up. DeepSelect top-512 at 131K context, ratio-2 layer (65K keys) / ratio-1 layer (131K keys): fp32 42.2 / 62.7 us, bf16 28.8 / 45.4 us. The logits kernel itself takes the same time with fp32 and bf16 output (93.0 vs 94.2 us, 180.6 vs 181.5 us).
+
+## Test Plan
+
+```bash
+pytest tests/model_executor/layers/test_mla_short_prefill_indexer.py -q -k "candidate or sparse_topk_remap"
+pre-commit run --files vllm/model_executor/kernels/attention/dsa/candidate_blocks.py vllm/model_executor/layers/sparse_attn_indexer.py vllm/utils/deep_gemm.py
+```
+
+Also checked locally, without adding tests:
+- Against the previous implementation, on 384-row decode inputs (1M width, random ends, `row_repeat=6`, rows shorter than 2048 blocks, empty rows, ends past the width), prefill rows with starts, and the fallback path: the selected candidate sets are identical. The only exception is an exact score tie at the 2048th block, where either choice is valid.
+- The fallback path forced on is identical to the previous implementation (fp32). With bf16 logits, the DeepSelect path and the fallback select the same blocks, compared by score so ties do not count.
+- NaN rows (fully NaN, and partly NaN) on the DeepSelect path: every id is in range and unique, nothing stale is left, and the NaN blocks are selected.
+- bf16 paged MQA logits are byte-identical to the fp32 output rounded to bf16.
+
+## Test Result
+
+On 1 x GB300: 6 passed (the four `test_candidate_kernels_preserve_packed_bounds_and_padding` cases, including `out[:, ::2]` at 32768 columns, `test_select_candidate_blocks_tolerates_empty_rows`, and `test_sparse_topk_remap_bounds_nan_rows`). Pre-commit (ruff, format, typos, mypy) passes.
+
+## E2E decode (DEP4)
+
+DeepSeek-V4.1-Flash, DEP4 (DP4 x TP1 + EP) on one GB300 node. `FLASHMLA_MEGA_ATTN_DSV41` with the MXFP4 indexer cache and sparse indexer logits, DeepGEMM mega MoE, `--sparse-indexer-topk-backend deep_select`, DSpark (5 tokens, synthetic acceptance), `max_num_seqs=64`, default `max_model_len` (1M), `DecodeBenchConnector`. 256 random-token requests with 125,000 input and 8,000 output tokens, all admitted at once. The nsys window opens about 40 s in, at a context of about 131K. GPU time is per decode step and GPU, averaged over all GPU-steps in the window. The E2E runs used a DSv4.1 development tree whose `candidate_blocks.py` and `sparse_attn_indexer.py` are identical to main's, with and without this patch; the unit tests ran on this branch.
+
+| | base | this PR |
+|---|---:|---:|
+| indexer + candidate selection (us/step) | 1698 | 886 |
+| `_block_scores_kernel` (us/step) | 208 | 26 |
+| `torch.topk` kernels (`computeBlockDigitCounts`, `gatherTopK`, sort, ...) (us/step) | 619 | 0 |
+| target forward GPU busy (ms/step) | 24.11 | 23.36 |
+| median ITL (ms) | 26.52 | 25.65 |
+
+A rerun with the final code gives the same 886 us.
+
+## Accuracy
+
+GSM8K with lm-eval 0.4.13 on this PR: 1319 problems, 5-shot completions, temperature 0, 1024-token cap, concurrency 32, one DEP4 `vllm serve` (MegaAttn, MXFP4 indexer cache with sparse logits, DeepGEMM mega MoE, `deep_select` top-k, so the decode indexer runs with bf16 logits and the new selection path). DSpark used 5 speculative tokens with standard rejection sampling and adaptive verification off. Acceptance comes from the `vllm:spec_decode_*` counters over the eval.
+
+| | strict match | flexible extract | acceptance length, incl. bonus | per-position acceptance |
+|---|---|---|---|---|
+| this PR | **92.57%** | 92.49% (±0.7) | **3.423** | 0.790 / 0.646 / 0.452 / 0.329 / 0.205 |
+| 
+
+60468 [Perf] Warm up DeepGEMM MegaMoE kernels before serving STATE merged 2026-10-13T12:17:49Z HEAD 71c61dc99458813c0af72a17eaed3138f1f5b2db 
+ <!-- ccr-projects-attribution -->
+<!-- markdownlint-disable -->
+
+## Overview
+
+The DeepGEMM warmup covers `fp8_gemm_nt` and the grouped MoE GEMM. It does not cover `fp8_fp4_mega_moe` or the `bf16_mega_gate` that routes into it. With `--moe-backend deep_gemm_mega_moe`, DeepSeek-V4 and Kimi K3 therefore JIT-compile these kernels on the first request at each new prefill size. This PR adds them to `deep_gemm_warmup.py`, following the structure of the two existing DeepGEMM warmups there.
+
+## Claims
+
+- No serving-time compiles of the MegaMoE kernels: `fp8_fp4_mega_moe`, `bf16_mega_gate` and the Triton input-staging kernel. Before: 60 DeepGEMM compiles in one DeepSeek-V4 benchmark run. For Kimi K3, the 2 SiTU `fp8_fp4_mega_moe` compiles during serving that cost 2.6-2.9 s of TTFT each go to 0, at about +10 s of startup.
+- MTP speculative decoding needs nothing extra. The DeepSeek-V4 MTP drafter's MegaMoE layer uses the same kernels as the target's, and there were 0 DeepGEMM compiles during serving with MTP on.
+- DeepSeek-V4: the first request at a new prefill size no longer stalls for 3.5 to 6 s. It now takes about the same time as a repeat. The exception is a one-time 60-85 ms communication-buffer setup on the server's first large prefill, which is not a compile (see Details).
+- Cost: for DeepSeek-V4, the first startup on a cold DeepGEMM cache takes about 4 to 5 min longer (+247 to +299 s on fully empty caches). A warm restart takes the same time as before. For Kimi K3, it is about +10 s.
+
+## Validation
+
+**Setup (DeepSeek-V4).** DeepSeek-V4-Flash on 2x B300, TP2 + EP2, `--moe-backend deep_gemm_mega_moe`, `max_num_batched_tokens` 16384, `--max-model-len 16384`, prefix caching off, Model Runner V2. vLLM precompiled wheel `3ca00a82` (cu130) with its bundled DeepGEMM.
+
+Each run used a fresh `DG_JIT_CACHE_DIR` seeded with every non-mega DeepGEMM kernel, so only the mega kernels start cold.
+
+**Workload.** One request at a time: token-ID prompts to `/v1/completions`, `max_tokens` 4, streamed time to first token (TTFT).
+1. Six fixed lengths (100 to 8000 tokens). Each gets a first request, then 3 repeats with new random tokens.
+2. 40 seeded random lengths from 51 to 15504 tokens. The warmup did not pick these.
+3. 32 concurrent requests.
+
+**JIT compiles during serving.** Counted as new entries in the DeepGEMM cache dir between "Application startup complete" and the end of the workload, across all kernel families. Triton, CuTeDSL and TileLang compiles were counted with `--jit-monitor-verbose`.
+
+| | main | this PR |
+|---|---|---|
+| `sm100_bf16_mega_gate` | 58 | 0 |
+| `sm100_fp8_fp4_mega_moe` | 2 | 0 |
+| other DeepGEMM families | 0 | 0 |
+| Triton `_prepare_megamoe_inputs_kernel` | ≥1 (see note) | 0 |
+
+On main, the Triton row comes from the default (non-verbose) JIT monitor, which logs only the first compile per kernel, so the true count is unknown. The previous revision of this PR, which warmed without a padding mask, compiled 3 variants for just three prompt lengths in a verbose run.
+
+A separate single-GPU check called both kernels for every per-rank token count from 1 to 8192 after the warmup's representative sizes. It produced 0 new cache entries. An independent rerun of the patched server, with 20 prompt lengths, 16 of them chosen to give unaligned per-rank chunks, saw 0 JIT events.
+
+**TTFT, first request vs median of 3 repeats (ms):**
+
+| prompt tokens | main, first | main, repeat | this PR, first | this PR, repeat |
+|---|---|---|---|---|
+| 1000 | 36 | 36 | 36 | 36 |
+| 2000 | 3503 | 106 | 112 | 103 |
+| 4000 | 5913 | 119 | 178 | 117 |
+| 8000 | 3489 | 136 | 141 | 136 |
+
+- 40 random lengths: 24 of the 40 requests on main took 3.5 to 6.0 s. The slowest on this PR took 0.27 s. Total TTFT went from 90.1 s to 6.1 s.
+- 32 concurrent requests: worst TTFT went from 8.33 s to 1.47 s.
+
+**Startup, `init engine` (profile, KV cache, warmup, graph capture):**
+
+| | main | this PR |
+|---|---|---|
+| cold mega-kernel cache (all other kernels cached) | 141 s | 428 s |
+| fully empty caches, no MTP (separate tester run) | 444 s | 691 s (+247 s) |
+| fully empty caches, with MTP (separate tester run) | 406 s | 705 s (+299 s) |
+| warm restart, same cache dir | 63 s | 63 s |
+
+KV cache sizing is unchanged: 163.13 GiB and 465,145 tokens in both.
+
+**MTP (DeepSeek-V4, `--speculative_config.method=mtp --speculative_config.num_speculative_tokens=2`, same setup and workload):**
+
+| MegaMoE compiles during serving | main | this PR |
+|---|---|---|
+| seeded cache (mega kernels cold), 1 run | not run | 0 |
+| fully empty caches, 1 run (separate tester) | 2 `fp8_fp4_mega_moe`, 10 `bf16_mega_gate`, 6 Triton staging | 0 |
+
+On this PR's commit with MTP: the server was healthy, GSM8K (200 questions, 5-shot) scored 0.970, and mean MTP acceptance length was 2.62 on GSM8K. On the random-token benchmark, acceptance was 1.61, against 1.55 on the previous revision. DeepGEMM compiles during serving: 0.
+
+The drafter needs no extra warmup. Its MegaMoE layer reuses the target's kernels, and the tester's tracer saw no DeepGEMM compile in the drafter during serving on either build.
+
+**Kimi K3 (`mgoin/Kimi-K3-pruned75`, a pruned checkpoint):** 4x B300, TP4 + EP4 with sequence parallelism, `max_num_batched_tokens` 8192 (2048 per rank), fp8 KV, no prefix caching, no spec decode.
+- Each run started with empty DeepGEMM, Triton, Inductor and vLLM caches. One run per build.
+- Workload: one 3000-token request, a second 3000-token request with new tokens, then 137, 1500, 5000 and 8000 tokens.
+
+| | main | this PR |
+|---|---|---|
+| DeepGEMM compiles during serving | 2 (`fp8_fp4_mega_moe` SiTU, `block_m` 128 and 192) | 0 |
+| Triton `_prepare_megamoe_inputs_kernel` compiled during serving | yes (ranks 1-3, first request) | no |
+| TTFT at 1500 / 5000 tokens | 2734 / 3139 ms | 153 / 244 ms |
+| `init engine` | 46 s* | 56-57 s |
+
+\*The main run had a warm FlashInfer JIT cache from an earlier run. The PR runs had one too, so the +10 s compares like with like.
+
+On both builds, two non-MegaMoE kernels still compile during serving: the Inductor kernel `triton_poi_fused_mul_sigmoid_0`, on the first prefill above the capture sizes, and the KDA gated RMSNorm Triton kernel `layer_norm_gated_fwd_kernel`. They are outside this PR.
+
+**Fully cold cache.** With every DeepGEMM and Triton cache empty (not just the mega kernels), three other DeepGEMM kernel families still compile on first use with this PR. They are outside MegaMoE and left for follow-ups:
+- `fp8_einsum` in `o_proj`  
+
+60613 [Bugfix][DSv4.1] Seed the -1 sentinel in the prefill sparse index workspace STATE open None HEAD a54f4d52ae960f44352d1e49b40a322ab218b558 
+ 
+
+## Overview
+
+Port #55299 to the DeepSeek-V4.1 copy of `combine_topk_swa_indices`: seed a caller-provided `out=` buffer with the `-1` sentinel before the kernel writes each row's valid prefix. Without it, DeepSeek-V4.1-Flash prefill through FlashMLA mega attention reads stale indices and produces NaN; in our deployment this surfaced as an intermittent illegal memory access.
+
+## Claims
+
+- Fixes NaN attention outputs in DSv4.1 FlashMLA mega-attention prefill for rows whose combined index list is shorter than the padded width: the first 127 tokens of a fresh prompt, the rows right after an SWA bounded-replay start, and compressed-layer rows that have fewer than `index_topk` candidates.
+- The NaN spreads through the KV cache into later tokens and layers, including the indexer, where `top_k_per_row_prefill` turns NaN logits into out-of-range indices (#49896). In our downstream build, which also runs the decoder replay tail as one FULL CUDA graph (not in `main`), those indices reached `_compute_global_topk_indices_and_lens_kernel` and crashed with an illegal memory access; this fix removes that crash there.
+- One line, identical to the #55299 fix in `deepseek_v4`.
+
+## Validation
+
+GB200, DeepSeek-V4.1-Flash, FlashMLA mega attention, MXFP4 indexer cache, breakable CUDA graphs (`FULL_AND_PIECEWISE`). The kernel repro was run twice: with our vLLM 0.30-based build, and with `main`'s `cache_utils.py` (e161a0798c) loaded over it, with identical results. `main`'s combine kernel additionally masks invalid top-k candidates, but like ours it never writes `[combined_len, width)`. The E2E run used the downstream build.
+
+| Check | Before | After |
+|---|---|---|
+| Kernel repro (below), `main`'s `combine_topk_swa_indices` + `fused_norm_rope_attn_rope_cast_fwd`, `out=` pre-filled with in-range indices of NaN KV rows; NaN output rows | 96/300 (SWA-only, width 128), 768/1200 (ratio 2, width 640), 352/700 (ratio 1, width 640) | 0 / 0 / 0, no stale tail entry |
+| Same kernel, tail entries set to `-1`, out of range, or pointing at finite rows | output bit-identical in all three | n/a |
+| E2E, downstream prefill serving stack, DP4/EP4 on 4x GB200; per DP rank, a fresh 600-1300-token prompt plus a prefix hit (16K-60K prefix) within 40 ms at 2 pairs/s, plus long fresh prompts | illegal memory access 2 s into the workload | 900 s, 13,801 requests; 0 illegal memory access, 0 CUDA errors |
+
+No test is added, as in #55299: CI has no GB200 runner exercising DSv4.1 FlashMLA mega attention, so the validation above was done outside CI.
+
+In the downstream build, a GPU core dump of the crash places it in `_compute_global_topk_indices_and_lens_kernel` (block-table load) in the replay-tail FULL graph, and per-row NaN probes show the first real-row NaN at the layer-1 input (layer 0 is pure SWA). No accuracy eval was run: rows that never hit a stale tail are unchanged (second row of the table), and the change only restores the sentinel the kernel contract already assumes.
+
+<details>
+<summary>Kernel repro</summary>
+
+```python
+import torch
+
+import vllm.v1.attention.ops.flashmla  # noqa: F401  registers _flashmla_C
+from vllm.models.deepseek_v41.common.ops import combine_topk_swa_indices
+from vllm.models.deepseek_v41.common.ops.fused_layout import WV_GROUP_SIZE
+from vllm.models.deepseek_v41.nvidia.flash_mla_mega_attn import (
+    _HEAD_DIM_V, _ROPE_ARGS, _SF_ARGS, alloc_mega_attn_output,
+)
+
+H, D, W, TOPK = 64, 512, 128, 512
+dev = "cuda"
+g = torch.Generator(device=dev).manual_seed(0)
+
+
+def case(n, top_k, ratio, comp_rows):
+    m = comp_rows + n + 2048  # kv rows: compressed | swa | never written
+    kv = (torch.randn(m, 1, D, device=dev, generator=g) * 0.5).bfloat16()
+    kv[comp_rows + n :] = float("nan")
+    q = (torch.randn(n, H, D, device=dev, generator=g) * 0.5).bfloat16()
+    pos = torch.arange(n, dtype=torch.int32, device=dev)
+    col = torch.arange(TOPK, device=dev)[None, :]
+    topk = torch.where(col < ((pos + 1) // max(ratio, 1))[:, None], col, -1).int()
+    width = (top_k + W + 127) // 128 * 128
+    # A workspace slice holding stale in-range indices from an earlier call.
+    idx_ws = (comp_rows + n + torch.arange(width, device=dev)).repeat(n, 1).int()
+    lens_ws = torch.empty(n, dtype=torch.int32, device=dev)
+    qsl = torch.tensor([0, n], dtype=torch.int32, device=dev)
+    seq = torch.tensor([n], dtype=torch.int32, device=dev)
+    idx, lens = combine_topk_swa_indices(
+        topk, qsl, seq, seq, W, ratio, top_k, m, comp_rows, out=(idx_ws, lens_ws)
+    )
+    out = alloc_mega_attn_output(n, H // WV_GROUP_SIZE, torch.device(dev))
+    torch.ops._flashmla_C.fused_norm_rope_attn_rope_cast_fwd(
+        q, kv, idx.unsqueeze(1), D**-0.5, _HEAD_DIM_V, torch.zeros(H, device=dev),
+        lens, False, 0.0, pos, *_ROPE_ARGS,
+        torch.randn(65536, 64, device=dev, generator=g), H // WV_GROUP_SIZE,
+        *_SF_ARGS, out.data, out.scale,
+    )
+    nan = ((out.data.view(torch.uint8) & 0x7F) == 0x7F).flatten(1).any(1)
+    print(f"ratio={ratio} width={width} nan_rows={int(nan.sum())}/{n}")
+
+
+case(300, 0, 0, 0)      # SWA-only layer
+case(1200, TOPK, 2, 1024)
+case(700, TOPK, 1, 1024)
+```
+
+</details>
+
+## Details
+
+`combine_topk_swa_indices` writes `[0, combined_len)` of each row and relies on the rest being `-1`, which `topk_length` pairs with. The `out=None` branch gets that from `torch.full(-1)`; the `out=` branch does not seed it. Both NVIDIA callers pass a workspace slice (`flash_mla_mega_attn.py` prefill, `flashmla.py`), so the tail holds whatever an earlier user of the arena left there.
+
+The FlashMLA prefill kernel processes the index list in whole `B_TOPK` tiles (the reason for the 128 alignment) and still loads the KV rows of a tile's entries past `topk_length`, masking them to p = 0. A stale in-range index that lands on a `kv_ws` row this call did not write brings in arbitrary bytes, and 0 * NaN = NaN, so the masked entry still poisons the output row. Rows with a short window are the ones with a tail: at layer 0 (width 128) a fresh prompt's positions 0-126; in compressed layers (width 640) every row with fewer than 512 top-k candidates or a window shorter than 128 (for example right after an SWA bounded-replay start).
+
+#55299 fixed exactly this in `deepseek_v4/common/ops/cache_utils.py`. The `deepseek_v41` package was added afterwards by #56228 from an older copy of that file: its `combine_topk_swa_indices` matched the pre-#55299 V4 vers 
+
+62467 [Bugfix][Kernel] persistent_topk: don't select float4 tail lanes past the row length STATE merged 2026-10-19T16:13:56Z HEAD ee1aff3e875caadf5d5e32ef1be55e7e6409dfb5 
+ 
+
+
+## Overview
+
+FIX #62466
+
+`histogram_2048_topk` in `csrc/persistent_topk.cuh` can return indices `>= seq_len`. This happens when the row length is not a multiple of 4 and the top-k threshold lands in the fp16 `-inf` bin. This PR skips lanes past `seq_len` in the collection loop and adds a regression test.
+
+## Claims
+
+- `persistent_topk` no longer returns indices past the row length on the `histogram_2048_topk` path (k < length <= 8192, at most 32 rows).
+- The out-of-bounds reads of `logits` in the refinement pass are gone.
+- Rows with length % 4 == 0 and rows whose threshold is above the `-inf` bin are unchanged. The guard only drops lanes that were never real elements.
+
+## Validation
+
+GPU: NVIDIA B300 SXM6 AC (sm_103), CUDA 13.0, torch 2.14.0+cu130. `_C_stable_libtorch` rebuilt from this branch; main measured with the precompiled wheel for 3e96f9cf6.
+
+New test, `tests/kernels/test_top_k_per_row.py::test_persistent_topk_masked_row_tail`. It covers k in {512, 1024, 2048}, length = k + {1, 2, 3, 4}, 0 or 100 finite scores, and in-row fill of `-inf` or `-1e30`:
+
+```text
+pytest tests/kernels/test_top_k_per_row.py -k masked_row_tail
+main:     36 failed, 12 passed   (every length % 4 != 0 case fails; % 4 == 0 passes)
+this PR:  48 passed
+```
+
+Sample failure on main: `AssertionError: row 0: indices outside [0, 513): [513, 514, 515]`.
+
+Op-level repro (1 row, k = 512, stride 516, every in-row score `-inf`, padding 0.0):
+
+```text
+            main                      this PR
+len=513:    [513, 514, 515]           []
+len=514:    [514, 515]                []
+len=515:    [515]                     []
+len=516:    []                        []
+```
+
+compute-sanitizer memcheck, one row of length 513 that is also the tensor width, `PYTORCH_NO_CUDA_MEMORY_CACHING=1`:
+
+```text
+main:     3 x "Invalid __global__ read of size 4 bytes" in histogram_2048_topk<512>, kernel aborts
+this PR:  ERROR SUMMARY: 0 errors
+```
+
+Full file with this PR: `pytest tests/kernels/test_top_k_per_row.py` gives 294 passed, 44 skipped (platform-gated cases).
+
+No end-to-end serving repro: no shipped model reaches this path (see Details). CI runs this test file on Blackwell (`.buildkite/test_areas/kernels.yaml`).
+
+## Details
+
+Root cause. The last float4 load of a row (`load_float4_predicated`) fills the lanes past `seq_len` with `-inf`. They are binned like real elements. The collection loop gates candidates only on `vec_valid = i < n_vec`. When fewer than k in-row scores are above the `-inf` bin, the threshold is that bin, so the tail lanes become "equal" candidates. Refinement then reads `logits[idx]` for them and can output them.
+
+Fix. Add `in_range = vec_valid && elem_idx < seq_len` and use it for `is_above` and `is_equal`. Tail lanes still count in the histogram, but that does not move the threshold. They only add to the `-inf` bin, the lowest non-NaN bin, so the counts above it are unchanged. And since `seq_len > k`, the in-row elements alone already reach k at the `-inf` bin.
+
+Reachability, and why there is no end-to-end repro. The kernel path needs a decode row with k < length <= 8192, at most 32 rows, and the persistent backend. The persistent backend is picked by `--sparse-indexer-topk-backend persistent`, by `auto` on SM12x and pre-SM90 GPUs, or by `auto` when the logits row stride is not divisible by 4. The bug also needs fewer than k in-row scores above the fp16 `-inf` bin. I checked every in-tree caller:
+
+- DeepSeek V3.2 / GLM-5 style DSA decode (`sparse_attn_indexer`): in-row scores come from `fp8_fp4_paged_mqa_logits` and are finite. Prefill uses `top_k_per_row_prefill`, not this kernel.
+- Qwen4-exp QSA: scores are sums of ReLU terms, so they are finite and >= 0.
+- Step5 rejects the persistent backend.
+- DeepSeek V4.1 `apply_candidate_mask` does write `-inf` inside decode rows. But the shipped DeepSeek-V4.1-Flash config keeps 2048 candidate blocks of 8 tokens (16384 positions) on full-length (`compress_ratio` 1) layers. Every row on this path (<= 8192) is therefore fully covered.
+
+So no shipped model reaches the bug with default or near-default flags. Reaching it needs a config with `candidate_topk_blocks * candidate_block_size < index_topk`, or more than `length - k` scores at or below about -65504. The layer-level script in the issue shows the V4.1 composition (`apply_candidate_mask` then `SparseIndexerTopk("persistent")`) with such a candidate set. If the bug were hit, `triton_convert_req_index_to_global_index` only drops `tok < 0`, so the result would be wrong KV slots with no error.
+
+`cooperative_topk`, `histogram_256_topk` and the radix path are not affected. I checked lengths 8193 to 70001 with all-`-inf` rows on main and saw no bad indices.
+
+Performance: one extra compare per element in the collection loop. No measurable change expected; not benchmarked.
+
+---
+
+<details>
+<summary> Pull Request Checklist </summary>
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assistance was used during the creation of this PR.
+
+- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.
+- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+</details>
+ 
+
+60802 [Perf] Prefer DeepSelect over persistent_topk for large indexer top-k batches on SM100/SM103 STATE open None HEAD 9c178152a15e5c26eef267e0ff531e209648af1d 
+ ## Description
+
+The sparse indexer decode top-k auto chain is `cooperative -> persistent -> per_row`. `cooperative_topk` applies only within `AUTO_COOPERATIVE_MAX_ROWS`, so anything larger goes to `persistent_topk`. For GLM-5.3-Flash with MTP k=7 at 32 seqs that is every verify batch: 256 rows, all on `persistent_topk`, which bins logits into a coarse histogram and can silently drop true top-k candidates when a trained indexer clusters its scores in one bin (#51782). The vendored DeepSelect extension handles exactly these shapes on the SM100/SM103 family and measured 191 us vs 616 us at 256 rows / 1M KV when it landed (#56464), but it stayed opt-in only.
+
+This adds a `deep_select` branch in `_resolve_auto` between cooperative and persistent. The existing support checks (`_has_deep_select`, `_HAS_DEEP_SELECT_C`, `is_deep_select_supported`) stay, so other devices and unsupported strides/dtypes fall through to `persistent_topk` unchanged.
+
+Measured on GLM-5.3-Flash (NVFP4), 8x B300 (SM103), TP8, FP8 KV cache, MTP k=7, 1M context, `vllm bench serve`, random dataset, seed 42, medians of 3 warm runs:
+
+| workload (1024-in / 1024-out) | TPOT mean | TPOT p99 | TTFT median |
+|---|---|---|---|
+| 8 concurrent | 5.40 -> 5.05 ms (-6.5%) | 8.26 -> 7.05 ms (-14.6%) | 288 -> 341 ms |
+| 32 concurrent | 7.85 -> 6.89 ms (-12.2%) | 12.24 -> 12.84 ms | 1113 -> 1073 ms |
+| 128K prompt, 64 out | 8.24 -> 6.82 ms (-17.2%) | 8.24 -> 6.82 ms | 502 -> 477 ms |
+
+These are medians of 3 warm passes within one boot per arm; across reboots of the unpatched build, c8 and c32 TPOT varied by roughly 25% and 12% on this setup, so the smaller deltas are directional and the workload-level trend is the signal. Measured on GLM-5.3-Flash only; the auto choice also covers the DSA indexer path on this device family, which I have not benchmarked here.
+ 
+
+57977 [Perf][DSv4.1] Keep activations MXFP8 between DeepGEMM kernels STATE open None HEAD 55c6d6cbb26eb3ee4b26db5809b93a39cce881d7 
+ ## Purpose
+
+DeepGEMM's DeepSeek-V4.1 kernels can hand FP8 activations to each other, but vLLM re-quantized their BF16 outputs before every dense projection: 127 standalone MXFP8 quantize launches per decode step at C1 (TP4), plus the quantize half of the Mega-MoE input staging. This PR wires the FP8 outputs DeepGEMM already provides to the consumers, and runs those consumers on DeepGEMM.
+
+One decoder layer, decode step. `[q]` = standalone MXFP8 quantize launch, `sf` = the UE8M0 group scales.
+
+**Before** — every DeepGEMM kernel returns BF16, and a FlashInfer quantize kernel re-creates MXFP8 before each consumer:
+
+```
+attention sublayer
+  mega_mhc (post+pre+RMSNorm) ──bf16──┬──▶ compressor score / indexer weights GEMMs (bf16, unchanged)
+                                      └──▶ [q] ──mxfp8+sf──▶ FlashInfer GEMM  fused_wqa_wkv
+  attention ──▶ fp8_einsum wo_a ──bf16──▶ [q] ──mxfp8+sf──▶ FlashInfer GEMM  wo_b ──▶ reduce-scatter
+
+FFN sublayer
+  mega_mhc (post+pre+RMSNorm) ──bf16──┬──▶ router gate + top-k (bf16, unchanged)
+                                      └──▶ prepare_megamoe = [q] into symm buffer + pack top-k ──▶ fp8_fp4_mega_moe
+```
+
+**After** — the producers emit MXFP8 with packed scales directly, the consumers run on DeepGEMM `fp8_gemm_nt`:
+
+```
+attention sublayer
+  mega_mhc ──bf16──────────────────────▶ compressor score / indexer weights GEMMs (unchanged)
+           ──mxfp8+sf (y_fp8, y_gemm_sf)─▶ DeepGEMM GEMM  fused_wqa_wkv        (not under SP: input is all-gathered in bf16)
+  attention ──▶ fp8_einsum wo_a ──mxfp8+sf ((z, sf) output)──▶ DeepGEMM GEMM  wo_b ──▶ reduce-scatter
+
+FFN sublayer
+  mega_mhc ──bf16─────────────────────────────────────▶ router gate + top-k (unchanged)
+           ──mxfp8+sf written straight into the symm buffer (y_fp8, y_routed_sf, y_shared_sf)
+                                                       ──▶ prepare_megamoe = pack top-k only ──▶ fp8_fp4_mega_moe
+```
+
+| per layer | before | after |
+|---|---|---|
+| standalone quantize launches | 3 (+ the quantize half of `prepare_megamoe`) | 1 under SP (`fused_wqa_wkv`), 0 otherwise |
+| dense GEMM kernel | FlashInfer CuTe-DSL ×2 | DeepGEMM `fp8_gemm_nt` (1,1,32) ×2 |
+| bytes between mHC / einsum and their consumers | bf16 out + fp8 in | fp8 out only |
+
+Pieces:
+- `DeepGemmMxfp8LinearKernel` (2D `fp8_gemm_nt`, recipe (1,1,32)); its activations carry a new `QuantKey` `kMxfp8DynamicDeepGemm` (int32 packed UE8M0 scales) so a FlashInfer-layout producer can never be routed to a DeepGEMM consumer or vice versa. The model marks `wo_b` / `fused_wqa_wkv` with `deep_gemm_activations`, and ModelOpt's post-load selects the kernel for them the same way it does for `is_bmm` layers.
+- `mega_mhc` wrapper: optional `y_fp8`/`y_gemm_sf` and `y_fp8`/`y_routed_sf`/`y_shared_sf` outputs (DeepGEMM already implements them), reported as a typed `MegaMhcFp8Outputs`; the MoE leg is passed explicitly (`DeepseekV4MoE.forward(staged=...)` → `experts.forward_staged`) and `stage_megamoe_routing` repacks only the top-k.
+- `deep_gemm_fp8_o_proj(fp8_z=True)`: `fp8_einsum` emits `(z, sf)`; also in the mega-attention backend's `_o_proj`.
+- Under sequence parallel the attention input is all-gathered in BF16 after the norm, so `fused_wqa_wkv` stays on FlashInfer there (FP8 all-gather is follow-up work).
+- The new `fp8_gemm_nt` variants are pre-compiled by the existing DeepGEMM startup warmup (layers found through the `deep_gemm_warmup_provider` protocol).
+- Binds wherever SM100 + DeepGEMM are available (checked at construction; other platforms keep their kernels with a logged reason). No new flag.
+
+Duplicate check: searched open PRs for `mega_mhc y_fp8`, `y_gemm_sf`, `fp8_einsum`, `DeepGemmMxfp8LinearKernel`, `prepare_megamoe_inputs`, `wo_b quantize`, and by touched file. #57679 (restores the `wq_b` query-quant fusion) is complementary and untouched here; #56751 (skinny GEMM, M ≤ 4) quantizes in-kernel for the same projections at tiny M, a separate mechanism; #55505 (input-scale contract) does not conflict.
+
+## Test Plan
+
+```bash
+pytest -v -s tests/kernels/test_dsv41_deepgemm_fp8_chain.py   # SM100
+```
+```bash
+vllm serve deepseek-ai/DeepSeek-V4.1-Flash --tensor-parallel-size 4 --enable-expert-parallel \
+  --kernel-config '{"moe_backend":"deep_gemm_mega_moe"}' --attention-backend FLASHINFER_MLA_SPARSE_DSV41 \
+  --kv-cache-dtype fp8 --tokenizer-mode deepseek_v41 --max-model-len 32768 --max-num-batched-tokens 8192 --max-num-seqs 64
+```
+Baseline: the same command on main. `vllm bench serve` random 4096/256, ignore-eos, one server at a time; GSM8K via lm-eval 0.4.12 (5-shot chat, thinking off, greedy, 1319 questions).
+
+## Test Result
+
+4×B200, TP4 + EP4, MegaMoE + SP, FlashInfer sparse MLA, fp8 KV.
+
+- Unit tests: 21 passed (DeepGEMM kernel vs FlashInfer CuTe-DSL at M ∈ {1,4,7,64,300}; pre-quantized input bit-identical to in-kernel quant; `mega_mhc` FP8 outputs bit-exact MXFP8 of its BF16 output, MoE layout bit-identical to `prepare_megamoe_inputs`; einsum FP8 output vs quantized BF16 output; routing-only staging).
+- Greedy outputs identical on 8/8 prompts × 64 tokens.
+- C1 decode step (torch profiler, 61 steps): GPU busy 7.64 → 6.85 ms (−10 %), quantize launches 130 → 90.
+
+| lane | baseline | PR | change |
+|---|---:|---:|---:|
+| C1 ×3 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms | −1.2 % |
+| C4 ×2 tok/s (TPOT) | 517 / 520 (6.97 / 6.94 ms) | 531 / 530 (6.83 / 6.86 ms) | +2.4 % (−1.6 %) |
+| C4 ×2 TTFT | 201 / 199 ms | 184 / 183 ms | −8 % |
+| C16 ×3 tok/s (TPOT) | 1347 / 1346 / 1340 (9.92 / 9.88 / 10.03 ms) | 1365 / 1357 / 1368 (9.85 / 9.86 / 9.73 ms) | +1.5 % (−1.3 %) |
+| C64 ×1 tok/s (TTFT) | 1848 (2360 ms) | 1880 (2124 ms) | +1.7 % (−10 %) |
+| GSM8K flexible / strict | 0.9621–0.9659 / 0.7817–0.7832 (3 baselines) | 0.9644 / 0.7877 | unchanged |
+
+After the plumbing refactor (kernel selection through ModelOpt post-load, typed mHC outputs, explicit staged MoE input): 21 unit tests pass, C1 TPOT 6.50 / 6.50 / 6.50 ms, GSM8K 0.9636 / 0.7915, greedy outputs coherent on 12 prompts.
+
+At C1 the host loop (~6.5 ms/step) bounds TPOT, so most of the GPU saving shows from C4 up. The FP8-output `mega_mhc` variants JIT-compile on first use per prefill shape, like the BF16 variants today (cache persists under `DG_JIT_CACHE_DIR`).
+
+Developed with AI assistance (Claude Code); the human submitter reviewed every changed line and ran the measurements.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+ 
+
+58818 [Perf][DSv4.1] Share the FlashMLA decode plan across KV cache groups STATE open None HEAD 0457e961490be6234aac531a76e40859874f9813 
+ ## Purpose
+
+`DeepseekSparseSWAMetadataBuilder.build()` creates one empty `FlashMLASchedMeta` per DeepSeek-V4 layer type. The first `flash_mla_with_kvcache` call of each type runs FlashMLA's tile-scheduler planner, and the later layers of that type reuse the plan (the comment calls it "shared across all ~60 layers of that type within a decode step").
+
+However, the builder runs once per KV cache group. With the packed KV cache layout, DeepSeek-V4.1-Flash's sliding-window caches are spread over 8 groups, and each group builds its own holders. So the planner runs once per (group, layer type). A torch-profiler trace of one TP8 decode step shows 18 planner launches in the target model (before layers 0-9 and 20-27) and 3 in the DSpark drafter (one per draft layer), where 4 are enough.
+
+`get_mla_metadata_kernel` is a single 32-thread block with a serial loop over the SM partitions, and every launch sits in front of its layer's attention. On H20 it takes 16.6 µs per launch at 1 request and about 41 µs at 64 requests.
+
+A plan depends on the batch shape and on the values of the decode `topk_length` / `extra_topk_length`. FlashMLA's interface allows reuse only while those values stay the same, but it asserts only shapes and config. Across the KV cache groups of one metadata build pass the values do match:
+- The SWA lengths come from the same query and sequence lengths, window, valid-token mask and `replay_start`. Each group builds the mask from its own slot mapping, but every sliding-window group writes each scheduled token, so the masks agree; `replay_start` is one tensor passed to every builder.
+- The top-k lengths count the valid entries each index layer writes. Every decode top-k path fills the entries past a row end derived from `seq_lens` and `next_n` alone with -1 (for example `rowEnd` in `csrc/libtorch_stable/sampler.cu`), under the same valid-token mask. So each index layer of a compress ratio yields `min(rowEnd, topk)`.
+
+That second point is also why a group's same-type layers can already share one plan today, though they take their top-k from different index layers.
+
+This PR lets the groups share the holders:
+- MRV2's `build_attn_metadata` passes one dict to every group's `CommonAttentionMetadata`, next to the existing `_token_to_req_indices_cache`.
+- The sliding-window builder takes its plan holders from that dict, keyed by its block size, causality and index width.
+
+What stays as before:
+- Callers that do not pass the dict (the V1 runner, the draft metadata refresh of the autoregressive speculator) keep one plan per group.
+- DBO micro-batches and the DSpark drafter build in separate passes, so they never share a plan.
+- SM100 does not take this path: it defaults to FlashMLA mega attention, which does not use these plan holders.
+
+Planner launches per decode step drop from 21 to 4.
+
+**Duplicate check.** `gh pr list --repo vllm-project/vllm --state all --search` for `tile_sched`, `FlashMLASchedMeta`, `get_mla_metadata`, `tile scheduler` and `planner flashmla` shows no PR that shares the plan across KV cache groups.
+
+Related: #58762 (RFC #58638) reuses Mamba/GDN metadata across KV cache groups in the same `build_attn_metadata` loop. This PR does the same for DeepSeek-V4's FlashMLA plans, which are built per group however many groups there are.
+
+## Test Plan
+
+**Setup**
+- Hardware: 8× H20 (SM90, 96 GB, NVLink).
+- Model: DeepSeek-V4.1-Flash, HF revision `dba1be0a40aa45a94ad051997016db3960a90277`.
+- vLLM: "main" is the nightly wheel `0.30.1rc1.dev85+g8b84e1506` as installed; "this PR" is the same wheel with this diff applied as a Python overlay. The three changed files are identical between that nightly and current `main`.
+
+**Server.** TP8 + EP8. DSpark uses synthetic acceptance with a configured mean acceptance length of 3.51, the same distribution in both arms, so acceptance does not depend on the model's outputs:
+
+```bash
+vllm serve deepseek-ai/DeepSeek-V4.1-Flash --revision dba1be0a40aa45a94ad051997016db3960a90277 \
+  --tensor-parallel-size 8 --enable-expert-parallel \
+  --language-model-only --tokenizer-mode deepseek_v41 --max-model-len 262144 \
+  --max-num-batched-tokens 8192 --max-num-seqs 128 --gpu-memory-utilization 0.90 \
+  --no-enable-prefix-caching --engram-config '{"cpu_offload":false}' \
+  --speculative-config '{"method":"dspark","num_speculative_tokens":5,"draft_sample_method":"probabilistic","rejection_sample_method":"synthetic","synthetic_acceptance_length":3.51,"enable_adaptive_verification":false}' \
+  --profiler-config '{"profiler":"torch","torch_profiler_dir":"<dir>","torch_profiler_activities":["CUDA"],"torch_profiler_with_stack":false,"ignore_frontend":true,"max_iterations":20}'
+```
+
+**Load.** One `vllm bench serve` call per point, with these values:
+
+| Point | ISL | OSL | C | N |
+|---|---:|---:|---:|---:|
+| 8K prompt TTFT | 8192 | 1 | 1 | 5 |
+| 1K in / 1K out, C1 | 1024 | 1024 | 1 | 6 |
+| 1K in / 1K out, C64 | 1024 | 1024 | 64 | 192 |
+
+
+```bash
+vllm bench serve --backend openai --endpoint /v1/completions --dataset-name random \
+  --random-input-len <ISL> --random-output-len <OSL> --random-range-ratio 0 --ignore-eos \
+  --max-concurrency <C> --num-prompts <N> --num-warmups <C> --seed 1
+```
+
+**Arms.** Five fresh servers, run in the order B1, A1, A2, B2, B3:
+- main (A1, A2);
+- a prototype that shared the plans at forward time (B1, B2);
+- this PR's metadata-level sharing (B3).
+
+B3, the profile and this PR's GSM8K runs used the diff before `non_causal` joined the cache key. In every measured path the target groups are causal and the drafter builds in its own pass, so that key element changes nothing there. Every arm passes the same `--profiler-config`, which stays idle while the benchmarks run.
+
+**Profile.** 20 decode steps under the torch profiler (`/start_profile`), 1K in / 1K out, at C1 and C64.
+
+**Accuracy.** Full GSM8K (1,319 questions) through `/v1/chat/completions`: 5-shot multi-turn chat, thinking off (`chat_template_kwargs: {"thinking": false}`), temperature 0, seed 123, `max_tokens` 1024, 32 concurrent requests; 
+
+## Test Result
+
+**Serving.** The last column compares B3 with the mean of the main arms. Higher output throughput and lower ITL and TTFT are better.
+
+| Point | Metric | main A1 | main A2 | this PR B3 | Change |
+|---|---|---:|---:|---:|---:|
+| 1K in / 1K out, C1 | output tok/s | 317.3 | 318.9 | 326.0 | **+2.5%** |
+| 1K in / 1K out, C1 | median ITL (ms) | 10.42 | 10.36 
+
+59849 [Perf][DSv4.1] Register CPU-offloaded Engram tables at their exact size STATE open None HEAD 8e91c6ea3164487585bfe75241e4dd9f241ffcf9 
+ 
+
+## Overview
+
+Same fix as #59848, for DSv4.1. Default `cpu_offload` Engram tables use `pin_memory=True`, which rounds each table up to a power of two. Register them at exact size through the existing THP helper, without huge pages. Draft: GB10 only. cc @Juntian777: could you run your #59327 lookup bench on GB200?
+
+## Claims
+
+- TP2 per-rank table: 66 → 47.2 GiB host memory.
+- GB10 lookup kernel: ~1.8× faster unsorted, 7–21% faster with #59327's sort.
+
+## Validation
+
+GB10, Engram lookup kernel, TP4 per-rank table, 32K tokens:
+
+| memory | host | unsorted | sorted |
+| --- | --- | --- | --- |
+| `pin_memory` (before) | 33.1 GiB | 41.4 ms | 10.9 ms |
+| exact `cudaHostAlloc` | 24.9 GiB | 41.4 ms | 10.9 ms |
+| registered (this PR) | 24.3 GiB | 22.7 ms | 10.2 ms |
+
+Exact size gives the memory saving; the registered memory type gives the speed. These are 4 KiB pages, not THP.
+
+`pytest tests/kernels/test_engram.py tests/distributed/test_engram_dp_shard.py`: 116 passed. The new small-page case fails on main.
+
+Still needed before un-drafting: GB200 and an E2E `cpu_offload` run.
+
+## Details
+
+- `_allocate_huge_page_storage(n)` → `_allocate_registered_storage(n, huge_pages)`, called once. The THP path and the sort are unchanged. A failed registration falls back to `pin_memory=True`.
+- CUDA only; ROCm is unchanged.
+- `use_thp` is opt-in and skips the sort, so default users still pay the rounding.
+
+<details><summary>All runs</summary>
+
+```
+TP4 (6 heads x 16Mi rows):
+pinned     unsorted: 4096:5193us 8192:10355us 16384:20704us 32768:41424us
+pinned     sorted:   4096:5190us 8192:4198us 16384:6680us 32768:10892us
+exact-cudaHostAlloc unsorted: 4096:5196us 8192:10367us 16384:20732us 32768:41443us
+exact-cudaHostAlloc sorted:   4096:5191us 8192:4220us 16384:6707us 32768:10919us
+registered unsorted: 4096:2855us 8192:5695us 16384:11371us 32768:22715us
+registered sorted:   4096:2850us 8192:3729us 16384:6173us 32768:10234us
+TP2 (12 heads x 16Mi rows):
+pinned     unsorted: 4096:11851us 8192:23681us 16384:47352us 32768:94698us
+registered unsorted: 4096:6294us 8192:12568us 16384:25120us 32768:50220us
+pinned     sorted:   4096:5436us 8192:8394us 16384:13443us 32768:21951us
+registered sorted:   4096:4492us 8192:7376us 16384:12273us 32768:20410us
+```
+Median of 48 runs. TP4 4096 is below the sort threshold.
+</details>
+
+<details>
+<summary> Pull Request Checklist </summary>
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assistance was used during the creation of this PR.
+
+- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+- [ ] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.
+- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+</details>
+
+Drafted with Claude; reviewed and tested by me.
+ 
+
+60938 [Perf][DSv4.1] Prototype Engram to delayed mHC input fusion STATE open None HEAD e597dbc4fb95a8a7804f42a07c93ec0e64c355c0 
+ ## Overview
+
+Prototype an opt-in fusion of the DeepSeek-V4.1 Engram gate/residual update with the following delayed mHC input collapse and RMSNorm. This is a **Draft for implementation review; GPU correctness, performance and model validation are pending**.
+
+Inspired by the DP fusion in [SGLang #43065](https://github.com/sgl-project/sglang/pull/43065). Related vLLM tracking: [#57448](https://github.com/vllm-project/vllm/issues/57448).
+
+## Claims
+
+- Add a producer path that returns both the updated BF16 residual and the normalized input formed with the incoming pre-mix.
+- Reuse the existing mHC `stats` specialization to generate the next coefficients without repeating the input collapse and normalization.
+- Keep the prototype **off by default**. `VLLM_USE_ENGRAM_MHC_FUSION=1` selects it only on CUDA Blackwell with TP1, no sequence parallelism, and no active mHC overlap stream.
+
+No speedup or GPU numerical-equivalence claim is made yet.
+
+## Validation
+
+Completed local checks: Ruff, six-file Python AST parsing, `git diff --check`, and independent source review. The extracted WKV preparation statements match the original preparation AST. The full pre-commit invocation passed its applicable hooks except for a macOS mypy error on the unchanged `mmap.MADV_HUGEPAGE` access. The original main source reproduces the same error under `--platform darwin`; the hook's mypy 1.20.2 passes all four changed source files and both test files with `--platform linux --python-version 3.11`. No source change or error suppression was used for that platform check.
+
+```bash
+pre-commit run --files \
+  vllm/envs.py \
+  vllm/model_executor/kernels/mhc/tilelang.py \
+  vllm/models/deepseek_v41/common/engram.py \
+  vllm/models/deepseek_v41/nvidia/model.py \
+  tests/kernels/test_engram.py \
+  tests/kernels/mhc/test_mhc_kernels.py
+mypy --platform linux --python-version 3.11 \
+  vllm/envs.py vllm/model_executor/kernels/mhc/tilelang.py \
+  vllm/models/deepseek_v41/common/engram.py \
+  vllm/models/deepseek_v41/nvidia/model.py
+mypy --platform linux --python-version 3.11 --follow-imports skip \
+  tests/kernels/test_engram.py tests/kernels/mhc/test_mhc_kernels.py
+```
+
+One parametrized regression was added to the existing Engram suite, covering empty/single/odd token counts, shorter KV input, identity and carried pre-mixes, gate masks including a masked NaN, both BF16 rounding boundaries, and CUDA graph replay after changing and restoring inputs. Two existing fake-decoder setups initialize the new flag to false. **These GPU tests have not been run yet**:
+
+```bash
+python -m pytest tests/kernels/test_engram.py \
+  -k 'fused_engram_post_wkv or engram_mhc_preserves_delayed_input' -q
+python -m pytest tests/kernels/mhc/test_mhc_kernels.py \
+  -k 'deepseek_v41_decoder_mixes or deepseek_v41_capture_previous_aux' -q
+```
+
+Before requesting review readiness: compile and validate on B300; compare the complete gate + coefficient projection + stats/input sequence using interleaved graph microbenchmarks; then measure cold DeepSeek-V4.1-Flash prefill on two B300s with TP1/DP2/EP2, 16K chunk per rank, APC/EPLB off, output length 1, three independent AB/BA/AB rounds at 64K/c8 and 32K/c4, 32K/c8, 64K/c4 regression checks. Model output checks are also pending. A kernel improvement alone will not be reported as model throughput improvement.
+
+## Details
+
+The Engram boundary currently materializes the updated residual before delayed mHC reads it again for the input collapse. The new token program computes the HC gates, writes the same BF16 residual, and accumulates the incoming pre-mix collapse while those values are available. It rounds the collapse to BF16 before RMSNorm. The separate coefficient projection still consumes the complete updated residual and produces all next pre/post/residual coefficients using the existing math.
+
+The full residual store, WKV computation, previous-layer auxiliary observation point, mask arithmetic, and both BF16 rounding boundaries are retained. This does not fuse communication or remove coefficient work. Triton and TileLang can use different normalization reduction trees; the regression reuses the existing delayed-mHC normalization tolerance rather than claiming bitwise normalized outputs.
+
+One token program serializes the HC gates, which may cost more than the saved read/normalization work. Register pressure and whole-model benefit need measurement. The default-off switch keeps this unvalidated prototype explicit while those results are collected.
+
+Duplicate checks covered current open `engram mhc` PRs, the #57448 tracker and linked work, and complete public Engram/mHC and Engram/fused searches. No matching vLLM gate-to-delayed-input fusion was found. [#56633](https://github.com/vllm-project/vllm/pull/56633) retains a separate Engram boundary; [#60153](https://github.com/vllm-project/vllm/pull/60153) excludes it. This is separate from packed Engram lookup [#59923](https://github.com/vllm-project/vllm/pull/59923) and WKV sharding [#58678](https://github.com/vllm-project/vllm/pull/58678). SGLang #43065 is prior art for the fusion, not a claim of original invention here.
+
+AI assistance (Codex) was used for implementation, source review and local checks.
+
+---
+
+<details>
+<summary> Pull Request Checklist </summary>
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assistance was used during the creation of this PR.
+- [x] **Design Fit:** Model-specific producer fusion reuses the existing mHC stats specialization; unsupported paths keep the existing implementation.
+- [ ] **Testing and Validation:** CPU/source checks completed; GPU compilation, numerical tests, model evaluation and performance validation are pending.
+- [ ] **Code Quality and Style:** Formatting and applicable hooks passed except for the documented existing macOS mypy limitation.
+- [x] **Pull Request Contents:** Includes prior art, scope, potential costs, exact validation limits and the remaining plan.
+</details>
+
+ 
+
+62359 [Perf][DSv4.1] Share Engram host tables as host-NUMA cuMem across DP ranks STATE open None HEAD e3b9eb99ecdf0e7530c0d732c66aa77d9f3dc144 
+ ## Overview
+
+With `dp_shared_memory`, node-local DP ranks share one registered `/dev/shm` mapping for the Engram host tables (2 layers x 94.4 GiB on DeepSeek-V4.1-Flash). Lookups are random row reads and on GB200 they are bound by GPU TLB misses: the registered mapping uses 64K pages.
+
+This PR allocates the shared table as host-NUMA cuMem instead, which the GPU maps with 2M pages. Rank 0 creates it and broadcasts a FABRIC handle; the other node-local DP ranks import and map it. Where FABRIC handles are unavailable (probed once: create + export), the existing `/dev/shm` path is used and logged. Rank 0 decides the backing and broadcasts it so every rank runs the same collectives. A mapping failure on any rank raises on all ranks.
+
+- New NVIDIA-only `vllm/models/deepseek_v41/nvidia/ops/engram_host_table.py` (~125 lines of code).
+- `common/engram.py`: +42/-7, `DPSharedEngramStorage` keeps its interface; startup log says `via cuMem` or `via /dev/shm`.
+- No new config option.
+
+Not a duplicate: open Engram PRs cover pinned sizing (#59849), SP/PCP sharing (#57195, #61553), Mooncake and disk offload (#57023, #62238); none changes the shared host table backing.
+
+## Performance
+
+GB200, DEP4, `--numa-bind`-equivalent binding (`numactl` per rank), dummy weights, uniformly random tokens. Same node, back-to-back A/B.
+
+Engram lookup, one layer, fresh ids every iteration:
+
+| tokens | /dev/shm | cuMem |
+| --- | --- | --- |
+| 16 | 69 us | 49 us |
+| 128 | 184 us | 90 us |
+| 1024 | 1.21 ms | 0.47 ms |
+| 4096 | 3.78 ms | 1.21 ms |
+| 32768 | 9.92 ms | 4.36 ms |
+
+`vllm bench forward` (median per-rank forward):
+
+| case | /dev/shm | cuMem | change |
+| --- | --- | --- | --- |
+| prefill 32768 | 346.76 ms | 333.93 ms | -3.7% |
+| prefill 4 x 8192 | 347.18 ms | 333.65 ms | -3.9% |
+| prefill 4 x 8192 @ 16384 ctx | 353.86 ms | 338.71 ms | -4.3% |
+| prefill 16384 | 181.99 ms | 170.87 ms | -6.1% |
+| prefill 4096 | 56.72 ms | 50.87 ms | -10.3% |
+| decode 64 @ 16384 | 16.61 ms | 16.61 ms | 0% |
+| decode 128 @ 16384 | 17.10 ms | 17.10 ms | 0% |
+
+Decode lookups already overlap on the side stream. Real text repeats 15-22% of rows, so real prefill gains should be somewhat smaller than the random-token numbers.
+
+```bash
+vllm bench forward --model deepseek-ai/DeepSeek-V4.1-Flash --tokenizer-mode deepseek_v41 --language-model-only -dp 4 --enable-expert-parallel --kv-cache-dtype fp8 --max-model-len 131072 --max-num-batched-tokens 32768 --gpu-memory-utilization 0.75 --attention-config '{"backend":"FLASHMLA_MEGA_ATTN_DSV41","indexer_kv_dtype":"mxfp4","indexer_sparse_logits":true}' --engram-config '{"cpu_offload":true,"embedding_across_dp":true,"use_thp":false}' --kernel-config '{"enable_flashinfer_autotune":false,"moe_backend":"deep_gemm_mega_moe","sparse_indexer_topk_backend":"deep_select"}' --case p32k=32768 --case chunk4=4*8192 --case chunk4mid=4*8192@16384c --case p16k=16384 --case p4k=4096 --case d64=64*1@16384 --case d128=128*1@16384
+```
+
+## Accuracy
+
+GSM8K on this branch (`via cuMem` in the startup log), DEP4 on one GB200 node, same server and lm-eval setup as #61039: `--max-num-seqs 64 --max-num-batched-tokens 16384 --max-model-len 32768`, `FULL_DECODE_ONLY` graphs up to 384, `cpu_offload` + `dp_shared_memory` Engram tables, DSpark with 5 speculative tokens, standard rejection sampling, adaptive verification off. lm-eval 0.4.13, 1319 problems, 5-shot, temperature 0, 1024-token cap, concurrency 32.
+
+| | strict match | flexible extract | acceptance length, incl. bonus | per-position acceptance |
+| --- | --- | --- | --- | --- |
+| this PR | 92.65% (±0.72) | 92.57% | 3.451 | 0.795 / 0.651 / 0.458 / 0.333 / 0.214 |
+| #61039 (`/dev/shm` tables) | 92.57% | 92.49% | 3.423 | 0.790 / 0.646 / 0.452 / 0.329 / 0.205 |
+
+## Tests
+
+- `pytest tests/distributed/test_engram_dp_shard.py`: 27 passed (GB200). The existing shared-storage lifetime/failure test now forces the `/dev/shm` fallback so both paths stay covered.
+- Stress on GB200, DEP2 and DEP4: full-size 2 x 94.4 GiB tables, 50-200 lookup iterations at 32768 and 384 tokens with every value checked (0 mismatches); injected create/import failures raise on all ranks without hanging; repeated alloc/free cycles return host memory.
+- `pre-commit run` on the changed files passes.
+
+AI assistance (Claude Code) was used for this change.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+ 
+
+61971 [Perf][DSv4.1] Share MegaAttn int32 positions across layers STATE open None HEAD 7dc5b6683bc894a99e984c0bc3dbb826d4a51990 
+ ## Overview
+
+MegaAttn converts the same RoPE positions from int64 to int32 in every layer. In a full CUDA graph those casts are separate GPU kernels: 40 per target forward on DeepSeek-V4.1-Flash. Share the converted tensor within the forward context so the graph records one cast.
+
+## Claims
+
+- Removes 39 redundant cast kernels per 40-layer target forward.
+- Target GPU time drops from 17.903 to 17.834 ms (0.39%) in the DEP8 decode measurement below.
+
+## Validation
+
+DeepSeek-V4.1-Flash on 8 x GB300 across two nodes, DP8 x TP1 + EP, 64 requests/rank, 131,072 input tokens, 2,048 output tokens, attention top-k 1024, DSpark with 5 draft tokens (384 target tokens/rank). FlashMLA built with CUDA 13.4, MegaMoE, Engram on GPU, full decode CUDA graphs. Both runs restore and freeze the same EPLB mapping.
+
+| Target forward | Before | Shared positions |
+|---|---:|---:|
+| GPU time, median (ms) | 17.903 | 17.834 |
+| GPU time, p10 / p90 (ms) | 17.847 / 17.996 | 17.793 / 17.941 |
+| Full-batch samples | 366 | 342 |
+| Kernels in the captured forward | 766 | 727 |
+
+One run per version on a development tree, using real weights and synthetic KV through `DecodeBenchConnector`. Times are CUDA events around the target graph, without the profiler, taking the slowest of eight ranks for each step and discarding the first ten full-batch steps. Kernel counts come from a separate CUDA-only trace. This measures GPU target time, not request latency or serving throughput.
+
+The measurements used the equivalent helper implementation; the final diff inlines it. The final `forward_mqa` was checked locally on GB300 with a copy consumer: 40 uses share one converted buffer during full capture, offset views stay distinct, replays see updated positions, independent captures do not reuse another graph's cast, and separate piecewise graphs sharing a context remain correct. NONE, FULL and PIECEWISE cases pass. These local checks are not added to the PR.
+
+```bash
+.venv/bin/python -m pytest tests/kernels/test_dsv41_mega_attn_layouts.py -q
+.venv/bin/python -m pre_commit run --files vllm/models/deepseek_v41/nvidia/flash_mla_mega_attn.py
+```
+
+Existing layout suite on the development tree: 7 passed. Pre-commit, including Ruff, formatting and mypy: passed. No accuracy evaluation was run; the integer conversion is unchanged. The capture checks above were run outside CI.
+
+## Details
+
+The cache is keyed by the input tensor and scoped to `ForwardContext`. The cast still executes on every graph replay. Eager execution and PIECEWISE capture keep their per-call conversion, since separate piecewise graphs must own their buffers. Check actual stream capture as well as runtime mode: MRV2's full capture can run with mode NONE.
+
+Not a duplicate: searched open PRs for `mega attention positions`, `positions int32`, `mega_attn_positions_int32`, and `MegaAttention reuse`. #60613 fixes a prefill index sentinel; #60543 autotunes the indexer GEMM. Neither shares the RoPE position conversion. No linked issue.
+
+AI assistance (Codex) was used to implement and validate this change.
+
+---
+
+<details>
+<summary> Pull Request Checklist </summary>
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assistance was used during the creation of this PR.
+
+- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.
+- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+</details>
+
+ 
+
+62011 [Perf][DSv4.1] Enable DeepGEMM sparse MQA logits on the FP8 indexer cache STATE open None HEAD ed578d9a5222fd7288c51f5130148c92638bb5bc 
+ ## Purpose
+
+`attention_config.indexer_sparse_logits` (#56254) lets DeepSeek-V4.1's candidate-consuming indexer layers score only the candidate blocks with DeepGEMM's sparse MQA-logits kernels instead of dense logits over the whole context. Today it requires the MXFP4 indexer cache (`indexer_kv_dtype="mxfp4"`), so with the default FP8 cache the flag fails at startup:
+
+```
+ValueError: attention_config.indexer_sparse_logits requires the MXFP4 indexer cache
+```
+
+The restriction dates from before #61149: the FP8 cache then stored one fp32 scale per token, while the sparse kernels take UE8M0-packed (granularity-32) scales. Since #61149, the SM100 FP8 indexer cache stores each token's power-of-two scale as four equal UE8M0 bytes, which is exactly the MXFP8 layout DeepGEMM expects, and DeepGEMM's sparse kernels already have an FP8 (`float_e4m3_t`, `SM100_MMA_MXF8F6F4_SS`) variant for both the contiguous (prefill) and paged (decode) paths. Its paged accessor reads the same page layout as vLLM's FP8 cache (`PAGE_KV x 128` value bytes, then `PAGE_KV` uint32 scales).
+
+This PR wires the FP8 cache into the existing sparse path, so the decode speedup no longer requires trading the K cache down to 4 bits.
+
+## Results
+
+DeepSeek-V4.1-Flash, TP4, 4x B300, `--kv-cache-dtype fp8 --no-enable-prefix-caching`, greedy decoding. Decode and prefill throughput from a linear fit of wall time against output length (256 / 1024 / 2048 output tokens), each point run twice
+
+| batch x context | decode tok/s MAIN | decode tok/s PR | decode speedup | prefill tok/s MAIN | prefill tok/s PR | prefill speedup |
+|---|---|---|---|---|---|---|
+| 64 x 8K | 6,459 | 6,584 | 1.02x | 124,569 | 126,088 | 1.01x |
+| 32 x 100K | 3,920 | 4,117 | 1.05x | 117,066 | 117,774 | 1.01x |
+| 16 x 256K | 2,293 | 2,535 | 1.11x | 103,739 | 104,733 | 1.01x |
+| 8 x 512K | 1,301 | 1,399 | 1.08x | 85,609 | 87,355 | 1.02x |
+| 4 x 1M | 692 | 745 | 1.08x | 62,604 | 63,967 | 1.02x |
+
+Decode improves at every point, with up to 11% higher decode throughput. Prefill is at parity: decoder SWA bounded replay (https://github.com/vllm-project/vllm/pull/58132) runs the candidate-consuming layers on only each request's last 128 tokens during prefill, so little prefill indexer work is left for the sparse path to remove.
+
+<details>
+<summary>Serving matrix (request stream, 1024 output tokens, 4 x concurrency prompts)</summary>
+
+Median TPOT is lower with the flag on in 29/29 points (1.01-1.10x, median 1.03x) and output throughput is higher in 28/29 (median 1.02x); prefill-only TTFT at concurrency 1 is at parity (0.99-1.04x) from 4K to 1M. No short-context regression: 4K and 16K are 1.01-1.06x on TPOT.
+
+| ISL | conc | TPOT p50 off / on (ms) | speedup |
+|---|---|---|---|
+| 4K | 1 / 64 | 4.15 / 4.07, 13.27 / 12.68 | 1.02x, 1.05x |
+| 64K | 1 / 16 | 4.23 / 4.14, 10.92 / 10.40 | 1.02x, 1.05x |
+| 128K | 1 / 16 | 4.25 / 4.13, 16.64 / 15.34 | 1.03x, 1.08x |
+| 256K | 1 / 16 | 4.27 / 4.09, 26.83 / 24.81 | 1.04x, 1.08x |
+| 512K | 1 / 16 | 4.35 / 4.08, 55.51 / 50.43 | 1.07x, 1.10x |
+| 1M | 1 / 8 | 4.37 / 4.12, 59.44 / 57.47 | 1.06x, 1.03x |
+
+</details>
+
+## Accuracy (gsm8k)
+
+MAIN:
+
+```
+Results:
+Accuracy: 0.901
+Invalid responses: 0.000
+Total latency: 32.481 s
+Questions per second: 40.609
+Total output tokens: 122187
+Output tokens per second: 3761.825
+```
+
+PR:
+
+```
+Results:
+Accuracy: 0.908
+Invalid responses: 0.002
+Total latency: 31.403 s
+Questions per second: 42.002
+Total output tokens: 121786
+Output tokens per second: 3878.109
+```
+ 
+
+61868 [Perf][DSv4.1] DeepSeek-V4.1-Flash specialized decode on GB300 STATE open None HEAD ae49fb7ed30ea7cdde03cc656aee9f7094f81b58 
+ <!-- markdownlint-disable -->
+
+## Overview
+
+This PR adds an NVIDIA specialized decode for DeepSeek-V4.1-Flash on GB300, for the small decode batches that agentic serving runs. It supports:
+- one GB300 tray at TP4;
+- DSpark speculative decoding with 5 draft tokens;
+- FULL-graph decode steps of up to 384 rows (64 requests × 6 tokens). Prefill, mixed batches and larger batches fall back to the stock forward.
+
+It is opt-in via `--additional-config '{"decode_backend": "latency_specialized"}'`, the same switch as #61867. With the default (`auto`), the model runs exactly as on upstream `main`. The model changes are all under `vllm/models/deepseek_v41/nvidia/`; outside it, the PR only adds tests and a CI step.
+
+The integration follows #61867: the model owns a decode executor that takes over FULL-graph decode steps. The stacked follow-up #61869 puts the DSpark draft model on the same executor. Both follow the RFC #59665 fast-track process. Related: #57448 (DeepSeek-V4.1 tracking), #59725 (Cake kernels).
+
+## Claims
+
+DeepSeek-V4.1-Flash on one GB300 tray with DSpark, the same build with the switch on and off:
+- Decode step (one speculative step, including the draft): **18.3% faster at batch 1** (5,355 → 4,375 µs), 13.7% at batch 8 and 11.3% at batch 32.
+- InferenceX AgentX traces: **P90 interactivity up 16–24%** at every concurrency from 1 to 64, with throughput per GPU up 1–6% and TTFT unchanged.
+- GSM8K, GPQA-Diamond, AIME25 and RULER NIAH stay within one point of the switch-off model, and the DSpark acceptance length does not change.
+
+## Validation
+
+### Correctness
+
+The reference is the same build with the switch off. GPQA-Diamond and AIME25 use reasoning effort high and temperature 0.6.
+
+| Task | Samples | Switch off | Switch on |
+| --- | --- | --- | --- |
+| GSM8K, strict match (c1 / c8 / c32) | 1,319 per cell | 0.973 / 0.972 / 0.973 | 0.974 / 0.970 / 0.975 |
+| GPQA-Diamond | 198 × 16 | 0.796 | 0.788 |
+| AIME25 | 30 × 16 | 0.994 | 0.990 |
+| RULER NIAH single / multikey-2 / multikey-3, 32K / 128K / 256K (c1 and c8) | | 1.0 in every cell | 1.0 in every cell |
+| DSpark acceptance length on GSM8K (c1 / c8 / c32) | | 3.93 / 3.95 / 3.93 | 3.93 / 3.96 / 3.97 |
+
+- **GPQA-Diamond.** Paired by question over the 16 repeats, on − off is −0.79 ± 0.56 points (bootstrap 95% interval −2.2 to +0.6). The first eight repeats gave −1.6 points, mostly answers that ran past the 16,384-token limit without a final answer; the second eight gave +0.06.
+- **Later revisions.** GSM8K at c8 was rerun after each later change, with its mean acceptance length: 0.972 and 3.92 on `main` `429a3da` (FlashInfer 0.7.1), 0.975 and 3.95 on `011fa68c`, 0.971 and 3.97 after the move into the executor, 0.976 and 3.96 with the CuTe DSL kernels, 0.972 and 3.99 after the rebase onto `main` `03ee2e13` (FlashInfer 0.7.2), and 0.975 and 3.92 after the rebase onto `main` `aa3564ce`. That rebase also changed compiled code in `main` (DeepGEMM's build, the top-k kernels), so the decode step was timed across it on one GB300 tray (old `main` wheel and branch against new, blocks old-new-new-old, two repeats each): B1 +0.1%, B8 +0.8%, B32 +0.4%, all within noise (|t| < 2), so the performance numbers in this description still stand. After each rebase the kernel, numerics and layers tests pass again (run at the tip of #61869, which contains this PR).
+
+The tests check each kernel against the stock op it replaces, the TP4 collectives bitwise against the unfused path, and a five-layer model served with the switch on and off:
+
+<details><summary>Tests, sanitizers and CI</summary>
+
+```bash
+# One SM100-family GPU: each kernel against the stock op it replaces
+.venv/bin/python -m pytest tests/models/deepseek_v41/nvidia/specialized_decode/test_kernels.py -v
+# Four GPUs: TP4 collectives bitwise against the unfused reference, and graph replays
+.venv/bin/python -m pytest tests/models/deepseek_v41/nvidia/specialized_decode/test_numerics.py -v
+.venv/bin/python -m tests.models.deepseek_v41.nvidia.specialized_decode.test_numerics --replays 100000  # race stress
+# Four GB300: five-layer model on random weights at TP4 with DSpark, switch on vs off
+.venv/bin/python -m pytest tests/models/deepseek_v41/nvidia/specialized_decode/test_layers.py -v
+```
+
+| Check | What it covers | Result |
+| --- | --- | --- |
+| Kernel tests | Each kernel against the stock op it replaces, at every supported row count, eagerly and replayed from a CUDA graph | 90 passed |
+| Numerics (TP4) | The fused collectives bitwise against the unfused reference over 1,000 graph replays; the indexer top-k equal up to boundary ties | Passed |
+| Race stress | 100,000 graph replays: collectives bitwise, top-k sets equal throughout | Passed before the restructure, which changed no kernel |
+| Layers test (4× GB300) | A five-layer model at TP4 with DSpark, served with the switch on and off; the activations of every layer are compared within tolerance. The test checks which paths each layer took, that the executor ran on the switch-on steps and that it never ran with the switch off | Passed |
+| compute-sanitizer (CUDA 13.0.2) over the kernel tests | memcheck, synccheck, racecheck | memcheck: no errors. synccheck: no report in this PR's kernels. Kernels that are not this PR's are left uninstrumented, because synccheck aborts every kernel it reports: FlashInfer's TRT-LLM-gen kernels and CuTe DSL dense GEMMs, and vLLM's `LLBf16SplitK`, which this PR calls ("Divergent thread(s) in block"). racecheck: FlashInfer's CuTe DSL split-K `mm_bf16`, which the LM head calls, reports shared-memory hazards; upstream calls the same kernel from its BF16 linear backend. No other test reports a hazard: cooperative top-k, the sparse-MLA KV counters, the MXFP8 projections, the index key store, Engram, the side-stream table builds and the metadata graphs are racecheck-clean. Those were run over the DSpark PR's kernel tests, which include all of this PR's, before the restructure, which changed none of them. The CuTe DSL routed-expert kernels were checked with all three tools at this revision: no memcheck error, no synccheck report and no race hazard. |
+| pre-commit | All hooks | Passes on every changed file |
+
+**CI.** A new 4×B200 step runs the kernel, numerics and layers tests. Like the other 4×B200 steps, it is optional, so it runs nightly rather than on every PR. No CI agent has four GB300, so the layers test skips there; it and the end-to-end results were run on GB300 outside CI.
+
+</details>
+
+### Performance
+
+All runs use DeepS 
+
+57843 [Bugfix][DSV4.1] Warm DeepGEMM mHC projection specializations STATE open None HEAD baa5c3b28262c10e537e11d0d8e77bf1db952cdb 
+ ## Purpose
+
+DSV4.1 can compile a DeepGEMM mHC prenorm projection during intermediate prefill because decode and maximum-prefill startup runs miss a reachable split count. Register the projection's input widths and reachable split counts with JIT warmup, then execute one dummy row per specialization. Token count is dynamic in this kernel, so large prefill buffers are unnecessary.
+
+Extracted unchanged from #57643, where the implementation, registration, and tests have been removed. This fix is independent of all-reduce fusion and of the FlashInfer cached-tactic warmup in #57842. Open-PR checks found #51802 and #49707 addressing DeepSeek V4 TileLang warmup; neither implements this DSV4.1 DeepGEMM projection warmup.
+
+## Validation
+
+```bash
+.venv/bin/python -m pytest tests/kernels/test_mhc_jit_warmup.py -q -rs
+```
+
+- 30 tests passed; pre-commit passed.
+- Fresh-cache GB200 check compiled six specializations (widths 5120/20480, splits 1/4/16), then exercised 26 runtime shapes from 1 to 8192 tokens with subsequent compiler invocations forbidden. No runtime compilation occurred; projection and squared-sum results matched their references exactly.
+- GPU validation used retained allocation 29900 on gb200-rack1-04 with `srun --overlap`.
+- No model arithmetic changes or new model accuracy evaluation. The earlier combined real-model evaluation remains documented in #57643; it is not an isolated evaluation of this startup-only fix.
+
+AI assistance was used for extraction and validation.
+ 
+
+58559 [Warmup] Cover DSv4 sparse top-k and DFlash input-prep Triton specializations that JIT at first request STATE open None HEAD f91150d29ca07efccc5629ced645ff47a36889f1 
+ ## What
+
+Two Triton kernels still JIT-compile at the first real request despite the JIT warmup, found via Triton cache forensics on PD-disaggregated DeepSeek-V4-Flash DSpark serving (per-config `TRITON_CACHE_DIR` timeline + TTIR diff of warmup-time vs serving-time cache entries). Mid-inference compiles are normally just a one-time latency spike, but on a PP rank that also hosts the Mooncake bootstrap HTTP server they hold the GIL long enough to starve the 5s bootstrap query and fail the first PD request (#58543); they would also trip `--jit-monitor-mode=error` (#56693).
+
+**`ComputeGlobalTopkIndicesAndLensKernel`** (DSv4 sparse attention):
+- Its warmup keys pinned `topk_indices_stride == topk` (compact rows). C128A prefill actually passes views into the `c128a_max_compressed`-wide persistent buffer (`sparse_mla.py`), so the physical row stride (e.g. 512) differs from the batch-dependent logical width (128/256/512). The warmup now enumerates the padded-stride variants that serving launches.
+- `token_to_req_indices` / `is_valid_token` are sliced at arbitrary token offsets at serving time, so their pointer alignment varies per batch. Both are scalar loads, so the divisibility hint buys nothing: they now use `do_not_specialize_on_alignment`, collapsing the alignment variant matrix instead of enumerating it.
+
+**`_prepare_dflash_inputs_kernel`** (DFlash/DSpark speculator):
+- `BLOCK_SIZE = min(256, next_power_of_2(max_tokens_per_req))` follows the largest per-request span in the batch; the worker warmup's tiny synthetic steps only reach the smallest buckets, and the first large prefill chunk compiles a new variant mid-inference. `DFlashSpeculator.warmup_prepare_inputs()` now launches the kernel once per reachable bucket over the speculator's real buffers, wired into `kernel_warmup()`. The prefill-only producer variant (`context_only=True`, #56957) is covered when that mode is present.
+
+## Duplicate-work check
+
+Searched open PRs for triton warmup coverage of these kernels. The DSv4 warmup series ([7/N] #50177, [8/N] #53567, [10/N] #55967), #54345 (prefill metadata JIT), #55918 (logprobs topk widths), and #45601 (sampler top-k/top-p) each cover different kernels; none touch `ComputeGlobalTopkIndicesAndLensKernel` or `_prepare_dflash_inputs_kernel`. This PR follows the pattern established by #55918 (`do_not_specialize_on_alignment` + explicit startup warmup of the reachable specialization set).
+
+## Tests
+
+- `pytest tests/v1/attention/test_indexer_deepseek_v4_slot_mapping.py::test_topk_lens_warmup_uses_physical_c128a_buffer_stride` — warmup keys carry the physical C128A buffer stride (new, CPU).
+- `pytest tests/v1/spec_decode/test_dflash2.py::test_dflash_warmup_covers_reachable_block_size_buckets tests/v1/spec_decode/test_dflash2.py::test_dflash_warmup_covers_prefill_only_buckets` — bucket coverage for aggregated and prefill-only modes (new, CPU).
+- All three pass; `pre-commit` (ruff, mypy, test-tethering, etc.) is green.
+
+## Model evaluation
+
+No serving-path numerics change: the patch only precompiles specializations that serving would otherwise compile lazily, and drops two alignment specializations that are unused by codegen (scalar loads). The motivating PD both-PP DSpark deployment (prefill PP2×TP2 + decode PP2×TP2, Mooncake) scores GSM8K strict-match 0.9447 on the same stack (#56957), with the compile stalls present; this PR removes them at the root.
+
+AI assistance was used in preparing this PR (root-cause forensics, implementation, and tests).
+ 
+
+60936 [Perf][DSv4.1] Parallelize prefill Top-K/SWA index combination STATE open None HEAD 46c0f912e6b0d4c0963936454e53137272639dcd 
+ ## Overview
+
+Parallelize DeepSeek-V4.1 prefill Top-K/SWA index combination over tokens. Select one token per program for Top-K and two for SWA-only work, recovering small-shape performance while retaining the large-shape kernel improvement.
+
+The approach follows [SGLang #41658](https://github.com/sgl-project/sglang/pull/41658). Benchmark baselines include the sentinel initialization from [#60613](https://github.com/vllm-project/vllm/pull/60613); this PR does not independently claim that correctness fix.
+
+## Claims
+
+- On B300, the real 16K/ratio2 combination shape takes 20.480 µs versus 49.152 µs for the sentinel-correct baseline in the specified cold-L2 microbenchmark. Small cold-L2 Top-K approximately matches baseline; SWA-only differences are mixed.
+- The final selector completed a real two-B300 model run: **158,747 input tok/s at 64K/c8**, 20-sample median, versus a historical baseline of 157,799. The descriptive difference is **+949 tok/s (+0.60%)**, not a controlled causal speedup claim.
+- Preserve exact integer output semantics and full sentinel padding. Seven committed GPU core cases and independent reference/replay checks passed. Six automated image integration cases are dependency-blocked, and final-selector matched model A/B is outstanding; these limits remain explicit below.
+
+## Validation
+
+### Final selector: completed optimized-only model run
+
+Real DeepSeek-V4.1-Flash revision `2cba9e42aa026125f3ed06c6d98c1db82f7ca027`, vLLM `1ee69dde9cdfc949cfae896016b44357ca864a50`, candidate commit `983fae3048072baa88a5a3bdae307eaa7a209dfd`. Two B300 GPUs, TP1/DP2/EP2, 16K chunk per rank, MegaMoE, EPLB-off, APC-off, one output token. Model load, compilation and calibration are excluded from timing; no profiler was active. Each sample sends `2 × concurrency` requests through continuously refilled workers, not synchronized waves. All 35 samples were retained; every request's exact prompt length, one output token and zero cached tokens were verified.
+
+| Input / concurrency | Samples | Final B median tok/s | Historical A median tok/s | Reference difference | B sample std tok/s | B CV |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 64K / 8 | 20 | 158,747.459 | 157,798.946 | +0.601% | 3,660.266 | 2.309% |
+| 32K / 4 | 5 | 138,844.315 | 138,122.521 | +0.523% | 11,745.499 | 7.993% |
+| 32K / 8 | 5 | 150,733.982 | 150,027.868 | +0.471% | 1,439.269 | 0.960% |
+| 64K / 4 | 5 | 151,217.162 | 150,600.425 | +0.410% | 6,899.072 | 4.418% |
+
+
+An independent 32-question greedy text canary scored **32/32**, with no truncated or invalid answers. This is not a full quality or multimodal evaluation. Both workers' actual source/function and frozen dispatch receipts matched before and after timing; no new tuning or unapproved fallback occurred. Both engine preemption counters had zero delta. Original sources were restored and both allocated GPUs returned idle after the run.
+
+Both this run and the historical baselines use the same previously tuned 88-entry FlashInfer cache, the recorded original default for a previously untuned indexer shape, and the existing [DeepGEMM #451](https://github.com/deepseek-ai/DeepGEMM/pull/451) correctness fix. These common benchmark controls are not included in the PR. The exploratory test scope retains the six dependency-blocked image cases described below. Additional input-length/concurrency measurements are reported separately below.
+
+<details>
+<summary>All 35 final-selector throughput samples and reproduction record</summary>
+
+64K/c8 (tok/s): `158624.332, 158733.519, 159502.307, 159502.697, 158773.328, 152936.962, 158077.381, 164986.646, 158648.678, 158761.400, 166293.023, 157971.318, 157983.806, 158483.880, 158762.832, 159027.440, 158867.225, 147705.382, 159108.739, 157816.026`
+
+32K/c4 (tok/s): `138376.986, 159849.392, 138844.315, 137922.753, 159785.222`
+
+32K/c8 (tok/s): `147552.262, 149612.832, 151019.949, 150733.982, 150765.227`
+
+64K/c4 (tok/s): `151140.528, 151217.162, 150981.115, 163752.591, 163662.942`
+
+The local measurement harness was `run_optimized_only_exploratory.py --config config.exploratory.json`, with driver SHA256 `8d61e4ecc5fb7a4282bd42053d81a98b097461cf7d4ab454cd67062b7e5f3d38` and config SHA256 `3cb51fe72cddf8919fba0a6c23c9a00fc4e9871ec5ec050487c74b2c0dac9009`. It starts the pinned model, calibrates separately, runs the fixed 20+5+5+5 plan, checks dispatch/usage, runs the canary and restores the environment. The harness and raw logs are local validation artifacts, not additions to this PR.
+
+Complete archive SHA256: `11b81766e5305600599670649a0d0614e32153f2a4a6387d3051497e0cb75dd2`; all 308 archived members were checked by size and SHA256. It retains measurements, launch/source/config hashes, canary, dispatch receipts, restoration evidence and the original failed 13-case pytest attempt.
+
+</details>
+
+### Additional input lengths and concurrency: optimized-only sweep
+
+A second fresh optimized engine ran on the same two allocated GPUs in the same rank order, after the first engine stopped and original sources/GPU-idle checks passed. The model revision, precision, backend, chunk size, APC/EPLB settings and timing method were unchanged. Each of eight new cells had **two untimed full-batch warmups and five measurements**; all 16 warmups and 40 measurements are retained separately from the original 35. Each batch contains `2 × concurrency` requests, using continuous refill. All requests had the specified input length, one output token and zero cached tokens.
+
+| Input / concurrency | Samples | Median input tok/s | Sample std tok/s | CV | Min–max tok/s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 16K / 1 | 5 | 60,059.297 | 261.565 | 0.436% | 59,537.880–60,184.714 |
+| 16K / 4 | 5 | 92,018.097 | 3,069.850 | 3.270% | 91,214.167–97,344.997 |
+| 16K / 8 | 5 | 126,372.668 | 1,149.368 | 0.912% | 124,260.326–127,174.055 |
+| 16K / 16 | 5 | 138,980.558 | 3,975.277 | 2.830% | 138,271.860–147,566.979 |
+| 32K / 1 | 5 | 63,581.184 | 279.102 | 0.440% | 62,985.096–63,671.586 |
+| 32K / 16 | 5 | 158,021.824 | 1,333.462 | 0.841% | 157,670.765–160,834.810 |
+| 64K / 1 | 5 | 69,470.568 | 434.873 | 0.628% | 68,515.432–69,512.890 |
+| 64K / 16 | 5 | 162,570.230 | 1,839.464 | 1.125% | 162,189.460–166,650.863 |
+
+These cells have no new matched A measurements, so no speedup percentage is inferred. Both ranks had zero preemption-counter delta over calibration and measurement. The same-source prior 32-question canary is refe 
+
+61371 [Kernel][DSv4.1] Bump FlashMLA to the 2026.09.30 release and its interleaved V4.1 KV cache STATE merged 2026-10-15T20:58:26Z HEAD c7cca9b27664dd714813f23cd9c27d4f426d0444 
+ # Overview
+
+Bump FlashMLA to vllm-project/FlashMLA@5dceadb (vllm-project/FlashMLA#30), which syncs upstream's 2026.09.30 release (deepseek-ai/FlashMLA#229). Upstream changed the DeepSeek-V4.1 KV cache records to an interleaved layout, so this moves vLLM's V4.1 cache writers and readers to it and aligns the packed DSv4.1 block to the new decode kernels.
+
+## Claims
+
+- vLLM builds against FlashMLA 5dceadb. V4.1 records (528 B MXFP8, 288 B NVFP4) written by vLLM now use the interleaved layout, and FlashMLA's V4.1 decode kernels and vLLM's own gathers read back exactly what the writers stored.
+- DeepSeek-V4.1 serves end to end on SM100 with both FlashMLA backends; GSM8K is in the table below.
+- KV capacity: a packed DSv4.1 block now has to hold whole rows of both V4.1 records. Relaxing the indexer's DeepGEMM alignment to 256 B (possible since #61149) keeps the loss at 9.5% instead of 24.6% on DSv4.1-Flash with MegaAttention.
+- V3.2, V4.0, NVFP4 (V3.2 geometry) and SM90 keep FlashMLA's legacy kernels; their layouts and code paths are unchanged.
+
+## Validation
+
+GB200 (SM100), DeepSeek-V4.1-Flash, DEP4 (DP4 x TP1 + EP), DeepGEMM mega MoE, MXFP4 indexer cache with sparse logits, DSpark (5 tokens), `--kv-cache-dtype fp8`, `--max-model-len 8192`. GSM8K: lm-eval, 1319 problems, 5-shot completions, temperature 0, 1024-token cap, concurrency 32.
+
+| | block (B) | KV memory (GiB/GPU) | GPU KV cache (tokens) | GSM8K strict-match |
+|---|---:|---:|---:|---:|
+| MegaAttention (`nvfp4_ds_mla`), main | 114,688 | 63.81 | 2,307,478 | |
+| MegaAttention (`nvfp4_ds_mla`), this PR | 126,720 | 63.69 | 2,084,294 | 92.87% (±0.71) |
+| MegaAttention, this PR with the indexer kept at 512 B | 152,064 | 63.81 | 1,740,323 | |
+| `FLASHMLA_SPARSE_DSV41` (`fp8_ds_mla`), this PR | 194,304 | 59.32 | 2,457,007 | 92.87% (±0.71) |
+| `FLASHMLA_SPARSE_DSV41`, this PR with the indexer kept at 512 B | 202,752 | 59.78 | 2,372,929 | |
+
+The main and 512 B rows ran on the base before #61149; KV memory per GPU differs slightly between the two bases. At equal KV memory, MegaAttention has 9.5% fewer KV tokens than main (24.6% with the indexer at 512 B), and `FLASHMLA_SPARSE_DSV41` has 4.3% more than with the indexer at 512 B. Every bound KV view had `stride(0)` equal to the block, CUDA graph capture passed, and all 1319 requests succeeded.
+
+Unit tests, with the vendored DeepGEMM on `PYTHONPATH` so the `importorskip("deep_gemm")` cases run:
+
+```bash
+pytest tests/kernels/test_compressor_kv_cache.py tests/kernels/test_fused_deepseek_v4_qnorm_rope_kv_insert.py   # 374 passed, 19 skipped (ROCm-only)
+pytest tests/model_executor/layers/test_mla_short_prefill_indexer.py tests/kernels/attention/test_deepgemm_attention.py   # 47 passed
+pytest tests/kernels/attention/test_flashmla_sparse.py tests/kernels/attention/test_flashmla.py tests/v1/attention/test_sparse_mla_backends.py   # 511 passed, 1528 skipped (Hopper-only or other backends)
+pytest tests/v1/core/test_kv_cache_utils.py tests/v1/core/test_contiguous_kv_packing.py tests/v1/attention/test_sparse_mla_kv_cache_layout.py tests/v1/worker/test_attn_utils.py tests/v1/attention/test_indexer_native_next_n.py tests/v1/attention/test_indexer_tp_row_shard.py tests/v1/attention/test_indexer_dcp_localize.py tests/v1/attention/test_sparse_indexer_decode_seq_lens.py   # 370 passed
+```
+
+New and updated tests:
+- `test_v41_cache_writers_match_flashmla_decode` (SWA MXFP8, compressed MXFP8, compressed NVFP4): a token written mid-page into a padded block reads back identically through FlashMLA's V4.1 decode and both vLLM gathers.
+- `test_sparse_mqa_logits_paged_matches_dense_masked[page_pad=256]`: the paged sparse indexer decode with a page stride that is 256 B- but not 512 B-aligned, as in a packed DSv4.1 block.
+- The existing V4.1 record tests now check the interleaved offsets.
+
+DeepGEMM 6ce1c5e's own `test_sparse_mqa_logits` also passes on the vendored build (644/644, including 196 paged cases with 256 B- but not 512 B-aligned page strides).
+
+CI runs FlashMLA's legacy SM90 kernels in the H100 MLA kernel job. It has no SM100 job for the V4.1 records, so that path is validated only by the runs above.
+
+<details>
+<summary>Commands</summary>
+
+```bash
+vllm serve deepseek-ai/DeepSeek-V4.1-Flash --reasoning-parser deepseek_v41 \
+  --attention-config '{"backend":"FLASHMLA_MEGA_ATTN_DSV41","indexer_kv_dtype":"mxfp4","indexer_sparse_logits":true}' \
+  --kv-cache-dtype fp8 --max-model-len 8192 --max-num-seqs 128 --data-parallel-size 4 --enable-expert-parallel \
+  --kernel-config '{"moe_backend":"deep_gemm_mega_moe","enable_flashinfer_autotune":false}' \
+  --speculative-config '{"method":"dspark","num_speculative_tokens":5,"enable_adaptive_verification":true}' \
+  --compilation-config '{"mode":"VLLM_COMPILE","cudagraph_mode":"FULL_AND_PIECEWISE","cudagraph_capture_sizes":[6,12,18,24,30,36,48,60,72,96,120,144,192,240,288,384,480,576,768,1020,1536,2046,3072,4092,6144,8190]}' \
+  --max-cudagraph-capture-size 8190 --numa-bind
+# FLASHMLA_SPARSE_DSV41: same command with "backend":"FLASHMLA_SPARSE_DSV41"
+
+lm_eval --model local-completions \
+  --model_args model=deepseek-ai/DeepSeek-V4.1-Flash,base_url=http://localhost:8123/v1/completions,num_concurrent=32,max_retries=3,tokenized_requests=False,tokenizer_backend=None \
+  --tasks gsm8k --num_fewshot 5 --gen_kwargs temperature=0,max_gen_toks=1024
+```
+
+</details>
+
+## Details
+
+**Layout.** Upstream's V4.1 records used to put a page's data rows first and all its scale rows after. They are now interleaved, so token `i` sits at `i * 528` (512 fp8 values, then 16 UE8M0 scales) or `i * 288` (256 Bof e2m1 pairs, then 32 e4m3 scales). The writers (`fused_deepseek_v4_qnorm_rope_kv_insert`, `rope_quant_insert`, the MXFP8 quantize-and-insert in `cache_utils.py`) and readers (the Triton MXFP8 / NVFP4 gathers and the CuTeDSL dequant gather) only change their offsets. The V4.0 record (584 B, separate scale region) is untouched.
+
+**Block stride.** The new decode kernels gather tokens with TMA as rows of a 2D view over the whole cache, so they require `k_cache.stride(0) % bytes_per_token == 0`. DSv4.1 packs every layer's page (SWA, compressed, indexer, compressor state) into one physical block, so each view's `stride(0)` is the whole block. `DeepseekV4SWACache` therefore takes `packed_block_stride_alignment`, and V4.1 sets it to `lcm(528, compressed record)`: 528 with `fp8_ds_mla`, 3168 with `nvfp4_ds_mla`. The KV cache planner already rounds the block up to the lcm of every spec's `block_strid 
+
+61149 [Kernel][Build] Bump DeepGEMM to the 26/09/30 release and adapt the sparse indexer STATE merged 2026-10-13T06:24:44Z HEAD 16470a135ecdb80c82cab018490a0db1dce94db9 
+ ## Overview
+
+Bump the vendored DeepGEMM pin to the tip of `vllm-project/DeepGEMM` `dev` (`6ce1c5e`): upstream's 26/09/30 public release (vllm-project/DeepGEMM#30, deepseek-ai/DeepGEMM#462) plus vendoring import fixes (vllm-project/DeepGEMM#31, vllm-project/DeepGEMM#32) and a relaxed paged sparse MQA page-stride guard (vllm-project/DeepGEMM#33). Adapt vLLM to the breaking MQA-logits API.
+
+## Claims
+
+- vLLM builds, vendors and imports DeepGEMM 2.8.1.
+- The DSA sparse indexer (DeepSeek-V3.2, GLM-5.x, GLM-5.3, DeepSeek-V4/V4.1, HY-V4) keeps working on SM90/SM100/SM120 with the new MQA-logits API.
+- On SM100 the FP8 indexer cache stays numerically identical: same FP8 values and the same per-token power-of-two scale, now stored as four packed UE8M0 bytes (a valid MXFP8 encoding) because SM100 MQA kernels only take MX scales.
+
+## Breaking changes in DeepGEMM `1e1842a` → `6ce1c5e`
+
+| Change | vLLM impact | Handling |
+|---|---|---|
+| `deep_gemm/__init__.py` imports a new `deep_gemm/locality_domain.py` | not vendored → `import vllm.third_party.deep_gemm` fails | install it in `deepgemm.cmake` |
+| `_C.py` registered the locality-domain shim as `deep_gemm._C.locality_domain` | relative import fails when vendored as `vllm.third_party.deep_gemm`, and vLLM then silently treats DeepGEMM as unavailable | fixed in vllm-project/DeepGEMM#31 (in the pin); `tools/check_wheel_deepgemm.py` now imports the package so CI catches this |
+| The C++ MLOPart bridge imported `deep_gemm.utils.mlopart` and the epilogue module was named `deep_gemm.epilogue` | `localize()` (not called by vLLM) would fail when vendored | fixed in vllm-project/DeepGEMM#32 (in the pin): `_C.py` passes its `__package__` to the new `init(library_root_path, python_package_name)` |
+| `fp8_fp4_paged_sparse_mqa_logits` page-stride guard lowered from 512 to 256 B (vllm-project/DeepGEMM#33) | DeepSeek-V4.1's sparse-logits block stride stays 512-aligned, which still satisfies it | none |
+| `fp8_mqa_logits`, `fp8_paged_mqa_logits`, `fp8_gemm_nt_skip_head_mid`, `get_bf16_mega_gate_config` removed | unused by vLLM | none |
+| `clean_logits` / `logits_dtype` removed from `fp8_fp4_(paged_)mqa_logits`; `max_seqlen_k` now required (> 0) | wrapper signatures | `vllm/utils/deep_gemm.py`; prefill chunk metadata carries a host `max_seqlen_k` bound (no device sync) |
+| `fp8_fp4_mqa_logits` returns **compressed** logits `[M, max_seqlen_k]` (row `i` starts at K position `ks[i]`) on every arch | prefill top-k / candidate-block / DCP consumers indexed absolute columns | consumers run on row starts `0`, ends `ke - ks`; output indices are unchanged (already relative to `ks`) |
+| SM100 MQA kernels take only MXFP8/MXFP4 with packed UE8M0 scales, **BF16 weights**, return **BF16 logits**; paged is varlen-only | FP8 indexer (fp32 per-token scale, scale folded into fp32 weights) rejected | see below |
+| `bf16_mega_gate` default `scoring_func` → `'sqrtsoftplus'` | vLLM always passes it | none |
+| FP8×FP4 / BF16 Mega MoE assert DeepGEMM's SM count equals the device's | only DBO + DeepEP-HT lowers it (`ubatch_utils.py`), not combined with Mega MoE today | none (noted) |
+| Epilogue classes (`epilogue=` kwarg), locality domains, `shutdown` | additive | none |
+
+### SM100 FP8 indexer
+
+Every CUDA FP8 indexer writer already stores an exact power-of-two scale `2^ceil(log2(amax/448))` per 128-wide token. On SM100 (`mqa_logits_use_mx_scales()`) the writers store that scale's exponent as four equal UE8M0 bytes instead of the fp32, which is an exact MXFP8 encoding of the same values (same cache size, same FP8 bytes):
+
+| Writer | Models |
+|---|---|
+| C++ `indexer_k_quant_and_cache` (`scale_fmt="mxfp8"`) | DeepSeek-V2-class `Indexer` (V3.2 via that class, DeepSeek MTP), HY-V4, DeepSeek-V3.2 under PCP |
+| DeepSeek-V3.2 fused norm/RoPE (`_fused_norm_rope_kernel`) | DeepSeek-V3.2, GLM-5/5.2 (`GlmMoeDsa`), Dots3Note, V3.2 MTP |
+| DeepSeek-V4 compressor (Triton; the CuTeDSL compressor is head-512 MLA only) | DeepSeek-V4 |
+| DeepSeek-V4.1 `indexer_k_norm_rope_store` | DeepSeek-V4.1 |
+| GLM-5.3 kpool prefill compress + decode update | GLM-5.3 |
+
+Readers need no change: `cp_gather_indexer_k_quant_cache` (prefill, all of the above) and the DCP/PCP gathers copy the 4 scale bytes verbatim, and DeepGEMM reads the paged cache directly. The 512-wide MLA caches, MXFP4 caches, and the MiniMax-M3 / Qwen4 indexers are untouched.
+
+FP8 Q keeps folding its per-(token, head) power-of-two scale into `weights`; `mqa_logits_mx_inputs` passes unit MX Q scales (exact, since `relu(s·x) = s·relu(x)` for `s > 0`) and casts weights to BF16. The BF16 logits are upcast to FP32 for the existing FP32-only top-k kernels (`as_fp32_logits`); routing BF16 logits straight to a BF16-capable top-k (DeepSelect / LiteTopK, #59921/#59922) is a follow-up.
+
+SM90 and SM120 keep the FP8 format, FP32 weights and FP32 logits. Consequently the FP8 indexer cache's scale bytes now differ between SM100 and other architectures: moving that KV cache between SM100 and non-SM100 nodes (cross-generation PD disaggregation, shared KV offload) is not supported for these models. Same-architecture setups are unaffected.
+
+## Validation
+
+All on 4x GB200 (SM100), CUDA 13, torch 2.13; baseline = `main` with the old pin `1e1842a`, same build otherwise.
+
+**GLM-5.3-Flash** (FP8, TP4 + EP, MTP=3, `--max-model-len 131072 --max-num-batched-tokens 131072 --kv-cache-dtype fp8_e4m3 --reasoning-parser glm47`, `reasoning_effort=low`), on the rebased branch vs `main` bfa7e5b7af. MRCR prompts are far longer than the indexer's coverage (2048 pools × 4 = 8K tokens), so they exercise top-k selection; long prefills also engage the TP prefill row sharding from #54951 (confirmed with a temporary log, e.g. 129K-row steps split `[47458, 18791, 42577, 19957]` across ranks):
+
+| | `main` + `1e1842a` | this PR |
+|---|---|---|
+| MRCR, 60 samples of 16K–32K tokens (`tests/evals/mrcr`), match ratio (2 / 4 / 8 needles) | 0.794 (0.823 / 0.798 / 0.760) | 0.810 (0.904 / 0.791 / 0.735) |
+| MRCR, 24 samples of 57K–66K tokens, match ratio | 0.578 (4 runs hit max_tokens) | 0.665 |
+| GSM8K (1319, 5-shot) | 90.8% | 91.6% |
+| Serving, 4 runs of 128 × (4096 in / 512 out) at concurrency 32, output tok/s | 1492 / 1544 / 1491 / 1471 | 1484 / 1476 / 1337 / 1501 |
+| Median ITL | 19.85 ms | 19.9 ms |
+
+GLM-5.3 serving throughput tracks the MTP acceptance length, which varies per run (the 1337 tok/s run had 1.31 vs ~1.7–1.8 elsewhere); runs with matching acceptance agree (1476 @ 1.70 vs 1471 @ 1. 
+
+57218 [Build] Bump DeepGEMM pin to a6bbb80 STATE merged 2026-09-16T21:49:36Z HEAD af87467866e3d3e320fe72e5066b7f4852c970d3 
+ ## Purpose
+
+Bump the `vllm-project/DeepGEMM` fork pin from `ad1f172` to `a6bbb800` (current head of the fork's `dev` branch), picking up three fixes:
+
+- **[DeepGEMM#9](https://github.com/vllm-project/DeepGEMM/pull/9)** — corrects the ported SM120 GEMM and MQA execution paths, and moves the SM120 regression tests into dedicated `tests/test_sm120_*.py` files so the fork's copies of upstream-owned test files stay byte-identical to `dev` (removes a recurring sync-conflict surface on upstream's per-release test rewrites).
+- **[DeepGEMM#11](https://github.com/vllm-project/DeepGEMM/pull/11)** — drops the Mega-Gate finite-score device trap. The selected-expert-ID clamp is retained; non-finite scores now propagate instead of aborting on device.
+- **[DeepGEMM#13](https://github.com/vllm-project/DeepGEMM/pull/13)** — raises `kNumTimeoutCycles` from 60s to 300s. That is the device-side spin-wait budget shared by *every* wait in `comm/barrier.cuh`: the NVLink cross-rank barrier, the intra-device grid sync, and the mega-MoE combine peer wait. At 60s it could fire on long-running multi-rank workloads that were still making progress, turning a slow peer into a device assert.
+
+Both pin sites are updated: `cmake/external_projects/deepgemm.cmake` and `tools/install_deepgemm.sh`, which each carry a comment requiring them to be kept in sync.
+
+## Not a duplicate
+
+Checked open PRs against `vllm-project/vllm`:
+
+```
+gh pr list --repo vllm-project/vllm --state open --search "deepgemm"
+gh pr list --repo vllm-project/vllm --state open --search "bump DeepGEMM"
+gh search prs --repo vllm-project/vllm --state open "install_deepgemm"
+```
+
+No open PR bumps the DeepGEMM pin. #56266 (`[DSv4.1] Integrate Mega-Gate from DeepGEMM`, draft) is the only open PR touching `deepgemm.cmake`, and it refactors the `FetchContent_Populate` block — it does not change `_DEEPGEMM_UPSTREAM_TAG`. No conflict beyond a trivial textual one if both land.
+
+## Test Plan
+
+The pin's risk is twofold: that the ref is fetchable as declared, and that DeepGEMM's `_C` still compiles against it. The changed `csrc/apis/{attention,einsum,gemm,sm120_dispatch}.hpp` are compiled into `_C` on every arch, so a `_C` build exercises them even on non-SM120 hardware.
+
+1. Confirm the new ref is the `dev` head and fetches with the two submodules `deepgemm.cmake` declares (`third-party/cutlass`, `third-party/deep_jit`).
+2. Build `_C` at the new pin using `tools/build_deepgemm_C.py` — the same script `deepgemm.cmake` drives.
+3. `pre-commit run` on the changed files.
+
+## Test Result
+
+```console
+$ git ls-remote https://github.com/vllm-project/DeepGEMM.git dev
+a6bbb8000161c0dc3a85a0300a905f76898a7913        refs/heads/dev
+
+$ git submodule status
+ f3fde58372d33e9a5650ba7b80fc48b3b49d40c8 third-party/cutlass (f3fde58)
+ e5bdee2bc4ca519eba00cfc5f0c6e950e6a96a16 third-party/deep_jit (e5bdee2)
+
+$ CUDA_HOME=/usr/local/cuda-13.1 .venv/bin/python tools/build_deepgemm_C.py <src> <out> .venv/bin/python
+# succeeded; only pre-existing -Wattributes visibility warnings from deep_jit/utils/gil.hpp
+$ ls <out>
+_C.cpython-312-aarch64-linux-gnu.so
+```
+
+`pre-commit run` on the two changed files: all applicable hooks pass (`shellcheck`, `typos`, dockerfile-graph, spaces-in-filenames, config-validation); the rest are skipped as no-files-to-check.
+
+Environment: GB300 (SM103), CUDA 13.1, aarch64, Python 3.12.
+
+## Evaluation
+
+No model evaluation is included. This PR changes only a dependency pin and no vLLM code path. Of the three picked-up commits, none alters numerics on the hardware available here:
+
+- #9 is SM120-only (this host is SM103), and its non-SM120 portion is a test-file reorganization inside DeepGEMM.
+- #11 removes a device-side abort on non-finite Mega-Gate scores; it changes failure behavior, not values on well-formed inputs.
+- #13 only lengthens a hang-detection timeout.
+
+Evaluating the SM120 correctness fixes in #9 would need SM120 hardware, which I do not have. If a reviewer wants an eval on SM120 or a Mega-MoE accuracy run before merge, please say so and I will arrange it.
+
+## Note on AI assistance
+
+AI assistance (Claude Code) was used for this change. I have reviewed every changed line, ran the commands above myself, and can defend the change end-to-end.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+ 
+
+62269 [Bugfix][DSv4.1] Keep the Engram all-to-all buffers in one allocator STATE merged 2026-10-19T03:55:55Z HEAD 9dd9e967de411aa43670ce49b6774c5fa87df69c 
+ 
+
+## Overview
+
+DeepSeek-V4.1 with host-offloaded, DP-sharded Engram tables (`cpu_offload: true`, `dp_shared_memory: false`, e.g. with `use_thp: true`) hangs in the first forward (memory profiling) when `--enable-cumem-allocator` is set. This receives the Engram all-to-all into a persistent buffer allocated next to its send buffer, so both come from the same allocator.
+
+No open PR covers this (searched open PRs/issues for Engram all-to-all, cumem, `NCCL_LOCAL_REGISTER`). #62091 changes only the GPU-table path (`cpu_offload: false`), which has no all-to-all.
+
+## Claims
+
+- Fixes the hang: DSv4.1-Flash DEP2/DEP4 prefill with host DP-sharded Engram + `--enable-cumem-allocator` now starts and serves.
+- No numerical change: the same bytes are exchanged, only the receive buffer's allocation changes. Peak memory is unchanged (the per-step `empty_like` of the same size becomes persistent).
+
+## Validation
+
+GB200 (4 GPUs/node), vLLM nightly 49cb2bbf image (CUDA 13.4, NCCL 2.32.3), env `NCCL_CUMEM_ENABLE=1 NCCL_MNNVL_ENABLE=1 NCCL_NVLS_ENABLE=1`. The changed code is identical on main.
+
+Serving: `vllm serve deepseek-ai/DeepSeek-V4.1-Flash --data-parallel-size 4 --enable-expert-parallel --enable-cumem-allocator --engram-config '{"cpu_offload":true,"embedding_across_dp":true,"use_thp":true}' --max-num-batched-tokens 32768 --kernel-config '{"moe_backend":"deep_gemm_mega_moe"}' ...` (same hang with DEP2).
+
+| run | result |
+|---|---|
+| main | hangs in `determine_available_memory`; all ranks in `EngramBatch._stage` `all_to_all_single` (py-spy, also with `CUDA_LAUNCH_BLOCKING=1`), GPUs spin at 100%, NCCL watchdog fires after 600 s |
+| main, no `--enable-cumem-allocator` | starts |
+| main, `NCCL_LOCAL_REGISTER=0` | starts |
+| this PR | starts (profiling + CUDA graph capture); 48/48 completions with 8 to 30K-word prompts at concurrency 16 (both the all-to-all and the peer-exchange slots) |
+
+Standalone reproducer, no model (4 GPUs):
+
+<details>
+<summary>repro.py</summary>
+
+```python
+# torchrun --nproc-per-node 4 repro.py [--same-pool]
+import os
+import sys
+
+import torch
+import torch.distributed as dist
+
+from vllm.device_allocator.cumem import CuMemAllocator
+
+torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+dist.init_process_group("nccl")
+shape = (32768 * dist.get_world_size(), 2, 6, 264)
+with CuMemAllocator.get_instance().use_memory_pool(tag="weights"):
+    sent = torch.zeros(shape, dtype=torch.uint8, device="cuda")
+    pool_recv = torch.zeros(shape, dtype=torch.uint8, device="cuda")
+recv = pool_recv if "--same-pool" in sys.argv else torch.zeros_like(sent)
+dist.all_to_all_single(recv, sent)
+torch.cuda.synchronize()
+print(f"rank {dist.get_rank()} ok")
+```
+
+</details>
+
+| send | recv | result |
+|---|---|---|
+| cumem pool | caching allocator | hangs (killed after 120 s) |
+| cumem pool | cumem pool (`--same-pool`) | ok |
+| cumem pool | caching allocator, `NCCL_LOCAL_REGISTER=0` | ok |
+
+`pre-commit run --files vllm/models/deepseek_v41/common/engram.py` passes. No test added: reproducing needs 4+ GPUs with NCCL 2.32 and the cumem allocator, which CI does not run for DSv4.1; validation above was done outside CI.
+
+## Details
+
+Root cause: `EngramBatch.__init__` runs during model init, inside the cumem pool when `--enable-cumem-allocator` is set, so `packed_rows` (the all-to-all send buffer) is a cumem allocation. The receive buffer was `torch.empty_like(rows)` in each forward, from the caching allocator. With NCCL local user-buffer registration on (the default), NCCL 2.32 hangs an all-to-all whose buffers mix the two allocators; the reproducer shows this without the model. I did not pin down the NCCL-internal reason (the serving logs show FABRIC IPC registration failures for some buffers, the reproducer hangs without them).
+
+Allocating the receive buffer next to `packed_rows` keeps both in one allocator in either mode, and removes a per-step allocation. `_stage` is an eager break, so the persistent buffer does not affect CUDA graphs.
+
+AI assistance (Claude Code) was used to investigate and write this change; I reviewed every line and ran the validation above.
+
+---
+
+<details>
+<summary> Pull Request Checklist </summary>
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assistance was used during the creation of this PR.
+
+- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.
+- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+</details>
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+ 
+
+61530 [Model][DSV4.1] Support MXFP4-packed Engram embedding tables STATE open None HEAD 1800929afdd3728860f794bcf69ae7beda95649d 
+ ## Overview
+
+Support DeepSeek-V4.1 checkpoints whose Engram embedding table is stored as MXFP4 (E2M1 nibbles packed two per byte, UE8M0 block-32 scales) instead of FP8. FP8 behavior is unchanged.
+
+## Claims
+
+- A checkpoint with `quantization_config["engram_embed_quant"] = "mxfp4"` now loads: the table is allocated as `[rows, dim // 2]` uint8 and decoded in the lookup kernel.
+- The packed table halves the host memory: 12.16 GiB per rank vs 23.60 GiB for FP8 (`DeepSeek-V4.1-Flash`, TP=4).
+- GSM8K accuracy of the packed checkpoint matches the FP8 baseline (0.967 vs 0.966), including with `dp_shared_memory`.
+- An unknown `engram_embed_quant` value raises instead of being ignored.
+
+## Validation
+
+### End to end (GB300)
+
+`DeepSeek-V4.1-Flash`, one GB300 node per run, on `vllm 0.31.1rc1.dev360+g44f0ddfd7` (this PR's base). Compiled ops come from the precompiled wheel for that commit, with this PR's Python overlaid. GSM8K: 1319 questions, 5-shot, chat endpoint, `--max-tokens 4096`.
+
+| Run | Engram table | Parallelism | GSM8K acc. | Invalid | Output tok/s |
+|---|---|---|---|---|---|
+| FP8 baseline | 23.60 GiB per rank (host-pinned) | TP=4 | 0.966 | 0.004 | 1275 |
+| MXFP4-packed | 12.16 GiB per rank (host-pinned) | TP=4 | 0.967 | 0.005 | 1218 |
+| MXFP4-packed, `dp_shared_memory` | 48.64 GiB shared across 4 DP replicas | DP=4, TP=1, EP | 0.967 | 0.003 | 1299 |
+
+- One run per row. A 0.001 accuracy gap is within noise (about ±0.5 points standard error). tok/s is not a clean comparison (single runs, different parallel layouts).
+- DP-shared packed storage (`DPSharedEngramStorage`) loads and serves correctly.
+- The FP8 baseline is `DeepSeek-V4.1-Flash-nvfp4-experts-blend`. I did not check that its expert quantization matches the packed checkpoint's, so the accuracy comparison is not isolated to the Engram table.
+- Not covered: long-context and other benchmarks, DP=4 with FP8.
+
+<details>
+<summary>Reproduce</summary>
+
+```bash
+# Packed, TP=4
+vllm serve <packed-ckpt> --served-model-name m --port 8000 \
+  --tensor-parallel-size 4 --tokenizer-mode deepseek_v41 \
+  --reasoning-parser deepseek_v41 --language-model-only \
+  --max-model-len 32768 --max-num-seqs 32
+
+# Packed, DP-shared host table
+vllm serve <packed-ckpt> --served-model-name m --port 8000 \
+  --data-parallel-size 4 --tensor-parallel-size 1 --enable-expert-parallel \
+  --engram-config '{"dp_shared_memory": true}' \
+  --tokenizer-mode deepseek_v41 --reasoning-parser deepseek_v41 \
+  --language-model-only --max-model-len 32768 --max-num-seqs 32
+
+# Eval, against each server
+python tests/evals/gsm8k/gsm8k_eval.py --port 8000 --use-chat-completions \
+  --max-tokens 4096 --save-results gsm8k.json
+```
+
+The checkpoint needs `quantization_config["engram_embed_quant"] = "mxfp4"`.
+</details>
+
+### Unit and kernel tests
+
+Run on 4xGB300 before the test trim in 1800929afd (which removed the `EngramBatch` skip test and the FP8/THP allocation matrix); not yet re-run after it:
+
+- `tests/kernels/test_engram.py`: 127 passed, 2 skipped (THP without offload).
+- `tests/distributed/test_engram_dp_shard.py`: 27 passed.
+- `ruff check` and `ruff format` are clean.
+
+### Lookup microbenchmark
+
+24 columns, us per lookup (FP8 / packed): host-pinned 8192 tokens 356 / 365; GPU-resident 8192 tokens 115 / 156 (the nibble decode); no extra peak GPU memory.
+
+## Details
+
+- `ParallelEngramEmbedding` takes `packed_fp4`; the row size is `dim // 2` bytes when packed. `DPSharedEngramStorage` and the offload memory log count the packed row size.
+- `_engram_lookup_kernel` gets a `PACKED_FP4` constexpr (even column in the low nibble); the block scales are unchanged.
+- `EngramBatch.create` returns `None` for packed tables, because the staged exchange carries FP8 rows only.
+- `Engram._create_embedding` reads the format from the HF config (default `"fp8"`).
+- Limitations:
+  - GPU-resident lookup is about 36% slower for packed tables (nibble decode). The deployed host-pinned mode is within 1-3%.
+  - `can_share_engram_tables` still sizes `/dev/shm` from the FP8 row size, so it over-estimates by about 2x for packed tables. This is conservative, and I left it out to keep the diff small.
+- Existing tests that build layers through `__new__` need a `model_config` stub, which this PR adds.
+- Not a duplicate: #58782 (DeepSeek-V4/V4.1 hybrid FP8/MXFP4 quant routing, AMD) changes quant config and weights mapping, not the Engram table path. #60938 also edits `engram.py` and `test_engram.py` (Engram to mHC fusion prototype), so it may conflict textually.
+
+---
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assistance was used during the creation of this PR.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+ 
+
+62091 [Perf][DSv4.1] Read GPU Engram tables from peers' HBM instead of DP collectives STATE open None HEAD eb6ec5f6f88758c0838bb5352ff5967ba707345f 
+ ## Purpose
+
+With `cpu_offload: false`, DeepSeek-V4.1's Engram tables live in HBM, but every lookup still goes through DP collectives: a pynccl `all_gather` of the hash ids and an `all_to_all_single` of the rows on the node-local `edp` group. Decode runs in FULL CUDA graphs, which do not honor `eager_break_during_capture`, so these collectives are captured next to MegaMoE's cross-rank kernels. In DEP decode on GB200, every rank then blocks in `graph.replay()` of the same decode graph at the first real step (seen with `CUDA_LAUNCH_BLOCKING=1`); host-offloaded tables, with no NCCL in the graph, never hang. I did not pin down the exact NCCL/MegaMoE interaction. This PR removes the collectives instead: GPU tables are row-sharded over the Engram DP group in symmetric memory, and each rank looks up only its own tokens, reading every row from the owning peer's HBM. Lookups need no collective, barrier or graph break.
+
+* **Kernel.** `_engram_lookup_kernel` gains `PEER_ROWS`. With it, `weight` is a per-rank pointer table: a row's owner is `id // PEER_ROWS`, and its scales follow the rows in the same symmetric buffer. Tables are read-only after loading, so reads need no synchronization.
+* **When.** `cpu_offload: false`, TP=1 and an Engram DP group (co-located DP replicas). The table sets `dp_size = 1`, as `dp_shared_memory` does, and `DeepseekV4Model` reads that to skip the hash gather and dummy hashes. Host tables keep `dp_shared_memory` / `EngramPeerExchange`, since symmetric memory cannot map another process's host memory.
+* **Across nodes.** By default the group stays node-local. With `embedding_across_dp: true` (off by default), GPU tables are split over every DP rank, e.g. 1/32 of the table per GPU at DEP32; all DP ranks must then share one NVLink domain, as on GB200 NVL72. A group with the DP group's ranks reuses `_DP` instead of building a second communicator: a separate 32-rank group cost ~1.1 GiB/GPU and failed `gpu_memory_utilization=0.95`.
+* **Not covered.** GPU tables with TP > 1 keep head sharding and its collectives. Peer mode stages BF16 rows per layer rather than `EngramBatch`'s packed MXFP8 rows, so `wkv` quantizes its own input; feeding packed peer rows to `EngramBatch` is a possible follow-up.
+
+## Where it matters
+
+DeepSeek-V4.1-Flash decode-only on GB200, DEP16 / DEP32 (DP x TP1 + EP), 16 requests/rank, MegaMoE, MegaAttention, DSpark (5 tokens, synthetic acceptance 3.51), EPLB, full decode CUDA graphs, `DecodeBenchConnector` replaying an agentic coding trace. Unprofiled steady state (+60 to +240 s), one run each, on a development tree based on `fe4df3df` with #61767; its Engram code is identical to main. Without this PR, `cpu_offload: false` hangs in this setup, so the baseline is the default host offload. GPU tables use `embedding_across_dp: true`.
+
+| | host offload | GPU tables, peer read |
+| -- | --: | --: |
+| DEP16 step (ms) | 14.13 | 13.71 |
+| DEP16 output (tok/s/GPU) | 3,777 | 3,827 |
+| DEP32 step (ms) | 13.15 | 12.90 |
+| DEP32 output (tok/s/GPU) | 3,877 | 3,939 |
+| Model memory, DEP16 / DEP32 (GiB/GPU) | | 28.9 / 20.3 |
+
+## Microbenchmark
+
+Both Engram layers' lookups for one decode step, 96 tokens/rank, 16 ranks on 4 GB200 nodes, CUDA graph replay with fresh ids, median over ranks.
+
+| Table layout | us/step |
+| -- | --: |
+| Host UVA (offload) | 233-324 |
+| HBM, heads over 4 GPUs + `all_gather` + `all_to_all` (main; hangs in FULL graphs) | 46.7 |
+| HBM, rows over 16 GPUs + `all_gather` + `reduce_scatter` | 180.6 |
+| HBM, rows over 16 GPUs, peer read (this PR) | 19.8 |
+
+## Test Plan
+
+```bash
+pytest tests/distributed/test_engram_dp_shard.py -q
+pre-commit run --files vllm/distributed/parallel_state.py vllm/models/deepseek_v41/common/engram.py vllm/models/deepseek_v41/nvidia/model.py tests/distributed/test_engram_dp_shard.py
+```
+
+* `test_engram_table_shared_across_dp_replicas` (4 GPUs): the TP1 x DP4 GPU-table case now takes the peer path, asserts that no DP `all_gather` runs, and replays a FULL CUDA graph with fresh ids.
+* `test_engram_group_creation_honors_model_and_options`: TP1 x DP4 cases for the node-local group vs `embedding_across_dp`, and `_DP` reuse.
+
+## Test Result
+
+On 4 x GB200: 29 passed. Pre-commit (ruff, format, typos, mypy) passes.
+
+## Accuracy
+
+GSM8K with lm-eval 0.4.13: 1319 problems, 5-shot completions, temperature 0, 1024-token cap, concurrency 32. DeepSeek-V4.1-Flash, MegaAttention, MXFP4 indexer cache with sparse logits, DeepGEMM mega MoE, DSpark (5 tokens), `--kv-cache-dtype fp8`, `--max-model-len 8192`.
+
+| | Engram tables | strict match | flexible extract |
+| -- | -- | --: | --: |
+| this PR, DEP8 over two GB200 nodes | GPU, rows over all 8 DP ranks (peer read) | 92.57% (±0.72) | 92.72% |
+| #61371, DEP4 | host offload | 92.87% (±0.71) | |
+
+The first revision of this PR gave 92.87% / 92.95% on the same setup.
+
+<details>
+<summary>Commands</summary>
+
+```bash
+# head node
+vllm serve deepseek-ai/DeepSeek-V4.1-Flash --port 8123 --reasoning-parser deepseek_v41 \
+  --attention-config '{"backend":"FLASHMLA_MEGA_ATTN_DSV41","indexer_kv_dtype":"mxfp4","indexer_sparse_logits":true}' \
+  --kv-cache-dtype fp8 --max-model-len 8192 --max-num-seqs 128 \
+  --data-parallel-size 8 --data-parallel-size-local 4 --enable-expert-parallel \
+  --data-parallel-address <head> --data-parallel-rpc-port 13345 \
+  --engram-config '{"cpu_offload":false,"embedding_across_dp":true}' \
+  --kernel-config '{"moe_backend":"deep_gemm_mega_moe","enable_flashinfer_autotune":false}' \
+  --speculative-config '{"method":"dspark","num_speculative_tokens":5,"enable_adaptive_verification":true}' \
+  --numa-bind
+# second node: the same command plus --headless --data-parallel-start-rank 4
+
+lm_eval --model local-completions \
+  --model_args model=deepseek-ai/DeepSeek-V4.1-Flash,base_url=http://localhost:8123/v1/completions,num_concurrent=32,max_retries=3,tokenized_requests=False,tokenizer_backend=None \
+  --tasks gsm8k --num_fewshot 5 --gen_kwargs temperature=0,max_gen_toks=1024
+```
+
+</details>
+
+## Not a duplicate
+
+I searched open PRs for `engram symmetric memory`, `engram peer`, `engram cpu_offload`, `engram hang` and `engram DP`. #59923 and #56512 cover the exchange for host-offloaded tables; #60625 changes head sharding for TP16/TP32 and keeps the collectives.
+
+---
+
+AI assistance (Claude Code) was used to write and benchmark this change.
+
+<details>
+<summary> Pull Request Checklist </summary>
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assi 
+
+59922 [Kernel] Extend LiteTopK decode to BF16 V4.1 top512 and next_n 1-6 STATE open None HEAD 45f9d7c889d1c73e6eb23ddd3dc52e090c70927c 
+ Thanks to @TKONIY for the collaboration on this work.
+
+Stacked on [vLLM #59921](https://github.com/vllm-project/vllm/pull/59921): the first commit belongs to that PR, so please review the other two.
+
+## Overview
+
+Extend [vLLM #59921](https://github.com/vllm-project/vllm/pull/59921) with
+MXFP4/BF16 top512 decode for n=1..6, ported from
+[SGLang #42351](https://github.com/sgl-project/sglang/pull/42351).
+Requires [DeepGEMM #25](https://github.com/vllm-project/DeepGEMM/pull/25),
+stacked on [#24](https://github.com/vllm-project/DeepGEMM/pull/24).
+
+## Claims
+
+- Supports page128 H32/D128 MXFP4 decode and exact top512 of BF16 producer scores.
+- Builds the paired split384 schedule from final live lengths/IDs once per
+  metadata group and reuses it across layers, including draft updates and graphs.
+- Uses direct FP32 input weights for n=1..5 with the new producer capability;
+  preserves the explicit BF16 cast for n=6 and for older DeepGEMM versions.
+- Preserves BF16 candidate publication, mask-consumer and explicit-backend fallbacks.
+
+## Validation
+
+B200 (148 SMs), Torch 2.13.0+cu130, Python 3.12.3, PDL enabled.
+Three isolated process blocks per version; nine shuffled CUDA-graph samples per
+block. Captured GLM-5.2/DSpark operands use distinct KV replicas totaling at least
+256 MiB. Timings include metadata generation/copy once per eight layers and are
+reported per layer. They exclude the rest of the model and are not serving
+latency. Across all 40 shapes, live logits, exact histograms and logical-index
+selection agree between submitted and optimized versions in all 240 cases.
+The full grid with ranges, the method and the validation record are below.
+
+
+| dtype | B | n | context | submitted µs | optimized µs | old/new | default/new |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| bf16 | 1 | 1 | 8192 | 12.213 | 8.833 | 1.383x | 1.021x |
+| bf16 | 1 | 1 | 65536 | 14.444 | 11.580 | 1.247x | 1.339x |
+| bf16 | 4 | 4 | 1048320 | 76.814 | 71.796 | 1.070x | 1.923x |
+| bf16 | 4 | 6 | 1048320 | 96.479 | 92.879 | 1.039x | 1.849x |
+| bf16 | 1 | 6 | 8192 | 15.418 | 13.471 | 1.145x | 0.775x |
+
+The final stack passed 32 producer cases (24 BF16 dtype/PDL/n combinations),
+18 actual sparse-indexer route cases, the actual compressed/ragged metadata
+builder with changing graph inputs, and two draft metadata-update cases.
+The unchanged selector passed 30 cases during the initial migration.
+
+```bash
+.venv/bin/python -m pytest tests/v1/attention/test_litetopk_decode.py -v -s
+.venv/bin/python -m pytest tests/v1/attention/test_indexer_deepseek_v4_slot_mapping.py -k capture_safe -v -s
+```
+
+The second command is the full-environment reproduction target; my run used
+the narrow-import execution described below, not full-module pytest.
+Short contexts still include regressions against default; results do not
+justify enabling this backend by default.
+
+DeepGEMM was rebuilt from the companion changes. vLLM validation
+used current Python source, the separately compiled selector, and unchanged
+binaries from `f944491db`; this was not a full exact-base wheel build.
+The complete draft-test module is unavailable because the generated FlashMLA
+Python interface is missing; the two modified cases and actual metadata builder
+were executed through narrow imports. Applicable lint/type checks and clean
+patch-application/tree checks passed.
+
+**Model evaluation:** not completed. The available model weights total
+510,296,708,312 bytes, more than the single ~179 GiB B200 I had for this.
+No output-quality, speculative-acceptance or end-to-end serving gain is claimed.
+Full model evaluation remains required before merge.
+
+
+<details>
+<summary>Full BF16 results, method and validation record</summary>
+
+Geometric means over the BF16 grid (B={1,4}, n={1,4,6}, context {8192, 65536, 262144, 1048320}):
+
+| dtype | cells | submitted / optimized | default / submitted | default / optimized |
+|---|---:|---:|---:|---:|
+| bf16 | 24 | 1.189x | 1.110x | 1.319x |
+
+| dtype | B | n | context | submitted µs | optimized µs | old/new | default/new |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| bf16 | 1 | 1 | 8192 | 12.213 [12.191, 12.261] | 8.833 [8.779, 9.014] | 1.383x | 1.021x |
+| bf16 | 1 | 1 | 65536 | 14.444 [14.380, 14.991] | 11.580 [10.984, 11.583] | 1.247x | 1.339x |
+| bf16 | 1 | 1 | 262144 | 16.751 [16.717, 16.788] | 13.183 [13.133, 13.211] | 1.271x | 1.602x |
+| bf16 | 1 | 1 | 1048320 | 26.542 [26.459, 26.551] | 23.096 [22.983, 23.102] | 1.149x | 1.945x |
+| bf16 | 1 | 4 | 8192 | 14.323 [14.234, 14.364] | 10.663 [10.585, 10.674] | 1.343x | 0.920x |
+| bf16 | 1 | 4 | 65536 | 16.352 [16.168, 16.421] | 12.589 [12.512, 12.923] | 1.299x | 1.303x |
+| bf16 | 1 | 4 | 262144 | 19.122 [19.090, 19.424] | 15.632 [15.478, 15.820] | 1.223x | 1.462x |
+| bf16 | 1 | 4 | 1048320 | 31.397 [30.813, 31.405] | 27.624 [27.608, 27.724] | 1.137x | 1.843x |
+| bf16 | 1 | 6 | 8192 | 15.418 [15.234, 15.428] | 13.471 [13.287, 13.518] | 1.145x | 0.775x |
+| bf16 | 1 | 6 | 65536 | 17.651 [17.580, 17.835] | 15.418 [15.414, 15.730] | 1.145x | 1.125x |
+| bf16 | 1 | 6 | 262144 | 21.610 [21.391, 21.690] | 19.419 [19.124, 19.612] | 1.113x | 1.436x |
+| bf16 | 1 | 6 | 1048320 | 37.946 [37.731, 38.072] | 35.302 [35.077, 35.646] | 1.075x | 2.086x |
+| bf16 | 4 | 1 | 8192 | 14.186 [14.185, 14.196] | 10.396 [10.351, 10.428] | 1.365x | 0.932x |
+| bf16 | 4 | 1 | 65536 | 17.995 [17.904, 18.034] | 14.384 [14.177, 14.421] | 1.251x | 1.313x |
+| bf16 | 4 | 1 | 262144 | 26.881 [26.788, 26.903] | 22.962 [22.892, 23.142] | 1.171x | 1.344x |
+| bf16 | 4 | 1 | 1048320 | 64.347 [63.927, 64.598] | 59.184 [59.037, 59.399] | 1.087x | 1.393x |
+| bf16 | 4 | 4 | 8192 | 15.639 [15.410, 15.655] | 11.445 [11.438, 11.493] | 1.367x | 0.906x |
+| bf16 | 4 | 4 | 65536 | 20.978 [20.927, 21.014] | 17.035 [16.932, 17.036] | 1.231x | 1.282x |
+| bf16 | 4 | 4 | 262144 | 33.178 [32.873, 33.348] | 28.912 [28.730, 28.986] | 1.148x | 1.683x |
+| bf16 | 4 | 4 | 1048320 | 76.814 [76.570, 76.996] | 71.796 [71.162, 71.810] | 1.070x | 1.923x |
+| bf16 | 4 | 6 | 8192 | 16.756 [16.752, 16.809] | 14.116 [14.114, 14.127] | 1.187x | 0.804x |
+| bf16 | 4 | 6 | 65536 | 24.468 [24.402, 24.472] | 21.993 [21.941, 22.046] | 1.113x | 1.122x |
+| bf16 | 4 | 6 | 262144 | 41.821 [41.426, 41.920] | 38.690 [38.384, 39.015] | 1.081x | 1.498x |
+| bf16 | 4 | 6 | 1048320 | 96.479 [96.200, 96.652] | 92.879 [92.742, 93.455] | 1.039x | 1.849x |
+
+**Method.** One NVIDIA B200 (148 SMs), Torch 2.13.0+cu130, Python 3.12.3, PDL enabled; clocks not locked, and the GPU was checked to be idl 
+
+60220 [Attention] FlashMLA sparse: stage fp8 mixed-batch q/out in the workspace STATE open None HEAD 72b64be82e0022a50765539a0d4ee63d79612fcd 
+ 
+
+## Overview
+
+The FlashMLA sparse `fp8_ds_mla` mixed-batch path now writes the head-padded query and the kernel output into the workspace buffers that `FlashMLASparseImpl` already reserves for `max_num_batched_tokens`, so it no longer allocates them on every call. This removes about 4.25 GiB of per-call allocation at 32K tokens per step. That allocation isn't counted by the startup memory profile, so it can cause runtime OOMs.
+
+Related: #59305, #57878. Complements vllm-project/FlashMLA#29, which removes the kernel-internal fp32 split-KV `o_accum` buffer (the other 8 GiB at T=32K). This PR only covers the wrapper side.
+
+## Claims
+
+- On the fp8 mixed-batch path, the padded q (`T x 64 x 576` bf16) and the output (`T x 64 x 512` bf16) are written into the reserved workspace, and the output buffer is passed to the kernel via `out=`. At T=32768 this saves 4.25 GiB per call, measured. The workspace was already reserved, so KV cache capacity does not change.
+- Outputs and LSE are bit-identical to the allocating path.
+- GLM-5.3-Flash FP8 on 8xH100 (TP8, `max_num_batched_tokens=32768`, `gpu_memory_utilization=0.85`) previously hit a runtime OOM in `flash_mla_with_kvcache` during warmup. With this change it serves the same workload without errors, and GSM8K accuracy matches.
+
+## Validation
+
+**Per-call peak allocation.** Single H100. GLM-5.3-Flash TP8 shapes: 8 heads/rank padded to 64, topk 2048, `s_q = T`. Measured through `FlashMLASparseImpl._fp8_flash_mla_kernel`:
+
+| T | before (allocating path) | after (workspace path) | saved | outputs equal |
+|---|---|---|---|---|
+| 1024 | 0.384 GiB | 0.251 GiB | 0.133 GiB | yes |
+| 8192 | 3.068 GiB | 2.006 GiB | 1.063 GiB | yes |
+| 16384 | 6.137 GiB | 4.012 GiB | 2.125 GiB | yes |
+| 32768 | 12.273 GiB | 8.023 GiB | 4.250 GiB | yes |
+
+The remaining ~8 GiB at T=32768 is the kernel's `o_accum`, which is addressed by vllm-project/FlashMLA#29.
+
+**End-to-end, previously crashing config.** GLM-5.3-Flash FP8, 8xH100, `--tensor-parallel-size 8 --max-num-seqs 256 --attention-backend FLASHMLA_SPARSE --kv-cache-dtype fp8_ds_mla --max-num-batched-tokens 32768 --gpu-memory-utilization 0.85 --max-model-len 131072`.
+- Before this change: during the warmup with 8K input and concurrency 256, the server failed with `torch.OutOfMemoryError` (tried to allocate 8 GiB with 5.29 GiB free), and 255 of 256 requests failed.
+- After this change: warmups at 8K/c256 and 64K/c64 completed with no errors, and there are no OOM lines in the server log. Peak `nvidia-smi` memory.used was 80923 / 81559 MiB. This is tight because `o_accum` is still allocated per call until FlashMLA#29 lands.
+
+`vllm bench serve` results, random dataset, `--ignore-eos`. The comparison is against the existing MNBT=16384 config, which has a larger KV pool (2.66M vs 1.88M tokens), so this is a sanity check rather than an A/B:
+
+| ISL/OSL, concurrency | completed | total tok/s, MNBT 32K + this PR | total tok/s, MNBT 16K baseline |
+|---|---|---|---|
+| 8192/1024, c64 | 192/192 | 16717 | 16424 |
+| 8192/1024, c256 | 768/768 | 20189 | 21522 (KV cache reached 100% at 32K) |
+| 65536/1024, c16 | 48/48 | 23357 | 23141 |
+| 65536/1024, c64 | 192/192 | 24263 | 25101 |
+
+**Accuracy.** GSM8K, 5-shot, all 1319 questions, using `tests/evals/gsm8k/gsm8k_eval.py` against the server:
+
+| config | accuracy | invalid |
+|---|---|---|
+| main, MNBT 8192 | 0.919 | 0.000 |
+| this PR, MNBT 32768 | 0.914 | 0.000 |
+
+**Tests.**
+- New test: `pytest tests/v1/attention/test_sparse_mla_backends.py -k test_flashmla_fp8_mixed_batch_stages_in_workspace` (H100). 2 passed.
+- Existing tests: `pytest tests/v1/attention/test_sparse_mla_backends.py -k "test_sparse_backend_decode_correctness and FlashMLA and fp8_ds_mla"` (H100). 84 passed, 84 skipped. These include the TP>1 cases that use the mixed-batch path, run with the workspace locked.
+
+## Details
+
+**Root cause.** For `fp8_ds_mla` with fewer than `MIN_HEADS_FOR_BF16_PREFILL` heads per rank (`fp8_use_mixed_batch`), every step makes a single `flash_mla_with_kvcache` call with `s_q = num_tokens`. The wrapper pads q to 64 heads with `new_zeros`, and the kernel allocates `out`, `lse` and `o_accum`, all O(T * 64). The profile run skips attention, so none of this is counted when the KV cache is sized. At large `max_num_batched_tokens`, a full step therefore OOMs after startup.
+
+**Fix.** `__init__` already reserves `(max_tokens, padded_heads, 576)` and `(max_tokens, padded_heads, 512)` bf16 workspace slots for the BF16 prefill path, which is not used in mixed-batch mode. `_fp8_flash_mla_kernel(use_workspace=True)` takes flat views of those slots sized for the FP8 decode padding (the reserved head padding is at least as wide). It zeroes only the padding heads and passes `out=` to the kernel.
+- Only the mixed-batch caller turns this on. Pure-decode, HiSparse and separate prefill/decode callers keep the allocating path, because their T is small.
+- The returned output aliases the workspace. It is consumed by the `v_up` projection or the DCP merge before any other workspace user runs. The separate prefill/decode path already returns workspace-backed output the same way.
+- The q input comes from workspace slot 0, the q-concat buffer, so it doesn't overlap the padded-q slot.
+- No new CPU/GPU synchronization: the added checks are host-side shape asserts.
+- `lse` is still allocated by the kernel (T x 64 x 4 B = 8 MiB at 32K).
+
+**Limitations.** The kernel-internal `o_accum` (2 x T x 64 x 512 x 4 B = 8 GiB at T=32K on SM90) is still allocated per call and isn't counted by the profile run. That is fixed in vllm-project/FlashMLA#29. This PR removes the wrapper-side share.
+
+---
+
+<details>
+<summary> Pull Request Checklist </summary>
+
+- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).
+- [x] AI assistance was used during the creation of this PR.
+
+- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.
+- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.
+- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.
+- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.
+</de 
+
+57575 [Bugfix][MLA] Reserve sparse prefill buffers before KV cache sizing STATE merged 2026-09-18T21:22:19Z HEAD 102e13811fb5a2dfea339c57f37f3331dc3a0055 
+ FIX #57449 
+
+Addresses #57449 by reserving sparse-prefill query/output buffers before KV-cache sizing and reusing them through FlashMLA's `out=` argument. Preserves compact output layout and supports the HY V4 override. Native FP32 statistics still allocate.
+
+Validation on B300:
+- `.venv/bin/python -m pytest tests/v1/attention/test_sparse_mla_backends.py -k 'test_sparse_backend_decode_correctness and FlashMLA and fp8_ds_mla' -v`: **42 passed, 42 skipped**.
+- Ad hoc allocation, HY V4 sink, and CUDA synchronization checks at 17/4096 tokens: **4 passed**; existing FlashMLA kernel smoke checks: **4 passed**.
+- `.venv/bin/python /tmp/vllm_57449_e2e.py`: full GLM-5.3 NVFP4, TP=2, eager, FP8 KV, 4096-token batches. Long/mixed-prefill generation passed; forced-sparse, five-shot GSM8K scored **8/8 for both implementations**, with identical generated tokens. FlashInfer autotuning was disabled to avoid an unrelated cached-autotuning hang.
+- Pre-commit checks passed. Test changes are limited to 15 lines in the existing correctness suite.
+
+Hopper and PCP+DCP remain untested. Issue/comments and open-PR searches found no overlapping fix. AI assistance was used for implementation and validation.
+ 
+
+56989 [Perf][DSv4.1] Keep FP8 Engram rows packed through TP exchange STATE open None HEAD d3c20ea958d2bca3eca1605728ea54822956badd 
+ ## Purpose
+
+DeepSeek-V4.1 Engram's CPU/UVA lookup currently expands checkpoint FP8 values and UE8M0 scales into BF16 before the TP head all-gather. This opt-in change stages each selected head as FP8 value bytes followed by its original scale bytes, exchanges one `uint8` payload, then reconstructs the existing BF16 tensor once before `wkv`. At head dimension 256 and 32-value scale blocks, the TP payload is 264 instead of 512 bytes per head row; this is a byte-count reduction, not a measured serving speedup. The original BF16 lookup and exchange remain the fallback for small batches and unsupported configurations.
+
+Enable it with `--engram-config '{"cpu_offload":true,"packed_fp8_exchange":true,"packed_fp8_exchange_min_tokens":256}'`. The initial path requires effective Engram-DP size 1, TP>1, non-SP execution, no microbatching/PCP/DCP, and a head dimension divisible by the scale block size. The token threshold is a conservative policy knob pending target-hardware crossover measurements. Persistent packed staging keeps the asynchronous UVA lookup's addresses stable; all TP ranks select the same representation from the batch shape, and the post-exchange dequantization uses the same FP8-to-FP32, UE8M0 exponent and BF16 rounding sequence as the current lookup. `wkv` and the public Engram output contract are unchanged.
+
+This does not duplicate #56929, which begins with a BF16 collective result and fuses head reordering with WKV activation quantization, or #56435, which changes SP redistribution to all-to-all. #56512 supplies the existing CPU/UVA prefetch that this path reuses. If those PRs land, the non-SP transport boundary and end-to-end crossover must be remeasured on the rebased head.
+
+## Test Plan
+
+TODO
+
+## Test Result
+
+TODO
+ 
+
+59327 [Perf][DSv4.1] Faster Engram host lookups: sorted rows, inline big lookups STATE merged 2026-10-01T03:54:45Z HEAD 24a50efaaee9ba5d9aacff6df79b7afb52935983 
+ ## Purpose
+
+Speed up DeepSeek-V4.1 Engram lookups from CPU-offloaded tables. On GB200 they are bound by GPU address translation, not bandwidth: each row misses the TLB on the small pages that back the table.
+
+- **Sorted host lookups.** Large lookups from small-page host tables (pinned or `/dev/shm`) sort their rows by table offset, so neighboring rows share page walks. THP tables skip it, and so do lookups below the sort threshold.
+- **Inline big lookups.** From the inline threshold (tokens, max over DP ranks), the lookup runs on the main stream at full width instead of the prefetch stream. Persistent main-stream kernels (MegaMoE, mHC, block-scaled GEMMs) cannot co-reside with lookup CTAs, so a background lookup stalls them anyway, and EP collectives then wait on the slowest rank.
+
+`_engram_lookup_thresholds` picks both thresholds per GPU family: 36864 rows and 4096 tokens on Blackwell (measured on GB200). Other GPUs, including ROCm, keep both paths off and behave as before.
+
+All Engram logic now lives in `common/engram.py`, so NVIDIA and AMD share one implementation and `nvidia/engram.py` is removed.
+
+Also fixed along the way:
+
+- DP replicas share the tables only if `/dev/shm` has enough free space (it used to check the total size). The Engram DP leader decides and broadcasts, so replicas always agree, and peers do not hang if the space query raises.
+- The lookup kernel no longer ties the output row index to the id dtype, so int64 ids compile.
+
+## Kernel microbenchmark
+
+Kernel only, single GB200 bound to its NUMA node, DeepSeek-V4.1-Flash table sizes (24 heads x 16M rows, 94.4 GiB), uniform random ids, CUPTI median of 3 runs rotating 16 id sets. Grid as in production: 76 CTAs below 4096 tokens, 152 from there. HEAD, new unsorted and new sorted outputs are bitwise identical, and from 64 tokens up the new kernel is never more than 1.5% slower than HEAD below the sort threshold.
+
+DEP2/DEP4 (24 heads per rank, `/dev/shm` table shared across DP replicas):
+
+| tokens/rank | before (us) | after (us) | speedup |
+|---|---|---|---|
+| 64 | 90.1 | 88.1 | 1.02x |
+| 512 | 620.5 | 620.6 | 1.00x |
+| 1024 | 1236.0 | 1237.0 | 1.00x |
+| 2048 | 2463.7 | 2163.7 | 1.14x |
+| 4096 | 4621.3 | 3773.7 | 1.22x |
+| 8192 | 9243.6 | 5925.9 | 1.56x |
+| 16384 | 18476.0 | 8174.7 | 2.26x |
+| 32768 | 36963.3 | 9905.1 | 3.73x |
+
+TP2/TP4 (per-rank pinned tables):
+
+| tokens | TP2 before (us) | TP2 after (us) | TP4 before (us) | TP4 after (us) |
+|---|---|---|---|---|
+| 4096 | 1791 | 834 | 440 | 447 |
+| 8192 | 3578 | 1846 | 877 | 160 |
+| 16384 | 7162 | 3457 | 1745 | 232 |
+| 32768 | 14319 | 4291 | 3481 | 396 |
+
+## Test Plan
+
+```bash
+pytest tests/kernels/test_engram.py tests/distributed/test_engram_dp_shard.py -q
+pre-commit run --files <changed files>
+pre-commit run mypy-3.12 --files <changed files> --hook-stage manual
+```
+
+New coverage: the sorted lookup reconstructs the checkpoint under TP padding; a `/dev/shm` that is too small or cannot be queried falls back to sharding, and the leader still broadcasts that decision.
+
+## Test Result
+
+117 passed on 4x GB200. Ruff, format and mypy pass.
+
+## E2E prefill (DEP4)
+
+DeepSeek-V4.1-Flash, DEP4 (DP4 x TP1 + EP) on one GB200 node: DeepGEMM mega MoE, FlashMLA mega attention, fp8 KV cache, `--max-num-batched-tokens 16384`, prefix caching off. `vllm bench serve` on random prompts with one output token, so every request is a single prefill. Base (5e887a078b) and this PR ran in the same job on the same node; each point is the median of 3 repeats with unique seeds after a warmup pass. No timed run saw a runtime compile.
+
+| prompt | concurrency | base TTFT p50 (ms) | PR TTFT p50 (ms) | speedup | base tok/s | PR tok/s |
+|---|---|---|---|---|---|---|
+| 4k | 1 | 126 | 128 | 0.99x | 31,961 | 32,060 |
+| 8k | 1 | 166 | 160 | 1.04x | 49,498 | 51,176 |
+| 16k | 1 | 321 | 295 | 1.09x | 51,265 | 55,732 |
+| 32k | 1 | 597 | 548 | 1.09x | 54,845 | 59,752 |
+| 4k | 64 | 1059 | 863 | 1.23x | 222,676 | 270,319 |
+| 8k | 64 | 2107 | 1721 | 1.22x | 236,670 | 282,490 |
+| 16k | 64 | 4239 | 3472 | 1.22x | 236,677 | 283,612 |
+| 32k | 64 | 8620 | 7056 | 1.22x | 233,837 | 284,409 |
+
+At concurrency 64 every step prefills the 16384-token budget on all four ranks, so those rows share one step shape and differ in context length; their repeat spread is under 4%. At concurrency 1 the spread is up to 11%. Concurrency 4 and 16 are left out: their TTFT depends on arrival order and repeats spread up to 40%.
+
+Where the time goes at concurrency 64 (estimated from the throughput and the microbenchmark, not profiled): a step takes about 280 ms on base and 230 ms with this PR. Sorting saves about 20 ms of it: each step looks up 16384 tokens x 24 heads in each of the two Engram layers, which drops from 18.5 ms to 8.2 ms per layer. The other ~30 ms comes from running those lookups inline, so they no longer stall the persistent MoE, mHC and GEMM kernels on every rank. At concurrency 1 only one rank is busy and the gain (about 24 ms per 16384-token step) is close to the sorting saving alone.
+
+## Accuracy (DEP4, this PR)
+
+GSM8K: 1319 problems, 5-shot completions, temperature 0, 4096-token cap, concurrency 32. Strict match 92.49% (flexible 92.49%), no request errors.
+
+## Not a duplicate
+
+Searched open PRs for Engram storage and lookup work. #58766 (FP8 rows into `wkv`) edits the same lookup kernel, #58310 (reject tables larger than host memory) adds a host memory check, and #57195 shares host tables across SP ranks. None sorts lookups or runs big lookups inline, but they touch the same files.
+
+## AI assistance
+
+Written with AI assistance (Claude Code). The submitter reviewed every changed line and ran the tests above.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+ 
+
+59923 [Perf][DSv4.1] Exchange packed FP8 Engram rows across DP and feed wkv MXFP8 STATE merged 2026-10-09T07:30:18Z HEAD 4f6745cd95e710360392079c0e997a0cf7ba38b7 
+ ## Purpose
+
+DeepSeek-V4.1's Engram tables are already MXFP8 (FP8 rows with one ue8m0 scale per 32 values) and `wkv` is an MXFP8 GEMM, but the lookup dequantizes each row to BF16, DP replicas all-gather those 512-byte rows layer by layer, and `wkv` quantizes them right back. This PR keeps rows packed from the host table to `wkv`.
+
+- **Packed rows, direct MXFP8.** The lookup copies each row's 256 FP8 bytes and 8 scale bytes as they are, and one unpack kernel writes them in FlashInfer's MXFP8 activation layout (F8_128x4 scales). `wkv` takes them as a `QuantizedActivation`, so both the dequant and the requant are gone, and the output is bit-identical.
+- **One all-to-all per prefill step.** `EngramBatch` looks up every local Engram layer into one packed buffer and exchanges it with a single all-to-all, which sends each rank only its own tokens (264 instead of 512 bytes per head row, 1/DP of an all-gather), then unpacks all layers in one launch.
+- **Peer exchange for decode.** Below 128 tokens per rank, `EngramPeerExchange` replaces the hash all-gather and the per-layer row all-gathers: ranks publish ids in symmetric memory, look up their head shard for every peer's tokens, and read their own tokens back from the peers after a barrier. All layers share one lookup and one unpack launch.
+
+The batched path serves DP-sharded tables (`embedding_across_dp` without DP-shared memory) with TP = 1, `head_dim % 128 == 0`, no LoRA (it wraps `wkv` after construction), and a `wkv` kernel that takes F8_128x4 scales (reusing `can_fuse_query_quant`). The peer exchange also needs SM100, CPU offload, and 2/4/8 fully connected GPUs; without it every slot uses the all-to-all, which on DEP4 HBM tables at 1–127 tokens per rank is 19–58 us faster than the BF16 path. Everything else, including TP, DP-shared tables, single replicas and ROCm, keeps the existing BF16 path unchanged. Communication stays on the current stream and `wkv` still runs in `Engram.forward`.
+
+Also changed along the way:
+
+- `EngramBatch` is an `nn.Module`, so the peer exchange's pointer tables are model buffers that level-2 sleep restores.
+- `fused_q_kv_rmsnorm_quant` and the Engram unpack kernel share the F8_128x4 scale offset and size helpers.
+
+## Kernel microbenchmark
+
+The benchmarks, E2E runs and the first accuracy table were measured on d593d7f5df. 3724967bb9 only drops paths that DEP + THP never takes and keeps its `wkv` outputs bitwise identical (see Test Result).
+
+Engram only, two layers (lookup, exchange, and anything needed to reach the MXFP8 `wkv` input), 4 x GB300 in one node. DeepSeek-V4.1-Flash table sizes (24 heads x 16M rows, 94.4 GiB per layer) as DP-shared `/dev/shm` tables or private THP shards, uniform random ids rotating 3 sets, 256 MiB L2 flush per sample, full CUDA graph replay, median of 40 samples of the slowest rank, best of 2 rounds. Since this PR's output is already the `wkv` input, the BF16 columns include their activation quantization (17 us for decode, 203 us at 32K tokens).
+
+DEP4:
+
+| tokens/rank | DP-shared (us) | THP + all-gather (us) | this PR (us) | vs THP + all-gather |
+|---|---|---|---|---|
+| 1 | 34 | 80 | 36 | 2.22x |
+| 8 | 34 | 81 | 38 | 2.13x |
+| 32 | 38 | 93 | 40 | 2.33x |
+| 64 | 44 | 106 | 43 | 2.47x |
+| 127 | 136 | 136 | 50 | 2.72x |
+| 128 | 140 | 136 | 72 | 1.89x |
+| 1024 | 2442 | 315 | 179 | 1.76x |
+| 4096 | 5326 | 1097 | 534 | 2.05x |
+| 8192 | 8224 | 2087 | 1010 | 2.07x |
+| 16384 | 11854 | 4047 | 1954 | 2.07x |
+| 32768 | 16008 | 7860 | 3800 | 2.07x |
+
+DEP2:
+
+| tokens/rank | DP-shared (us) | THP + all-gather (us) | this PR (us) | vs THP + all-gather |
+|---|---|---|---|---|
+| 1 | 34 | 73 | 38 | 1.92x |
+| 8 | 34 | 74 | 40 | 1.85x |
+| 32 | 35 | 81 | 43 | 1.88x |
+| 64 | 41 | 90 | 44 | 2.05x |
+| 127 | 66 | 107 | 49 | 2.18x |
+| 128 | 62 | 107 | 71 | 1.51x |
+| 1024 | 2015 | 228 | 168 | 1.36x |
+| 4096 | 4629 | 754 | 507 | 1.49x |
+| 8192 | 6873 | 1407 | 970 | 1.45x |
+| 16384 | 9511 | 2709 | 1879 | 1.44x |
+| 32768 | 12389 | 5268 | 3672 | 1.43x |
+
+DP-shared tables need no exchange, so at 1–64 tokens they are at most 8 us faster than this PR; from 1024 tokens this PR is 3.4–13.6x faster than them. The 127 → 128 step is the switch from the peer exchange to the all-to-all.
+
+## Test Plan
+
+```bash
+pytest tests/kernels/test_engram.py tests/distributed/test_engram_dp_shard.py tests/kernels/core/test_fused_q_kv_rmsnorm.py -q
+pre-commit run --files <changed files>
+pre-commit run mypy-3.12 --files <changed files> --hook-stage manual
+```
+
+New coverage: the packed lookup output, and a 4-GPU check of the batched staging across peer and all-to-all slots, uneven and idle replicas, and full and breakable CUDA graph replays. The peer path needs SM100, so other GPUs only cover the all-to-all path.
+
+## Test Result
+
+On 3724967bb9, 202 passed on 4x GB200 (102 Engram kernel, 27 distributed, 73 `test_fused_q_kv_rmsnorm.py`). Ruff, format and mypy pass.
+
+Also checked locally, without adding tests:
+
+- The staged MXFP8 bytes equal the table rows byte for byte on DEP2 and DEP4 with 22 and 24 heads, 1–3 layers starting at a non-zero hash index, pinned, THP and HBM tables, 1–4096 tokens around the 127/128 boundary (sorted lookups included), and 24 unsynchronized steps that switch between peer exchange and all-to-all.
+- Real layer 1 and 14 checkpoint rows and `wkv` weights: the `wkv` output is bitwise identical to the BF16 path at 129, 1024 and 4096 tokens, with CuTe-DSL and CUTLASS.
+- DEP4 `Engram.forward` through the peer exchange and the all-to-all in eager mode and full and breakable graph replays: bitwise identical to the BF16 path.
+- 3724967bb9 vs d593d7f5df on DEP4 (24 heads x 256, 2 layers, 10% dead ids, idle ranks; pinned tables at 1–512 and HBM tables at 128–512 tokens per rank): staged MXFP8 values and `wkv` outputs (CuTe-DSL and CUTLASS) are bitwise identical; only the scales of padding and unowned rows change from 127 to 0.
+- After a simulated level-2 sleep the peer exchange's pointer tables are restored and its lookups stay exact.
+
+## E2E prefill (DEP4)
+
+DeepSeek-V4.1-Flash, DEP4 (DP4 x TP1 + EP) on one GB300 node: DeepGEMM mega MoE, FlashInfer sparse MLA, fp8 KV cache, `max_num_batched_tokens=16384`, prefix caching off. Offline `LLM` per DP rank, one prompt per rank (nominal length minus 7 tokens per rank), `max_tokens=1`; TTFT is `scheduled_ts` to `first_token_ts` on the slowest rank, median of 3 repeats after a warmup repeat. Measured on top of #59532 with `max_cudagraph_capture_size=8192` (default size list, so 1K–8K 
+

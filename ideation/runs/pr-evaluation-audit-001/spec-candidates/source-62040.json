@@ -1,0 +1,84 @@
+{
+  "document": {
+    "id": "github:vllm-project/vllm:62040",
+    "source": "github",
+    "kind": "pr",
+    "url": "https://github.com/vllm-project/vllm/pull/62040",
+    "title": "[Bugfix][Spec Decode] Keep a full uniform-decode batch reachable by FULL graphs",
+    "body": "\n\n## Overview\n\nA full `max_num_seqs` uniform-decode batch can end up with no FULL CUDA graph when the manager's query length does not divide the capture sizes. The DSpark draft (`sample_from_anchor`) decodes `num_speculative_tokens` tokens per request, but the default sizes follow the target's `1 + num_speculative_tokens` (#50488). With `max_num_seqs=72` and 5 draft tokens:\n\n- 352 rounds up to 355, which is 71 requests;\n- 368 rounds up to 370, which is 74 requests, so it is skipped;\n- every full-batch step therefore runs the draft eagerly.\n\nThis PR clamps the rounded size to `max_num_seqs * query_len` for managers with a single query length.\n\nNot a duplicate:\n- No open or merged PR changes this skip. The new test fails on main, on main + #56136 and on main + #61882.\n- #61882 refactors the same loop. It is a textual conflict only, with no behavior overlap.\n- #56136 changes the candidate ladders in the same function. It is orthogonal and applies cleanly together with this PR.\n- #50488, #53407 and #57355 fixed other \"batch has no graph\" cases: the target's sizes, padding up, and q=1 respectively.\n\n## Claims\n\n- On DeepSeek-V4.1-Flash with DSpark and `max_num_seqs=72`, a full batch's draft now runs from its FULL graph instead of eagerly. Decode throughput rises +4.4% at DEP4 on main.\n- Dynamic speculative decoding (several query lengths) is unchanged. Clamping there would add graphs for tiers that never reach a full batch, and those graphs would shadow other tiers' FULL graphs.\n- Each affected manager gains at most one FULL graph, plus its LoRA and DBO variants. The graph is added only when the full batch was unreachable.\n\n## Validation\n\n- `pytest tests/v1/cudagraph/test_cudagraph_manager.py tests/v1/spec_decode/test_dynamic_sd_cug.py` on GB200: 30 passed. On main, 29 passed and the new test fails.\n- DeepSeek-V4.1-Flash on one GB200 node:\n  - Config: DEP4, default MoE backend (`FLASHINFER_TRTLLM_MXFP4_MXFP8`), DSpark with 5 tokens, `max_num_seqs=72`.\n  - Load: 288 requests, 72 pinned to each DP rank. Each has a ~1k-token prompt and 14k output tokens (`ignore_eos`, temperature 0).\n  - Throughput is measured over 30 s while all 288 requests are decoding. Main and this PR ran interleaved, two rounds each.\n\n  | | main | this PR |\n  |---|---|---|\n  | Decode throughput, rounds 1 / 2 (tok/s) | 62,752 / 60,899 | 64,586 / 64,528 |\n  | Draft acceptance rate | 0.988 / 0.988 | 0.987 / 0.987 |\n  | DSpark FULL graphs captured | 40 | 41 |\n  | Draft kernels in a 4 s CUDA profile | eager (graph id 0) | in their own graph |\n\n  - Throughput is +4.4%, and every PR round is above every main round.\n  - The profile also shows decode steps at 40.6 ms on main vs 26.8 ms with this PR. The profiler inflates the cost of each eager launch, so treat that ratio as qualitative only.\n\n- Host time per decode step, on a downstream branch with the same `CudaGraphManager` code: DEP16, 72 requests per rank, steady state, 2000-step windows.\n\n  | | main logic | this PR |\n  |---|---|---|\n  | Full-batch draft dispatches that ran eager | ~80% | 0% |\n  | `propose` (host) | 9.7 ms | 0.4 ms |\n  | `sample_tokens` (host) | 11.0 ms | 1.6 ms |\n  | Host slack per step | 7.5 ms | 17.4 ms |\n  | Step time | 24.2 ms | 24.2 ms |\n\n  At DEP16 the step is GPU-bound, so its step time does not change; the freed host time only shows up where the host is on the critical path, as at DEP4 above.\n\n## Details\n\n- The clamp leaves the existing `max_decode_tokens` and `max_num_reqs` checks in place. Those checks still drop oversize sizes for dynamic speculative decoding.\n- #61869 copies the old rounding rule into `AttnMetadataCudaGraphs.capture_keys` for the target's query length. That copy may want the same treatment once both PRs land.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [ ] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [ ] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [ ] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [ ] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n",
+    "created_at": "2026-10-16T16:44:59Z",
+    "updated_at": "2026-10-16T16:45:38Z",
+    "fetched_at": "2026-10-19T23:26:07Z",
+    "state": "open",
+    "merged_at": null,
+    "parent": null,
+    "tags": [
+      "deepseek-v4.1-flash",
+      "deepseek",
+      "moe",
+      "throughput",
+      "performance",
+      "speculation"
+    ],
+    "metadata": {
+      "number": 62040,
+      "labels": [
+        {
+          "id": 5135047172,
+          "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Something isn't working",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 9543357705,
+          "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+          "name": "nvidia",
+          "color": "76B900",
+          "default": false,
+          "description": "",
+          "archived_at": null,
+          "archived_by": null
+        },
+        {
+          "id": 10292436636,
+          "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+          "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+          "name": "mrv2",
+          "color": "7E1A2D",
+          "default": false,
+          "description": "Model Runner V2 specific",
+          "archived_at": null,
+          "archived_by": null
+        }
+      ],
+      "comments": 0,
+      "state_reason": null,
+      "base": {
+        "ref": "main",
+        "sha": "cffc0cfa311f4997be58cfe8f5f6473ab4898269",
+        "label": "vllm-project:main"
+      },
+      "head": {
+        "ref": "bowen/dspark-draft-full-batch-graph",
+        "sha": "9ae4c357e691580172d69502c437a1ccc166695e",
+        "label": "abmfy:bowen/dspark-draft-full-batch-graph"
+      },
+      "merge_commit_sha": "4c91edbe72784f32e671a76785250d64fd7b7f6f",
+      "draft": true,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "pr_detail_fetched_at": "2026-10-19T23:26:07Z"
+    },
+    "content_hash": "16a553c1f4162e2a84f28fb427f96e59f9cfacc10e405e0798e8f30288cd7a05"
+  },
+  "children": [],
+  "hydration": null,
+  "note": "Children capped at 100; hydrate fetches available details. Body presence does not imply discussion completeness."
+}

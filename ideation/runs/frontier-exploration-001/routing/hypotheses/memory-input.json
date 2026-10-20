@@ -1,0 +1,269 @@
+[
+  {
+    "id": "hypothesis:fe6386c8c04b442fb90410315a1e9bb26ffcea94a02f81d63a3416f025c4019a",
+    "status": "rejected",
+    "fingerprint": "4be2aca66fd885cf0cc29b4ed9ecc582454e957a375c3886d8613d9d1b404532",
+    "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target’s TPOT or that…",
+    "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+    "change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+    "reasons": [
+      "Critic gate: distinct_from_prior_art"
+    ],
+    "baseline": "baseline:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 29,
+      "known_baseline_match": false,
+      "task_token_overlap": 13,
+      "target_token_overlap": 3,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:5635596cc17f8714a2bcb500c1631bf31c97c3fa2be67c6bb7f28e6df74fcf1c",
+    "status": "rejected",
+    "fingerprint": "9aeb5dde2ab791fd22eaf7c414c6ff9c4cf0e936cc135aa122a27e6f0461a8e6",
+    "statement": "Test a shape-aware choice among eligible existing expert GEMM backends for low-concurrency DeepSeek decode on B200. EPS-MoE establishes grouped-versus-dense selection by token count as prior work; a vLLM PR reports a small-load backend comparison on GB300 and GLM-5.2, but neither establishes the best choice or a bottl…",
+    "mechanism": "Small per-expert M can change the relative cost of grouped GEMM, dense GEMM, routing, and staging. A batch-shape bucket can select an eligible captured backend without changing allocations during graph replay.",
+    "change": "After profiling and contract checks, add a small, predeclared batch-shape selection table using existing eligible backends and capture each selected path with stable buffers.",
+    "reasons": [
+      "Critic gate: evidence_entails_claims",
+      "Critic gate: distinct_from_prior_art"
+    ],
+    "baseline": "baseline:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 29,
+      "known_baseline_match": false,
+      "task_token_overlap": 13,
+      "target_token_overlap": 3,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:7edff72209a2cfe113c0caca6a02d4c06ee5d237d684daf27cb96b80bc0896d7",
+    "status": "accepted",
+    "fingerprint": "4be2aca66fd885cf0cc29b4ed9ecc582454e957a375c3886d8613d9d1b404532",
+    "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target’s TPOT or that…",
+    "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+    "change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+    "reasons": [],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 29,
+      "known_baseline_match": false,
+      "task_token_overlap": 13,
+      "target_token_overlap": 3,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:94dd50d3be4681019165c8881da3126ce250322542059f4b310d0baac279579d",
+    "status": "rejected",
+    "fingerprint": "bbb9df2fde9f7193ecd77f38d9bdb4b3d4096db7cfa07a351135534c4047ac60",
+    "statement": "On the eight-B200 DeepSeek-V4.1-Flash node, trial a capped asynchronous draft cache that prepares likely verification continuations while the target verifies the current MTP batch. A scheduler would spend a per-request token and memory budget only when traces show material draft wait and verification outcomes that can…",
+    "mechanism": "Prepare a bounded set of possible next drafts during verification, reuse a matching continuation, and invalidate unmatched or stale state.",
+    "change": "Add a trace-gated branch budget, request/KV epochs, expiry and preemption handling, plus a fixed-MTP fallback.",
+    "reasons": [
+      "Critic gate: evidence_entails_claims",
+      "Critic gate: distinct_from_prior_art",
+      "Critic gate: test_discriminates_alternatives"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 25,
+      "known_baseline_match": false,
+      "task_token_overlap": 11,
+      "target_token_overlap": 3,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:fa0fc134d8d99e428aa4647444f2880738c4986af67250b81d5bd91268146188",
+    "status": "proposed",
+    "fingerprint": "fd6c0102c24762af760e3a907f868f2dfd43cc886b633cd9f8bcac015e3f563c",
+    "statement": "Segment-level prefix-cache admission for agent turns",
+    "mechanism": "At completion of each cache block, distinguish an exact prefix already reused across turns from a newly computed suffix. Under KV pressure, admit proven reusable prefix blocks while putting one-use suffix blocks on probation. Promote a probationary block after a later exact-hash reuse. This targets TTFT and cache capacity for repeated agent histories with changing tool output. The target's 75% cacheability is a goal, not a measured hit rate.",
+    "change": "Add a bounded per-prefix reuse table and a probation state to the local block-pool commit path. A complete block receives normal cache residency only after repeat use, except for a bounded protected shared-prefix budget. Preserve content hashes and never treat speculative or incomplete blocks as committed. The novel implementation claim is conditional until the pinned scheduler and hybrid V4.1 ca…",
+    "reasons": [],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 22,
+      "known_baseline_match": false,
+      "task_token_overlap": 10,
+      "target_token_overlap": 2,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:19890f2471889916fb8b5c3c36479e853aaf8e32926f641267340c6c1490fec5",
+    "status": "proposed",
+    "fingerprint": "4864a7dee7d0adc0188f1c3205bd08a94ef96a5ff343d617eef712b1d02eb04c",
+    "statement": "Coordinate prefill chunks across expert-parallel ranks using decode deadlines",
+    "mechanism": "At each scheduling step, choose a graph-compatible prefill chunk using the earliest active decode deadline and a predicted iteration cost based on the slowest participating rank. Coordinate the choice across the expert-parallel group so one rank's prefill does not delay another rank's decode collective. This is an untested adaptation of deadline-aware chunking to the candidate DEP8 or DEP4 layouts.",
+    "change": "Use group-wide rank state and graph-compatible chunk choices, with explicit collective participation by idle ranks. A fixed cadence or direct paper port does not supply that coordinated decision.",
+    "reasons": [],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 17,
+      "known_baseline_match": false,
+      "task_token_overlap": 8,
+      "target_token_overlap": 1,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:f0052217eb836c5cc5147fc1728580635a01b4f7dbb7a51de0bd6fdda0b22f02",
+    "status": "proposed",
+    "fingerprint": "d5523bd794f12d7e47bfb02fa0684bc5bb5897da1423b14edde7cb665e3b2f93",
+    "statement": "Ancestry-preserving prefix-cache admission with ghost hashes",
+    "mechanism": "Under local KV pressure, retain complete reusable prefix blocks and decline optional cache writes for an unproven private suffix. Record each declined block's exact hash and parent hash in a bounded metadata-only ghost table. If the block is recomputed on a later request, promote it only after its parent is resident and all required cache groups can commit it. Once one block is declined, decline its descendants for that trajectory until a later request rebuilds the contiguous admission frontier…",
+    "change": "Add bounded ghost metadata and a per-trajectory admission frontier at completed-block commit. Promote only after a repeat exact hash is observed through recomputation. Treat the cache-group bundle as the admission unit: publish a prefix hit only after every required group has committed the same complete token span. For asynchronous commits, use a completion fence and generation identifier before …",
+    "reasons": [],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 15,
+      "known_baseline_match": false,
+      "task_token_overlap": 7,
+      "target_token_overlap": 1,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:0688f9d45c5f16702e4cf848293aae1d5746dcd8f7b2a75d3e16174c73b9ccec",
+    "status": "proposed",
+    "fingerprint": "d5523bd794f12d7e47bfb02fa0684bc5bb5897da1423b14edde7cb665e3b2f93",
+    "statement": "Ancestry-preserving prefix-cache admission with ghost hashes",
+    "mechanism": "Under local KV pressure, retain complete reusable prefix blocks and decline optional cache writes for an unproven private suffix. Record each declined block's exact hash and parent hash in a bounded metadata-only ghost table. If the block is recomputed on a later request, promote it only after its parent is resident and all required cache groups can commit it. Once one block is declined, decline its descendants for that trajectory until a later request rebuilds the contiguous admission frontier…",
+    "change": "Add bounded ghost metadata and a per-trajectory admission frontier at completed-block commit. Promote only after a repeat exact hash is observed through recomputation. Treat the cache-group bundle as the admission unit: publish a prefix hit only after every required group has committed the same complete token span. For asynchronous commits, use a completion fence and generation identifier before …",
+    "reasons": [],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 15,
+      "known_baseline_match": false,
+      "task_token_overlap": 7,
+      "target_token_overlap": 1,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:cc96c245e4a7d4b261921927793d41ddff17321112060b0303e83e7d572c4183",
+    "status": "deferred",
+    "fingerprint": "1628724ca9275e4e5ab4cc13419e40e9833d75f00fa89db53b6c8643083e92a5",
+    "statement": "The earlier B200 decision's fixed DP-aligned prefill cadence, bounded replay, conditional EPLB, router placement, fixed backend choice, and DP-coordinated adaptive DSpark k are prior shortlisted ideas; they are not counted again.",
+    "mechanism": "The earlier B200 decision's fixed DP-aligned prefill cadence, bounded replay, conditional EPLB, router placement, fixed backend choice, and DP-coordinated adaptive DSpark k are prior shortlisted ideas; they are not counted again.",
+    "change": "",
+    "reasons": [
+      "Original legacy comparators; no full hypothesis card or experiment recorded"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 14,
+      "known_baseline_match": false,
+      "task_token_overlap": 6,
+      "target_token_overlap": 2,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:8fb2fc809e09f6634d6538592e975ce4cfb4f0f2948e2917e26a5d5cb7ac82c7",
+    "status": "proposed",
+    "fingerprint": "e4879b3360d72440e5b64c4f9b67837582876e7e8b31433befc5ffab0d5403e3",
+    "statement": "Pressure-aware commit timing for expert rebalancing",
+    "mechanism": "Keep an already computed expert-placement plan pending while prefill pressure or insufficient free HBM makes its migration expensive. Commit at a bounded later step when the predicted reduction in slow-rank MoE time exceeds migration and queueing cost. This acts on when EPLB moves weights, not on token routing or expert precision.",
+    "change": "Add a pending-plan state and a commit gate to the existing EPLB controller. Evaluate rank imbalance, pending-plan age, migration bytes, per-rank free HBM, and current prefill/decode pressure before all-rank commit. Keep the old expert map active until every rank acknowledges a complete migration; on timeout retain the old map and retry or discard the plan.",
+    "reasons": [],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 14,
+      "known_baseline_match": false,
+      "task_token_overlap": 7,
+      "target_token_overlap": 0,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:de6074357fa6803cb165b7e1a85949cd0ee181d408d7a65419059add637ddab0",
+    "status": "rejected",
+    "fingerprint": "a55a65267986a60713c063c2b6f32e64794976892027ade6f265d4abf8ec5a9b",
+    "statement": "Distributed cache-affinity routing: prior B200 decision already proposed bounded prefix placement; #58757 documents engine-aware consistent hashing. No supplied trace separates avoidable misses from load imbalance.",
+    "mechanism": "Distributed cache-affinity routing: prior B200 decision already proposed bounded prefix placement; #58757 documents engine-aware consistent hashing. No supplied trace separates avoidable misses from load imbalance.",
+    "change": "",
+    "reasons": [
+      "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 13,
+      "known_baseline_match": false,
+      "task_token_overlap": 6,
+      "target_token_overlap": 1,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:588f812147a27042b2b9d33c10a304417c2422aa722bb85f352d37ce92dca306",
+    "status": "rejected",
+    "fingerprint": "eff05f2577a20f6bbd001652ad1275c3d559fea47c0a05092bba0136bf0e81b9",
+    "statement": "FP4 KV or mixed expert precision from title matches: the supplied KV prefill regression is on SM120, while B200 active sparse-MLA and V4.1 quality/format compatibility are not established. Existing mixed-precision proposals also make a bare flag or unchanged port insufficient.",
+    "mechanism": "FP4 KV or mixed expert precision from title matches: the supplied KV prefill regression is on SM120, while B200 active sparse-MLA and V4.1 quality/format compatibility are not established. Existing mixed-precision proposals also make a bare flag or unchanged port insufficient.",
+    "change": "",
+    "reasons": [
+      "Original legacy rejected_leads; no full hypothesis card or experiment recorded"
+    ],
+    "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 13,
+      "known_baseline_match": false,
+      "task_token_overlap": 6,
+      "target_token_overlap": 1,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  }
+]

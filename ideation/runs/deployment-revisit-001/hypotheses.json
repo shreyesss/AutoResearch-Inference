@@ -1,0 +1,83 @@
+{
+  "hypotheses": [
+    {
+      "alternatives": [
+        {
+          "distinguishing_test": "Measure host step time, GPU busy time, full MoE time, and TPOT together across repeated C1 and C4 runs.",
+          "explanation": "Host scheduling or other decode work limits TPOT despite faster GPU kernels."
+        },
+        {
+          "distinguishing_test": "Attribute the full MoE interval to staging, routing, GEMM, and launch gaps; compare end-to-end results with the same staging path.",
+          "explanation": "Routing and staging launches, rather than expert GEMM choice, dominate the relevant interval."
+        }
+      ],
+      "applicability": "A specified DeepSeek checkpoint, dtype, topology, and CUDA Graph configuration on B200 after backend eligibility is verified.",
+      "classification": "adaptation",
+      "code_surface": "Proposed vLLM fused MoE backend dispatch and DeepGEMM warmup; the exact target selector and checkpoint path have not been supplied. The supplied prepare_megamoe.py confirms padding-mask semantics for one NVFP4 staging path.",
+      "evidence": [
+        {
+          "quote": "switching from GroupedGemm to DenseGemm at a certain token number",
+          "relation": "context",
+          "source_id": "fulltext:2410.12247"
+        },
+        {
+          "quote": "M/rank | FlashInfer baseline (tok/s) | DeepGEMM fused (tok/s)",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:54520"
+        },
+        {
+          "quote": "C1 ×3 TPOT | 6.58 / 6.58 / 6.58 ms | 6.50 / 6.50 / 6.50 ms",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:57977"
+        },
+        {
+          "quote": "ids = tl.where(token_is_padding, -1, ids)",
+          "relation": "context",
+          "source_id": "code:vllm-project/vllm:61aa7068b0f98677fa2166ff823d88330e70d47e:vllm/model_executor/layers/fused_moe/prepare_megamoe.py"
+        },
+        {
+          "quote": "TMA (Tensor Memory Accelerator) alignment faults",
+          "relation": "challenges",
+          "source_id": "github:vllm-project/vllm:46238"
+        },
+        {
+          "quote": "The DeepGEMM warmup covers `fp8_gemm_nt` and the grouped MoE GEMM.",
+          "relation": "context",
+          "source_id": "github:vllm-project/vllm:60468"
+        }
+      ],
+      "experiment": {
+        "control": "Current dispatch and the best eligible static backend, each with matched graph mode, warmup, and staging.",
+        "correctness": "Compare greedy outputs and expert routing, including padded tokens; repeat CUDA Graph capture and replay and verify safe low-M warmup candidates.",
+        "cost": "No GPU execution in this analysis. A later bounded B200 study must include compile, capture, and startup costs.",
+        "held_out_condition": "A predeclared prompt-length and routing distribution excluded from policy selection, measured at C1 and C4.",
+        "inconclusive_if": "The target path lacks multiple eligible backends, timing variability obscures the effect, or the traced bottleneck is outside MoE.",
+        "metrics": "Repeated C1/C4 TPOT, host step time, GPU busy time, full MoE interval, routed rows per expert, launch counts, capture and startup cost.",
+        "rejects_if": "Neither target regime improves TPOT over the best static control, or correctness or replay fails.",
+        "supports_if": "The treatment reproducibly lowers end-to-end TPOT versus both controls in its declared shape regime, with matching outputs and valid graph replay.",
+        "treatment": "Predeclared shape policy over those eligible backends; capture each selected path with stable buffers."
+      },
+      "id": "R1",
+      "mechanism": "Routed rows per expert alter useful work and fixed costs across eligible GEMM paths. Selection can help only if its full-path savings exceed dispatch and graph costs.",
+      "novelty": {
+        "implementation": "Unestablished until the target vLLM dispatcher and existing small-M paths are inspected.",
+        "nearest_prior_art": "EPS-MoE token-dependent GEMM switching; existing vLLM MoE backend integrations.",
+        "scientific": "Unestablished; token-dependent grouped versus dense selection is prior work.",
+        "specific_delta": "A capture-compatible selection policy validated against the best eligible static path on target end-to-end TPOT.",
+        "workload": "Potential adaptation to a verified B200 DeepSeek decode configuration."
+      },
+      "observed_bottleneck": "Unknown for the target B200 DeepSeek setup. No supplied trace isolates expert GEMM, padding, launch, or host time there.",
+      "operation": "evolve",
+      "parents": [
+        "hypothesis:fe6386c8c04b442fb90410315a1e9bb26ffcea94a02f81d63a3416f025c4019a"
+      ],
+      "predicted_direction": "Lower TPOT only in routed-row regimes where the selected path wins end to end; no effect size is predicted.",
+      "prior_art_query": "MoE grouped dense GEMM dispatch",
+      "proposed_change": "Conditionally add a bounded, predeclared shape policy using existing eligible expert paths, with stable buffers and captured variants.",
+      "revision_reason": "Unchanged mechanism reconsidered under this task and policy; original decision retained",
+      "statement": "For a specified DeepSeek checkpoint on B200, test whether a small set of capture-compatible expert GEMM paths should be selected by decode shape and routed rows per expert. Low concurrency can produce small expert matrices, but the supplied sources do not establish that expert GEMM dominates this target’s TPOT or that its current dispatch is static. Prior work already switches between grouped and dense GEMM by token count, so this is a conditional workload adaptation. First identify eligible backends and trace complete decode steps. Then compare a predeclared selection policy with current dispatch and the best eligible static choice under the same CUDA Graph mode. A kernel-level gain alone would not justify the change: the policy must reduce repeated end-to-end TPOT."
+    }
+  ],
+  "status": "untested",
+  "publication_novelty": "unestablished"
+}

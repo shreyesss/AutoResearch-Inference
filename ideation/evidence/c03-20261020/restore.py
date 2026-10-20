@@ -48,6 +48,8 @@ def main():
                     with tar.extractfile(member) as source, target.open('xb') as output:
                         for chunk in iter(lambda: source.read(4 * 1024 * 1024), b''):
                             output.write(chunk)
+                    # Preserve executable/read-only source modes, never privilege bits.
+                    target.chmod(member.mode & 0o777)
                     item = expected[member.name]
                     if target.stat().st_size != item['bytes'] or digest(target) != item['sha256']:
                         raise ValueError(f'restored file mismatch: {member.name}')

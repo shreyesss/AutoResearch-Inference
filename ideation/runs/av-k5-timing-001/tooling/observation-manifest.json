@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "purpose": "AV-OFF k5 timing observation only; original baseline semantics",
+  "image": "vllm/vllm-openai@sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c",
+  "files": [
+    {
+      "path": "vllm/v1/worker/gpu/model_runner.py",
+      "source": "source/observation/vllm/v1/worker/gpu/model_runner.py",
+      "sha256": "2f81b8476165155d8e5b9b7e05cb47ea0e1b1f57ff6b9057173584f5ff743a74",
+      "base_sha256": "5fdae42c96977ddbdc2bf1363a5f16b0760a2288a68991ece31c9537932fd1a8",
+      "ast_only_added_record_function_scopes": true
+    },
+    {
+      "path": "vllm/v1/worker/gpu/spec_decode/dflash/speculator.py",
+      "source": "source/observation/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py",
+      "sha256": "763fc741e1d91fe7ea0cea863de859dadee672e564e229af499fd046ce4d8fc0",
+      "base_sha256": "e7950d0bbdb3f982890689268eafc1a9d46d97335487e3c5c624945e3312afc6",
+      "ast_only_added_record_function_scopes": true
+    }
+  ],
+  "scopes": {
+    "avk5.target_forward": "Target forward branch including connector pre_forward; host range is not GPU duration",
+    "avk5.draft_propose": "Entire DFlash propose including input preparation, dispatch, context, execution and sampling",
+    "avk5.draft_execution": "FULL graph composite includes context/model/sampling; eager path generate_draft includes model/sampling"
+  },
+  "prohibited_inference": [
+    "CPU duration as GPU duration",
+    "FULL draft composite as pure draft model time",
+    "occupied GPU duration as exposed critical-path delay"
+  ]
+}

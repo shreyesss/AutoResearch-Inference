@@ -65,6 +65,21 @@ No correcting AV-specific bypass was found in the inspected installed paths. Run
 
 The same nominal k5 therefore does not imply unchanged draft execution cost when enabling AV. Later qualification must observe both target and draft descriptors after DP synchronization, including no-budget and full-budget boundaries. This note authorizes no AV-ON run, controller modification or combination with the rejected C03 performance candidate. Current AV-OFF timing remains useful and unchanged.
 
+### Checkpoint confidence-head metadata
+
+Read-only metadata inspection of `/home/jl_fs/models/DeepSeek-V4.1-Flash` resolves to the pinned snapshot `2cba9e42aa026125f3ed06c6d98c1db82f7ca027`. No tensors or model modules were loaded.
+
+| File | Bytes | SHA256 |
+|---|---:|---|
+| `config.json` |3311|`8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879`|
+| `model.safetensors.index.json` |7470294|`74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8`|
+
+The weight map contains exactly one confidence-head key: `mtp.2.confidence_head.proj.weight`, assigned to `model-00046-of-00048.safetensors`; that shard exists. Config `text_config` gives `hidden_size=5120`, `num_nextn_predict_layers=3`, `dspark_block_size=5`, `dspark_markov_rank=256`, and `dspark_target_layer_ids=[37,38,39]`. Neither root nor text_config explicitly sets `enable_confidence_head`.
+
+The image-attested DSpark implementation defaults `enable_confidence_head` to true and constructs the head (`source/pinned-upstream/vllm/models/deepseek_v41/nvidia/dspark.py:149–154`). Its loader remaps the indexed key to `model.confidence_head.proj.weight` (`:523–550`), marks a recognized confidence weight as loaded (`:421–422`), and removes the head only when none was loaded (`:491–492`). Thus checkpoint metadata and installed construction/loading paths support the learned head. This does not independently attest the live object's presence, successful tensor loading or confidence calibration; that remains runtime inventory evidence.
+
+The frozen DSpark speculator enables head use only when adaptive verification is enabled and the loaded model head is non-null (`/home/ubuntu/Deepseek_serve-c03/c03/source/base/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py:106–113`). When selected, it disables the online acceptance-estimator fallback and evaluates the learned confidence after sequential draft sampling (`:192–199`). The current AV-OFF baseline therefore does not use the head for budget decisions, even though checkpoint weights are available. Future AV qualification need not assume the fallback estimator is the intended path, but must verify the live effective flags.
+
 ## Review state
 
 Source feasibility, supplemental pinned-source collection and a render-only diagnostic launcher are complete. The independent evaluator approved/froze both observation copies0444; rendering passed under the original Python3.10 interpreter, both generated commands restore exactly to baseline after deleting the declared additions, and shell round-trip/syntax checks pass. Rendered JSON SHA256 is `e75711be87a18fb707c5f1fa03e1c9c322d36c0a636983051117b8f3fa64df0d`; source-manifest SHA256 is `f40811bc88c6a181b68bd0458bbeb36277d82bf198b0e4ce3cd5fdb596597d8d`. See `/home/ubuntu/Deepseek_serve-c03/av-k5/LAUNCH_HANDOFF.md`. No serving/runtime change, GPU work, profiler run, evaluator implementation or AV port was performed by this agent. Root owns source/argv attestation and the trace-attribution smoke check before spending a hypothesis attempt.

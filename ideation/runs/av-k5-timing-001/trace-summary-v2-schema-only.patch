@@ -1,0 +1,15 @@
+--- trace_summary.py
++++ trace_summary_v2.py
+@@ -98,10 +98,10 @@
+ 
+ def summarize(trace):
+     events = [event for event in trace.get('traceEvents', []) if event.get('ph') == 'X']
+-    scopes = [event for event in events if event.get('name') in SCOPES]
++    scopes = [event for event in events if event.get('cat') == 'user_annotation' and event.get('name') in SCOPES]
+     runtimes = [event for event in events if event.get('cat') in RUNTIME_CATEGORIES]
+     gpu = [event for event in events if event.get('cat') in GPU_CATEGORIES]
+-    native = [event for event in events if EXECUTE.match(event.get('name', ''))]
++    native = [event for event in events if event.get('cat') == 'user_annotation' and EXECUTE.match(event.get('name', ''))]
+     problems = []
+     if not scopes or not gpu:
+         problems.append('missing_scope_or_gpu_activity')

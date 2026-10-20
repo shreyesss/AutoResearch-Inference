@@ -2,7 +2,7 @@
 
 Start here for the hypothesis, where it came from, what was tested, the result, and the detailed logs. **Plain Markdown: one record per family, one history row per execution.** Updated 2026-10-21 (Asia/Calcutta).
 
-Current coverage: **34 records** (the original 33 consolidated families plus C24, a new adaptive-verification lead; 24 performance ideas, 6 held/different-scope ideas, 4 correctness prerequisites), **66 original audit cards**, and **47 saved builder/review proposal instances across 20 batches**. Raw proposals and revisions are not counted as unique mechanisms. C03 has a complete local execution record; C01 has an external grouped-arm result notice from node 219 without raw artifacts here. Other family cards have no execution attached.
+Current coverage: **34 records** (the original 33 consolidated families plus C24, a new adaptive-verification lead; 24 performance ideas, 6 held/different-scope ideas, 4 correctness prerequisites), **66 original audit cards**, and **47 saved builder/review proposal instances across 20 batches**. Raw proposals and revisions are not counted as unique mechanisms. C03 has a complete local execution record; C01 has an external grouped-arm result notice from node 219 without raw artifacts here. C24 has a completed baseline timing diagnostic with an instrumentation-inconclusive verdict. Other family cards have no execution attached.
 
 [Execution / analysis / meta-learning](../records/README.md) · [How to maintain this](WORKFLOW.md) · [New record template](TEMPLATE.md) · [All builder generations / research inputs](GENERATIONS.md) · [Original card → family mapping](SOURCE_MAP.md)
 
@@ -31,7 +31,7 @@ Current coverage: **34 records** (the original 33 consolidated families plus C24
 | C21 | [SM90 mHC coefficient overlap](C21.md) | Proposed; untested | No execution linked |
 | C22 | [KV offload as a separate capacity configuration](C22.md) | Proposed; untested | No execution linked |
 | C23 | [Matched SGLang control](C23.md) | Proposed; untested | No execution linked |
-| C24 | [Adaptive target verification at existing k5](C24.md) | Baseline timing qualification | No service speedup claimed; [diagnostic](../runs/av-k5-timing-001/) |
+| C24 | [Adaptive target verification at existing k5](C24.md) | Timing diagnostic inconclusive | 986/986 successes; timing coverage/association gate failed. AV unqualified; [report](../runs/av-k5-timing-001/REPORT.md) |
 | D01 | [Private Engram exact allocation: inactive](D01.md) | Research hold; untested | No execution linked |
 | D02 | [TP4 Marlin alignment alternative](D02.md) | Research hold; untested | No execution linked |
 | D03 | [Small-head sparse attention alternative](D03.md) | Research hold; untested | No execution linked |

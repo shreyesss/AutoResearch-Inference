@@ -10,4 +10,6 @@ This is the navigation layer for research, experiments and lessons. Original run
 
 [Hypothesis register](../hypotheses/README.md) connects each idea to its builder generation, PR/issues, saved deep research, execution history and conclusion. [C03 evidence archive](../evidence/c03-20261020/README.md) preserves the detailed logs and separate serving-worktree artifacts upstream. A recorded conversation conclusion needs evidence links and uncertainty, not a transcript dump.
 
+Latest diagnostic: [C24 baseline timing report](../runs/av-k5-timing-001/REPORT.md), [independent verdict](../runs/av-k5-timing-001/FINAL_VERDICT.md), [complete evidence archive](../evidence/av-k5-timing-001/README.md). Outcome: instrumentation inconclusive; no AV-ON experiment or speedup claim.
+
 After substantive work, update the affected hypothesis card and bucket entry, preserve raw evidence and append the outcome, then commit and push the research branch to `shreyesss/AutoResearch-Inference`. Keep public conclusions readable without downloading large archives. Never publish credentials, environment directories or unreviewed unrelated working-tree changes. Evaluator design, evaluator implementation and optimization development remain separate roles; the orchestrator owns runtime actions and publication.

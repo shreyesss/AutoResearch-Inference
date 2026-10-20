@@ -1,6 +1,6 @@
 # H200 overnight continuation 001
 
-[Interim report](REPORT.md) records completed C24–C26 work. C25 has an exact, faster sampler component and a fresh native-model A/B pilot running after a CPU-proven, independently reviewed identity repair. C24 remains timing-inconclusive; C26's FP32-weight port is inapplicable to the frozen baseline. No new service improvement is established.
+[Interim report](REPORT.md) records completed C24–C26 work. C25 has an exact, faster sampler component and valid native baseline evidence retained across two setup/observation failures. A B-only continuation is being prepared against fixed A002 with an independently reviewed metrics initialization repair. C24 remains timing-inconclusive; C26's FP32-weight port is inapplicable to the frozen baseline. No new service improvement is established.
 
 [Status](status.json), [journal](journal.jsonl), and [authorization/scope](AUTHORIZATION.md) record allocation and gates. This continues from the [previous handoff](../h200-continuation-001/handoff-003/continuation.json), preserving all 36 families, existing experiment history and two full service attempts.
 

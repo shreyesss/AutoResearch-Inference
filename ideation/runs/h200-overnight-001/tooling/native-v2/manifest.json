@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "source": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/overlay/both/model_runner.py",
+      "destination": "/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/model_runner.py",
+      "sha256": "5a9af8a16a353f083a185a004f8932431a3125d909e48cab3c7e127de4a403c1",
+      "arms": [
+        "A",
+        "B"
+      ],
+      "observation_removal_sha256": "5fdae42c96977ddbdc2bf1363a5f16b0760a2288a68991ece31c9537932fd1a8",
+      "base_sha256": "5fdae42c96977ddbdc2bf1363a5f16b0760a2288a68991ece31c9537932fd1a8"
+    },
+    {
+      "source": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/overlay/A/spec_decode/dspark/speculator.py",
+      "destination": "/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py",
+      "sha256": "70d83f1a54980af75bb9f21110a37dc023615f43aaf2272264b51455045f7815",
+      "arms": [
+        "A"
+      ],
+      "observation_removal_sha256": "97bcfaa655c6d4a5ecdfb17ab87b80547e8216b9d15a91c341798ebbb558f146",
+      "base_sha256": "97bcfaa655c6d4a5ecdfb17ab87b80547e8216b9d15a91c341798ebbb558f146"
+    },
+    {
+      "source": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/overlay/B/spec_decode/dspark/speculator.py",
+      "destination": "/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py",
+      "sha256": "1a211062a845ed21f883408c10a8540f264607d0e92278a0705d5fa7fd350ad1",
+      "arms": [
+        "B"
+      ],
+      "observation_removal_sha256": "1145c4a918b8c779b6d820528c8dc0c408872614f5ed39c78f04118b98b98b35",
+      "replaces_candidate_sha256": "1145c4a918b8c779b6d820528c8dc0c408872614f5ed39c78f04118b98b98b35"
+    },
+    {
+      "source": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/c25_native_observer.py",
+      "destination": "/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/c25_native_observer.py",
+      "sha256": "1e1cf05feb11390361cf1f67f749cb36a13d1e6b3a21ff7e4e6e712b45c99740",
+      "arms": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "source": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/developer/source/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py",
+      "destination": "/opt/c25-native/reference_dspark.py",
+      "sha256": "97bcfaa655c6d4a5ecdfb17ab87b80547e8216b9d15a91c341798ebbb558f146",
+      "arms": [
+        "A",
+        "B"
+      ]
+    }
+  ],
+  "review_inputs": [
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/parse_native.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/test_native.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/build_overlay.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native/build_traffic_manifest.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling-evidence/native/BUILD_REVIEW.md",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling-evidence/native/tests.txt",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling-evidence/native/build-receipt.json",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/additional-source-manifest.json",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native-v2/parse_native.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native-v2/test_repair.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native-v2/build_traffic_manifest.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling/native-v2/reproduce_pinned_collector.py",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling-evidence/native-v2/DIAGNOSIS.md",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling-evidence/native-v2/tests.txt",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/tooling-evidence/native-v2/pinned-collector-reproduction.json"
+  ],
+  "output_mount": "/c25-native-out",
+  "env": [
+    "C25_NATIVE_OUTPUT=/c25-native-out",
+    "C25_NATIVE_ARM=A|B",
+    "C25_NATIVE_REPLICA=0|1",
+    "C25_NATIVE_RUN_ID=<unique>"
+  ],
+  "trigger": "capture_model(profile_only=False), after final target/draft capture and workspace lock, before returning/API readiness",
+  "temporary_profile_capture": "begin_capture(profile_only=True) disables observation and retains no profiling-pool references",
+  "final_receipt": "replicaN/rankN.json",
+  "started_receipt": "replicaN/rankN.started.json",
+  "pass_predicate": {
+    "status": "passed",
+    "restored": true,
+    "native_oracle_passed": true,
+    "capture_attestation_passed": true,
+    "timed_samples": 960
+  },
+  "candidate_merge": "B speculator entry replaces the exact separately reviewed candidate source hash; all other candidate mounts remain separate"
+}

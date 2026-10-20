@@ -1,6 +1,6 @@
 # H200 overnight continuation: interim evidence
 
-The first native C25 allocation passed all eight baseline native checks but failed container identity recording before traffic or candidate execution. A CPU-proven narrow infrastructure repair passed independent review and fresh A/B002 is running. Completed results below are scoped; no new service speedup is established. Original C03 and C24 verdicts remain unchanged.
+The two native allocations retained valid baseline checks but did not reach candidate execution. Allocation001 failed host container identity access; its CPU-proven repair succeeded in002. Allocation002 then passed all eight native checks and ten exact requests, but its drain reader required gauges from ranks that had never handled a request. Pinned source and CPU reproduction show those mostrecent gauges remain absent until set. The baseline native result is preserved; lifecycle remains incomplete. A separately reviewed B-only continuation is being prepared against fixed A002, with six deterministic rank primers and the original absolute budget. No new service speedup is established.
 
 | Family | Completed evidence | Decision |
 | --- | --- | --- |

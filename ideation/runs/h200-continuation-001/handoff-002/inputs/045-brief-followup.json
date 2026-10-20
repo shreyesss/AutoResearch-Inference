@@ -1,0 +1,104 @@
+{
+  "name": "H200 continuation 001: history-aware ROI qualification-eligibility-followup",
+  "mode": "source_research",
+  "count": 3,
+  "target": {
+    "model": "DeepSeek-V4.1-Flash",
+    "gpu": "8x NVIDIA H200 SM90, 143771 MiB per GPU",
+    "topology": "two independent four-GPU TP1/DP4/EP4 replicas, API2 each",
+    "workload": "Preserve native agent-f75 8K/1K prefix workload and fixed-schedule Mooncake anchors, adapted explicitly to H200 seq64; separate 1K/1K cache-isolated diagnostic and long-context, ragged, mixed, cold/warm held-out diagnostics.",
+    "metrics": [
+      "TTFT",
+      "TPOT",
+      "throughput",
+      "cost per token",
+      "quality"
+    ]
+  },
+  "baseline": {
+    "vllm_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+    "deepseek_serve_commit": "11c249d28b2962f7384b4ab1fd7c1664704e7524",
+    "note": "Preserved H200 runtime evidence establishes Marlin with allgather_reducescatter in two TP1/DP4/EP4 replicas. C03 has a completed unfavorable service screen (ITL +1.85%, TTFT p99 +7.83%, E2E p99 -5.33%); no component causal timing explains it. Installed model_state.py differs from nominal upstream, so use actual extracted files. C01 grouped outcome is externally reported, raw evidence absent here. C24 timing completed instrumentation-inconclusive; see its report and independent verdict. Price and candidate-specific exposed savings remain unknown.",
+    "runtime_attested_at": "2026-10-20T12:12:07Z",
+    "image": "sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c",
+    "model_revision": "2cba9e42aa026125f3ed06c6d98c1db82f7ca027",
+    "profile": "seq64 MBT16384 context1048576 graphcap512 FP8KV block64 hostEngram embedding_across_dp prefixON DSpark k5 probabilistic draft/block rejection adaptiveOFF no-swa-bounded-replay; verbose request/output/delta telemetry ON",
+    "serving_source_note": "Historical baseline commit retained; exact per-experiment manifests and installed file hashes govern current membership."
+  },
+  "after": "2026-01-01",
+  "seed_numbers": [],
+  "code_sources": [],
+  "queries": [
+    "deepseek-v4.1-flash b200",
+    "speculation tpot",
+    "moe communication",
+    "kv-cache ttft",
+    "nvfp4"
+  ],
+  "paper_queries": [
+    "speculative decoding adaptive draft length inference",
+    "mixture of experts inference communication overlap",
+    "prefix caching routing serving"
+  ],
+  "prior_decisions": [
+    "runs/c03-execution-001/REPORT.md",
+    "runs/c03-mechanism-review-001/REPORT.md",
+    "hypotheses/C01.md",
+    "hypotheses/C24.md",
+    "runs/av-k5-timing-001/REPORT.md",
+    "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/ELIGIBILITY_CHECKS.md"
+  ],
+  "constraints": {
+    "gpu_execution": false,
+    "full_service_attempts_remaining": 2,
+    "preserve_frozen_contract": true,
+    "pilot_limits": "Propose explicit per-candidate wall-clock and GPU-hour caps; zero serving GPU work in this research pass.",
+    "primary_metric": "Frozen Mooncake 0.5x median primary long-output ITL; preserve existing 2% promotion and 3% tail guards for that contract; other objectives require separate scope."
+  },
+  "instructions": "Regenerate or upgrade useful mechanisms using the complete consolidated history and current outcomes, not a fresh unrelated shortlist. Publication novelty is not required. Include DeepInfer PRs, issues and pinned implementation. The main scope is existing two TP1/DP4/EP4 H200 replicas with Marlin, seq64, DSpark k5, adaptive verification off. Respect C03 failed promotion and C01 external grouped hold; no repeat service attempt without a new mechanism/evidence and explicit reopening reason. C24 baseline timing is now complete but instrumentation-inconclusive: no usable qualified cost estimate or AV-on result. Preserve that verdict and prioritize offline measurement design before any new GPU run. New ideas may evolve existing families; distinguish research/pilot readiness from full experiment readiness. Every card needs conditional optimization delta or explicit unknown, engineering-hour and GPU-hour budgets, bounded pilot and correctness tests with stop/proceed/inconclusive rules. Use literal evidence; upstream SM100/EP64 gains cannot be H200 EP4 predictions. Do not launch GPU, model generation serving traffic, benchmarks or deployment. Existing artifact analysis, CPU checks, research model calls and software tests are in scope. Review the three existing mechanisms against the new eligibility evidence, especially BF16 checkpoint headers and GateLinear for the router. Preserve original assessments; the stored dtype is not definitive loaded dtype. Count is an upper bound, never a quota or a reason to manufacture a fourth idea. No runtime has been launched. The original C24 and C03 results remain unchanged.",
+  "selection": {
+    "require_novelty": false
+  },
+  "repos": [
+    "SemiAnalysisAI/InferenceX",
+    "deepseek-ai/DeepEP",
+    "deepseek-ai/DeepGEMM",
+    "deepseek-ai/DeepInfer",
+    "deepseek-ai/DeepJIT",
+    "deepseek-ai/DeepSelect",
+    "deepseek-ai/DeepSpec",
+    "deepseek-ai/Engram",
+    "deepseek-ai/FlashMLA",
+    "deepseek-ai/TileKernels",
+    "deepseek-ai/deepseek-recipe",
+    "flashinfer-ai/flashinfer",
+    "sgl-project/sglang",
+    "vllm-project/recipes",
+    "vllm-project/vllm"
+  ],
+  "evaluator_contract": {
+    "version": "h200-evalset-v1-research",
+    "baseline": "live H200 seq64; seq128 is a separate configuration arm",
+    "stages": [
+      "attestation",
+      "activation",
+      "correctness",
+      "unprofiled screen",
+      "separate mechanism diagnostic",
+      "paired confirmation and held-out frontier"
+    ],
+    "activation": "record path hits and eligible opportunities; zero only interpretable with adequate coverage; missing telemetry is unverified",
+    "metrics": "request TPOT=(last-first token time)/(server output tokens-1), TTFT tails, exact tokens, all-rank draft/verify/accepted counters, KV blocks and preemption, qualified request goodput, replay lag",
+    "statistics": "matched full-run A/B units; >=5 paired confirmation blocks for small gains, alternating order; baseline drift and intervals; never request-level pseudoreplication",
+    "cost": "full eight-GPU node price remains unset; parameterized cost only",
+    "slo": "preserve historical scorer definitions but H200 product SLO not supplied; diagnostic 2s TTFT/50ms TPOT is provisional, not production",
+    "telemetry": "all replicas/ranks; raw counter deltas, resets/missing coverage, request-to-final-rank join where needed; Nsight profiled results excluded from frontier",
+    "correctness": "relevant G01-G05, numerical/graph-cache branch tests; quality subset for changed math, SPEED-Bench acceptance diagnostic for speculation is not a correctness score",
+    "capability_gaps": [
+      "AIPerf local 0.11 versus planned 0.13 needs separate environment verification",
+      "profiler requires instrumented launch and clean-marker integration",
+      "historical B200 seq128 and node pricing cannot transfer unchanged"
+    ]
+  },
+  "objective": "Find plausible baseline-relative H200 interventions using primary engineering evidence and prior outcomes. Qualify cheap pilots before expensive service attempts."
+}

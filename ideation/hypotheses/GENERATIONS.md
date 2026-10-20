@@ -233,3 +233,28 @@ This indexes the proposal instances and review revisions saved under `ideation/r
 | `H01` | On the eight-B200 DeepSeek-V4.1-Flash node, trial a capped asynchronous draft cache that prepares likely verification continuations while the target verifies the current MTP bat… | [history.json](../runs/three-tools-002/hypotheses/history.json) · [propose-1.json](../runs/three-tools-002/hypotheses/propose-1.json) | No completed assessment linked | Not mapped; retain source identity |
 
 Some original proposal IDs changed during review recovery; family mapping is shown only where an immutable identity establishes it. A missing mapping is not a rejection. The complete audited source cards are indexed separately in SOURCE_MAP.md.
+
+## h200-continuation-001/hypotheses
+
+[Complete batch / logs](../runs/h200-continuation-001/hypotheses) · [Run report](../runs/h200-continuation-001/REPORT.md)
+
+| Local ID | Mechanism | Saved proposal / review | Selection, not experiment outcome | Current family |
+| --- | --- | --- | --- | --- |
+| `h200-continuation-001:H01` | verification budget coupled costs | [history.json](../runs/h200-continuation-001/hypotheses/history.json) | accepted; score 82.0 | [C24](C24.md) |
+| `h200-continuation-001:H02` | DSpark Markov sampler fusion | [history.json](../runs/h200-continuation-001/hypotheses/history.json) | rejected; score 70.0 | [C25](C25.md) |
+| `h200-continuation-001:H03` | SM90 BF16x3 router GEMM | [history.json](../runs/h200-continuation-001/hypotheses/history.json) | accepted; score 70.0 | [C26](C26.md) |
+| `h200-continuation-001:H01:r2` | verification budget coupled costs | [history.json](../runs/h200-continuation-001/hypotheses/history.json) | accepted; score 78.0 | [C24](C24.md) |
+| `h200-continuation-001:H02:r2` | DSpark Markov sampler fusion | [history.json](../runs/h200-continuation-001/hypotheses/history.json) | deferred; score 74.0 | [C25](C25.md) |
+| `h200-continuation-001:H03:r2` | SM90 BF16x3 router GEMM | [history.json](../runs/h200-continuation-001/hypotheses/history.json) | accepted; score 70.0 | [C26](C26.md) |
+
+## h200-continuation-001/eligibility-followup
+
+[Complete batch / logs](../runs/h200-continuation-001/eligibility-followup) · [Run report](../runs/h200-continuation-001/REPORT.md)
+
+| Local ID | Mechanism | Saved proposal / review | Selection, not experiment outcome | Current family |
+| --- | --- | --- | --- | --- |
+| `R1` | verification budget coupled costs | [history.json](../runs/h200-continuation-001/eligibility-followup/history.json) | accepted; score 83.0 | [C24](C24.md) |
+| `R2` | DSpark Markov sampler fusion | [history.json](../runs/h200-continuation-001/eligibility-followup/history.json) | deferred; score 71.0 | [C25](C25.md) |
+| `R3` | SM90 BF16x3 router GEMM | [history.json](../runs/h200-continuation-001/eligibility-followup/history.json) | deferred; score 63.0 | [C26](C26.md) |
+
+The first continuation batch retains its original duplicate-parent shortlist as a runner defect. The corrected runner and final follow-up use one latest revision per mechanism; see the report and current dispositions. Scores never establish runtime benefit.

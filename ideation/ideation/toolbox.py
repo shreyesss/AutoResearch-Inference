@@ -11,6 +11,7 @@ from .fathom import FathomTools
 from .helper import Helper
 from .planning import PlanningTools
 from .cache import Cache
+from .continuation import ContinuationTools
 
 
 def registry(store):
@@ -19,6 +20,7 @@ def registry(store):
     except ImportError as e:
         raise RuntimeError("Use Python >=3.10 and install requirements-research.txt in .venv-research") from e
     research, hypotheses = ResearchTools(store), HypothesisTools(store)
+    continuation = ContinuationTools(hypotheses)
     fathom = FathomTools(store)
     planning, helper = PlanningTools(), Helper(store)
 
@@ -66,6 +68,8 @@ def registry(store):
         "hypothesis.start_test": hypotheses.ledger.start_test,
         "hypothesis.stats": hypotheses.ledger.stats,
         "hypothesis.recall": hypotheses.recall,
+        "hypothesis.continue": continuation.prepare,
+        "hypothesis.continuation_check": continuation.check,
     }
     return ToolRegistry([Tool(name, (handler.__doc__ or name).strip() + "\nArguments: " + str(inspect.signature(handler)), handler)
                          for name, handler in handlers.items()])

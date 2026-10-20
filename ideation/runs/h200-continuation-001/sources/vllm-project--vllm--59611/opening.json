@@ -1,0 +1,113 @@
+{
+  "id": "github:vllm-project/vllm:59611",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/vllm-project/vllm/pull/59611",
+  "title": "[Bugfix][DeepSeek V4] Load redundant EPLB expert slots",
+  "body": "## Overview\n\nFixes #59609. With `--enable-eplb` and `num_redundant_experts > 0`, DeepSeek V4 and V4.1 never loaded the redundant expert slots. `get_expert_mapping` now passes `num_redundant_experts`, so `load_weights` fills those slots.\n\nScope: NVIDIA only. Only the NVIDIA V4 and V4.1 models allocate redundant expert slots; on ROCm, V4 builds its MoE layers without EPLB and V4.1 sets `n_redundant_experts = 0`.\n\n## Claims\n\n- On the FusedMoE path (every `--moe-backend` except `deep_gemm_mega_moe`, which already loads the replicas), redundant EPLB slots hold the weights of the logical expert they replicate. Before this change they kept uninitialized memory.\n- No change when `num_redundant_experts=0`.\n\n## Validation\n\nDeepSeek-V4.1-Flash on 4x B300, TP=4, `--enable-expert-parallel --enable-eplb`, default `--moe-backend auto` (FLASHINFER_TRTLLM_MXFP4_MXFP8), `--kv-cache-dtype fp8`, `--max-model-len 8192`. \"Replica slots that differ\" compares a checksum of every redundant slot's EPLB-managed weights against the slot holding the same logical expert (8 slots x 40 MoE layers). GSM8K: 250 test questions, 5-shot, greedy.\n\n| Config | Replica slots that differ | GSM8K |\n| --- | --- | --- |\n| N=0, main | no replicas | 88.8% (222/250) |\n| N=8, main | 320 / 320 (all zero bytes) | 88.8% (222/250) |\n| N=8, this PR | 0 / 320 | 88.0% (220/250) |\n\nGSM8K is not sensitive to this bug: only 8 of 384 experts have a replica, and only the tokens routed to the replica lose that expert's output. Short greedy prompts show it more directly. On main with N=8, \"Explain in two sentences why the sky is blue.\" ends at end-of-sequence as its first token (logprob -1.13 vs -1.63 for the runner-up). With this PR, \" The\" wins (-1.77) and end-of-sequence is second (-2.27).\n\nThe reproducer in #59609 prints `redundant slots with all-zero weights: 320 / 320` on main and `redundant slots with all-zero weights: 0 / 320` with this PR.\n\nThe new e2e test (below) fails on main and passes with this PR, run locally on 4x B300 with DeepSeek-V4-Flash:\n\n| | Startup weight check | GSM8K (1319 q) |\n| --- | --- | --- |\n| main | `344 redundant expert slots differ from their source` (8 x 43 layers) | not reached |\n| this PR | passes on all 4 ranks | 94.8% |\n\n```\ncd tests && PYTHONPATH=.. pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-spec-decode.txt -k EPLB\n```\n\n## Details\n\n`DeepseekV4Model.load_weights` loads routed experts only through the ids returned by `get_expert_mapping`. That mapping was built with the default `num_redundant_experts=0`, so physical ids `n_routed_experts..n_routed_experts+N-1` were never passed to the weight loader. EPLB's initial placement maps those slots to logical experts `0..N-1` and sends part of those experts' tokens to them.\n\nDeepseekV2 has the same missing argument in `get_expert_mapping` (#41920, #41930). There, `load_weights` builds its own mapping with redundant slots, so only BitsAndBytes and LoRA are affected. In V4 and V4.1, `load_weights` uses `get_expert_mapping` directly, so the slots are never loaded.\n\nNot changed:\n- `deep_gemm_mega_moe` uses `make_deepseek_v4_expert_params_mapping`, which is a separate path.\n- The ROCm V4.1 model sets `n_redundant_experts = 0`.\n- The MTP loader (`deepseek_v4/nvidia/mtp.py`) builds its mapping without redundant slots too. The drafter is not registered with EPLB, so its router never selects those slots. This is inferred from the code, not tested.\n\nTest: the GSM8K harness gets an optional `startup_rpc_checks` config key. It calls each listed worker-extension method through `/collective_rpc` after the server starts and before any request. The check runs before traffic because EPLB rearrangement can move expert weights. `tests/evals/gsm8k/eplb_checks.py` checksums every expert slot, gathers the checksums across the EP group, and compares each redundant slot with the first slot of the same logical expert. GSM8K alone does not catch this bug: on V4.1-Flash it scored 88.8% on main and 88.0% with the fix. The new `DeepSeek-V4-Flash-EPLB-TEP4.yaml` (TP4, EP, 8 redundant experts) runs in the nightly \":nvidia: (B200) LM Eval Spec Decode\" job. The check takes a few seconds; the config adds one V4-Flash cold start plus about a minute of GSM8K to that job.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n",
+  "created_at": "2026-10-01T14:02:24Z",
+  "updated_at": "2026-10-20T21:16:57Z",
+  "fetched_at": "2026-10-20T21:33:47Z",
+  "state": "merged",
+  "merged_at": "2026-10-20T21:16:57Z",
+  "parent": null,
+  "tags": [
+    "b200",
+    "deepseek-v4.1-flash",
+    "deepseek",
+    "moe",
+    "speculation",
+    "kv-cache"
+  ],
+  "metadata": {
+    "number": 59611,
+    "labels": [
+      {
+        "id": 5135047172,
+        "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+        "name": "bug",
+        "color": "d73a4a",
+        "default": true,
+        "description": "Something isn't working",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 7197733874,
+        "node_id": "LA_kwDOI7xefs8AAAABrQSz8g",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/ready",
+        "name": "ready",
+        "color": "ededed",
+        "default": false,
+        "description": "ONLY add when PR is ready to merge/full CI is needed",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 7614859685,
+        "node_id": "LA_kwDOI7xefs8AAAABxeGJpQ",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/ci/build",
+        "name": "ci/build",
+        "color": "EF9EEA",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 8746007475,
+        "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+        "name": "deepseek",
+        "color": "1995FE",
+        "default": false,
+        "description": "Related to DeepSeek models",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 10799676958,
+        "node_id": "LA_kwDOI7xefs8AAAACg7X-Hg",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4",
+        "name": "DSv4",
+        "color": "be3bfa",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 12141724842,
+        "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+        "name": "DSv4.1",
+        "color": "2c52b7",
+        "default": false,
+        "description": "Related to DeepSeek-V4.1 models",
+        "archived_at": null,
+        "archived_by": null
+      }
+    ],
+    "comments": 9,
+    "state_reason": null,
+    "base": {
+      "ref": "main",
+      "sha": "21e207efa11c2645d232d700cc6da97bd59d195d",
+      "label": "vllm-project:main"
+    },
+    "head": {
+      "ref": "bugfix/dsv4-eplb-redundant-slots",
+      "sha": "f5a05c94c3b54737690ade82cc1129136e4bd64b",
+      "label": "simon-veitner-redhat:bugfix/dsv4-eplb-redundant-slots"
+    },
+    "merge_commit_sha": "50e34594010ba7499efd399cef8ec1d818c87473",
+    "draft": false,
+    "changed_files": null,
+    "additions": null,
+    "deletions": null,
+    "pr_detail_fetched_at": "2026-10-19T23:22:07Z",
+    "import_origin": "/home/ubuntu/AutoResearch-Inference/ideation/runs/pr-evaluation-audit-001/inputs/corpus-opening-records.jsonl"
+  },
+  "content_hash": "ef95a9e62be5ba3a6c10ff323fc034fa47b6dc07c8e79131501ca39c024d925c"
+}

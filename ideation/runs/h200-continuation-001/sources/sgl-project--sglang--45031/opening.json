@@ -1,0 +1,26 @@
+{
+  "id": "github:sgl-project/sglang:45031",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/sgl-project/sglang/pull/45031",
+  "title": "[Fix] marlin: Prevent scale underflow in NVFP4 fallback on SM80-SM90 (#44998)",
+  "body": "fixes #44998\n\nwhen running nvfp4 on pre-blackwell gpus with marlin, checkpoints that have small block scales (like weight_scale_2 = 1.0 from modelopt, probec, or llm-compressor) underflow during bf16 dequantization. the marlin packing does `(scales * 2^7).view(int16) << 1` which assumes `scales * 2^7 >= 2`. with small scales, the top bit is unset and bf16 exponent widening causes the weights to dequantize to zero, corrupting output.\n\nported the fix from vllm #34577:\n- added `_nvfp4_compute_scale_factor` to upscale small block scales by a power of 2 so `scales * 2^7 >= 2`\n- clamped subnormals (`scales < 2`) to zero to prevent bit corruptions\n- compensated by dividing `weight_global_scale` by `scale_factor`\n- unified the scale factor across experts in `prepare_moe_nvfp4_layer_for_marlin`\n- added unit tests covering scale factor computation, dense/moe scale adjustment, and underflow prevention\n\n<!-- pr-states:start -->\n---\n### CI States\n\nLatest PR Test (Base): <!-- slot:pr-test:start -->:x: [Run #39474029725](https://github.com/sgl-project/sglang/actions/runs/39474029725)<!-- slot:pr-test:end -->\nLatest PR Test (Extra): <!-- slot:pr-test-extra:start -->:x: [Run #39474028818](https://github.com/sgl-project/sglang/actions/runs/39474028818)<!-- slot:pr-test-extra:end -->\nLatest PR Test (AMD ROCm 10): <!-- slot:pr-test-amd:start -->:x: [Run #39474028696](https://github.com/sgl-project/sglang/actions/runs/39474028696)<!-- slot:pr-test-amd:end -->\n<!-- pr-states:end -->",
+  "created_at": "2026-10-18T18:07:42Z",
+  "updated_at": "2026-10-20T18:22:27Z",
+  "fetched_at": "2026-10-20T21:34:06Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "b200",
+    "moe",
+    "nvfp4"
+  ],
+  "metadata": {
+    "number": 45031,
+    "labels": [],
+    "comments": 1,
+    "state_reason": null
+  },
+  "content_hash": "770823287d670b82010ec8d02c17bc9d323fe4463aae56793ae8ee7a28ba6f10"
+}

@@ -1,0 +1,141 @@
+{
+  "id": "github:vllm-project/vllm:61869",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/vllm-project/vllm/pull/61869",
+  "title": "[Perf][Spec Decode][DSv4.1] DSpark draft on the specialized decode, with a fused Markov loop and a post-forward CUDA graph",
+  "body": "<!-- markdownlint-disable -->\n\n## Overview\n\nThis is the DSpark half of the DeepSeek-V4.1-Flash specialized decode on GB300 (#61868). With `decode_backend` set to `latency_specialized`, it:\n- gives the DSpark draft model a decode executor of its own, on the target executor's kernels and streams;\n- fuses the Markov sampling loop, and shards it by vocabulary over the TP ranks at small batches;\n- captures the work between the target forward and the draft forward (sampling, the request-state update and the draft input preparation) in a CUDA graph.\n\nWith the switch off, the only shared change is that DFlash-family drafters prepare all their KV-cache groups in one launch, with the same outputs.\n\n**Depends on #61868** and is stacked on it. Until that lands, this branch also contains its commits; only the last commit, the DSpark changes, is under review here.\n\n## Claims\n\nDeepSeek-V4.1-Flash on one GB300 tray with DSpark, the switch on in both arms, this PR against #61868:\n- Decode step: **another 6.4% faster at batch 1** (4,354 \u2192 4,075 \u00b5s), 4.3% at batch 8 and 1.9% at batch 32. Together with #61868, the batch-1 step is about 24% faster than with the switch off.\n- InferenceX AgentX traces: P90 interactivity up another 5\u201310% at concurrency 1 to 32. At concurrency 64, turns finish sooner, so the closed loop admits more requests: throughput per GPU rises 15% and TTFT p50 falls from 5.55 to 1.46 s, while P90 interactivity drops 12% at the larger batch.\n- Accuracy and the DSpark acceptance length are unchanged.\n\n## Validation\n\n### Correctness\n\nGPQA-Diamond uses reasoning effort high and temperature 0.6.\n\n| Task | Samples | Switch off (upstream base) | #61868 | This PR |\n| --- | --- | --- | --- | --- |\n| GSM8K, strict match (c1 / c8 / c32) | 1,319 per cell | 0.973 / 0.972 / 0.973 | 0.974 / 0.970 / 0.975 | 0.973 / 0.972 / 0.976 |\n| GPQA-Diamond | 198 \u00d7 16 (this PR: \u00d7 8) | 0.796 | 0.788 | 0.791 |\n| RULER NIAH single / multikey-2 / multikey-3, 32K / 128K / 256K (c1 and c8) | | 1.0 in every cell | 1.0 in every cell | 1.0 in every cell |\n| DSpark acceptance length on GSM8K (c1 / c8 / c32) | | 3.93 / 3.95 / 3.93 | 3.93 / 3.96 / 3.97 | 3.95 / 3.96 / 3.95 |\n\nGSM8K at c8 was rerun after each later change, with its mean acceptance length:\n\n| Revision | #61868 | This PR |\n| --- | --- | --- |\n| `main` `429a3da` (FlashInfer 0.7.1) | 0.972, 3.92 | 0.973, 3.95 |\n| `main` `011fa68c` | 0.975, 3.95 | 0.972, 3.90; repeated: 0.974, 3.96 |\n| Executor restructure, `main` `d6f0b7a4` | 0.971, 3.97 | 0.973, 3.95 |\n| CuTe DSL kernels | 0.976, 3.96 | 0.973, 3.94 |\n| Rebased onto `main` `03ee2e13` (FlashInfer 0.7.2) | 0.972, 3.99 | 0.975, 3.97 |\n| Rebased onto `main` `aa3564ce` | 0.975, 3.92 | 0.975, 3.96 |\n| Rebased onto `main` `3b518982` | 0.972, 3.91 | 0.976, 3.93 |\n\nThe acceptance length moves by about \u00b10.03 between identical runs, because the batches, and with them the generated text, differ from run to run.\n\nThe new samplers are tested bitwise against the eager loop, and the five-layer model test checks that both executors and the post-forward graphs run only with the switch on:\n\n<details><summary>Tests, sanitizers and CI</summary>\n\n```bash\n# One SM100-family GPU: the fused Markov loop and the sharded chain (one rank)\n# bitwise against the eager loop, eagerly and replayed from a CUDA graph\n.venv/bin/python -m pytest tests/models/deepseek_v41/nvidia/specialized_decode/test_kernels.py -v\n# One GPU: three draft groups prepared in one launch vs single-group runs\n.venv/bin/python -m pytest tests/v1/spec_decode/test_dflash_prepare_inputs.py -v\n# Four GPUs: the main PR's TP4 numerics\n.venv/bin/python -m pytest tests/models/deepseek_v41/nvidia/specialized_decode/test_numerics.py -v\n# Four GB300: five-layer model at TP4 with DSpark, switch on vs off\n.venv/bin/python -m pytest tests/models/deepseek_v41/nvidia/specialized_decode/test_layers.py -v\n```\n\n| Check | What it covers | Result |\n| --- | --- | --- |\n| Kernel tests | The fused Markov loop and the sharded chain (one rank) bitwise against the eager loop: temperatures 0, 1 and 0.6, a padding row, BF16 and FP32 logits, eagerly and replayed from a CUDA graph. The Markov weights are integer-valued, so the bias is exact in any reduction order. | 94 passed |\n| Multi-group DFlash prepare | Three draft groups with their own block tables and block sizes, prepared in one launch, against single-group runs | 6 passed |\n| Numerics (TP4) | #61868's collectives | Passed |\n| Layers test (4\u00d7 GB300) | With the switch on, the target's and the draft's executors both run, and the draft's layers take the executor's attention and routed-expert GEMMs; with it off, neither executor runs. The draft samples probabilistically, so the fused and the sharded samplers run at TP4. The switch-on run must replay its post-forward graphs; the switch-off run must build none. | Passed |\n| compute-sanitizer (CUDA 13.0.2) over the kernel tests | memcheck, synccheck, racecheck | memcheck: no errors. synccheck: no report in this PR's kernels. Kernels that are not this PR's are left uninstrumented, because synccheck aborts every kernel it reports: FlashInfer's TRT-LLM-gen kernels and CuTe DSL dense GEMMs, and vLLM's `LLBf16SplitK`, which both PRs call (\"Divergent thread(s) in block\"). racecheck: FlashInfer's CuTe DSL split-K `mm_bf16`, which the LM head calls, reports shared-memory hazards; upstream calls the same kernel from its BF16 linear backend. No other test reports a hazard: cooperative top-k, the sparse-MLA KV counters, the MXFP8 projections, the index key store, Engram, the side-stream table builds, the metadata graphs and the fused Markov sampler are racecheck-clean. Those were run before the restructure, which changed none of them. The CuTe DSL kernels (the routed-expert kernels with the draft finalize, and the sharded Markov chain) were checked with all three tools at this revision: no memcheck error, no synccheck report and no race hazard. |\n| pre-commit | All hooks | Passes on every file both PRs change |\n\nAfter each rebase, onto `main` `03ee2e13` (FlashInfer 0.7.2) and then onto `aa3564ce` and `3b518982`, the kernel (94), prepare (6), numerics and layers tests pass again at this PR's tip. Since the first of these, the Markov samplers mix the draft step into the seed, as `gumbel_sample` does since #61161, so they still draw the eager loop's tokens.\n\n**CI.** The prepare test runs in V1 Spec Decode. The kernel tests run in the nightly 4\u00d7B200 step that #61868 adds. This PR adds `spec_decode/dspark/`, the code its Markov-sampler tests cover, to that step's source dependencies. No CI agent has four GB300, so the layers test skips there; the post-forward graph and the sharded chain's cross-rank exchange were validated on GB300 outside CI.\n\n</details>\n\n### Performance\n\nAll runs use DeepSeek-V4.1-Flash on one GB300 tray (TP4) with DSpark (5 draft tokens), Model Runner V2, FULL CUDA graphs for decode, and the switch on in both arms. Like #61868's, these numbers predate the move into the executors and the CuTe DSL port; see \"Since these measurements\" below for both.\n\nAgentX throughput per GPU against P90 interactivity for upstream (switch off), #61868 and this PR, with the InferenceX DeepSeek-V4.1-Flash GB300 vLLM curve for reference:\n\n![AgentX throughput against interactivity](https://raw.githubusercontent.com/yaoyaoding/vllm/75c4f9b4c668f368921bf802ff83875b83d7f337/agentx_frontier_dspark.svg)\n\n**Decode step.** The speculative step with its draft, timed from the client over long-context decodes, in ABBA blocks on one tray (one server per block), both PRs on `main` `429a3da` (FlashInfer 0.7.1). Every block of this PR beats every block of #61868.\n\n| Batch | #61868 (\u00b5s) | This PR (\u00b5s) | Change |\n| ---: | ---: | ---: | ---: |\n| 1 | 4,354 | 4,075 | \u22126.4% |\n| 8 | 9,016 | 8,628 | \u22124.3% |\n| 32 | 15,677 | 15,376 | \u22121.9% |\n\nBefore that merge, an earlier revision measured \u22125.6%, \u22124.3% and \u22121.7%.\n\n**AgentX.** The InferenceX AgentX trace corpus for 3,600 s per concurrency, on base `2c74fd1`. Each cell reads #61868 \u2192 this PR; \"vs switch off\" compares this PR with upstream `main` at the base.\n\n| Conc | P90 interactivity (tok/s/user) | Change | vs switch off | Total tok/s/GPU | TPOT p50 (ms) | TTFT p50 (s) | E2E p50 (s) | Requests |\n| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n| 1 | 811.3 \u2192 889.5 | +9.6% | +35.8% | 7,861 \u2192 8,034 (+2.2%) | 1.14 \u2192 1.05 | 0.93 \u2192 0.74 | 2.0 \u2192 1.5 | 341 \u2192 398 |\n| 4 | 681.7 \u2192 723.4 | +6.1% | +29.7% | 10,055 \u2192 10,791 (+7.3%) | 1.17 \u2192 1.06 | 0.43 \u2192 0.42 | 1.1 \u2192 1.1 | 759 \u2192 792 |\n| 8 | 560.9 \u2192 598.8 | +6.8% | +25.2% | 16,985 \u2192 17,188 (+1.2%) | 1.27 \u2192 1.13 | 0.39 \u2192 0.32 | 1.2 \u2192 1.0 | 1,449 \u2192 1,457 |\n| 16 | 452.6 \u2192 474.3 | +4.8% | +29.7% | 29,727 \u2192 29,805 (+0.3%) | 1.54 \u2192 1.42 | 0.37 \u2192 0.38 | 1.1 \u2192 1.0 | 2,737 \u2192 2,739 |\n| 32 | 297.0 \u2192 311.9 | +5.0% | +21.5% | 62,969 \u2192 63,374 (+0.6%) | 2.03 \u2192 1.92 | 0.84 \u2192 0.72 | 2.2 \u2192 2.0 | 4,951 \u2192 4,985 |\n| 64 | 211.5 \u2192 185.7 | \u221212.2% | +5.7% | 101,811 \u2192 117,256 (+15.2%) | 3.53 \u2192 3.83 | 5.55 \u2192 1.46 | 8.6 \u2192 4.0 | 10,463 \u2192 11,522 |\n\nAt c64, AgentX's closed loop admits more requests when turns finish sooner: 11,522 against 10,463. The batch is larger, so P90 interactivity is lower, but this PR serves 15.2% more tokens per GPU, and TTFT p50 falls from 5.55 to 1.46 s.\n\n<details><summary>Since these measurements: the executor restructure and the CuTe DSL port</summary>\n\n**Restructure.** Following #61867, the draft layers moved from the stock layers into a draft executor, with no kernel change. The decode step before and after, in the same-tray ABBA as #61868's (switch on in both, each value the mean of two blocks):\n\n| Batch | Before (\u00b5s) | After (\u00b5s) | Change |\n| ---: | ---: | ---: | ---: |\n| 1 | 4,077 | 4,060 | \u22120.4% |\n| 8 | 8,830 | 9,173 | +3.9% |\n| 32 | 15,308 | 15,239 | \u22120.5% |\n\nPart of the batch-8 difference came from the post-forward graphs. Their key held input addresses, and the host-backed temperature, seed and prefill-length buffers rotate through a pool, so a batch shape could take up to four of the 32 graphs; which shapes were left to run eagerly depended on the order in which they first appeared. This revision copies those buffers in the region's existing copy launch, so each batch shape takes one graph (see Design notes). The same ABBA at this revision, against the revision before the restructure:\n\n| Batch | Before (\u00b5s) | This revision (\u00b5s) | Change |\n| ---: | ---: | ---: | ---: |\n| 1 | 4,072 | 4,016 | \u22121.4% |\n| 8 | 8,850 | 9,068 | +2.5% |\n| 32 | 15,312 | 15,204 | \u22120.7% |\n\nThe rest of the batch-8 difference is in a GEMM this PR does not change. It stays on fresh servers serving only batch 8 (two servers per arm, 3,000-token decodes): 8,887 \u2192 9,108 \u00b5s. Profiles late in those decodes differ in one kernel, the stock `wo_b` projection at 48 rows. It runs FlashInfer's `cute-dsl` MXFP8 GEMM with the tactic the autotuner picks when the server starts. Both profiled servers of this revision picked an unclustered tactic (grid 1\u00d71\u00d780), 15.3 \u00b5s per call; both profiled servers before the restructure picked clustered ones (grids 1\u00d74\u00d720 and 2\u00d72\u00d720), 7.8 and 8.0 \u00b5s. Over 40 layers that is about 310 \u00b5s per step, the whole difference. Pinning these tactics above 8 rows, as #61868 does up to 8, would remove the dependence on the server start.\n\n**CuTe DSL kernels.** The draft finalize and the sharded Markov chain were first written in CUDA and compiled with NVRTC at run time. They are now CuTe DSL kernels with the same schedule and arithmetic, and their outputs are bitwise those of the CUDA versions. Kernel time (CUPTI, cold L2, median of ABBA blocks, \u00b5s), CUDA \u2192 CuTe DSL:\n\n| Kernel | 1 row | 2 rows | 4 rows | 8 rows |\n| --- | ---: | ---: | ---: | ---: |\n| Draft finalize | 2.74 \u2192 2.27 | 2.82 \u2192 2.26 | 3.04 \u2192 2.42 | 3.20 \u2192 2.54 |\n\n| Sharded Markov chain, one TP4 rank's 32,320-token shard | 1 row | 4 rows | 8 rows |\n| --- | ---: | ---: | ---: |\n| BF16 base logits | 38.0 \u2192 35.7 | 44.4 \u2192 42.8 | 44.2 \u2192 43.1 |\n| FP32 base logits | 37.8 \u2192 33.1 | 42.2 \u2192 39.0 | 42.5 \u2192 39.6 |\n\nWith the whole 129,280-token head on one rank, which no supported deployment runs, the CuTe DSL chain is 1.7\u201311.8% faster, except with BF16 base logits at 4 and 8 rows (+2.4% and +3.9%).\n\n</details>\n\n## Details\n\n### Where the time goes\n\nDSpark proposes 5 tokens a step with three draft layers and a Markov head that samples the tokens one position at a time. In stock vLLM at batch 1, the draft side takes about 770 \u00b5s of the 5.4 ms step, and #61868 leaves it on the stock paths:\n- **Draft layers (about 310 \u00b5s).** They run the stock all-reduce, attention and MoE kernels, which #61868 already replaced in the target.\n- **Draft head and Markov loop (about 280 \u00b5s).** The loop is sequential over the 5 positions, with several small kernels per position, and the logits are all-gathered before sampling.\n- **Drafter preparation (about 180 \u00b5s).** It does a separate launch per draft KV-cache group.\n- **Host.** Sampling, the request-state update and the draft input preparation run eagerly between the target and draft graphs. DSpark `propose` was about 1.5 ms of the host loop.\n\nSo this PR moves the draft layers onto the target's paths, fuses the Markov loop, and graphs the region between the target forward and the draft forward.\n\n### What changed\n\nEach row is one optimization and the saving we measured when it was added, as a batch-1 decode-step ABBA on one tray. They were measured one at a time, so they do not add up exactly to the end-to-end figure.\n\n| Optimization | Why | Saving when added |\n| --- | --- | --- |\n| A draft executor (`specialized_decode/runtime/draft.py`) runs the draft layers on the target's fused all-reduce + mHC kernel and mailbox. | They ran the stock all-reduce and mHC at every sublayer boundary. | \u221261 \u00b5s |\n| The draft layers use the executor's attention, the routed-expert GEMMs and the MXFP8 GEMMs. The draft finalizes its own MoE with a new CuTe DSL kernel (`moe/routed_expert_finalize_cute.py`). | The target's fused finalize is built for the target's top-k. | \u221256 \u00b5s (routed-expert GEMMs) |\n| **Fused Markov loop:** one sampling kernel per draft position after the unchanged bias GEMM (`spec_decode/dspark/fused_sample.py`). | The eager loop launches several kernels per position. | \u221293 \u00b5s |\n| **Sharded Markov chain:** the whole chain runs in one cooperative kernel per rank, with the Markov head sharded by vocabulary over the TP ranks. Ranks agree on each position's winner through a symmetric-memory mailbox (`sharded_markov.py`, with the kernel in CuTe DSL in `sharded_markov_cute.py`). With a plain vocabulary shard, it reads the draft LM head's local shard and skips the logits all-gather. | That removes the remaining per-position launches and the all-gather. | \u22128 to \u221220 \u00b5s for the chain, \u221219 \u00b5s for the local shard |\n| **Post-forward CUDA graph:** sampling, `postprocess_sampled` and the draft input preparation are captured as one graph per shape (`v1/worker/gpu/post_forward_cudagraph.py`). | This region ran eagerly from the host between the target and draft graphs. | \u221237 \u00b5s |\n| The draft context work that reads only the target hidden states (the hidden-state combine and each draft layer's context-KV projection) runs on a side stream beside sampling. | It does not depend on the sampled tokens. | \u221228 \u00b5s |\n| All draft KV-cache groups are prepared in one launch: `_prepare_dflash_inputs_kernel` gains a group grid dimension and reads `BlockTables`' per-group pointer tables. | It launched once per group. | \u221219 \u00b5s |\n\nEvery change except the last takes effect only with the switch on. The multi-group launch applies to every DFlash, DFlash2, LiLiCorr and DSpark user and writes the same outputs.\n\n### Design notes\n\n**Structure.** The DSpark draft model registers itself when it is built with the switch on. The target's model state from #61868 then builds the draft's executor right after the target's, on the same fused kernel, mailbox and mHC side stream, and the draft model's forward asks it for a step the same way (`plan()`, then `run()`). The model state also offers Model Runner V2 the post-forward CUDA graphs, through a `post_forward_cudagraphs` attribute that `vllm/v1/worker/gpu/post_forward_cudagraph.py` reads. The speculator takes the fused and sharded samplers only when the draft model hands it the Markov weights, which it does only with the switch on.\n\n**With the switch off.** The only shared change is the multi-group prepare:\n- Group 0 writes the shared outputs, and each group writes its own query and context slot mappings.\n- `prepare_context_anchor` now runs after the input preparation. LiLiCorr's anchor reads only target hidden states and `query_start_loc`, which that kernel does not write.\n- The padding loops use a fixed 1,024-wide block.\n\nWith the switch off, no model state offers post-forward graphs, so `PostForwardCudaGraphs.create` returns None, and the DSpark model shares no Markov weights, so the eager loop is unchanged.\n\n**Post-forward graphs: correctness and limits.**\n- *Eligibility.* Uniform decode steps without logprobs, prompt logprobs, grammar or logits processing. It is decided per step on the host, from state every TP rank holds identically.\n- *Sampling draws.* They come from per-request seeds and positions, so a replay draws what the eager kernels draw.\n- *Step tensors.* The per-step tensors that `prepare_inputs` allocates are copied into buffers the graphs own, in one launch. So are the host-backed temperature, seed and prefill-length buffers, which rotate through a small pool of pinned host buffers; the region reads the copies.\n- *Graph key.* It holds the addresses of the other inputs, so a moved buffer captures a new graph instead of replaying a stale one. A batch shape therefore has one key.\n- *Replay.* A replay waits for the previous step's output copy stream.\n- *Capture and memory.* The first step of a shape runs eagerly, and the second captures. Graphs are captured while serving, into one memory pool of their own that the start-up memory profile does not see. That pool holds about one region's temporaries at the largest batch, mostly its logits.\n- *Limit.* Past 32 graphs, further shapes run eagerly, which costs performance only.\n- *Trade-off.* On graph steps, the async copy of the sampled tokens starts after the draft input preparation instead of before `postprocess_sampled`.\n\n**Sharded chain: rank lockstep.**\n- The exchange is a cross-rank spin inside the draft step and its FULL graph, so every rank must launch it the same number of times.\n- Installation depends only on configuration, and CPU MIN all-reduces at load make the ranks agree on it.\n- The per-call choice depends only on the padded batch shape. It applies up to 8 request rows (4 at 8 ranks).\n- Steady state reads nothing back from the GPU.\n- The draws reproduce the fused path, except for the bias reduction order before its BF16 rounding, so a bias element can differ from cuBLAS's in its last bit.\n\n**Relation to #59511 (in this PR's base).** #59511 captures the DFlash context combine and anchor in the draft FULL graph, staging the aux hidden states. With the switch on, this PR runs the combine, plus the DSpark context-KV projection, earlier: on a side stream inside the post-forward graph. `prepare_draft_inputs` then stores the hidden states and publishes the anchor before the side stream forks. Without the side stream, #59511's path applies unchanged.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [ ] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [ ] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [ ] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [ ] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\n**BEFORE SUBMITTING, PLEASE READ <https://docs.vllm.ai/en/latest/contributing>** (anything written below this line will be removed by GitHub Actions)\n\n",
+  "created_at": "2026-10-15T16:32:17Z",
+  "updated_at": "2026-10-20T15:39:02Z",
+  "fetched_at": "2026-10-20T21:33:56Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "b200",
+    "deepseek-v4.1-flash",
+    "deepseek",
+    "moe",
+    "mla",
+    "ttft",
+    "tpot",
+    "throughput",
+    "performance",
+    "speculation",
+    "communication",
+    "kv-cache"
+  ],
+  "metadata": {
+    "number": 61869,
+    "labels": [
+      {
+        "id": 6915642480,
+        "node_id": "LA_kwDOI7xefs8AAAABnDRUcA",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/speculative-decoding",
+        "name": "speculative-decoding",
+        "color": "6A493C",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 7614859685,
+        "node_id": "LA_kwDOI7xefs8AAAABxeGJpQ",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/ci/build",
+        "name": "ci/build",
+        "color": "EF9EEA",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 8746007475,
+        "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+        "name": "deepseek",
+        "color": "1995FE",
+        "default": false,
+        "description": "Related to DeepSeek models",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 9543357705,
+        "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+        "name": "nvidia",
+        "color": "76B900",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 10292436636,
+        "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+        "name": "mrv2",
+        "color": "7E1A2D",
+        "default": false,
+        "description": "Model Runner V2 specific",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 10956162510,
+        "node_id": "LA_kwDOI7xefs8AAAACjQnFzg",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/dflash",
+        "name": "dflash",
+        "color": "BFAC4B",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 12141724842,
+        "node_id": "LA_kwDOI7xefs8AAAAC07QEqg",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4.1",
+        "name": "DSv4.1",
+        "color": "2c52b7",
+        "default": false,
+        "description": "Related to DeepSeek-V4.1 models",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 12158256304,
+        "node_id": "LA_kwDOI7xefs8AAAAC1LBEsA",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/agents",
+        "name": "agents",
+        "color": "5D6A8D",
+        "default": false,
+        "description": "Related to information for agents",
+        "archived_at": null,
+        "archived_by": null
+      }
+    ],
+    "comments": 4,
+    "state_reason": null,
+    "base": {
+      "ref": "main",
+      "sha": "8a1c02efca9bb0660f70b404e1ac4cb0629144ae",
+      "label": "vllm-project:main"
+    },
+    "head": {
+      "ref": "dsv41-dspark-low-latency-decode",
+      "sha": "0e3aa29813b0e66808815884284c2eea2ee184a7",
+      "label": "yaoyaoding:dsv41-dspark-low-latency-decode"
+    },
+    "merge_commit_sha": null,
+    "draft": false,
+    "changed_files": null,
+    "additions": null,
+    "deletions": null,
+    "pr_detail_fetched_at": "2026-10-20T08:05:07Z",
+    "import_origin": "/home/ubuntu/AutoResearch-Inference/ideation/runs/pr-evaluation-audit-001/inputs/corpus-opening-records.jsonl"
+  },
+  "content_hash": "a05b805522143f4935a86f3fb1f43a9825a4c92155425dc9754c9227a00cbd8a"
+}

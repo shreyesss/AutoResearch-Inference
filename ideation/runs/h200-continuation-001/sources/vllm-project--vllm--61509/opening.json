@@ -1,0 +1,78 @@
+{
+  "id": "github:vllm-project/vllm:61509",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/vllm-project/vllm/pull/61509",
+  "title": "[Bugfix][MRV2] Don't count adaptive verification profiling cache as CUDA graph memory",
+  "body": "\n\n## Overview\n\nWith adaptive verification on, Model Runner V2 counts the allocator cache left by adaptive verification's cost-profiling dummy runs as CUDA graph memory, and takes it from the KV cache. This PR releases that cache before `capture_model` takes its closing memory reading.\n\n## Claims\n\n- Fixes the over-counted CUDA graph memory under adaptive verification, in both the memory-profiling estimate pass and the real capture (0.92 \u2192 0.07 GiB in the run below). The KV cache gets that memory back.\n- When KV capacity is the bottleneck, decode throughput recovers: 40.5 \u2192 113.2 tok/s in the run below, matching the same config without adaptive verification (110.2 tok/s).\n- Startup only. Nothing changes in steady-state execution, and runs without adaptive verification are unaffected.\n\n## Validation\n\n**Startup log.** 1\u00d7 L4, `Qwen/Qwen2.5-1.5B-Instruct` with `Qwen/Qwen2.5-0.5B-Instruct` as `draft_model`, `num_speculative_tokens=4`, `enable_adaptive_verification=true`, `TRITON_ATTN`, `max_model_len=32768`, `max_num_seqs=3`, prefix caching on:\n\n```bash\nvllm serve Qwen/Qwen2.5-1.5B-Instruct --attention-backend TRITON_ATTN \\\n  --max-model-len 32768 --max-num-seqs 3 --gpu-memory-utilization 0.36 \\\n  --speculative-config '{\"method\": \"draft_model\", \"model\": \"Qwen/Qwen2.5-0.5B-Instruct\",\n    \"num_speculative_tokens\": 4, \"enable_adaptive_verification\": true}'\n# compare the two \"Graph capturing finished ... took X GiB\" lines and \"GPU KV cache size\"\n```\n\n**Throughput.** Decode-bound long-context workload, greedy, `max_tokens=256`:\n- 12 prompts, each a 24K-token slice of vLLM's docs followed by a question.\n- Contexts are processed in groups of 3. Each group is first prefilled with one question, then timed with a different question, so the timed requests reuse the warmed prefix.\n- One run per config. The memory numbers are deterministic: both runs without the fix logged 0.92 / 0.88 GiB.\n\n| `gpu_memory_utilization` | Config | \"Graph capturing ... took\" (estimate / real) | GPU KV cache | Prefix hit rate | Output tok/s |\n|---|---|---|---|---|---|\n| 0.36 | main, adaptive verification | 0.92 / 0.88 GiB | 64,688 tokens | 37.8% | 40.5 |\n| 0.36 | this PR, adaptive verification | 0.07 / 0.04 GiB | 86,960 tokens | 50.0% | 113.2 |\n| 0.36 | adaptive verification off (reference) | 0.07 / 0.03 GiB | 87,376 tokens | 50.0% | 110.2 |\n| 0.9 | main, adaptive verification | 0.92 / 0.88 GiB | 376,432 tokens | 50.0% | 110.6 |\n| 0.9 | this PR, adaptive verification | 0.07 / 0.04 GiB | 398,912 tokens | 50.0% | 110.1 |\n\nAt 0.36, 64,688 tokens can't hold three ~24.3K-token requests. Prefixes get evicted and re-prefilled (hit rate 37.8% vs 50%), and decode runs fewer requests at once. At 0.9 there's enough KV either way, so only the KV size changes.\n\nThe effect is larger with bigger models. With #60339's suffix speculator and adaptive verification on Qwen2.5-7B at 24K context (L4, utilization 0.9), the leftover cache was 1.88 GiB:\n- KV cache: 44,400 tokens before, 79,584 after.\n- Long-context decode: 0.28\u00d7 of no speculation before, 1.39\u00d7 after.\n\n**Tests.**\n\n```bash\npytest tests/v1/worker/test_gpu_model_runner_v2.py tests/v1/worker/test_gpu_model_runner_v2_cudagraph_profiling.py tests/v1/spec_decode/test_adaptive_verification.py\n# 48 passed\n```\n\nThe new `test_capture_model_excludes_adaptive_verification_profiling_cache` covers both `profile_only=False` and `profile_only=True`, and fails on main.\n\n## Details\n\n**Root cause.** `capture_model` reads free memory, captures the graphs, then reads free memory again. The difference is reported as CUDA graph memory. When adaptive verification is on, the profiling for its cost curves also runs between those two readings: `batches_to_profile`, i.e. 5 replays of each capture size plus tail sizes up to `max_num_batched_tokens`, with the profiling context length. Those dummy runs free their tensors, but the caching allocator keeps the blocks. `get_memory_info` therefore sees them as used: about 0.85 GiB here, and 1.9 GiB with a 7B target (allocated delta \u2248 0, all of it reserved cache).\n\nThe same `capture_model` serves `profile_cudagraph_memory`'s estimate pass, whose result is subtracted from the KV budget. So the KV cache is sized as if graphs needed that memory.\n\n**Fix.** Call `torch.accelerator.empty_cache()` after `set_initial_cost_curves`, matching the `empty_cache()` that already runs before the first reading. The profiling timings are already collected by then, since `StepTimingCollector.collect` synchronizes on exit.\n\n**Scope.**\n- Model Runner V1 has no adaptive verification.\n- #52233 (opt-in persistent profile cache) touches the same block. On a cache hit it would skip the dummy runs, but it's off by default and doesn't change the accounting.\n- #54065 and #54077 change the shapes of the profiled tail, not the memory accounting.\n\n**Not duplicating existing work.** I searched open and closed PRs and issues for \"empty_cache adaptive verification\", \"capture_model memory adaptive\", \"cuda graph memory adaptive verification\", \"adaptive verification KV cache memory\" and \"batches_to_profile\". The only related results are the PRs listed under Scope.\n\n---\n\n<details>\n<summary> Pull Request Checklist </summary>\n\n- [x] I used vLLM's `/pr-checklist` skill. (Mandatory for agents, optional for humans).\n- [x] AI assistance was used during the creation of this PR.\n\n- [x] **Design Fit:** Minimizes impact on core components, reuses existing functionality, and justifies added complexity.\n- [x] **Testing and Validation:** Validates the change and ensures any added tests are meaningful and reliable, with CI coverage or documented CI resource constraints and validation performed outside CI.\n- [x] **Code Quality and Style:** Keeps code and comments clear and concise, and updates relevant documentation and examples.\n- [x] **Pull Request Contents:** Includes a brief summary and relevant links, supports claims with evidence, explains root causes and implementation trade-offs, and follows the contributing guide.\n</details>\n\nAI assistance (Claude) was used to investigate, write and test this change.\n",
+  "created_at": "2026-10-13T22:30:23Z",
+  "updated_at": "2026-10-20T17:52:50Z",
+  "fetched_at": "2026-10-20T21:33:52Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "throughput",
+    "performance",
+    "speculation",
+    "kv-cache"
+  ],
+  "metadata": {
+    "number": 61509,
+    "labels": [
+      {
+        "id": 5135047172,
+        "node_id": "LA_kwDOI7xefs8AAAABMhKaBA",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/bug",
+        "name": "bug",
+        "color": "d73a4a",
+        "default": true,
+        "description": "Something isn't working",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 9543357705,
+        "node_id": "LA_kwDOI7xefs8AAAACONQVCQ",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/nvidia",
+        "name": "nvidia",
+        "color": "76B900",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 10292436636,
+        "node_id": "LA_kwDOI7xefs8AAAACZXoenA",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/mrv2",
+        "name": "mrv2",
+        "color": "7E1A2D",
+        "default": false,
+        "description": "Model Runner V2 specific",
+        "archived_at": null,
+        "archived_by": null
+      }
+    ],
+    "comments": 1,
+    "state_reason": null,
+    "base": {
+      "ref": "main",
+      "sha": "8c60cf07b3df3b289c310fbd45a382a10709d9ab",
+      "label": "vllm-project:main"
+    },
+    "head": {
+      "ref": "fix/av-profile-empty-cache",
+      "sha": "58861d2648ed8cca6ecf9ac0eeff9ed8cd7e884e",
+      "label": "nishantrevur:fix/av-profile-empty-cache"
+    },
+    "merge_commit_sha": "d4d8e04048c56366912a05cd96f2bd35b20c97fa",
+    "draft": false,
+    "changed_files": null,
+    "additions": null,
+    "deletions": null,
+    "pr_detail_fetched_at": "2026-10-20T08:05:11Z",
+    "import_origin": "/home/ubuntu/AutoResearch-Inference/ideation/runs/pr-evaluation-audit-001/inputs/corpus-opening-records.jsonl"
+  },
+  "content_hash": "3cb6f4486c455ef96dded71e88c4581f98cca2a0b9a11f8e94b163338bc76c8f"
+}

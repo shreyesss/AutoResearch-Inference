@@ -1,0 +1,419 @@
+From 63dc0cff887dd8a4597eb485c23e4ef01b4aee6e Mon Sep 17 00:00:00 2001
+From: feixiangpeng <155504520+feixiangpeng@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 21:19:49 -0500
+Subject: [PATCH 1/2] [Spec] DSPARK: hand the overlap readback a snapshot of
+ the folded accept (#42465)
+
+The folded accept writes fixed epilogue buffers inside the target-verify
+graph, and the next replay rewrites them. accept_and_finalize returned
+read_accept(bs) views, which the DSPARK worker put into
+GenerationBatchResult.accept_lens / next_token_ids. The overlap scheduler
+reads those back on copy_stream after copy_stream.wait_stream(forward_stream)
+and launches the next forward without waiting for the copy, so when the copy
+engine is busy (HiCache write-through D2H of a long prefix) the readback runs
+after replay N+1 and returns step N+1's accept lengths. Each TP rank races on
+its own, so ranks committed different token counts and deadlocked.
+
+Add DsparkVerifyEpilogue.snapshot_accept: clones of the accept buffers made
+on the forward stream right after the replay, so stream order pins them to
+step N and async_d2h's record_stream keeps them alive for the readback.
+accept_and_finalize returns the snapshot on the folded path. read_accept
+keeps returning views because the in-graph _accept writes through them
+(build_accept_outs(out=self.read_accept(bs))); cloning there, as #42812
+does, leaves the static buffers stale on current main.
+
+Tests: a CPU case in test_dspark_accept_tail.py (fails on main, passes with
+the fix) and a 1-GPU test that replays the two-stream interleaving
+deterministically.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ python/sglang/srt/managers/scheduler.py       |   8 +-
+ .../dspark_components/dspark_verify.py        |  25 ++++-
+ .../unit/spec/test_dspark_accept_tail.py      |  76 +++++++++++++
+ .../test_dspark_overlap_readback_streams.py   | 106 ++++++++++++++++++
+ 4 files changed, 211 insertions(+), 4 deletions(-)
+ create mode 100644 test/registered/unit/spec/test_dspark_overlap_readback_streams.py
+
+diff --git a/python/sglang/srt/managers/scheduler.py b/python/sglang/srt/managers/scheduler.py
+index d3ce7f5c3efe..5a39634841ef 100644
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -4960,9 +4960,11 @@ def _copy_result_to_cpu(
+             if not self.enable_async_d2h_copy:
+                 copy_fn()
+             elif batch.return_hidden_states or batch.spec_algorithm.is_dspark():
+-                # Hidden states and the DSpark accept lengths are views of CUDA
+-                # graph buffers that the next replay rewrites; only a copy queued
+-                # right behind this forward reads them in time.
++                # Hidden states are views of CUDA graph buffers that the next
++                # replay rewrites; only a copy queued right behind this forward
++                # reads them in time. DSpark's accept outputs are snapshots now
++                # (DsparkVerifyEpilogue.snapshot_accept); its inline copy stays
++                # because that is the path validated under Confidential Computing.
+                 copy_fn()
+             else:
+                 batch_result.copy_done = self.async_d2h_worker.submit(copy_fn)
+diff --git a/python/sglang/srt/speculative/dspark_components/dspark_verify.py b/python/sglang/srt/speculative/dspark_components/dspark_verify.py
+index 2e3289cc24f3..e81e6edc7ac6 100644
+--- a/python/sglang/srt/speculative/dspark_components/dspark_verify.py
++++ b/python/sglang/srt/speculative/dspark_components/dspark_verify.py
+@@ -162,7 +162,7 @@ def accept_and_finalize(
+         override drawn by begin_simulated_step.
+         """
+         if folded_accept:
+-            return self.verify_epilogue.read_accept(bs)
++            return self.verify_epilogue.snapshot_accept(bs)
+ 
+         simulate = self._simulated_correct_len is not None
+         # Simulated acceptance overwrites correct_len below, so a sampling accept
+@@ -672,6 +672,8 @@ def _static_epilogue(self, out, forward_batch) -> None:
+         )
+ 
+     def read_accept(self, bs: int) -> AcceptOuts:
++        """Views of the accept buffers: the in-graph accept writes through them
++        (`_accept` passes them as `out`), so they must stay aliases."""
+         return AcceptOuts(
+             correct_len=self.correct_len_buf[:bs],
+             bonus=self.bonus_buf[:bs],
+@@ -681,6 +683,27 @@ def read_accept(self, bs: int) -> AcceptOuts:
+             out_tokens=self.out_tokens_buf[:bs],
+         )
+ 
++    def snapshot_accept(self, bs: int) -> AcceptOuts:
++        """Copies of this step's accept outputs, for readers outside the graph.
++
++        The buffers are rewritten by the next target-verify replay. Under the
++        overlap scheduler the result readback (`accept_lens`, `next_token_ids`)
++        runs on copy_stream, which forward_stream never waits on, so a view read
++        late returns step N+1's values, independently on each TP rank (#42465).
++        The clones are made on the current (forward) stream right after the
++        replay, so stream order pins them to step N; `async_d2h`'s
++        `record_stream` keeps them alive until the readback has run.
++        """
++        views = self.read_accept(bs)
++        return AcceptOuts(
++            correct_len=views.correct_len.clone(),
++            bonus=views.bonus.clone(),
++            cap_trim_lens=views.cap_trim_lens.clone(),
++            commit_lens=views.commit_lens.clone(),
++            new_seq_lens=views.new_seq_lens.clone(),
++            out_tokens=views.out_tokens.clone(),
++        )
++
+     @property
+     def folds_commit(self) -> bool:
+         if self.commit_ctx is None:
+diff --git a/test/registered/unit/spec/test_dspark_accept_tail.py b/test/registered/unit/spec/test_dspark_accept_tail.py
+index 3a9dc7b9d94f..812052fe8186 100644
+--- a/test/registered/unit/spec/test_dspark_accept_tail.py
++++ b/test/registered/unit/spec/test_dspark_accept_tail.py
+@@ -132,5 +132,81 @@ def test_graph_accept_matches_eager_greedy(self):
+                     self._run(simulated_correct_len, verify_lens)
+ 
+ 
++def _shares_storage(a: torch.Tensor, b: torch.Tensor) -> bool:
++    return a.untyped_storage().data_ptr() == b.untyped_storage().data_ptr()
++
++
++class TestFoldedAcceptSnapshot(CustomTestCase):
++    """The folded accept hands the overlap scheduler copies, not views (#42465).
++
++    The in-graph accept writes fixed epilogue buffers that the next target-verify
++    replay rewrites. The overlap scheduler reads `accept_lens` / `next_token_ids`
++    back on copy_stream, which forward_stream never waits on, so a view read late
++    returns the next step's values, on each TP rank independently: ranks committed
++    different token counts and deadlocked under HiCache write-through. The folded
++    branch of `accept_and_finalize` must return tensors that neither alias the
++    buffers nor change when the buffers are rewritten.
++    """
++
++    def test_folded_accept_outputs_survive_the_next_replay(self):
++        candidates, logits, prefix_lens = _greedy_inputs()
++        epilogue = DsparkVerifyEpilogue(
++            max_bs=BS + 1,
++            verify_num_draft_tokens=STRIDE,
++            device="cpu",
++            tp_sync=_RecordingTpSync(),
++        )
++        epilogue._accept(
++            candidates=candidates,
++            logits=logits,
++            draft_tokens=candidates[:, 1:].contiguous(),
++            seq_lens=prefix_lens,
++        )
++        target_worker = SimpleNamespace(
++            model_runner=SimpleNamespace(
++                model_config=SimpleNamespace(
++                    hf_text_config=SimpleNamespace(model_type="test")
++                )
++            )
++        )
++        executor = TargetVerifyExecutor(
++            target_worker=target_worker,
++            gamma=STRIDE - 1,
++            verify_num_draft_tokens=STRIDE,
++            model_runner=None,
++            kv_injector=None,
++            tp_sync=_RecordingTpSync(),
++            verify_epilogue=epilogue,
++        )
++        accept = executor.accept_and_finalize(
++            folded_accept=True,
++            bs=BS,
++            verify_ids_2d=None,
++            target_logits=None,
++            draft_block=None,
++            sampling_info=None,
++            draft_input=None,
++            layout=None,
++            prefix_lens=None,
++            draft_tokens=None,
++        )
++        # Rows match 0, 2 and 4 drafts: commit = correct + bonus = 1, 3, 5.
++        self.assertEqual(accept.commit_lens.tolist(), [1, 3, 5])
++        expected = {
++            field: getattr(accept, field).clone() for field in accept.__struct_fields__
++        }
++        for field in accept.__struct_fields__:
++            self.assertFalse(
++                _shares_storage(
++                    getattr(accept, field), getattr(epilogue, f"{field}_buf")
++                ),
++                field,
++            )
++        for field in accept.__struct_fields__:  # the next verify replay
++            getattr(epilogue, f"{field}_buf").fill_(-1)
++        for field in accept.__struct_fields__:
++            self.assertTrue(torch.equal(getattr(accept, field), expected[field]), field)
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/test/registered/unit/spec/test_dspark_overlap_readback_streams.py b/test/registered/unit/spec/test_dspark_overlap_readback_streams.py
+new file mode 100644
+index 000000000000..cc2a2134ff45
+--- /dev/null
++++ b/test/registered/unit/spec/test_dspark_overlap_readback_streams.py
+@@ -0,0 +1,106 @@
++"""The DSpark accept readback must not race the next verify replay (#42465).
++
++Black-box mechanism: the folded accept writes fixed epilogue buffers that the
++next target-verify replay rewrites. The overlap scheduler issues the result
++readback (`accept_lens`, `next_token_ids`) on copy_stream after
++`copy_stream.wait_stream(forward_stream)`, then launches the next forward on
++forward_stream without waiting for the copy. When the copy engine is busy, for
++example behind HiCache write-through device-to-host traffic, the readback runs
++after the next replay and a view returns step N+1's values. Each TP rank races
++on its own, so ranks commit different token counts and deadlock.
++
++The interleaving is reproduced deterministically: a spin kernel on copy_stream
++stands in for the busy copy engine, so the readback always runs after the
++second rewrite. Views must observe the hazard (that is what the fix changes);
++the snapshot the folded accept now hands out must read step N.
++
++Run with:
++    python3 -m pytest test/registered/unit/spec/test_dspark_overlap_readback_streams.py -v
++"""
++
++import unittest
++
++import torch
++
++from sglang.srt.speculative.dspark_components.dspark_verify import (
++    DsparkVerifyEpilogue,
++)
++from sglang.srt.utils.common import async_d2h
++from sglang.test.ci.ci_register import register_cuda_ci
++from sglang.test.test_utils import CustomTestCase
++
++register_cuda_ci(est_time=15, stage="base-b", runner_config="1-gpu-small")
++
++BS, STRIDE = 4, 5
++FIELDS = (
++    "correct_len",
++    "bonus",
++    "cap_trim_lens",
++    "commit_lens",
++    "new_seq_lens",
++    "out_tokens",
++)
++# Long enough that the second rewrite on forward_stream always lands first.
++SPIN_CYCLES = 500_000_000
++
++
++class _StaticTpSync:
++    def sync(self, site, values):
++        return values
++
++
++def _epilogue(device) -> DsparkVerifyEpilogue:
++    return DsparkVerifyEpilogue(
++        max_bs=BS,
++        verify_num_draft_tokens=STRIDE,
++        device=device,
++        tp_sync=_StaticTpSync(),
++    )
++
++
++def _rewrite(epilogue: DsparkVerifyEpilogue, step: int) -> None:
++    """What a target-verify replay does to every accept buffer."""
++    for field in FIELDS:
++        getattr(epilogue, f"{field}_buf").fill_(step)
++
++
++def _readback_after_next_replay(handover: str) -> dict:
++    """forward_stream: replay N, (later) replay N+1; copy_stream: delayed readback."""
++    forward_stream = torch.cuda.Stream()
++    copy_stream = torch.cuda.Stream()
++    epilogue = _epilogue("cuda")
++    with torch.cuda.stream(forward_stream):
++        _rewrite(epilogue, 1)
++        if handover == "view":
++            outs = epilogue.read_accept(BS)
++        else:
++            outs = epilogue.snapshot_accept(BS)
++    # Scheduler._copy_result_to_cpu: the readback waits only for forward N.
++    copy_stream.wait_stream(forward_stream)
++    with torch.cuda.stream(copy_stream):
++        torch.cuda._sleep(SPIN_CYCLES)  # the copy engine is busy
++        host = {field: async_d2h(getattr(outs, field)) for field in FIELDS}
++    # The overlap loop launches forward N+1 without waiting for the copy.
++    with torch.cuda.stream(forward_stream):
++        _rewrite(epilogue, 2)
++    torch.cuda.synchronize()
++    return {field: sorted(set(host[field].flatten().tolist())) for field in FIELDS}
++
++
++@unittest.skipUnless(torch.cuda.is_available(), "needs a CUDA device")
++class TestDsparkOverlapReadbackStreams(CustomTestCase):
++    def test_views_read_the_next_replay(self):
++        # The hazard itself; if this stops reproducing, the test no longer
++        # exercises the interleaving the snapshot guards against.
++        seen = _readback_after_next_replay("view")
++        for field in FIELDS:
++            self.assertEqual(seen[field], [2], field)
++
++    def test_snapshot_reads_this_step(self):
++        seen = _readback_after_next_replay("snapshot")
++        for field in FIELDS:
++            self.assertEqual(seen[field], [1], field)
++
++
++if __name__ == "__main__":
++    unittest.main(verbosity=2)
+
+From 602c4cbe4ceae70125956b2c0c77bf5638343307 Mon Sep 17 00:00:00 2001
+From: feixiangpeng <155504520+feixiangpeng@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 09:35:58 -0500
+Subject: [PATCH 2/2] [Fix] dspark: Trim the snapshot comments to the
+ constraint they state
+
+Review against .claude/rules/comment-style.md: the snapshot_accept docstring
+carried the bug narrative and the issue number, the scheduler comment read as
+history, and the test docstrings were paragraphs. Each now states the
+constraint in two or three lines; the rationale stays in the PR description.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ python/sglang/srt/managers/scheduler.py       |  5 ++--
+ .../dspark_components/dspark_verify.py        | 13 +++--------
+ .../unit/spec/test_dspark_accept_tail.py      | 13 +++--------
+ .../test_dspark_overlap_readback_streams.py   | 23 ++++---------------
+ 4 files changed, 12 insertions(+), 42 deletions(-)
+
+diff --git a/python/sglang/srt/managers/scheduler.py b/python/sglang/srt/managers/scheduler.py
+index 5fd3ce008ecb..57362634b55e 100644
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -4972,9 +4972,8 @@ def _copy_result_to_cpu(
+             elif batch.return_hidden_states or batch.spec_algorithm.is_dspark():
+                 # Hidden states are views of CUDA graph buffers that the next
+                 # replay rewrites; only a copy queued right behind this forward
+-                # reads them in time. DSpark's accept outputs are snapshots now
+-                # (DsparkVerifyEpilogue.snapshot_accept); its inline copy stays
+-                # because that is the path validated under Confidential Computing.
++                # reads them in time. DSpark's accept outputs are snapshots; it
++                # keeps the inline copy, the path validated under Confidential Computing.
+                 copy_fn()
+             else:
+                 batch_result.copy_done = self.async_d2h_worker.submit(copy_fn)
+diff --git a/python/sglang/srt/speculative/dspark_components/dspark_verify.py b/python/sglang/srt/speculative/dspark_components/dspark_verify.py
+index e81e6edc7ac6..215e2e2add9e 100644
+--- a/python/sglang/srt/speculative/dspark_components/dspark_verify.py
++++ b/python/sglang/srt/speculative/dspark_components/dspark_verify.py
+@@ -684,16 +684,9 @@ def read_accept(self, bs: int) -> AcceptOuts:
+         )
+ 
+     def snapshot_accept(self, bs: int) -> AcceptOuts:
+-        """Copies of this step's accept outputs, for readers outside the graph.
+-
+-        The buffers are rewritten by the next target-verify replay. Under the
+-        overlap scheduler the result readback (`accept_lens`, `next_token_ids`)
+-        runs on copy_stream, which forward_stream never waits on, so a view read
+-        late returns step N+1's values, independently on each TP rank (#42465).
+-        The clones are made on the current (forward) stream right after the
+-        replay, so stream order pins them to step N; `async_d2h`'s
+-        `record_stream` keeps them alive until the readback has run.
+-        """
++        """Clones of the accept buffers for readers outside the graph: the overlap
++        readback on copy_stream may run after the next replay rewrites the buffers.
++        Made on the forward stream; `async_d2h`'s `record_stream` keeps them alive."""
+         views = self.read_accept(bs)
+         return AcceptOuts(
+             correct_len=views.correct_len.clone(),
+diff --git a/test/registered/unit/spec/test_dspark_accept_tail.py b/test/registered/unit/spec/test_dspark_accept_tail.py
+index 812052fe8186..9f355b4e96be 100644
+--- a/test/registered/unit/spec/test_dspark_accept_tail.py
++++ b/test/registered/unit/spec/test_dspark_accept_tail.py
+@@ -137,16 +137,9 @@ def _shares_storage(a: torch.Tensor, b: torch.Tensor) -> bool:
+ 
+ 
+ class TestFoldedAcceptSnapshot(CustomTestCase):
+-    """The folded accept hands the overlap scheduler copies, not views (#42465).
+-
+-    The in-graph accept writes fixed epilogue buffers that the next target-verify
+-    replay rewrites. The overlap scheduler reads `accept_lens` / `next_token_ids`
+-    back on copy_stream, which forward_stream never waits on, so a view read late
+-    returns the next step's values, on each TP rank independently: ranks committed
+-    different token counts and deadlocked under HiCache write-through. The folded
+-    branch of `accept_and_finalize` must return tensors that neither alias the
+-    buffers nor change when the buffers are rewritten.
+-    """
++    """The folded accept's outputs must neither alias the epilogue buffers nor
++    change when the next replay rewrites them: a late overlap readback that saw
++    the next step's accept lengths made TP ranks commit different token counts."""
+ 
+     def test_folded_accept_outputs_survive_the_next_replay(self):
+         candidates, logits, prefix_lens = _greedy_inputs()
+diff --git a/test/registered/unit/spec/test_dspark_overlap_readback_streams.py b/test/registered/unit/spec/test_dspark_overlap_readback_streams.py
+index cc2a2134ff45..7987a9f4bf8a 100644
+--- a/test/registered/unit/spec/test_dspark_overlap_readback_streams.py
++++ b/test/registered/unit/spec/test_dspark_overlap_readback_streams.py
+@@ -1,22 +1,7 @@
+-"""The DSpark accept readback must not race the next verify replay (#42465).
+-
+-Black-box mechanism: the folded accept writes fixed epilogue buffers that the
+-next target-verify replay rewrites. The overlap scheduler issues the result
+-readback (`accept_lens`, `next_token_ids`) on copy_stream after
+-`copy_stream.wait_stream(forward_stream)`, then launches the next forward on
+-forward_stream without waiting for the copy. When the copy engine is busy, for
+-example behind HiCache write-through device-to-host traffic, the readback runs
+-after the next replay and a view returns step N+1's values. Each TP rank races
+-on its own, so ranks commit different token counts and deadlock.
+-
+-The interleaving is reproduced deterministically: a spin kernel on copy_stream
+-stands in for the busy copy engine, so the readback always runs after the
+-second rewrite. Views must observe the hazard (that is what the fix changes);
+-the snapshot the folded accept now hands out must read step N.
+-
+-Run with:
+-    python3 -m pytest test/registered/unit/spec/test_dspark_overlap_readback_streams.py -v
+-"""
++"""A late overlap readback must see this step's folded accept outputs, not the
++next replay's. The interleaving is forced: a spin kernel on copy_stream stands in
++for a busy copy engine, so the readback always runs after the second rewrite on
++forward_stream. Views must show the hazard, the snapshot must read step N."""
+ 
+ import unittest
+ 

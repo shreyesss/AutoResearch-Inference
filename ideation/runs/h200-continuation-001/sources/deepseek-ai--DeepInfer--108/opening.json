@@ -1,0 +1,22 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:108",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/108",
+  "title": "scheduler: consume chunk checkpoints on commit and keep lookahead room when chunking",
+  "body": "Two problems in the prefill chunk sizing of `Scheduler::_schedule_prefill` (`csrc/engine/scheduler.hpp`).\n\n## 1. Checkpoints are dropped before the chunk is committed\n\n`chunk_checkpoints` were popped while the chunk was still being sized, before the scheduler had decided to take the sequence. Every later bail-out left the sequence in `waiting` with its checkpoint already gone, so the next attempt ran straight past the boundary the caller asked for:\n\n- `chunked_prefill=False` (the `EngineArgs` default): the checkpoint chunk counts as \"chunked\", the attempt `break`s, and the whole prompt is prefilled in one go on the next step.\n- the checkpoint chunk is shorter than `lookahead_tokens`, or an image boundary shrinks it to zero: same loss.\n- `_adjust_chunk_size(..., make_larger=true)` can extend the chunk past a checkpoint that is already popped.\n\nCallers that fork a cached prefix at the checkpoint (the pattern in `examples/benchmark.py::prefill_cached_prefix`) then get a longer prefix than they asked for, with no diagnostic.\n\nCheckpoints are now consumed only in the commit section, once the chunk is actually scheduled: everything up to the chunk end is popped, plus the checkpoint this chunk was cut at when an image boundary shortened it (that one cannot be honored exactly and would otherwise be retried at the same position forever). A checkpoint is an explicit split requested by the caller, so a checkpoint chunk is allowed with `chunked_prefill=False`; that flag only governs splitting for the token budget.\n\n## 2. A budget chunk can leave fewer than `lookahead_tokens` behind\n\nWhen a prompt was split for the token budget, nothing kept the remainder at or above `lookahead_tokens`. Example: a 4100-token prompt against a 4096-token budget with `lookahead_tokens=8` produces a 4-token remainder; the next attempt trips\n\n```cpp\nTORCH_CHECK(seq_workload >= this->lookahead_tokens, ...)\n```\n\nwhich aborts the engine step with the sequence stuck at the head of `waiting` (its KV blocks were already allocated for the whole prompt), so every retry throws again. With `dp_size > 1` the throw lands between the two vote allreduces in `_schedule`, so the other ranks hang in `any_scheduled`.\n\nThe shipped examples use `lookahead_tokens = min(1, nextn)` and never hit this; it is reachable through `EngineArgs.lookahead_tokens`.\n\nThe chunk is now shortened so that at least `lookahead_tokens` remain. A checkpoint whose chunk or remainder cannot satisfy the lookahead constraints is treated as absent and consumed, instead of being retried without progress.\n\n## Tests\n\n`tests/engine/test_scheduler_chunk_sizing.py` drives the real extension on a single-rank gloo group (no model, no GPU), the same way `LLMEngine.step()` does:\n\n- checkpoint honored with `chunked_prefill=False` (`[5, 20]` for a 20-token prompt with checkpoint 5),\n- every checkpoint produces a boundary (`[4, 8, 12]`),\n- a step that has no budget for the sequence leaves its checkpoint alone,\n- budget 8 / prompt 10 / lookahead 4 prefills as `[6, 10]` instead of aborting on the second attempt,\n- a checkpoint too close to the prompt end is consumed rather than retried.\n\n`scripts/format_csrc.sh --check` passes. I could not build the extension on this machine, so the C++ change is reviewed by reading and the new tests have not been executed here; they follow the harness introduced in #95 / #98.\n",
+  "created_at": "2026-10-20T16:19:25Z",
+  "updated_at": "2026-10-20T16:19:25Z",
+  "fetched_at": "2026-10-20T21:33:44Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [],
+  "metadata": {
+    "number": 108,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "4785efdce975e3d8c36dd888a28aca10c1fc8b68db2a4520fc0b5917945dc92b"
+}

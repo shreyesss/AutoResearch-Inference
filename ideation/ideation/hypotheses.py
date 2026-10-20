@@ -136,7 +136,7 @@ class HypothesisTools:
         """Record attributed validated/invalidated/inconclusive/error result and artifact hash."""
         return self.ledger.test_result(test_id, verdict, artifact, note, actor=actor)
 
-    def run(self, brief, packet, output, rounds=1, model=None, timeout=600, policy=None, revisit=None):
+    def run(self, brief, packet, output, rounds=1, model=None, timeout=600, policy=None, revisit=None, continuation=None):
         from discovery_rsi.core import Candidate, Episode, ReplayBuffer
         import jsonschema
         rounds = int(rounds)
@@ -145,6 +145,11 @@ class HypothesisTools:
         if revisit and (rounds != 1 or len(revisit) > 5):
             raise ValueError("Revisit 1–5 existing hypotheses in one review round")
         brief = read_brief(brief)
+        from .continuation import load_context, prompt_context
+        continuation_state = load_context(continuation) if continuation else None
+        if continuation_state and continuation_state["brief"] != brief:
+            raise ValueError("Continuation brief differs from this run; prepare a fresh handoff")
+        carried_state = prompt_context(continuation_state) if continuation_state else None
         packet = json.loads(Path(packet).read_text())
         errors = quote_errors(packet.get("claims", []), packet["sources"])
         if errors or not packet.get("quote_validation", {}).get("valid"):
@@ -156,6 +161,8 @@ class HypothesisTools:
         write_json(out / "brief.json", brief)
         write_json(out / "input-evidence.json", packet)
         write_json(out / "memory-input.json", memory)
+        if continuation_state:
+            write_json(out / "continuation-input.json", continuation_state)
         manifest = {"started_at": now(), "status": "running", "rounds": [], "requested": brief.get("count", 2),
                     "dependency": "DiscoveryRSI Candidate/Episode/ReplayBuffer; domain gates are local",
                     "model": model or "existing agent configuration", "gpu_experiments": 0}
@@ -195,6 +202,13 @@ class HypothesisTools:
                     "First write one clear 80–150 word statement per idea, then specify its test. Try mechanism transfer, "
                     "constraint-specific adaptation, and resolving conflicting evidence. Do not fill the quota with weak ideas. "
                     "Do not invent measured bottlenecks or numerical speedups. Separate predictions from observations. "
+                    "In predicted_direction, state the primary metric and conditional low/base/high optimization delta "
+                    "with assumptions, or explicitly unknown plus the measurement needed. Separate affected-event "
+                    "frequency, component occupied time, exposed time, expected net saving and service transfer. "
+                    "In experiment.cost, estimate engineering hours and GPU-hours separately for inspection, "
+                    "implementation/correctness, pilot and confirmation, including startup/capture overhead; label "
+                    "uncertainty and unknown inputs. In the experiment fields, specify the cheapest bounded pilot "
+                    "that can change the decision, its resource cap and support/stop/inconclusive rules before a full run. "
                     "Include a strong existing/static comparator, competing explanation, held-out workload, and support/reject/inconclusive criteria. "
                     "Use concise mechanism-based prior_art_query (2–5 terms), not every hardware keyword. "
                     "IDs must be unique in this run. Parents must name real earlier IDs; revise after objections rather than rename. "
@@ -202,7 +216,12 @@ class HypothesisTools:
                     "Novelty is descriptive only unless the rubric explicitly enables it. Historical rejections are context, not bans. "
                     "If baseline inclusion is unknown, propose a cheap presence/eligibility check as the first step. "
                     "Parent IDs may also use global hypothesis IDs from memory. "
-                    "Return zero ideas if evidence cannot support any.\n" + json.dumps({"brief": brief, "rubric": policy, "evidence": bounded(), "claims": packet.get("claims", []), "history": history, "previous_runs": memory}), PROPOSAL_SCHEMA)
+                    "Use continuation family states and explicit holds/pending work when supplied. Name the existing "
+                    "family in revision_reason and explain the new evidence or mechanism delta; family labels are "
+                    "not memory IDs and must not be fabricated as parents. Do not reset tested/held work to untested. "
+                    "Citations must use exact source IDs from the supplied evidence; a history file path is not "
+                    "an evidence ID unless that document is included in the source packet. "
+                    "Return zero ideas if evidence cannot support any.\n" + json.dumps({"brief": brief, "rubric": policy, "evidence": bounded(), "claims": packet.get("claims", []), "history": history, "previous_runs": memory, "continuation": carried_state}), PROPOSAL_SCHEMA)
                 # Persist EVERY schema-valid proposal before retrieval or critic can fail.
                 for card in draft["hypotheses"]:
                     if card["id"] in global_ids:
@@ -229,19 +248,30 @@ class HypothesisTools:
                                            "github": {"ids": [d["id"] for d in hits], "repos": repos, "coverage": "local selected-repository corpus; not proof of absence in other engines"}, "literature": found}
                 write_json(out / f"prior-art-{number}.json", prior)
                 review = agent(f"critique-{number}", "Challenge these proposals under ONLY the supplied task rubric. "
+                    "The requested count is an upper bound, not a quota; fewer well-supported ideas is not a defect. "
                     "Evaluate each criterion pass/fail/unknown with score 0–5 and a concrete rationale. "
                     "Use unknown for evidence gaps, fail for established constraint violations. "
                     "Entailment concerns reported facts, not proof of an explicitly untested prediction. "
                     "An unmeasured bottleneck can be the first falsification question; do not demand a proven speedup before proposing a test. "
+                    "For the rubric's value, cost and testability criteria, inspect the expected delta and assumptions, "
+                    "engineering/GPU budgets and whether the pilot can resolve materiality after overhead. "
+                    "Do not convert event/row counts or upstream percentages into local service gains. "
+                    "Distinguish readiness for a cheap diagnostic from readiness for a full service attempt; "
+                    "an unknown ROI is not an established failure when the proposed pilot can resolve it. "
                     "No-GPU-execution constraints prohibit launching jobs in this research session, not describing a later bounded experiment. "
                     "A full-text source existing does not mean the quoted passage supports the claim. "
                     "No search hits is uncertainty. Novelty is irrelevant unless explicitly enabled by the rubric. "
                     "Score 0–5 with explicit objections. High polish must not rescue a failed gate. "
                     "Known techniques, feature activation and ports are legitimate candidates if useful relative to the baseline. "
                     "An explicit cheap baseline/eligibility check can resolve unknown deployment inclusion before implementation. "
-                    "Do not repeat historical novelty rejection as a current veto. Review each ID exactly once.\n" +
+                    "Check continuation history: revisiting held/tested families needs a specific evidence or mechanism "
+                    "delta, and pending runtime work must not be duplicated. Do not repeat historical novelty rejection "
+                    "as a current veto. Review each ID exactly once.\n" +
                     json.dumps({"brief": brief, "rubric": policy, "draft": draft, "prior_art": prior,
-                                "sources": bounded([e for c in draft["hypotheses"] for e in c["evidence"]]), "memory": memory}), schema)
+                                "sources": bounded([e for c in draft["hypotheses"] for e in c["evidence"]]),
+                                "history": history, "memory": memory, "continuation": carried_state}), schema)
+                if continuation:
+                    load_context(continuation)  # Do not publish a decision based on changed execution evidence.
                 reviews = {r["id"]: r for r in review["reviews"]}
                 if len(reviews) != len(review["reviews"]) or set(reviews) != {c["id"] for c in draft["hypotheses"]}:
                     raise ValueError("Missing, extra or duplicate review IDs")
@@ -263,7 +293,8 @@ class HypothesisTools:
                     if assessment["eligible"]:
                         eligible.append((card, assessment))
                         for parent in card["parents"]:
-                            retained.pop(parent, None)
+                            parent_local_id = next((key for key, value in global_ids.items() if value == parent), parent)
+                            retained.pop(parent_local_id, None)
                         retained[card["id"]] = (card, assessment)
                 eligible.sort(key=lambda pair: pair[1]["score"], reverse=True)
                 selected_cards = [card for card, _ in sorted(retained.values(), key=lambda pair: pair[1]["score"], reverse=True)][:brief.get("count", 2)]

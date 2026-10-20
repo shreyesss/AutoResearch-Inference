@@ -1,0 +1,251 @@
+From 063295d5fbfc316bdf0e2084e26a8b7fab0b8855 Mon Sep 17 00:00:00 2001
+From: JohnZhao01 <325926370+JohnZhao01@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 22:53:48 +0800
+Subject: [PATCH 1/2] [Fix] [NVIDIA] deepseek-v4.1: Fix the breakable prefill
+ CUDA graph in the late-layer tail on SM90
+
+Without the in-graph low-ratio path (SM90), the late-layer tail of decoder SWA
+bounded replay broke the breakable prefill graph twice: the tail's eager
+low-ratio break rebuilt its rows from the whole extend's extend_seq_lens
+(repeat_interleave assert during warmup), and the source-layer KV write at the
+start of the tail was captured with the capture-time row count (assert on
+replay). Take the live prefix of the hoisted rows in that break, and run the
+source-layer KV write as an eager break over the live rows.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ .../layers/attention/deepseek_v4_backend.py   | 10 ++++
+ python/sglang/srt/models/deepseek_v4.py       | 49 ++++++++++++++---
+ .../unittests/dsv4/test_deepseek_v4.py        | 53 +++++++++++++++++++
+ 3 files changed, 106 insertions(+), 6 deletions(-)
+
+diff --git a/python/sglang/srt/layers/attention/deepseek_v4_backend.py b/python/sglang/srt/layers/attention/deepseek_v4_backend.py
+index da5596206c2b..6d8531d90398 100644
+--- a/python/sglang/srt/layers/attention/deepseek_v4_backend.py
++++ b/python/sglang/srt/layers/attention/deepseek_v4_backend.py
+@@ -3251,6 +3251,16 @@ def forward_low_ratio_sources(
+             # Bucket-sized under the prefill graph; an eager break sees the
+             # live rows only and falls through.
+             req, pos = hoisted_req, hoisted_pos
++        elif (
++            hoisted_req is not None
++            and hoisted_pos is not None
++            and forward_batch.forward_mode.is_extend()
++            and hoisted_pos.shape[0] > positions.shape[0]
++        ):
++            # An eager break in the late-layer tail sees only the tail's live rows,
++            # while extend_seq_lens still spans the whole extend; live rows come first.
++            n = positions.shape[0]
++            req, pos = hoisted_req[:n], hoisted_pos[:n]
+         else:
+             req = token_req_indices(forward_batch, num_tokens=positions.shape[0])
+             pos = positions
+diff --git a/python/sglang/srt/models/deepseek_v4.py b/python/sglang/srt/models/deepseek_v4.py
+index 00579d167ea2..e66a162af2c5 100644
+--- a/python/sglang/srt/models/deepseek_v4.py
++++ b/python/sglang/srt/models/deepseek_v4.py
+@@ -843,6 +843,35 @@ def _low_ratio_sources_capture_stub(layer, x, q_lora, positions) -> None:
+ )
+ 
+ 
++def deepseek_v4_write_tail_source_kv(layer, x, positions) -> None:
++    # Without the in-graph low-ratio path (SM90) the source compressor reads
++    # per-request rows on the host, so it runs as an eager break over live rows.
++    forward_batch = get_tc_piecewise_forward_context().forward_batch
++    backend = get_attn_backend()
++    real_num_tokens = forward_batch.global_num_token_non_padded_cpu
++    if real_num_tokens == 0:
++        backend.tail_source_kv_layer_id = layer.layer_id
++        return
++    backend.write_tail_source_kv(
++        layer=layer,
++        x=x[:real_num_tokens],
++        positions=positions[:real_num_tokens],
++        forward_batch=forward_batch,
++    )
++
++
++def _write_tail_source_kv_capture_stub(layer, x, positions) -> None:
++    # Same contract as _low_ratio_sources_capture_stub.
++    if not in_replay_tail_graph():
++        deepseek_v4_write_tail_source_kv(layer, x, positions)
++
++
++bcg_deepseek_v4_write_tail_source_kv = eager_on_graph(
++    deepseek_v4_write_tail_source_kv,
++    capture_stub=_write_tail_source_kv_capture_stub,
++)
++
++
+ def deepseek_v4_engram_hash_ids(hasher, input_ids: torch.Tensor) -> torch.Tensor:
+     # The hasher reads per-request rows, so it cannot run inside the CUDA graph.
+     forward_batch = get_tc_piecewise_forward_context().forward_batch
+@@ -3930,12 +3959,20 @@ def _forward_layers_hc_pre_from_prev(
+             if tail is not None and i == self.late_layer_start:
+                 if self.tail_writes_source_kv:
+                     source = self.layers[i]
+-                    attn_backend.write_tail_source_kv(
+-                        layer=source.self_attn,
+-                        x=mhc.combine(source.attn_hc, state),
+-                        positions=positions,
+-                        forward_batch=forward_batch,
+-                    )
++                    source_x = mhc.combine(source.attn_hc, state)
++                    if is_in_breakable_cuda_graph() and not getattr(
++                        attn_backend, "low_ratio_prefill_graph", False
++                    ):
++                        bcg_deepseek_v4_write_tail_source_kv(
++                            source.self_attn, source_x, positions
++                        )
++                    else:
++                        attn_backend.write_tail_source_kv(
++                            layer=source.self_attn,
++                            x=source_x,
++                            positions=positions,
++                            forward_batch=forward_batch,
++                        )
+                 # Decode reaches back at most SWA_WINDOW positions.
+                 if tail_in_graph:
+                     # Eager break: re-run at replay so the backend swaps onto the
+diff --git a/test/registered/attention/unittests/dsv4/test_deepseek_v4.py b/test/registered/attention/unittests/dsv4/test_deepseek_v4.py
+index 7d31fe3d6a64..baf9dd92cac3 100644
+--- a/test/registered/attention/unittests/dsv4/test_deepseek_v4.py
++++ b/test/registered/attention/unittests/dsv4/test_deepseek_v4.py
+@@ -901,5 +901,58 @@ def test_idle_never_uses_cached_value(self):
+         self.assertEqual(out.tolist(), [0, 0])
+ 
+ 
++class TestDSV4LateLayerTailLowRatioRows(CustomTestCase):
++    """An eager low-ratio break inside the prefill graph's late-layer tail must read
++    the hoisted rows of the tail, not rows rebuilt from the whole extend."""
++
++    def _run(self, hoisted_req, hoisted_pos, positions):
++        from sglang.srt.layers.attention import deepseek_v4_backend as mod
++
++        backend = object.__new__(mod.DeepseekV4AttnBackend)
++        backend.tail_source_kv_layer_id = None
++        backend.forward_metadata = SimpleNamespace(
++            low_ratio_req_indices=hoisted_req, low_ratio_pos_i64=hoisted_pos
++        )
++        backend._low_ratio_compress = mock.Mock()
++        backend._low_ratio_index_topk = mock.Mock()
++        # Two requests extend 4 and 6 tokens; the tail keeps their last 2 and 3.
++        forward_batch = SimpleNamespace(
++            forward_mode=ForwardMode.EXTEND,
++            encoder_swa_replay=False,
++            req_pool_indices=torch.tensor([7, 9]),
++            extend_seq_lens=torch.tensor([4, 6]),
++        )
++        layer = SimpleNamespace(layer_id=21, compressor=object(), indexer=object())
++        with (
++            mock.patch.object(mod, "dsa_use_prefill_cp", return_value=False),
++            mock.patch.object(
++                mod.DeepseekV4AttnBackend,
++                "_low_ratio_in_prefill_graph",
++                return_value=False,
++            ),
++        ):
++            backend.forward_low_ratio_sources(
++                layer=layer,
++                x=torch.zeros(positions.shape[0], 4),
++                q_lora=torch.zeros(positions.shape[0], 4),
++                positions=positions,
++                forward_batch=forward_batch,
++            )
++        compress_args = backend._low_ratio_compress.call_args.args
++        index_args = backend._low_ratio_index_topk.call_args.args
++        return compress_args[2], compress_args[3], index_args[3], index_args[4]
++
++    def test_tail_break_uses_live_prefix_of_hoisted_rows(self):
++        # Bucket of 8 rows, the 5 live tail rows first.
++        hoisted_req = torch.tensor([7, 7, 9, 9, 9, 0, 0, 0])
++        hoisted_pos = torch.tensor([2, 3, 3, 4, 5, 0, 0, 0])
++        positions = hoisted_pos[:5].clone()
++        req, pos, index_req, index_pos = self._run(hoisted_req, hoisted_pos, positions)
++        self.assertEqual(req.tolist(), [7, 7, 9, 9, 9])
++        self.assertEqual(pos.tolist(), [2, 3, 3, 4, 5])
++        self.assertEqual(index_req.tolist(), [7, 7, 9, 9, 9])
++        self.assertEqual(index_pos.tolist(), [2, 3, 3, 4, 5])
++
++
+ if __name__ == "__main__":
+     unittest.main()
+
+From 8edbe4b667ee0cb7b3e50c0ba6d032862d311b9e Mon Sep 17 00:00:00 2001
+From: JohnZhao01 <325926370+JohnZhao01@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 23:32:17 +0800
+Subject: [PATCH 2/2] Test the late-layer tail source-KV eager break
+
+Cover deepseek_v4_write_tail_source_kv: it writes only the extend's live rows,
+and with no live rows it skips the write but still marks the source layer, as
+write_tail_source_kv does, so the layer's own pass inside the tail skips its
+compressor. Comment the zero-row branch accordingly.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ python/sglang/srt/models/deepseek_v4.py       |  2 +
+ .../unittests/dsv4/test_deepseek_v4.py        | 39 +++++++++++++++++++
+ 2 files changed, 41 insertions(+)
+
+diff --git a/python/sglang/srt/models/deepseek_v4.py b/python/sglang/srt/models/deepseek_v4.py
+index e66a162af2c5..7380b8c365d8 100644
+--- a/python/sglang/srt/models/deepseek_v4.py
++++ b/python/sglang/srt/models/deepseek_v4.py
+@@ -850,6 +850,8 @@ def deepseek_v4_write_tail_source_kv(layer, x, positions) -> None:
+     backend = get_attn_backend()
+     real_num_tokens = forward_batch.global_num_token_non_padded_cpu
+     if real_num_tokens == 0:
++        # Nothing to write, but mark the source layer as write_tail_source_kv does,
++        # so its own pass inside the tail still skips the compressor.
+         backend.tail_source_kv_layer_id = layer.layer_id
+         return
+     backend.write_tail_source_kv(
+diff --git a/test/registered/attention/unittests/dsv4/test_deepseek_v4.py b/test/registered/attention/unittests/dsv4/test_deepseek_v4.py
+index baf9dd92cac3..76f6230746da 100644
+--- a/test/registered/attention/unittests/dsv4/test_deepseek_v4.py
++++ b/test/registered/attention/unittests/dsv4/test_deepseek_v4.py
+@@ -954,5 +954,44 @@ def test_tail_break_uses_live_prefix_of_hoisted_rows(self):
+         self.assertEqual(index_pos.tolist(), [2, 3, 3, 4, 5])
+ 
+ 
++class TestDSV4WriteTailSourceKvBreak(CustomTestCase):
++    """The eager source-KV write at the start of the late-layer tail must write only
++    the live rows of the extend, and still mark the source layer when there are none."""
++
++    def _run(self, real_num_tokens):
++        from sglang.srt.models import deepseek_v4 as mod
++
++        backend = SimpleNamespace(
++            tail_source_kv_layer_id=None, write_tail_source_kv=mock.Mock()
++        )
++        forward_batch = SimpleNamespace(global_num_token_non_padded_cpu=real_num_tokens)
++        layer = SimpleNamespace(layer_id=21)
++        # A graph bucket of 8 rows.
++        x = torch.arange(32, dtype=torch.float32).view(8, 4)
++        positions = torch.arange(8)
++        with (
++            mock.patch.object(
++                mod,
++                "get_tc_piecewise_forward_context",
++                return_value=SimpleNamespace(forward_batch=forward_batch),
++            ),
++            mock.patch.object(mod, "get_attn_backend", return_value=backend),
++        ):
++            mod.deepseek_v4_write_tail_source_kv(layer, x, positions)
++        return backend, forward_batch, x, positions
++
++    def test_writes_live_rows_only(self):
++        backend, forward_batch, x, positions = self._run(real_num_tokens=5)
++        kwargs = backend.write_tail_source_kv.call_args.kwargs
++        self.assertTrue(torch.equal(kwargs["x"], x[:5]))
++        self.assertTrue(torch.equal(kwargs["positions"], positions[:5]))
++        self.assertIs(kwargs["forward_batch"], forward_batch)
++
++    def test_no_live_rows_marks_source_layer_without_writing(self):
++        backend, _, _, _ = self._run(real_num_tokens=0)
++        backend.write_tail_source_kv.assert_not_called()
++        self.assertEqual(backend.tail_source_kv_layer_id, 21)
++
++
+ if __name__ == "__main__":
+     unittest.main()

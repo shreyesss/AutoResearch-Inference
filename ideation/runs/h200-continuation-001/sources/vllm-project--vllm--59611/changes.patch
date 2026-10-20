@@ -1,0 +1,206 @@
+From f5a05c94c3b54737690ade82cc1129136e4bd64b Mon Sep 17 00:00:00 2001
+From: Simon Veitner <sveitner@redhat.com>
+Date: Wed, 14 Oct 2026 13:54:53 +0000
+Subject: [PATCH 1/2] [Bugfix][DeepSeek V4] Load redundant EPLB expert slots
+
+get_expert_mapping did not pass num_redundant_experts, so with EPLB and
+num_redundant_experts > 0 the redundant physical expert slots were
+never loaded by load_weights.
+
+Run DeepSeek-V4-Flash with EPLB and 8 redundant experts in the nightly
+GSM8K job. Right after startup, a worker extension checks over
+/collective_rpc that every redundant expert slot holds the same weights
+as its source expert.
+
+Signed-off-by: Simon Veitner <sveitner@redhat.com>
+---
+ .buildkite/test_areas/lm_eval.yaml            |  5 +++-
+ .../configs/DeepSeek-V4-Flash-EPLB-TEP4.yaml  | 23 +++++++++++++++++
+ .../gsm8k/configs/models-spec-decode.txt      |  1 +
+ tests/evals/gsm8k/eplb_checks.py              | 25 +++++++++++++++++++
+ tests/evals/gsm8k/test_gsm8k_correctness.py   | 10 ++++++++
+ vllm/models/deepseek_v4/nvidia/model.py       |  1 +
+ vllm/models/deepseek_v41/nvidia/model.py      |  1 +
+ 7 files changed, 65 insertions(+), 1 deletion(-)
+ create mode 100644 tests/evals/gsm8k/configs/DeepSeek-V4-Flash-EPLB-TEP4.yaml
+ create mode 100644 tests/evals/gsm8k/eplb_checks.py
+
+diff --git a/.buildkite/test_areas/lm_eval.yaml b/.buildkite/test_areas/lm_eval.yaml
+index c7d9c1777eab..c8517d45dede 100644
+--- a/.buildkite/test_areas/lm_eval.yaml
++++ b/.buildkite/test_areas/lm_eval.yaml
+@@ -326,8 +326,11 @@ steps:
+   source_file_dependencies:
+   - tests/evals/gsm8k/configs/DeepSeek-V4-Flash-DSpark-confidence-TEP4.yaml
+   - tests/evals/gsm8k/configs/DeepSeek-V4.1-Flash-NVFP4-DSpark-TP4.yaml
++  - tests/evals/gsm8k/configs/DeepSeek-V4-Flash-EPLB-TEP4.yaml
+   - tests/evals/gsm8k/configs/Kimi-K3-pruned75-DSpark-TP4.yaml
+   - tests/evals/gsm8k/configs/models-spec-decode.txt
++  - tests/evals/gsm8k/eplb_checks.py
++  - vllm/distributed/eplb/
+   - vllm/models/deepseek_v4/
+   - vllm/models/deepseek_v41/
+   - vllm/models/kimi_k3/
+@@ -339,7 +342,7 @@ steps:
+   - vllm/v1/worker/gpu/spec_decode/rejection_sampler.py
+   - vllm/v1/worker/gpu/spec_decode/speculator.py
+   commands:
+-  - pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-spec-decode.txt
++  - PYTHONPATH=/vllm-workspace pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-spec-decode.txt
+   mirror:
+     amd:
+       label: ":amd: (MI355) LM Eval Spec Decode (Fixed-length FP8)"
+diff --git a/tests/evals/gsm8k/configs/DeepSeek-V4-Flash-EPLB-TEP4.yaml b/tests/evals/gsm8k/configs/DeepSeek-V4-Flash-EPLB-TEP4.yaml
+new file mode 100644
+index 000000000000..c4368851b350
+--- /dev/null
++++ b/tests/evals/gsm8k/configs/DeepSeek-V4-Flash-EPLB-TEP4.yaml
+@@ -0,0 +1,23 @@
++model_name: "deepseek-ai/DeepSeek-V4-Flash"
++accuracy_threshold: 0.92
++num_questions: 1319
++num_fewshot: 5
++startup_max_wait_seconds: 1800
++startup_rpc_checks:
++  - check_eplb_replica_slots
++server_args: >-
++  --tokenizer-mode deepseek_v4
++  --max-model-len 8192
++  --tensor-parallel-size 4
++  --enable-expert-parallel
++  --enable-eplb
++  --eplb-config '{"num_redundant_experts":8}'
++  --worker-extension-cls tests.evals.gsm8k.eplb_checks.EplbCheckExtension
++  --block-size 256
++  --gpu-memory-utilization 0.5
++  --kv-cache-dtype fp8
++  --attention_config.indexer_kv_dtype=mxfp4
++  --max-num-batched-tokens 16384
++  --max-num-seqs 128
++env:
++  VLLM_SERVER_DEV_MODE: "1"
+diff --git a/tests/evals/gsm8k/configs/models-spec-decode.txt b/tests/evals/gsm8k/configs/models-spec-decode.txt
+index 96cead25858c..1882b20f5241 100644
+--- a/tests/evals/gsm8k/configs/models-spec-decode.txt
++++ b/tests/evals/gsm8k/configs/models-spec-decode.txt
+@@ -1,3 +1,4 @@
+ DeepSeek-V4-Flash-DSpark-confidence-TEP4.yaml
+ Kimi-K3-pruned75-DSpark-TP4.yaml
+ DeepSeek-V4.1-Flash-NVFP4-DSpark-TP4.yaml
++DeepSeek-V4-Flash-EPLB-TEP4.yaml
+diff --git a/tests/evals/gsm8k/eplb_checks.py b/tests/evals/gsm8k/eplb_checks.py
+new file mode 100644
+index 000000000000..e0e984bfef6d
+--- /dev/null
++++ b/tests/evals/gsm8k/eplb_checks.py
+@@ -0,0 +1,25 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++import torch
++
++from vllm.distributed import get_ep_group
++
++
++class EplbCheckExtension:
++    def check_eplb_replica_slots(self) -> str | None:
++        """Redundant expert slots must hold their source expert's weights."""
++        state = next(iter(self.model_runner.eplb_state.model_states.values()))
++        sums = [
++            sum(
++                torch.stack([e.view(torch.uint8).sum(dtype=torch.int64) for e in w])
++                for w in layer_weights
++            )
++            for layer_weights in state.model.expert_weights
++        ]
++        sums = get_ep_group().all_gather(torch.stack(sums), dim=1).tolist()
++        bad = sum(
++            s[slot] != s[p2l.index(logical)]
++            for s, p2l in zip(sums, state.physical_to_logical_map.tolist())
++            for slot, logical in enumerate(p2l)
++        )
++        return f"{bad} redundant expert slots differ from their source" if bad else None
+diff --git a/tests/evals/gsm8k/test_gsm8k_correctness.py b/tests/evals/gsm8k/test_gsm8k_correctness.py
+index 3b66de6ad022..4128ade8a60e 100644
+--- a/tests/evals/gsm8k/test_gsm8k_correctness.py
++++ b/tests/evals/gsm8k/test_gsm8k_correctness.py
+@@ -178,6 +178,16 @@ def test_gsm8k_correctness(config_filename):
+         server_url = remote_server.url_for("v1")
+         print(f"Server started at: {server_url}")
+ 
++        # Run before any traffic: EPLB may rearrange experts after a few steps.
++        for method in eval_config.get("startup_rpc_checks", []):
++            response = requests.post(
++                remote_server.url_for("collective_rpc"), json={"method": method}
++            )
++            response.raise_for_status()
++            results = response.json()["results"]
++            print(f"  {method}: {results}")
++            assert results and not any(results), f"{method} failed: {results}"
++
+         results = run_gsm8k_eval(eval_config, server_url)
+ 
+         measured_metric = results["accuracy"]
+diff --git a/vllm/models/deepseek_v4/nvidia/model.py b/vllm/models/deepseek_v4/nvidia/model.py
+index 275dc334915c..930e3b4545c5 100644
+--- a/vllm/models/deepseek_v4/nvidia/model.py
++++ b/vllm/models/deepseek_v4/nvidia/model.py
+@@ -1538,6 +1538,7 @@ def get_expert_mapping(self) -> list[tuple[str, str, int, str]]:
+             ckpt_down_proj_name="w2",
+             ckpt_up_proj_name="w3",
+             num_experts=self.config.n_routed_experts,
++            num_redundant_experts=first_layer.ffn.n_redundant_experts,
+         )
+ 
+     def finalize_mhc_broadcast_weights(self) -> None:
+diff --git a/vllm/models/deepseek_v41/nvidia/model.py b/vllm/models/deepseek_v41/nvidia/model.py
+index 3757809dbce0..512ef482b445 100644
+--- a/vllm/models/deepseek_v41/nvidia/model.py
++++ b/vllm/models/deepseek_v41/nvidia/model.py
+@@ -1396,6 +1396,7 @@ def get_expert_mapping(self) -> list[tuple[str, str, int, str]]:
+             ckpt_down_proj_name="w2",
+             ckpt_up_proj_name="w3",
+             num_experts=self.config.n_routed_experts,
++            num_redundant_experts=first_layer.ffn.n_redundant_experts,
+         )
+ 
+     def finalize_mhc_broadcast_weights(self) -> None:
+
+From e0ce0931641bcfac65714e406f800853a22352ef Mon Sep 17 00:00:00 2001
+From: Simon Veitner <sveitner@redhat.com>
+Date: Tue, 20 Oct 2026 16:28:06 +0200
+Subject: [PATCH 2/2] Fix mypy attr-defined error in EPLB check extension
+
+Signed-off-by: Simon Veitner <sveitner@redhat.com>
+---
+ tests/evals/gsm8k/eplb_checks.py | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/tests/evals/gsm8k/eplb_checks.py b/tests/evals/gsm8k/eplb_checks.py
+index e0e984bfef6d..daef5dd0ef1a 100644
+--- a/tests/evals/gsm8k/eplb_checks.py
++++ b/tests/evals/gsm8k/eplb_checks.py
+@@ -1,14 +1,23 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++from typing import TYPE_CHECKING
++
+ import torch
+ 
+ from vllm.distributed import get_ep_group
+ 
++if TYPE_CHECKING:
++    from vllm.v1.worker.gpu_model_runner import GPUModelRunner
++
+ 
+ class EplbCheckExtension:
++    model_runner: "GPUModelRunner"
++
+     def check_eplb_replica_slots(self) -> str | None:
+         """Redundant expert slots must hold their source expert's weights."""
+-        state = next(iter(self.model_runner.eplb_state.model_states.values()))
++        eplb_state = self.model_runner.eplb_state
++        assert eplb_state is not None
++        state = next(iter(eplb_state.model_states.values()))
+         sums = [
+             sum(
+                 torch.stack([e.view(torch.uint8).sum(dtype=torch.int64) for e in w])

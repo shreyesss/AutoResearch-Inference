@@ -1,0 +1,25 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:112",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/112",
+  "title": "fix: validate Pareto sweep configurations before deduplication",
+  "body": "When two sweep records have the same batch size but different fixed configurations, `load_points()` overwrites the earlier record before checking configuration consistency. For example, model A at batch 8 followed by model B at batch 8 is silently accepted, bypassing the mixed-configuration rejection documented in `examples/README.md`.\n\nValidate all usable records against the existing `FIXED_FIELDS` before deduplicating. Reruns with matching configurations still keep the last record and return points sorted by batch size. No new dependencies or throughput calculations are introduced.\n\nAdd 15 CPU regression cases covering decode, prefill, and encoder modes, both record orders, configuration conflicts at matching or different batch sizes, and sorting/last-write behavior for valid reruns. Tests call the real `load_points()` and carry both `ci` and `ci_npu` markers.\n\nValidation on macOS with Python 3.12.9:\n\n- Same tests against upstream `774ce244b87cc0eb8d4b94ab9f5de2ab22049f01`: **6 failed, 9 passed**. All failures are configuration conflicts hidden by matching batch sizes.\n- With the fix, `python -m pytest -q tests/test_plot_pareto_config.py`: **15 passed**.\n- `ruff check --no-cache`: passed across the repository.\n- `ruff format --check --no-cache`: all 271 Python files passed.\n- `git diff --check`: passed.\n\nGPU/NPU inference and hardware performance sweeps were not run. AI assistance was used for analysis, implementation, tests, and drafting.\n",
+  "created_at": "2026-10-20T16:31:17Z",
+  "updated_at": "2026-10-20T16:31:17Z",
+  "fetched_at": "2026-10-20T21:33:44Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "throughput",
+    "performance"
+  ],
+  "metadata": {
+    "number": 112,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "bb9fbb43b6d277634fed5cd9ae43c72e91d47401cd3e49185a5afd40caccf79d"
+}

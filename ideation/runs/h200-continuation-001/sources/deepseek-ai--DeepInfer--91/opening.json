@@ -1,0 +1,25 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:91",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/91",
+  "title": "Add MXFP4 -> FP8 expert checkpoint conversion for SM90 (Hopper)",
+  "body": "### Motivation\n\nThe released V4.1-Flash checkpoint stores routed experts as MXFP4 (packed e2m1 + per-row UE8M0 scales), which requires SM100 FP4 tensor cores. Hopper (SM90 \u2014 e.g. H20, the most widely deployed inference GPU in mainland China) has no FP4 support, so a converted FP8-expert checkpoint is the prerequisite for every later SM90 step.\n\nThis PR adds the offline conversion tooling and the config-side acceptance. It is the first piece of the SM90 work; the FP8-expert loading branch in `_load_expert_params` follows separately.\n\n### What's included\n\n**`scripts/convert_mxfp4_to_fp8.py`** \u2014 standalone (torch + safetensors only, runs on a CPU box, no DeepInfer build):\n\n- expert weights `...ffn.experts.{e}.w{1,2,3}.weight`: packed e2m1 int8 `(n, k//2)` + UE8M0 scales `(n, k//32)` \u2192 dequantized FP32 \u2192 requantized **F8_E4M3 `(n, k)` with per-32\u00d732-block scales** (amax \u2192 448, unit scale for zero blocks);\n- expert scales `...scale`: become **FP32 `(n//32, k//32)` row-major** \u2014 requantized block scales are not powers of two, so they cannot stay in F8_E8M0 without corrupting them;\n- everything else (attention/shared-expert FP8 weights and their F8_E8M0 scales, Engram tables, tokenizer) is copied byte-identically; shards are processed one at a time to bound host memory;\n- `config.json` is rewritten with `quantization_config.expert_dtype: \"fp8\"` and (unless `--keep-fp4-kv`) `text_config.use_fp4_sparse_kv: false` \u2014 the FP8 main-KV runtime path (`V41_FORMAT`) already exists end to end;\n- e2m1 nibble order defaults to low-nibble-first (the OCP MXFP4 / DeepGEMM convention) with `--high-nibble-first` as the escape hatch; it should be validated once against `tile_kernels.quant.per_token_cast` on a real GPU.\n\n**`deepinfer/hugging_face/config.py`** \u2014 the quantization validation now accepts `expert_dtype` `\"fp8\"` in addition to `\"fp4\"` (anything else is still rejected). `mxfp4=False` then flows into the existing runtime path: `mlp.py` derives `mma_type=\"fp8xfp8\"` and `process_moe_weight(use_fp4=False)` already handles the FP8 layout. Note `bf16` experts are *not* accepted: `quant_method` must be `\"fp8\"`, so activations are always FP8 and `bf16xbf16` can never be selected.\n\n**`tests/test_convert_mxfp4.py`** \u2014 11 CPU-only unit tests: e2m1 LUT and decode against an independent reference encoder (both nibble orders), lossless UE8M0\u2192FP32, requantization error bounds (2\u207b\u2074 relative + e4m3 subnormal granularity), zero-block handling, shape rejection, and an end-to-end miniature checkpoint conversion (shapes/dtypes, passthrough byte-equality of ordinary weights, config rewrite, `--keep-fp4-kv`).\n\n### What is deliberately not in this PR\n\n- **The FP8-expert loader branch** (`_load_expert_params` currently hard-asserts the packed-FP4 3D int8 layout). The output format defined here \u2014 per-expert F8_E4M3 `(n, k)` + FP32 `(n//32, k//32)` `.scale`, w1/w3 concatenated along dim 0 for `linear1` \u2014 is the contract that branch will read.\n- `platform.py` `fp8_sf_type` parameterization and the DeepGEMM SM90 (`disable_ue8m0_cast=True`) dispatch, which only matter once loading works.\n\nTracked in the SM90 series (H20 141GB target); the format contract above is the reference for the follow-up loader PR.\n",
+  "created_at": "2026-10-20T15:19:29Z",
+  "updated_at": "2026-10-20T15:19:29Z",
+  "fetched_at": "2026-10-20T21:33:44Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "h100",
+    "nvfp4"
+  ],
+  "metadata": {
+    "number": 91,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "1f80be0186550b4faf5bfc4733d353890793fb29d5a28b23036049e1b855af1b"
+}

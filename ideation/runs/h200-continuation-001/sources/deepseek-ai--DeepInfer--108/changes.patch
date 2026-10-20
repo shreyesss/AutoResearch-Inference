@@ -1,0 +1,298 @@
+From ab47ee4c62ab704431db1b06a66f01c57619faef Mon Sep 17 00:00:00 2001
+From: syang-genai <191082996+syang-genai@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 12:17:59 +0800
+Subject: [PATCH] scheduler: consume chunk checkpoints on commit and keep
+ lookahead room when chunking
+
+Two problems in the prefill chunk sizing of _schedule_prefill:
+
+1. chunk_checkpoints were popped while the chunk was still being sized,
+   before the scheduler had decided to take the sequence. Every later
+   bail-out (chunked_prefill disabled, chunk shorter than lookahead,
+   image boundary shrinking the chunk to zero) left the sequence in
+   waiting with its checkpoint already gone, so the next attempt ran
+   straight past the boundary the caller asked for. With the library
+   default chunked_prefill=False this happened on the very first
+   attempt: the checkpoint chunk counted as "chunked", the attempt
+   broke out, and the whole prompt was prefilled in one go on the next
+   step. Callers that fork a cached prefix at the checkpoint (the
+   pattern in examples/benchmark.py) then get a longer prefix than they
+   asked for, with no diagnostic.
+
+   Checkpoints are now consumed only in the commit section, once the
+   chunk is actually scheduled: everything up to the chunk end is
+   popped, plus the checkpoint this chunk was cut at when an image
+   boundary shortened it (that one cannot be honored exactly and would
+   otherwise be retried at the same position forever). A checkpoint is
+   an explicit split requested by the caller, so a checkpoint chunk is
+   allowed with chunked_prefill=False; that flag only governs splitting
+   for the token budget.
+
+2. When a prompt was split for the token budget, nothing kept the
+   remainder at or above lookahead_tokens. A 4100-token prompt against
+   a 4096-token budget with lookahead_tokens=8 produced a 4-token
+   remainder, and the next attempt tripped the
+   seq_workload >= lookahead_tokens check, which aborts the engine step
+   with the sequence stuck at the head of waiting. Under data
+   parallelism the throw lands between the two vote allreduces, so the
+   other ranks hang. The shipped examples use lookahead_tokens <= 1 and
+   never hit this; it is reachable through EngineArgs.lookahead_tokens.
+
+   The chunk is now shortened so that at least lookahead_tokens remain.
+   A checkpoint whose chunk or remainder cannot satisfy the lookahead
+   constraints is treated as absent and consumed, instead of being
+   retried without progress.
+
+Add CPU scheduler tests driving the real extension on a gloo group for
+both behaviors.
+---
+ csrc/engine/scheduler.hpp                   |  43 +++++-
+ tests/engine/test_scheduler_chunk_sizing.py | 162 ++++++++++++++++++++
+ 2 files changed, 197 insertions(+), 8 deletions(-)
+ create mode 100644 tests/engine/test_scheduler_chunk_sizing.py
+
+diff --git a/csrc/engine/scheduler.hpp b/csrc/engine/scheduler.hpp
+index ed6e897..a4daada 100644
+--- a/csrc/engine/scheduler.hpp
++++ b/csrc/engine/scheduler.hpp
+@@ -474,15 +474,27 @@ struct Scheduler {
+                     seqlen_q < seq_workload, "_schedule: is_chunked must be true:, seqlen_q:", seqlen_q, " seq_workload: ", seq_workload);
+             }
+ 
++            // chunk_checkpoints 只在下方的提交阶段消费。这里之后还有多条 break 会让本 seq 留在
++            // waiting 重试；若在这里就 pop，checkpoint 会被静默丢掉，下一次尝试直接越过它。
+             auto start_offset = seq->cache.num_tokens;
+-            while (!seq->schedule.chunk_checkpoints.empty() && seq->schedule.chunk_checkpoints.front() <= start_offset) {
+-                seq->schedule.chunk_checkpoints.pop_front();
++            int checkpoint = 0;
++            for (int candidate : seq->schedule.chunk_checkpoints) {
++                if (candidate > start_offset) {
++                    checkpoint = candidate;
++                    break;
++                }
+             }
+-            int checkpoint = seq->schedule.chunk_checkpoints.empty() ? 0 : seq->schedule.chunk_checkpoints.front();
+-
+-            if (start_offset + seqlen_q >= checkpoint && checkpoint > start_offset) {
+-                seqlen_q = checkpoint - start_offset;
+-                seq->schedule.chunk_checkpoints.pop_front();
++            bool stop_at_checkpoint = false;
++            if (checkpoint > start_offset && start_offset + seqlen_q >= checkpoint) {
++                int checkpoint_chunk = checkpoint - start_offset;
++                if (checkpoint_chunk < std::max(lookahead_tokens, 1) || seq_workload - checkpoint_chunk < lookahead_tokens) {
++                    // 切到 checkpoint 的 chunk 本身或其后的剩余量不足 lookahead_tokens，这个切分点无法满足
++                    // （见下方的两条 lookahead 约束），按没有 checkpoint 处理，提交时一并消费掉。
++                    checkpoint = 0;
++                } else {
++                    seqlen_q = checkpoint - start_offset;
++                    stop_at_checkpoint = true;
++                }
+             }
+             // 调整多模态切的位置
+             int new_seqlen_q = _adjust_chunk_size(seqlen_q, seq->cache.num_tokens, seq->get_token_ids(), scheduled.empty());
+@@ -491,6 +503,11 @@ struct Scheduler {
+             } else {
+                 seqlen_q = new_seqlen_q;
+             }
++            // 分块后剩余部分必须不少于 lookahead_tokens，否则下一次调度该 seq 时会触发上面的
++            // seq_workload >= lookahead_tokens 检查而中止整个引擎。把本 chunk 缩短到刚好留够剩余量。
++            if (seqlen_q < seq_workload && seq_workload - seqlen_q < lookahead_tokens) {
++                seqlen_q = _adjust_chunk_size(seq_workload - lookahead_tokens, seq->cache.num_tokens, seq->get_token_ids(), false);
++            }
+             if (seqlen_q == 0) {
+                 TORCH_CHECK(!scheduled.empty(), std::format("有请求正在排队，但是调度不上来，不应该 (post_adjust)"
+                                                             ", len={}, cached={}, seq_workload={}, new_workload={}"
+@@ -502,7 +519,8 @@ struct Scheduler {
+             }
+ 
+             bool is_chunked = seqlen_q < seq_workload;
+-            if (is_chunked && !chunked_prefill) {
++            // checkpoint 是调用方显式要求的切分点，不受 chunked_prefill 开关限制。
++            if (is_chunked && !chunked_prefill && !stop_at_checkpoint) {
+                 break;
+             }
+             // 其它约束都是硬约束，这里只验证 seqlen_q 满足最低要求，不满足则不调度
+@@ -514,6 +532,15 @@ struct Scheduler {
+ 
+             num_batched_tokens += (seqlen_q + cp_align - 1) / cp_align * cp_align;
+ 
++            // 消费本 chunk 覆盖到的 checkpoint；若本 chunk 是按 checkpoint 切的却被图片边界缩短，
++            // 下一次仍会缩到同一位置，该 checkpoint 无法精确满足，也一并消费掉。
++            while (!seq->schedule.chunk_checkpoints.empty() && seq->schedule.chunk_checkpoints.front() <= start_offset + seqlen_q) {
++                seq->schedule.chunk_checkpoints.pop_front();
++            }
++            if (stop_at_checkpoint && !seq->schedule.chunk_checkpoints.empty() && seq->schedule.chunk_checkpoints.front() == checkpoint) {
++                seq->schedule.chunk_checkpoints.pop_front();
++            }
++
+             TORCH_CHECK(seq->schedule.status == SequenceStatus::WAITING, "status ", int(seq->schedule.status));
+             if (seq->cache.block_table.empty()) {
+                 acquire.allocate_seq(*seq);
+diff --git a/tests/engine/test_scheduler_chunk_sizing.py b/tests/engine/test_scheduler_chunk_sizing.py
+new file mode 100644
+index 0000000..c08ac73
+--- /dev/null
++++ b/tests/engine/test_scheduler_chunk_sizing.py
+@@ -0,0 +1,162 @@
++"""Prefill chunk sizing: chunk_checkpoints must be honored, and chunking must never strand a sequence.
++
++Drives the real C++ scheduler on a CPU process group without a model: schedule, free the finished sequences and
++feed fake outputs back, the same way LLMEngine.step() does. Only the compiled extension is needed.
++"""
++
++from __future__ import annotations
++
++from collections.abc import Generator
++from pathlib import Path
++from types import SimpleNamespace
++
++import numpy as np
++import pytest
++import torch  # noqa: F401  Load torch libraries before the C++ extension.
++import torch.distributed as dist
++
++from deepinfer._C.engine import BlockManager, Scheduler, Sequence, SequenceMetadataPool, process_MTPInfo
++from deepinfer.sampling_params import SamplingParams
++
++pytestmark = [pytest.mark.ci, pytest.mark.ci_npu]
++
++EOS = 1
++VOCAB_SIZE = 1000
++GENERATED_TOKEN = 5  # never EOS, so requests end by max_tokens
++MAX_MODEL_LEN = 64
++
++
++@pytest.fixture(scope="module")
++def cpu_group(tmp_path_factory: pytest.TempPathFactory) -> Generator[dist.ProcessGroup]:
++    initialized_here = not dist.is_initialized()
++    if initialized_here:
++        rendezvous = Path(tmp_path_factory.mktemp("rendezvous")) / "store"
++        dist.init_process_group("gloo", init_method=f"file://{rendezvous}", rank=0, world_size=1)
++    yield dist.new_group(ranks=[0], backend="gloo")
++    if initialized_here:
++        dist.destroy_process_group()
++
++
++class _Engine:
++    """schedule -> free finished sequences -> process outputs, without speculative decoding or zero-overhead scheduling."""
++
++    def __init__(
++        self,
++        group: dist.ProcessGroup,
++        monkeypatch: pytest.MonkeyPatch,
++        *,
++        max_num_batched_tokens: int,
++        chunked_prefill: bool,
++        lookahead_tokens: int = 0,
++        block_size: int = 4,
++        num_blocks: int = 65,
++    ) -> None:
++        monkeypatch.setenv("DEEPINFER_USE_NEXTN_DECODE", "0")  # read by the C++ scheduler when it is built
++        self.block_size = block_size
++        self.block_manager = BlockManager(num_blocks)
++        config = SimpleNamespace(
++            max_model_len=MAX_MODEL_LEN,
++            runtime_max_model_len=MAX_MODEL_LEN + 16,
++            max_num_batched_tokens=max_num_batched_tokens,
++            max_num_seqs=4,
++            stop_preempted_request=False,
++            chunked_prefill=chunked_prefill,
++            engine_type=0,  # EngineType.NORMAL
++            prefill_attempt_interval=1,
++            prefill_any_attempt_interval=2,
++        )
++        self.scheduler = Scheduler(
++            block_size, self.block_manager, None, EOS, group, config, 0, lookahead_tokens, 2**30, None, [], 1, VOCAB_SIZE, False
++        )
++        self.pool = SequenceMetadataPool()
++        self.num_sequences = 0
++
++    def add_request(self, prompt_len: int, *, max_tokens: int = 1, chunk_checkpoints: list[int] | None = None) -> Sequence:
++        request_id = str(self.num_sequences)
++        prompt = np.full(prompt_len, 7, dtype=np.int32)
++        seq = Sequence(
++            seq_id=self.num_sequences, prompt_token_ids=prompt, compressed_prompt_token_ids=prompt, multi_modal_data=None,
++            block_size=self.block_size, request_id=request_id, user_id="user",
++            sampling_params=SamplingParams(max_tokens=max_tokens, eos_id=EOS), arrival_time=0.0, golden_token_ids=None,
++        )  # fmt: skip
++        self.num_sequences += 1
++        if chunk_checkpoints is not None:
++            seq.chunk_checkpoints = chunk_checkpoints
++        self.scheduler.add_sequence(seq)
++        return seq
++
++    def step(self) -> list[Sequence]:
++        """One scheduler round trip; returns the sequences scheduled in this step."""
++        seq_metadata_list, outputs = self.scheduler.schedule(self.pool)
++        for seq in outputs.finished_seqs:
++            self.scheduler.free_seq(seq)
++        scheduled = list(outputs.scheduled_seqs)
++        n = len(scheduled)
++        process_MTPInfo(outputs, False, torch.zeros((n, 0), dtype=torch.int32), None)
++        self.scheduler.process_outputs(
++            outputs, torch.empty(0, dtype=torch.int32), torch.full((n,), GENERATED_TOKEN, dtype=torch.int32), None
++        )
++        self.pool.release(seq_metadata_list)
++        return scheduled
++
++    def prefill_history(self, seq: Sequence, max_steps: int = 20) -> list[int]:
++        """num_cached_tokens after each step until the prompt is fully prefilled."""
++        history: list[int] = []
++        for _ in range(max_steps):
++            if seq.num_cached_tokens >= seq.get_len():
++                return history
++            self.step()
++            history.append(seq.num_cached_tokens)
++        raise AssertionError(f"prompt not prefilled after {max_steps} steps: {history}")
++
++
++def test_checkpoint_is_honored_when_chunked_prefill_is_off(cpu_group: dist.ProcessGroup, monkeypatch: pytest.MonkeyPatch) -> None:
++    # chunked_prefill=False only forbids splitting a prompt because of the token budget; a checkpoint is an explicit
++    # request by the caller to stop exactly there, so it must still produce a chunk boundary.
++    engine = _Engine(cpu_group, monkeypatch, max_num_batched_tokens=32, chunked_prefill=False)
++    seq = engine.add_request(prompt_len=20, chunk_checkpoints=[5])
++
++    assert engine.prefill_history(seq) == [5, 20]
++    assert not seq.chunk_checkpoints
++
++
++def test_every_checkpoint_in_the_prompt_produces_a_boundary(cpu_group: dist.ProcessGroup, monkeypatch: pytest.MonkeyPatch) -> None:
++    engine = _Engine(cpu_group, monkeypatch, max_num_batched_tokens=32, chunked_prefill=True)
++    seq = engine.add_request(prompt_len=12, chunk_checkpoints=[4, 8])
++
++    assert engine.prefill_history(seq) == [4, 8, 12]
++    assert not seq.chunk_checkpoints
++
++
++def test_checkpoint_survives_a_step_that_cannot_take_the_sequence(cpu_group: dist.ProcessGroup, monkeypatch: pytest.MonkeyPatch) -> None:
++    # A prompt ahead in the queue uses the whole budget, so the checkpointed prompt is sized but not committed on
++    # the first step. The checkpoint must still be there when the sequence is actually scheduled.
++    engine = _Engine(cpu_group, monkeypatch, max_num_batched_tokens=16, chunked_prefill=True)
++    first = engine.add_request(prompt_len=16)
++    second = engine.add_request(prompt_len=12, chunk_checkpoints=[6])
++
++    scheduled = engine.step()
++    assert [seq.request_id for seq in scheduled] == [first.request_id]
++    assert second.num_cached_tokens == 0
++    assert list(second.chunk_checkpoints) == [6]
++
++    assert engine.prefill_history(second) == [6, 12]
++
++
++def test_chunk_leaves_at_least_lookahead_tokens_for_the_next_chunk(cpu_group: dist.ProcessGroup, monkeypatch: pytest.MonkeyPatch) -> None:
++    # Budget 8, prompt 10, lookahead 4: a naive first chunk of 8 would leave a 2-token remainder, which the scheduler
++    # rejects on the next attempt (seq_workload >= lookahead_tokens). The first chunk has to stop at 6 instead.
++    engine = _Engine(cpu_group, monkeypatch, max_num_batched_tokens=8, chunked_prefill=True, lookahead_tokens=4)
++    seq = engine.add_request(prompt_len=10)
++
++    assert engine.prefill_history(seq) == [6, 10]
++
++
++def test_checkpoint_too_close_to_the_prompt_end_is_dropped(cpu_group: dist.ProcessGroup, monkeypatch: pytest.MonkeyPatch) -> None:
++    # Checkpoint 8 on a 10-token prompt with lookahead 4 cannot be honored: the remainder would be 2 tokens. The
++    # prompt is prefilled in one go and the checkpoint is consumed rather than retried forever.
++    engine = _Engine(cpu_group, monkeypatch, max_num_batched_tokens=32, chunked_prefill=True, lookahead_tokens=4)
++    seq = engine.add_request(prompt_len=10, chunk_checkpoints=[8])
++
++    assert engine.prefill_history(seq) == [10]
++    assert not seq.chunk_checkpoints

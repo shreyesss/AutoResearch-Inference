@@ -1,0 +1,81 @@
+From c1f1ca39e40b42bb95bdcea32fda4aa04b1b2d3e Mon Sep 17 00:00:00 2001
+From: Nishant Revur <kumrfni@amazon.com>
+Date: Tue, 13 Oct 2026 22:10:53 +0000
+Subject: [PATCH] [Bugfix][MRV2] Don't count adaptive verification profiling
+ cache as CUDA graph memory
+
+capture_model runs adaptive verification's cost-profiling dummy runs
+between its start and end free-memory reads. The activations those runs
+leave in the caching allocator were counted as CUDA graph memory, in both
+the memory-profiling estimate and the real capture, and taken from the KV
+cache. Release them before the end reading.
+
+Co-authored-by: Claude <noreply@anthropic.com>
+Signed-off-by: Nishant Revur <kumrfni@amazon.com>
+---
+ tests/v1/worker/test_gpu_model_runner_v2.py | 37 +++++++++++++++++++++
+ vllm/v1/worker/gpu/model_runner.py          |  3 ++
+ 2 files changed, 40 insertions(+)
+
+diff --git a/tests/v1/worker/test_gpu_model_runner_v2.py b/tests/v1/worker/test_gpu_model_runner_v2.py
+index 8ccc3731d9c8..534eee8204ee 100644
+--- a/tests/v1/worker/test_gpu_model_runner_v2.py
++++ b/tests/v1/worker/test_gpu_model_runner_v2.py
+@@ -343,6 +343,43 @@ def test_capture_model_profile_only_skips_lock(monkeypatch):
+     assert lock_calls == []
+ 
+ 
++@pytest.mark.parametrize("profile_only", [False, True])
++def test_capture_model_excludes_adaptive_verification_profiling_cache(
++    monkeypatch, profile_only
++):
++    """Adaptive verification's cost-profiling dummy runs execute inside
++    capture_model's free-memory window. The activations they leave in the
++    allocator cache must not be counted as CUDA graph memory, which is taken
++    from the KV cache."""
++    runner = _make_capture_runner(captured=True)
++    runner.cudagraph_manager.captured_token_counts = lambda: [1, 2]
++    runner.step_timing = SimpleNamespace(collect=lambda: contextlib.nullcontext([]))
++    curves: list[list] = []
++    runner.adaptive_verification = SimpleNamespace(
++        batches_to_profile=lambda sizes: [{"num_tokens": n} for n in sizes],
++        set_initial_cost_curves=curves.append,
++    )
++    total, cached = 16 << 30, [0]
++
++    def _dummy_run(num_tokens):
++        cached[0] = 2 << 30
++
++    runner._dummy_run = _dummy_run
++    monkeypatch.setattr(
++        model_runner_module, "freeze_gc_for_cudagraph_capture", contextlib.nullcontext
++    )
++    monkeypatch.setattr(
++        torch.accelerator, "empty_cache", lambda: cached.__setitem__(0, 0)
++    )
++    monkeypatch.setattr(
++        torch.accelerator, "get_memory_info", lambda: (total - cached[0], total)
++    )
++    monkeypatch.setattr(model_runner_module, "lock_workspace", lambda: None)
++
++    assert runner.capture_model(profile_only=profile_only) == 0
++    assert curves == [[]]
++
++
+ @pytest.mark.parametrize("target_buffer", ["absent", "none", "tensor"])
+ def test_get_drafter_hidden_states_tolerates_missing_target_buffer(target_buffer):
+     """Targets allocate the MTP hidden buffer only for hidden-state drafters."""
+diff --git a/vllm/v1/worker/gpu/model_runner.py b/vllm/v1/worker/gpu/model_runner.py
+index 9cd7299642ab..ddaf218dcf97 100644
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -1111,6 +1111,9 @@ def capture_model(self, *, profile_only: bool = False) -> int:
+                             ):
+                                 self._dummy_run(**batch)
+                         self.adaptive_verification.set_initial_cost_curves(timings)
++                        # Release the profiling runs' activations, or the
++                        # allocator cache is counted as graph memory below.
++                        torch.accelerator.empty_cache()
+                     self.kv_connector.reset_capture_state()
+ 
+             end_free_gpu_memory = torch.accelerator.get_memory_info()[0]

@@ -1,0 +1,25 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:35",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/35",
+  "title": "Fix KV cache capacity, decode reservations, and waiting-request reclamation",
+  "body": "## Summary\n\nFix three KV-cache resource-accounting failures:\n\n- Choose the minimum profiled block capacity across ranks before even-count alignment.\n- Admit decode requests using their actual missing-block count, including in-flight and draft reservations; allocate the entire deficit and retain surplus trimming.\n- Release cache/state references when terminated waiting requests are removed, and clear released state handles.\n\nThe scheduler keeps its existing allocation lock, reservation formula, and preemption ordering.\n\n## Regression coverage\n\nAdd core CUDA/Ascend-selected CPU scheduler and worker regressions for capacity imbalance, full-cache decode, speculative reservations, multiple missing blocks and victims, pinned references, repeated partial-prefill cancellation, forks, and recompute cleanup.\n\nRun the checked-in suite against a built extension:\n\n```bash\npython -m pytest tests/worker/test_cache_capacity.py \\\n  tests/engine/test_scheduler_decode_blocks.py \\\n  tests/engine/test_scheduler_reclamation.py -q\n```\n\n## Validation performed\n\n- Actual-header C++ decode harness: baseline **28 failures / 8 passes**, fixed **36 passes**. Uses real Scheduler, Sequence, and BlockManager with CPU PyTorch. The recorded macOS run used temporary utility-header portability adaptations; the full reproduction and exact adaptations are attached to issue #3 below.\n- Cache-capacity tests: **7 passed**, exercising the real WorkerBase method with mocked memory observations and collective results. Local import bootstrap replaces accelerator-only dependencies.\n- Extracted C++ reclamation/control-path harness: **392 passed** on the combined branch.\n- Ruff, Python compilation, and `git diff --check` passed.\n- Combined integration check with #34 and #36: merged without conflicts in an isolated worktree; **36 native scheduler cases, 2 native cancellation/output cases, and 12 sampling-parameter tests passed**.\n- Independent review of the combined production changes, ownership paths, native bindings, and tests completed with no actionable findings. Its CI-selection and test-comment findings were corrected.\n\nUpstream issues are disabled; tracking and reproduction evidence:\n\nCloses https://github.com/morluto/DeepInfer/issues/1\nCloses https://github.com/morluto/DeepInfer/issues/3\nCloses https://github.com/morluto/DeepInfer/issues/4\n",
+  "created_at": "2026-10-20T10:29:33Z",
+  "updated_at": "2026-10-20T10:32:37Z",
+  "fetched_at": "2026-10-20T21:33:45Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "speculation",
+    "kv-cache"
+  ],
+  "metadata": {
+    "number": 35,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "535c191270270be1c379dae58709ac37f7d7d45f6eeb782de4cb2a2685542770"
+}

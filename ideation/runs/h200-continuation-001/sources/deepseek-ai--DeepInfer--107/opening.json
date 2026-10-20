@@ -1,0 +1,24 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:107",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/107",
+  "title": "eplb: aggregate the expert-count window by logical expert at record time",
+  "body": "## Problem\n\n`ExpertLoadBalancer` keeps a ring buffer of per-step expert token counts (`_expert_count_window`) and hands the aggregate to `rebalance_experts_global` on every rearrangement. The window stored raw **per-local-physical-slot** counts, and `_rearrange_experts` decoded *all* entries with the `physical_to_logical_map` that is current at rearrangement time:\n\n```python\nlogical_expert_token_counts.scatter_add_(\n    -1,\n    local_physical_to_logical_map.to(torch.int64).expand_as(self._expert_count_window),\n    self._expert_count_window,\n)\n```\n\nEvery rearrangement re-keys the physical slots (`self.physical_to_logical_map.copy_(next_physical_to_logical_map)`), but the window was never cleared or re-keyed. Entries recorded under an earlier placement are therefore attributed to whichever logical expert now occupies the slot.\n\nIn plain interval mode this is masked: the constructor enforces `window_size <= rearrangement_interval`, so the ring is fully overwritten between rearrangements. With `DEEPINFER_REARRANGE_AFTER_PREFILL_IN_NORMAL_ENGINE=1`, however, `_update_rearrangement` forces a rearrangement on the step after **every** prefill. Under continuous batching that is far more often than `window_size` decode steps, so most of the window holds counts recorded under one or more dead placements. The second and later rearrangements then optimize a scrambled load distribution: hot experts under-replicated, cold ones replicated, placements oscillating after each prefill while paying a full all-layer weight shuffle each time. `rank_balance` / `logical_balance` in the `[EPLB] rearranged` log line are computed from the same scrambled counts, so the logs do not show it.\n\n## Fix\n\nRecord the window as `[window_size, num_moe_layers, num_logical_experts]`: each step's slot counts are scatter-added with the placement that is current **when the step is recorded**. `_rearrange_experts` then only has to clone and all-reduce the window; the tensor handed to `rebalance_experts_global` and to `_log_rearrangement_metrics` has exactly the same shape and meaning as before, so the policy and the metrics are untouched.\n\nThe rank slice of `physical_to_logical_map` is factored into `_local_physical_to_logical_map()`; it is a view, so it tracks the in-place `copy_` after each shuffle.\n\nMemory: the window grows from `num_local_physical_experts` to `num_logical_experts` per layer per entry (int32). For V4.1-Flash at the default window of 100 steps this is on the order of a few MB.\n\n## Tests\n\n`tests/models/test_eplb_window.py` (CPU-only, marked `ci` and `ci_npu`) drives `_update_rearrangement` directly with a two-method fake process group and checks that:\n\n- an entry recorded before a placement change keeps its original attribution, and an entry recorded after it uses the new placement;\n- ring wrap replaces the slot rather than accumulating into it;\n- the rank slice follows `ep_group.rank()`.\n\nRan these tests, plus a CPU smoke run of three consecutive `_rearrange_experts` cycles through the real `rebalance_experts_global` and metrics logging with collectives stubbed. I do not have SM100 / Ascend hardware, so the GPU path was not exercised; the change does not touch the shuffle or the kernels.\n",
+  "created_at": "2026-10-20T16:15:10Z",
+  "updated_at": "2026-10-20T16:15:10Z",
+  "fetched_at": "2026-10-20T21:33:44Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "communication"
+  ],
+  "metadata": {
+    "number": 107,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "ce2701245513ccf6ac1e06fd5202317422b15f299424e7c9618da98e7f25fc6c"
+}

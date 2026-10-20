@@ -1,0 +1,51 @@
+{
+  "id": "github:vllm-project/vllm:59609",
+  "source": "github",
+  "kind": "issue",
+  "url": "https://github.com/vllm-project/vllm/issues/59609",
+  "title": "[Bug]: DeepSeek V4/V4.1 with --enable-eplb never loads the redundant expert slots",
+  "body": "\n> AI disclosure: this issue was investigated and drafted with an AI assistant (Claude). The reproducers were run on the hardware below, and every number in this issue comes from those runs. A human reviewed the issue before filing.\n\n### Your current environment\n\n<details>\n<summary>Environment summary</summary>\n\n```text\nvLLM:    0.1.dev22318+gcb6458c5c (precompiled wheel, upstream main at cb6458c5ce)\nPyTorch: 2.13.0+cu130\nCUDA:    13.0\nPython:  3.12\nGPUs:    4x NVIDIA B300\n```\n\n</details>\n\n### \ud83d\udc1b Describe the bug\n\nWith `--enable-eplb` and `num_redundant_experts=N > 0`, DeepSeek V4 and V4.1 never load weights into the redundant slots of each MoE layer. Below, \"redundant slots\" means the N physical expert slots with ids `n_routed_experts..n_routed_experts+N-1`. They keep whatever the allocation held. EPLB routes about half of the tokens for logical experts `0..N-1` to these slots. Nothing errors or warns.\n\nThe cause is that `DeepseekV4Model.get_expert_mapping` calls `fused_moe_make_expert_params_mapping(...)` without `num_redundant_experts`, so the argument defaults to 0:\n\n- `vllm/models/deepseek_v4/nvidia/model.py:1809`\n- `vllm/models/deepseek_v41/nvidia/model.py:1338`\n\nThe returned mapping only contains physical expert ids `0..n_routed_experts-1`. `load_weights` only passes the expert ids in this mapping to the weight loader (`for mapping in expert_mapping:` at `vllm/models/deepseek_v4/nvidia/model.py:1723` and `vllm/models/deepseek_v41/nvidia/model.py:1250`), so the redundant slots are never loaded.\n\nScope: every `--moe-backend` outside `MEGA_MOE_BACKENDS` (`vllm/config/kernel.py:160`) is affected, including the default `auto`. The MegaMoE branch (`deep_gemm_mega_moe` and the FlashInfer MoE-EP backends) uses `make_deepseek_v4_expert_params_mapping`, which is a separate path and not part of this report.\n\n#### Why the redundant slots receive tokens\n\nEPLB's initial placement maps physical slot `p` to logical expert `p % n_logical`, so redundant slot `n_logical + i` should hold logical expert `i`. For each token, the router picks one of a logical expert's slots by hashing the token index modulo its replica count. With one redundant slot per expert, about half of the tokens for logical experts `0..N-1` go to the unloaded slot.\n\nThis happens in `BaseRouter._select_experts`, which calls `_apply_eplb_mapping` (`vllm/model_executor/layers/fused_moe/router/base_router.py:300`, defined at `:203`), which calls `eplb_map_to_physical_and_record`.\n\nInferred, not measured: later rearrangement steps copy weights between physical slots, so an unloaded redundant slot could also be copied into other slots.\n\n#### Trigger without a GPU\n\n```python\nfrom types import SimpleNamespace\n\nfrom vllm.models.deepseek_v4.nvidia.model import DeepseekV4Model\n\nn_routed, n_redundant = 4, 3\nffn = SimpleNamespace(use_mega_moe=False, n_redundant_experts=n_redundant)\nfake = SimpleNamespace(\n    config=SimpleNamespace(n_routed_experts=n_routed),\n    layers=[SimpleNamespace(ffn=ffn)],\n    start_layer=0,\n    end_layer=1,\n    named_parameters=lambda: iter(()),\n)\nids = {expert_id for _, _, expert_id, _ in DeepseekV4Model.get_expert_mapping(fake)}\nprint(sorted(ids))\n# main prints [0, 1, 2, 3]\n# expected:   [0, 1, 2, 3, 4, 5, 6]\n```\n\nThe same happens with `vllm.models.deepseek_v41.nvidia.model.DeepseekV4Model`. With `n_redundant = 0` the result is correct.\n\n#### Reproducer on GPUs\n\nSave as `minimal_repro.py` and run with `VLLM_ALLOW_INSECURE_SERIALIZATION=1 python minimal_repro.py` (needs 4 GPUs). It uses the same config as the run described under \"Observed on DeepSeek-V4.1-Flash\".\n\n```python\nimport torch\n\nfrom vllm import LLM\n\n\ndef replica_slots(worker):\n    from vllm.distributed import get_ep_group\n    from vllm.model_executor.models.interfaces import get_mixture_of_experts_model\n\n    model = get_mixture_of_experts_model(worker.model_runner.get_model())\n    # expert_weights: per MoE layer, tensors of shape [num_local_experts, ...]\n    nonzero = torch.stack(\n        [\n            torch.stack(\n                [(w.view(torch.uint8).reshape(w.shape[0], -1) != 0).any(-1) for w in layer]\n            ).any(0)\n            for layer in model.expert_weights\n        ]\n    )  # [num_moe_layers, num_local_experts]\n    return get_ep_group().rank_in_group, model.num_logical_experts, nonzero.tolist()\n\n\ndef main():\n    llm = LLM(\n        \"deepseek-ai/DeepSeek-V4.1-Flash\",\n        tensor_parallel_size=4,\n        enable_expert_parallel=True,\n        enable_eplb=True,\n        eplb_config={\"num_redundant_experts\": 8},\n        language_model_only=True,\n        max_model_len=8192,\n        kv_cache_dtype=\"fp8\",\n    )\n    results = sorted(llm.collective_rpc(replica_slots), key=lambda r: r[0])\n    nonzero = torch.cat([torch.tensor(r[2]) for r in results], dim=1)  # [layers, physical experts]\n    n_logical = results[0][1]\n    redundant = nonzero[:, n_logical:]\n    print(f\"redundant slots with all-zero weights: {(~redundant).sum()} / {redundant.numel()}\")\n\n\nif __name__ == \"__main__\":\n    main()\n```\n\nOutput on main:\n\n```text\nredundant slots with all-zero weights: 320 / 320\n```\n\nThe script counts all-zero slots because that is what an unloaded slot looked like here. The allocation is not initialized, so on memory that is not zeroed this count can be 0 even with the bug. In that case compare each redundant slot `n_logical + i` with slot `i`, as in the next section.\n\n#### Observed on DeepSeek-V4.1-Flash\n\nSetup: 384 routed experts, 40 MoE layers, 4x B300, TP=4 with `--enable-expert-parallel`, `--enable-eplb`, `eplb_config={\"num_redundant_experts\": 8}` (392 physical experts), default `--moe-backend auto` (selected the `FLASHINFER_TRTLLM_MXFP4_MXFP8` Mxfp4 MoE backend), `--kv-cache-dtype fp8`, `--max-model-len 8192`, language model only.\n\nI computed a per-slot checksum over all EPLB-managed expert weights (`model.expert_weights`):\n\n- All 320 redundant slots (8 per layer x 40 layers) differ from the slot holding the same logical expert.\n- Every redundant slot was 100% zero bytes. Source slots have about 0.35% zero bytes.\n\nZero-filled memory is what I observed. It is not guaranteed, since the allocation is not initialized.\n\n#### Quality impact\n\nThe impact is small and easy to miss. Only 8 of 384 experts per layer have a replica, and only the share of their tokens sent to the replica loses that expert's output. GSM8K does not detect it. Setup as above, 250 test questions, 5-shot, greedy; rows differ only in `num_redundant_experts` and the fix:\n\n| Config | GSM8K | Replica slots that differ from their source |\n| --- | --- | --- |\n| N=0, main | 88.8% (222/250) | none (no replicas) |\n| N=8, main | 88.8% (222/250) | 320 / 320 |\n| N=8, with fix | 88.0% (220/250) | 0 / 320 |\n\nFree-form greedy prompts showed it more clearly, though on a small sample. On main with N=8, two of four short prompts (\"Write a Python function that returns the n-th Fibonacci number.\" and \"Explain in two sentences why the sky is blue.\") returned an empty completion. With N=0 and with the fix, all four returned normal answers.\n\n#### Related\n\n- #41920 / #41930: the same missing `num_redundant_experts` in DeepseekV2's `get_expert_mapping`. There `load_weights` builds its own mapping with the redundant slots, so only BitsAndBytes and LoRA are affected. In DeepSeek V4/V4.1, `load_weights` uses `get_expert_mapping` itself, so the weights are never loaded.\n- #53022 changes the same function, but only for its static expert map path. It does not cover default runtime EPLB or V4.1.\n\n#### Proposed fix\n\nPass the redundant expert count in both files. `first_layer` is already computed at the top of `get_expert_mapping`.\n\n```diff\n     num_experts=self.config.n_routed_experts,\n+    num_redundant_experts=first_layer.ffn.n_redundant_experts,\n )\n```\n\nI will open a PR with this change and a unit test.\n\n### Before submitting a new issue...\n\n- [x] Make sure you already searched for relevant issues, and asked the chatbot living at the bottom right corner of the [documentation page](https://docs.vllm.ai/en/latest/), which can answer lots of frequently asked questions.\n",
+  "created_at": "2026-10-01T13:53:45Z",
+  "updated_at": "2026-10-20T21:16:59Z",
+  "fetched_at": "2026-10-20T21:33:47Z",
+  "state": "closed",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "deepseek-v4.1-flash",
+    "deepseek",
+    "moe",
+    "kv-cache"
+  ],
+  "metadata": {
+    "number": 59609,
+    "labels": [
+      {
+        "id": 8746007475,
+        "node_id": "LA_kwDOI7xefs8AAAACCU17sw",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/deepseek",
+        "name": "deepseek",
+        "color": "1995FE",
+        "default": false,
+        "description": "Related to DeepSeek models",
+        "archived_at": null,
+        "archived_by": null
+      },
+      {
+        "id": 10799676958,
+        "node_id": "LA_kwDOI7xefs8AAAACg7X-Hg",
+        "url": "https://api.github.com/repos/vllm-project/vllm/labels/DSv4",
+        "name": "DSv4",
+        "color": "be3bfa",
+        "default": false,
+        "description": "",
+        "archived_at": null,
+        "archived_by": null
+      }
+    ],
+    "comments": 0,
+    "state_reason": "completed",
+    "import_origin": "/home/ubuntu/AutoResearch-Inference/ideation/runs/pr-evaluation-audit-001/inputs/corpus-opening-records.jsonl"
+  },
+  "content_hash": "f419e569157456432fec35f0dabc1d6a7336ff14acaceffaf8ac377e2f3fbf78"
+}

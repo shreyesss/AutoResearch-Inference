@@ -1,0 +1,197 @@
+From 338745a4cd25a8010b3e9a0ebfc282345b953df6 Mon Sep 17 00:00:00 2001
+From: "jian.wang04" <jian.wang04@united-imaging.com>
+Date: Tue, 20 Oct 2026 22:31:37 +0800
+Subject: [PATCH] support SM90 (Hopper) GPUs in get_bf16_tflops_limit
+
+SM90 parts differ ~6.7x in BF16 throughput (H20: 148 vs H100/H800: 989
+TFLOPS dense), so the limit is dispatched on the NVML marketing device
+name instead of hard-raising on any non-SM100 NVIDIA GPU.
+
+- nvidia.py: read the device name via nvmlDeviceGetName (no CUDA context)
+- device.py: add is_sm_major_9() and an SM90 branch to get_bf16_tflops_limit()
+- tests: mocked unit tests covering H20/H100/H800/GH200 and error paths
+---
+ deep_cluster/hardware/__init__.py |  2 +
+ deep_cluster/hardware/device.py   | 21 +++++++++++
+ deep_cluster/hardware/nvidia.py   | 23 ++++++++++++
+ tests/test_bf16_tflops_limit.py   | 62 +++++++++++++++++++++++++++++++
+ 4 files changed, 108 insertions(+)
+ create mode 100644 tests/test_bf16_tflops_limit.py
+
+diff --git a/deep_cluster/hardware/__init__.py b/deep_cluster/hardware/__init__.py
+index cc45f79..9dc1dac 100644
+--- a/deep_cluster/hardware/__init__.py
++++ b/deep_cluster/hardware/__init__.py
+@@ -7,6 +7,7 @@
+     get_actual_num_gpus,
+     get_bf16_tflops_limit,
+     is_sm_major_10,
++    is_sm_major_9,
+     num_gpus,
+     physical_device_count,
+     physical_device_id,
+@@ -24,6 +25,7 @@
+     "get_actual_num_gpus",
+     "get_bf16_tflops_limit",
+     "is_sm_major_10",
++    "is_sm_major_9",
+     "num_gpus",
+     "physical_device_count",
+     "physical_device_id",
+diff --git a/deep_cluster/hardware/device.py b/deep_cluster/hardware/device.py
+index f64a248..7d03663 100644
+--- a/deep_cluster/hardware/device.py
++++ b/deep_cluster/hardware/device.py
+@@ -148,11 +148,23 @@ def num_gpus(
+     return visible_device_count(_root=_root, _environ=_environ)
+ 
+ 
++# SM90 parts differ ~6.7x in BF16 throughput (H20: 148 vs H100/H800: 989 TFLOPS dense),
++# so the limit is dispatched on the marketing name reported by NVML.
++_SM90_BF16_TFLOPS_BY_NAME_PREFIX = {"GH100": 989, "GH200": 989, "H100": 989, "H800": 989, "H20": 148}
++
++
+ def get_bf16_tflops_limit() -> int:
+     if accelerator_kind() == "ascend":
+         return 432
+     if is_sm_major_10():
+         return 2500 if platform.machine() in {"aarch64", "arm64"} else 2250
++    if is_sm_major_9():
++        name = nvidia.device_name()
++        if name is not None:
++            for prefix, tflops in _SM90_BF16_TFLOPS_BY_NAME_PREFIX.items():
++                if name.removeprefix("NVIDIA ").startswith(prefix):
++                    return tflops
++        raise RuntimeError(f"unknown SM90 GPU type: {name!r}")
+     raise RuntimeError("unknown GPU type")
+ 
+ 
+@@ -164,6 +176,14 @@ def is_sm_major_10() -> bool:
+     return capability is not None and capability[0] == 10
+ 
+ 
++@functools.cache
++def is_sm_major_9() -> bool:
++    if accelerator_kind() != "nvidia":
++        return False
++    capability = nvidia.compute_capability()
++    return capability is not None and capability[0] == 9
++
++
+ __all__ = [
+     "accelerator_kind",
+     "assign_visible_devices",
+@@ -171,6 +191,7 @@ def is_sm_major_10() -> bool:
+     "get_actual_num_gpus",
+     "get_bf16_tflops_limit",
+     "is_sm_major_10",
++    "is_sm_major_9",
+     "num_gpus",
+     "physical_device_count",
+     "physical_device_id",
+diff --git a/deep_cluster/hardware/nvidia.py b/deep_cluster/hardware/nvidia.py
+index e6e892d..bbcd83f 100644
+--- a/deep_cluster/hardware/nvidia.py
++++ b/deep_cluster/hardware/nvidia.py
+@@ -105,6 +105,8 @@ def _nvml() -> ctypes.CDLL | None:
+         ctypes.POINTER(ctypes.c_int),
+     ]
+     library.nvmlDeviceGetCudaComputeCapability.restype = ctypes.c_int
++    library.nvmlDeviceGetName.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint]
++    library.nvmlDeviceGetName.restype = ctypes.c_int
+     return library
+ 
+ 
+@@ -127,3 +129,24 @@ def compute_capability(*, index: int = 0) -> tuple[int, int] | None:
+     if library.nvmlDeviceGetCudaComputeCapability(handle, ctypes.byref(major), ctypes.byref(minor)) != 0:
+         return None
+     return (int(major.value), int(minor.value))
++
++
++@functools.cache
++def device_name(*, index: int = 0) -> str | None:
++    """Marketing device name (e.g. "NVIDIA H20") read via NVML; no CUDA context is created.
++
++    Returns None when NVML is unavailable (no driver, no GPU, library missing).
++    """
++    library = _nvml()
++    if library is None:
++        return None
++    count = ctypes.c_uint()
++    if library.nvmlDeviceGetCount_v2(ctypes.byref(count)) != 0 or count.value <= index:
++        return None
++    handle = ctypes.c_void_p()
++    if library.nvmlDeviceGetHandleByIndex_v2(index, ctypes.byref(handle)) != 0:
++        return None
++    name = ctypes.create_string_buffer(256)
++    if library.nvmlDeviceGetName(handle, name, ctypes.sizeof(name)) != 0:
++        return None
++    return name.value.decode("ascii", errors="replace")
+diff --git a/tests/test_bf16_tflops_limit.py b/tests/test_bf16_tflops_limit.py
+new file mode 100644
+index 0000000..bec9159
+--- /dev/null
++++ b/tests/test_bf16_tflops_limit.py
+@@ -0,0 +1,62 @@
++"""Unit tests for get_bf16_tflops_limit / is_sm_major_9 with a mocked NVML layer.
++
++The SM90 limit is dispatched on the marketing device name because SM90 parts
++differ ~6.7x in BF16 throughput (H20: 148 vs H100/H800: 989 TFLOPS dense).
++"""
++
++from unittest import mock
++
++import pytest
++
++import deep_cluster.hardware.device as device
++
++
++@pytest.fixture(autouse=True)
++def _clear_capability_caches() -> None:
++    device.is_sm_major_9.cache_clear()
++    device.is_sm_major_10.cache_clear()
++
++
++def _check(capability: tuple[int, int], name: str | None, expected: int | str) -> None:
++    with mock.patch.object(device, "accelerator_kind", return_value="nvidia"), \
++            mock.patch.object(device.nvidia, "compute_capability", return_value=capability), \
++            mock.patch.object(device.nvidia, "device_name", return_value=name):
++        if isinstance(expected, int):
++            assert device.get_bf16_tflops_limit() == expected
++        else:
++            with pytest.raises(RuntimeError, match=expected):
++                device.get_bf16_tflops_limit()
++
++
++@pytest.mark.parametrize(
++    ("name", "expected"),
++    [
++        ("NVIDIA H20", 148),
++        ("NVIDIA H20-NVL", 148),
++        ("NVIDIA H20 141GB", 148),
++        ("NVIDIA H100 80GB HBM3", 989),
++        ("NVIDIA H100 NVL", 989),
++        ("NVIDIA H800 80GB PCIe", 989),
++        ("NVIDIA GH200 480GB", 989),
++    ],
++)
++def test_sm90_bf16_tflops_limit_by_device_name(name: str, expected: int) -> None:
++    _check((9, 0), name, expected)
++
++
++def test_sm90_unknown_device_name_is_reported() -> None:
++    _check((9, 0), "NVIDIA L40S", "L40S")
++
++
++def test_sm90_missing_device_name_is_reported() -> None:
++    _check((9, 0), None, "None")
++
++
++def test_sm100_unchanged() -> None:
++    _check((10, 0), "NVIDIA B200", 2250)
++
++
++def test_is_sm_major_9_gates_on_accelerator_kind() -> None:
++    with mock.patch.object(device, "accelerator_kind", return_value="ascend"), \
++            mock.patch.object(device.nvidia, "compute_capability", return_value=(9, 0)):
++        assert not device.is_sm_major_9()

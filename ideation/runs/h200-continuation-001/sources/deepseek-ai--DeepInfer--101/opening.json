@@ -1,0 +1,25 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:101",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/101",
+  "title": "Load FP8-expert checkpoints converted from MXFP4 (SM90)",
+  "body": "### Motivation\n\nCompanion to #91: the offline MXFP4\u2192FP8 conversion defines the SM90 checkpoint format, but `_load_expert_params` hard-asserted the packed-FP4 3D int8 layout (`weights.py`), so a converted checkpoint still could not be loaded. This PR adds the FP8-expert loading branch \u2014 the last checkpoint-side piece; after this, the converted model reaches `process_moe_weight(use_fp4=False)` (the `fp8xfp8` MoE path that already exists in `mlp.py`).\n\n### What's included\n\n**`deepinfer/hugging_face/weights.py`** \u2014 `_load_expert_params` now branches on the parameter layout:\n\n- **packed FP4 (SM100, unchanged)**: 3D int8 + packed-UE8M0 column-major sf, byte-copied as before;\n- **FP8 experts (SM90, new)**: the runtime staging parameter is the 2D layout `materialize_hf_parameter(packed_fp4=False)` already allocates \u2014 `(n_local * k, n)` with each expert's slice **transposed** from the HF `(n, k)` row-major layout, and the meta `sf` is replaced wholesale by FP32 `(n//32, k//32)` block scales read per expert. This is exactly what `process_moe_weight` consumes: it views `(n_experts, k, n)`, transposes each expert back, and transforms the sf for the grouped GEMM.\n\nThe per-expert transposition logic is extracted into `_stage_fp8_experts(param, ids, read)` with the tensor reader injected as a callback, keeping it unit-testable without distributed/EPLB machinery. The w1/w3 concatenation for `linear1` happens in the reader callback, mirroring the packed path.\n\n**`tests/test_stage_fp8_experts.py`** \u2014 6 unit tests:\n- per-expert transposition and sf assembly against hand-built staging parameters (incl. the w1/w3 concat case);\n- rejection of non-FP32 scales (e.g. a hypothetical UE8M0 variant) and wrong weight shapes, with messages pointing at the converter contract;\n- `_load_expert_params` end to end against a miniature 4-expert safetensors checkpoint with `_local_expert_ids` stubbed (EPLB physical order `(3, 1)`), verifying slices, sf, stats, and that `mxfp4` is not set;\n- a packed-FP4 parameter provably stays on the SM100 branch (fails its own FP4 shape contract, not the new FP8 assertions).\n\n### What is deliberately not in this PR\n\n- `platform.py` `fp8_sf_type` parameterization and the per-arch `disable_ue8m0_cast` value in `mlp.py` \u2014 runtime-side SM90 work that only matters once loading is exercised on real hardware.\n- The converted checkpoint still cannot *run* on SM90 until the DeepGEMM/FlashMLA fallbacks land; this PR only completes the checkpoint \u2192 runtime-parameter path.\n",
+  "created_at": "2026-10-20T15:58:27Z",
+  "updated_at": "2026-10-20T15:58:27Z",
+  "fetched_at": "2026-10-20T21:33:44Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "moe",
+    "nvfp4"
+  ],
+  "metadata": {
+    "number": 101,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "121651b5d7569c5461e5802b568f8142b7c5a406f6b4a5a2c3dcfbd757e6f7d3"
+}

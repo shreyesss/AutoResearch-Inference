@@ -1,0 +1,76 @@
+From 245571fbd1326e3b0388a6720c68ce1eaa1ae9d2 Mon Sep 17 00:00:00 2001
+From: stdlibstring <159357369p@gmail.com>
+Date: Tue, 20 Oct 2026 23:40:06 +0800
+Subject: [PATCH] fix: reject mixed prefill replay modes in Pareto plots
+
+---
+ examples/sweep/plot_pareto.py |  2 +-
+ tests/test_plot_pareto.py     | 46 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+), 1 deletion(-)
+ create mode 100644 tests/test_plot_pareto.py
+
+diff --git a/examples/sweep/plot_pareto.py b/examples/sweep/plot_pareto.py
+index 633e75d..95c6d93 100644
+--- a/examples/sweep/plot_pareto.py
++++ b/examples/sweep/plot_pareto.py
+@@ -22,7 +22,7 @@
+ SWEEP_KEY = {"decode": "decode_num_requests", "prefill": "prefill_batch_size", "encoder": "num_images"}
+ FIXED_FIELDS = {
+     "decode": ("model_name", "ep_size", "cp", "context_length", "nextn", "mtp_varlen", "num_extra_experts"),
+-    "prefill": ("model_name", "ep_size", "cp", "context_length", "nextn", "yoco_clip", "num_extra_experts"),
++    "prefill": ("model_name", "ep_size", "cp", "context_length", "nextn", "yoco_clip", "yoco_clip_mask", "num_extra_experts"),
+     "encoder": ("model_name", "num_gpus", "best_width", "best_height"),
+ }
+ MODEL_LABEL = {
+diff --git a/tests/test_plot_pareto.py b/tests/test_plot_pareto.py
+new file mode 100644
+index 0000000..c47ccbb
+--- /dev/null
++++ b/tests/test_plot_pareto.py
+@@ -0,0 +1,46 @@
++import json
++from pathlib import Path
++
++import pytest
++
++from examples.sweep.plot_pareto import load_points
++
++pytestmark = [pytest.mark.ci, pytest.mark.ci_npu]
++
++
++def _write_prefill_points(path: Path, masks: tuple[bool, bool]) -> list[dict]:
++    common = {
++        "model_name": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
++        "ep_size": 4,
++        "cp": 1,
++        "context_length": 32768,
++        "nextn": 5,
++        "yoco_clip": 140,
++        "num_extra_experts": 16,
++        # 仅测试配置加载，不提供性能测量数值。
++        "prefill_tokens_per_s_per_gpu": None,
++    }
++    records = [
++        common | {"prefill_batch_size": batch_size, "yoco_clip_mask": mask} for batch_size, mask in zip((4096, 8192), masks, strict=True)
++    ]
++    with path.open("w", encoding="utf-8") as handle:
++        for record in records:
++            handle.write(json.dumps(record) + "\n")
++    return records
++
++
++@pytest.mark.parametrize("first_mask", [False, True], ids=["compact-first", "mask-first"])
++def test_prefill_rejects_mixed_replay_modes(tmp_path: Path, first_mask: bool) -> None:
++    path = tmp_path / "results.jsonl"
++    _write_prefill_points(path, (first_mask, not first_mask))
++
++    with pytest.raises(AssertionError, match="yoco_clip_mask"):
++        load_points(path, "prefill")
++
++
++@pytest.mark.parametrize("mask", [False, True], ids=["compact", "mask"])
++def test_prefill_loads_matching_replay_modes(tmp_path: Path, mask: bool) -> None:
++    path = tmp_path / "results.jsonl"
++    records = _write_prefill_points(path, (mask, mask))
++
++    assert load_points(path, "prefill") == records

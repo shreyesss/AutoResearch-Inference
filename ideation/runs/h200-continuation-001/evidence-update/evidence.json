@@ -1,0 +1,101 @@
+{
+  "claims": [
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "**Decision: `instrumentation_inconclusive`; adaptive verification remains unqualified.**",
+      "claim": "Research state: C24 is completed and instrumentation-inconclusive, not pending. It establishes neither an AV speedup nor an AV performance failure.",
+      "relation": "context",
+      "conditions": "AV-off baseline diagnostic on eight H200s; DeepSeek-V4.1-Flash with DSpark k5.",
+      "reported_result": "Author disposition: timing adequacy failed despite valid traffic, runtime identity and cleanup. AV was never enabled. The two remaining full attempts are unchanged.",
+      "transfer_inference": "Retain AV as unqualified; do not count C24 as a completed AV A/B test.",
+      "limitations": "AV performance effect is unknown. The supplied report excerpt is truncated."
+    },
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "986/986 completed, 0 errors, 0 cancellations",
+      "claim": "C24 supports successful execution of the diagnostic workload, independently of timing adequacy.",
+      "relation": "supports",
+      "conditions": "First 986 rows of the median Mooncake trace at 0.5×; 299.232-second arrival span; two TP1/DP4/EP4 replicas.",
+      "reported_result": "Reported observations: all profiling requests completed; 16 traces covered all eight workers in both windows; file and package checks passed. Runner exit 1 reflected baseline service SLO misses.",
+      "transfer_inference": "The exit status does not establish an AV failure. Preserve the distinction between workload fidelity, service eligibility and timing adequacy.",
+      "limitations": "This prefix is not the full 4,004-request workload and cannot be directly compared with C03's full-trace score. Complete telemetry collection was not established."
+    },
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "only **4 complete eligible decode cycles** survive the required joins",
+      "claim": "The timing evidence fails its predeclared adequacy gate and cannot qualify an AV opportunity.",
+      "relation": "challenges",
+      "conditions": "Required at least ten complete decode-only cycles per rank/window, actual launch correlations, target/draft graph coverage and at least 95% categorized device-busy union.",
+      "reported_result": "Reported observations: replica 1, DP 2 at +90 seconds retained only four eligible cycles. Five cells also contained GPU activities ending before their supposedly correlated CPU launches. Readable subsets showed roughly 39.6–97.1% target-attributed occupied fractions.",
+      "transfer_inference": "Those fractions are descriptive, not expected savings. Cheap next check: audit existing native/draft joins, correlation identifiers and timestamp metadata before considering another capture.",
+      "limitations": "Timestamp calibration versus correlation/trace-format error remains unresolved. The adequacy failure prevented the conditional 20% materiality heuristic from qualifying an experiment."
+    },
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "target capacity **36→16 rows**, while draft capacity changes **35→80 rows**",
+      "claim": "A reported source-derived dispatch example supports checking coupled target and draft costs before judging AV.",
+      "relation": "supports",
+      "conditions": "Five real requests per rank under one reachable adaptive dispatch.",
+      "reported_result": "Author's source analysis: target capacity can decrease while draft capacity increases. These are reachable capacities, not observed AV selections.",
+      "transfer_inference": "Fewer target rows alone do not establish lower time per accepted token. Cheap next check: inspect the referenced dispatch and graph-bucket chain, then identify which cost measurements are missing.",
+      "limitations": "The underlying implementation chain is not supplied here. Dispatch frequency, component latency and net benefit are unknown. Controller and confidence-weight presence do not establish runtime confidence-head use."
+    },
+    {
+      "source_id": "artifact:continuation:av-cpu-counterexample",
+      "quote": "\"coupled_cost_changes_decision\": true",
+      "claim": "The synthetic CPU check establishes possible budget sensitivity to the assumed draft-cost model.",
+      "relation": "supports",
+      "conditions": "Five requests, k=5, confidence values 0.9/0.8/0.5/0.3/0.1; invented constant cost 0.7 versus invented bucket-dependent costs 0.8/1.6/2.4/3.2.",
+      "reported_result": "Reported CPU-check result: installed-method and independent constant-cost budgets both equal 11; the independent coupled-cost budget equals 3. The author interprets this as a conditional warning about constant draft costs.",
+      "transfer_inference": "A change in synthetic cost assumptions can change the selected budget. Cheap next check: inspect the supplied method range and independent objective calculation for matching candidate sets and accounting.",
+      "limitations": "The costs are invented, not measured milliseconds. CPU hardware is unknown. The result does not establish which budget is preferable on the local serving system."
+    },
+    {
+      "source_id": "artifact:continuation:av-cpu-counterexample",
+      "quote": "no measured milliseconds, dispatch or service gain.",
+      "claim": "The CPU counterexample provides no local latency inference or controller-performance validation.",
+      "relation": "challenges",
+      "conditions": "Synthetic execution of selected installed-source logic without Torch or CUDA imports.",
+      "reported_result": "Artifact explicitly leaves interaction frequency, actual component latency, candidate-controller correctness and end-to-end benefit unestablished.",
+      "transfer_inference": "Keep the research state at possible decision sensitivity. Real dispatch observations and qualified cost measurements would be needed before converting the example into a controller-change rationale.",
+      "limitations": "Local latency effect size and production relevance are unknown. C24 does not supply qualified measurements to fill this gap."
+    },
+    {
+      "source_id": "code:continuation:fused-sampler-gates",
+      "quote": "if not self.specialized_decode_requested:",
+      "claim": "The supplied model interface gates fused-sampler weight exposure behind specialized_decode_requested; it does not demonstrate a simple generic-CUDA enable flag.",
+      "relation": "challenges",
+      "conditions": "PR61869's markov_embed_weight accessor returns None when specialized_decode_requested is false.",
+      "reported_result": "Static code observation: the sampler initializer requires a non-None embedding weight. Author documentation associates the specialized executor with small DeepSeek-V4.1 decode batches on GB300.",
+      "transfer_inference": "Generic CUDA use requires an explicit qualified port. Cheap next check: trace specialization-dependent weight ownership, layouts and call sites to define that port before proposing activation.",
+      "limitations": "The supplied patch was not applied. Merge state, installed availability, H200 compatibility, runtime activation and performance effect are unknown."
+    },
+    {
+      "source_id": "code:continuation:fused-sampler-gates",
+      "quote": "and not self.enable_adaptive_verification",
+      "claim": "The shown fused-sampler initialization requires AV off, no draft top-k and no draft watermark, alongside CUDA and compatible logits.",
+      "relation": "supports",
+      "conditions": "Embedding accessor exists and returns a weight; CUDA platform; draft_logits exists and its final dimension matches draft_vocab_size; _draft_topk and draft_watermarker are None.",
+      "reported_result": "Static code observation: these conditions jointly gate construction of DSparkFusedMarkovSampler.",
+      "transfer_inference": "Treat this as a separate AV-off candidate. Cheap next check: compare every constructor predicate with the actual baseline configuration and inventory semantic-equivalence tests for a generic port.",
+      "limitations": "AV-off alone is insufficient. No runtime gate evaluation, sampling-equivalence result, benchmark workload or speedup is supplied."
+    },
+    {
+      "source_id": "code:continuation:fused-sampler-gates",
+      "quote": "and not self.use_fp64_gumbel",
+      "claim": "The sharded sampler has additional restrictions that must be distinguished from the initial fused sampler's gates.",
+      "relation": "context",
+      "conditions": "Requires an existing fused sampler, FP64 Gumbel disabled and an eligible bias weight. Bias exposure requires specialization, an unquantized BF16 head, scale 1, no soft cap, logits_as_input false and head_dtype None or BF16.",
+      "reported_result": "Static code observation: make_sharded_sampler is reached only after these checks. Local-logits use additionally depends on accepts_shard.",
+      "transfer_inference": "Qualify fused and sharded paths separately. Cheap next check: map baseline head properties, RNG precision and shard layout to the corresponding gates and fallbacks.",
+      "limitations": "The excerpt passes use_fp64_gumbel into the initial fused sampler; its prohibition here applies to sharded construction. Runtime correctness, cross-rank behavior and latency effects remain unknown."
+    }
+  ],
+  "unanswered": [
+    "What causes C24's missing cycle joins and impossible launch/activity ordering? Existing traces are the cheapest first diagnostic; no corrected timing result is supplied.",
+    "Does the local runtime actually invoke the confidence head, and how often would AV select dispatches that increase draft capacity? Metadata and reachable capacities do not answer this.",
+    "What are qualified target, draft and controller costs, acceptance changes and time per accepted output token under real AV dispatches? No local effect size is established.",
+    "What changes are required to expose and run PR61869's sampler through the generic CUDA model path while preserving sampling semantics and fallbacks? The supplied excerpt does not establish port size or simplicity.",
+    "What correctness and performance evidence supports such a port on H200 with the local workload? Neither that evidence nor PR merge status is supplied."
+  ]
+}

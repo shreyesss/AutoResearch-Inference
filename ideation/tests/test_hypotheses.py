@@ -142,6 +142,70 @@ class HypothesisGateTests(unittest.TestCase):
             tool.ledger.db.close()
             store.db.close()
 
+    def test_result_change_during_critique_blocks_assessment_but_keeps_proposal(self):
+        from ideation.continuation import ContinuationTools
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            store = Store(root / "corpus.sqlite")
+            tool = HypothesisTools(store)
+            self.addCleanup(store.db.close)
+            self.addCleanup(tool.ledger.db.close)
+            brief = root / "brief.json"
+            brief.write_text(json.dumps({"count": 1, "selection": {"require_novelty": False}}))
+            packet = root / "packet.json"
+            packet.write_text(json.dumps({"sources": self.sources, "claims": [], "quote_validation": {"valid": True}}))
+            families = root / "families"
+            families.mkdir()
+            (families / "README.md").write_text('| C24 | [AV](C24.md) | Pending | No result |\n')
+            result = families / "C24.md"
+            result.write_text('Timing pending')
+            handoff = ContinuationTools(tool).prepare(str(brief), str(root / "handoff"), str(families))["path"]
+
+            def generate_or_review(prompt, *args, **kwargs):
+                if prompt.startswith("Propose"):
+                    return {"hypotheses": [self.card], "gaps": []}
+                result.write_text('Timing completed; instrumentation inconclusive')
+                return {"reviews": [self.review], "global_gaps": []}
+
+            with patch("ideation.hypotheses.run_agent", side_effect=generate_or_review):
+                with self.assertRaisesRegex(ValueError, "Stale continuation"):
+                    tool.run(str(brief), str(packet), str(root / "run"), policy=self.policy, continuation=handoff)
+            memory = tool.memory()
+            self.assertEqual(len(memory), 1)
+            self.assertEqual(memory[0]["status"], "proposed")
+            self.assertFalse(any(e["type"] == "reviewed" for e in tool.get(memory[0]["id"])["events"]))
+            self.assertFalse((root / "run/hypotheses.json").exists())
+            self.assertEqual(json.loads((root / "run/manifest.json").read_text())["status"], "failed")
+
+    def test_global_parent_revision_replaces_parent_in_selection_not_history(self):
+        from copy import deepcopy
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            store = Store(root / "corpus.sqlite")
+            tool = HypothesisTools(store)
+            self.addCleanup(store.db.close)
+            self.addCleanup(tool.ledger.db.close)
+            brief = root / "brief.json"
+            brief.write_text(json.dumps({"count": 2, "selection": {"require_novelty": False}}))
+            packet = root / "packet.json"
+            packet.write_text(json.dumps({"sources": self.sources, "claims": [], "quote_validation": {"valid": True}}))
+            run = root / "run"
+            revised, review = deepcopy(self.card), deepcopy(self.review)
+            revised.update(id="H2", parents=[tool.ledger.identity(str(run.resolve()), "H1")], operation="evolve")
+            review["id"] = "H2"
+            responses = [{"hypotheses": [self.card], "gaps": []}, {"reviews": [self.review], "global_gaps": []},
+                         {"hypotheses": [revised], "gaps": []}, {"reviews": [review], "global_gaps": []}]
+            with patch("ideation.hypotheses.run_agent", side_effect=responses) as agent:
+                tool.run(str(brief), str(packet), str(run), rounds=2, policy=self.policy)
+            second_review = json.loads(agent.call_args_list[3].args[0].split("\n", 1)[1])
+            self.assertEqual(second_review["history"][0]["card"]["id"], "H1")
+            self.assertEqual(second_review["history"][0]["assessment"]["status"], "accepted")
+            selected = json.loads((run / "hypotheses.json").read_text())["hypotheses"]
+            self.assertEqual([c["id"] for c in selected], ["H2"])
+            history = json.loads((run / "history.json").read_text())
+            self.assertEqual([c["card"]["id"] for c in history], ["H1", "H2"])
+            self.assertEqual(len(tool.memory()), 2)
+
     def test_prefix_filter_applies_before_limit(self):
         with tempfile.TemporaryDirectory() as folder:
             store = Store(Path(folder) / "test.sqlite")

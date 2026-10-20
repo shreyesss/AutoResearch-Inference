@@ -1,0 +1,24 @@
+{
+  "id": "github:sgl-project/sglang:45433",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/sgl-project/sglang/pull/45433",
+  "title": "[Fix] DSpark: Disable simulated acceptance shortcuts by default",
+  "body": "[codex/claude generated]\n\n## Motivation\n\nMake the two optional DSpark simulated-acceptance shortcuts opt-in after #45421 enabled them on CUDA as well as HIP.\n\n## Modifications\n\n- Default `SGLANG_DSPARK_SIMULATE_FOLD` and `SGLANG_SIMULATE_ACC_GREEDY` to `False`.\n- Update their comments to describe opt-in behavior on CUDA/HIP.\n- Explicit `=1` still enables each shortcut. The unconditional simulated accept-sampling bypass introduced in #45421 is unchanged; this does not fully revert that PR.\n\n## Accuracy Tests\n\nLoaded the actual `environ.py` module with the bundled Python runtime and verified both switches return `False` when unset, `True` with `=1`, and `False` with `=0`. `git diff --check` passed. No GPU or end-to-end tests were run.\n\nRelated CPU coverage: `test/registered/unit/spec/test_dspark_accept_tail.py` checks eager/folded greedy acceptance parity, but does not exercise these environment defaults.\n\n## Speed Tests and Profiling\n\nNot run. Users can explicitly enable the shortcuts for simulated-acceptance benchmarks.\n\n## Checklist\n\n- [ ] Run pre-commit formatting checks.\n- [ ] Add unit tests (small default-value change; direct runtime validation performed).\n- [x] Update inline documentation.\n- [ ] Provide accuracy and speed benchmark results.\n- [x] Follow the SGLang code style guidance.\n\n<!-- pr-states:start -->\n---\n### CI States\n\nLatest PR Test (Base): <!-- slot:pr-test:start -->:x: [Run #39493928405](https://github.com/sgl-project/sglang/actions/runs/39493928405)<!-- slot:pr-test:end -->\nLatest PR Test (Extra): <!-- slot:pr-test-extra:start -->:x: [Run #39493928387](https://github.com/sgl-project/sglang/actions/runs/39493928387)<!-- slot:pr-test-extra:end -->\nLatest PR Test (AMD ROCm 10): <!-- slot:pr-test-amd:start -->:x: [Run #39493928736](https://github.com/sgl-project/sglang/actions/runs/39493928736)<!-- slot:pr-test-amd:end -->\n<!-- pr-states:end -->",
+  "created_at": "2026-10-20T20:40:03Z",
+  "updated_at": "2026-10-20T21:11:00Z",
+  "fetched_at": "2026-10-20T21:34:02Z",
+  "state": "merged",
+  "merged_at": "2026-10-20T21:11:00Z",
+  "parent": null,
+  "tags": [
+    "speculation"
+  ],
+  "metadata": {
+    "number": 45433,
+    "labels": [],
+    "comments": 3,
+    "state_reason": null
+  },
+  "content_hash": "bb9ae01e31722cdd2a418ed09d114a1d0b5ce7d5238ee81aa78eec4e861a42d6"
+}

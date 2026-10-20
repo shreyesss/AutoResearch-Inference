@@ -1,0 +1,3 @@
+The initial inherited brief retained a stale pre-execution baseline note and an unavailable old ranking path. Before hypothesis generation, brief.json was corrected to carry C03 results, actual Marlin dispatch, the installed-source deviation, C01 external evidence limits and C24 pending state. The initial rubric and brief remain preserved. policy-current is regenerated from corrected inputs. No threshold was tuned against candidates.
+
+While research was in progress C24 completed as instrumentation-inconclusive. state-before-c24-result.json preserves the earlier pending state; state.json and brief.json now carry the final report. The current rubric already records the supplied card as instrumentation-inconclusive, and its thresholds/criteria are unchanged.

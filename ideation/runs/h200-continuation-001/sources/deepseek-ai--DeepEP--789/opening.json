@@ -1,0 +1,24 @@
+{
+  "id": "github:deepseek-ai/DeepEP:789",
+  "source": "github",
+  "kind": "issue",
+  "url": "https://github.com/deepseek-ai/DeepEP/issues/789",
+  "title": "EngramBuffer: single-node NVLink support without RDMA devices?",
+  "body": "`EngramBuffer` initialization fails with CPU- or GPU-backed storage on a single NVLink node. Ordinary NCCL `all_reduce` passes on both ranks. This was a DeepInfer preflight; no model weights were loaded.\n\n**Environment**\n\n- DeepEP `93eb6eb238127e96c6d7a4a625a6dad158348509`, pinned by DeepInfer `8b16149741a4935e1dec8cea27853f273b374c5b`.\n- RunPod container, 2 \u00d7 B300 SXM6 AC; `nvidia-smi topo -m` reports `NV18` between GPUs.\n- Python 3.12, PyTorch `2.13.0+cu132`, loaded NCCL **2.32.3** (verified with `ncclGetVersion`).\n- Driver `595.91.07`; CUDA compiler `13.3.33` with `cuda-compat-13-3` selected at runtime.\n- Host NICs appear in `/sys/class/infiniband`, but the container has **no `/dev/infiniband` device nodes**.\n\n**Reproducer**, reduced to the failing constructor from the tested probe. Save as `repro.py` in an environment with the pinned DeepEP build:\n\n```python\nimport sys\nfrom datetime import timedelta\nimport torch\nimport torch.distributed as dist\nimport torch.multiprocessing as mp\nfrom deep_ep import EngramBuffer\n\n\ndef worker(rank, cpu_storage):\n    torch.cuda.set_device(rank)\n    dist.init_process_group(\n        \"nccl\", init_method=\"tcp://127.0.0.1:29741\",\n        rank=rank, world_size=2, device_id=torch.device(\"cuda\", rank),\n        timeout=timedelta(seconds=90),\n    )\n    group = dist.group.WORLD\n    value = torch.tensor([rank + 1], device=\"cuda\")\n    dist.all_reduce(value)\n    assert value.item() == 3\n    print(f\"rank {rank}: all_reduce passed\", flush=True)\n    gpu_bytes, storage_bytes = EngramBuffer.get_storage_size_hint(\n        group, [256], 256, 8, 4, torch.bfloat16, 0\n    )\n    qps, depth, restrict = EngramBuffer.get_theoretical_config(group, 1, 8, 4)\n    buffer = EngramBuffer(\n        group, gpu_bytes, storage_bytes, cpu_storage, qps, depth, restrict,\n        allow_hybrid_mode=True, explicitly_destroy=True, num_gpu_timeout_secs=30,\n    )\n    buffer.destroy()\n    dist.destroy_process_group()\n\n\nif __name__ == \"__main__\":\n    mp.spawn(worker, args=(sys.argv[1] == \"cpu\",), nprocs=2, join=True)\n```\n\nRun separately:\n\n```sh\npython repro.py cpu\npython repro.py gpu\n```\n\nBoth tested storage modes fail at `csrc/kernels/comm/context.cpp:125`:\n\n```text\n(allow_hybrid_mode ? props.railedGinType : props.ginType) != NCCL_GIN_TYPE_NONE\nNCCL GIN is unavailable.\n```\n\nIs single-node NVLink-only Engram supported, or is exposed RDMA/GIN required even for GPU-backed storage? If required, documenting that prerequisite would help. Related: #629 concerns `ElasticBuffer`; this reproduces in `EngramBuffer` with `allow_hybrid_mode=True`.\n",
+  "created_at": "2026-10-20T16:51:56Z",
+  "updated_at": "2026-10-20T16:51:56Z",
+  "fetched_at": "2026-10-20T21:34:20Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "communication"
+  ],
+  "metadata": {
+    "number": 789,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "b469cad944258acce46da762b55ab7eccfcc4889ee6646936765a3aac75aa330"
+}

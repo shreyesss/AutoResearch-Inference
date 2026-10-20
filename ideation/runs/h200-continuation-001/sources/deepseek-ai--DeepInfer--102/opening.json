@@ -1,0 +1,24 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:102",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/102",
+  "title": "fix: validate draft acceptance probabilities in Pareto plots",
+  "body": "The decode Pareto conversion accepts probabilities outside `[0, 1]`, including NaN and infinities. For example, `--draft_acceptance 1.5` with five draft tokens produces a conversion factor of 8.5 tokens per step, exceeding the six-token maximum and overstating both plotted axes.\n\nValidate `draft_acceptance` in `decode_tau()` and raise a descriptive `ValueError` before computing the conversion factor. Document the accepted range in the CLI help. Add CPU regression tests for out-of-range and non-finite values, valid endpoints, and an intermediate probability, with both zero and five draft tokens. The tests carry both `ci` and `ci_npu` markers.\n\nValidation with Python 3.12:\n\n- `python -m pytest -q --basetemp=.cache/pytest tests/test_plot_pareto_acceptance.py` \u2014 16 passed.\n- `ruff check --no-cache examples/sweep/plot_pareto.py tests/test_plot_pareto_acceptance.py` \u2014 passed.\n- `ruff format --check --no-cache examples/sweep/plot_pareto.py tests/test_plot_pareto_acceptance.py` \u2014 passed.\n",
+  "created_at": "2026-10-20T15:58:58Z",
+  "updated_at": "2026-10-20T15:58:58Z",
+  "fetched_at": "2026-10-20T21:33:44Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "speculation"
+  ],
+  "metadata": {
+    "number": 102,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "7a965a35ca604216d184413968e6284aee4c657e4a8d9b5205ecebb0ac1f024b"
+}

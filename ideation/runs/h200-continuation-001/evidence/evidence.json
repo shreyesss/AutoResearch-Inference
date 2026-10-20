@@ -1,0 +1,235 @@
+{
+  "claims": [
+    {
+      "source_id": "code:continuation:installed-av-cost",
+      "quote": "draft_cost_ms[len(req_ids)]",
+      "claim": "The installed AV objective already includes draft and verification costs; adding a draft-cost term alone would duplicate existing functionality.",
+      "relation": "supports",
+      "conditions": "The controller uses stale confidence products to estimate accepted tokens. Its denominator adds a draft cost indexed by request count to verification costs indexed by candidate token budget. Cost tables snap to profiled sizes within the capture range and interpolate above the configured limit.",
+      "reported_result": "Static implementation evidence: the chosen budget maximizes estimated accepted tokens divided by combined cost. No AV-on execution or performance result is supplied.",
+      "transfer_inference": "First check whether those table indices represent actual post-DP target and draft graph dispatch. Reuse C24 results when available; do not duplicate its pending timing. Any correction should address demonstrated cost-model error rather than introduce another controller.",
+      "limitations": "Calibration coverage, runtime confidence quality, actual dispatch and H200 gain are unknown. The draft term is constant across candidate budgets even though downstream draft padding can vary. C03 failed promotion according to the task; this source does not provide its measurements."
+    },
+    {
+      "source_id": "code:continuation:av-feasibility",
+      "quote": "The same nominal k5 therefore does not imply unchanged draft execution cost when enabling AV.",
+      "claim": "Target-only AV savings can be offset by increased draft graph capacity through the existing DP synchronization contract.",
+      "relation": "challenges",
+      "conditions": "The supplied source analysis follows varlen target descriptors into FULL DP synchronization, then draft sizing by five times the synchronized request capacity. It assumes five real requests per rank and the original capture grid.",
+      "reported_result": "Source-derived counterfactual: fixed k5 selects target36/request-capacity6 and draft35/capacity7. AV with ten additional verified draft tokens can select target16/capacity16 and draft80/capacity16. These are capacity changes, not measured work or time. Even zero verification budget retains draft proposal work.",
+      "transfer_inference": "Cheap check: reconstruct zero, intermediate and full-budget dispatch from the captured descriptor rules, including cross-rank maximum padding. Future AV qualification must observe its own capture inventory and both graph descriptors. Compare accepted output against the complete critical path, accounting for overlap and synchronization.",
+      "limitations": "No AV-on run is reported. A new AV capture inventory can change the counterfactual. Actual target savings, draft penalties, rank imbalance and net H200 gain are unknown; C03 should not be recombined with this continuation."
+    },
+    {
+      "source_id": "code:continuation:av-feasibility",
+      "quote": "Ordinary `UNIFORM_BATCH` alone is insufficient.",
+      "claim": "Hopper FlashMLA provides a conditional AV eligibility path, but compatibility requires more than finding an SM90-capable attention kernel.",
+      "relation": "supports",
+      "conditions": "The feasibility note reports ALWAYS variable-query graph support for the pinned compressed-cache and SWA builders, flattened query-token dispatch, and sparse FlashMLA eligibility on SM90. All current attention groups must satisfy the controller's query-length and FULL-graph requirements.",
+      "reported_result": "Source analysis supports possible eligibility. It does not report an AV functional test or timing. The SM100-only Mega attention class is a separate path.",
+      "transfer_inference": "Cheap check: inventory the actual installed target attention groups and their reported capabilities before proposing an AV run. Validate variable query lengths and padding boundaries if that inventory passes.",
+      "limitations": "The supplied note is an interpretation of referenced code, not direct runtime evidence. Complete current backend coverage, AV correctness and local gain remain unknown."
+    },
+    {
+      "source_id": "code:continuation:deepinfer-av",
+      "quote": "const double time_ms = baseline_ms + slope_ms * graph_size + sampler_ms;",
+      "claim": "Released DeepInfer code implements historical runtime correction beyond the installed AV startup curves.",
+      "relation": "supports",
+      "conditions": "The pinned controller records normalized forward-time residuals, aggregates medians by graph size, clamps the estimated slope to nonnegative values, and estimates sampler time by sequence count with a global fallback.",
+      "reported_result": "Static implementation evidence: candidate graph cost includes startup cost, a graph-size-dependent residual correction and sampler history. Without sampler history, its fallback can be zero. No measured benefit accompanies this excerpt.",
+      "transfer_inference": "After obtaining the pending baseline evidence, check whether context-dependent residuals or sampling costs materially change budget ranking. Establish the exact forward and sampler timing boundaries before adapting this mechanism, so draft work is neither omitted nor counted twice.",
+      "limitations": "Caller timing boundaries, draft inclusion, estimator sample thresholds, hardware and measured workload are unknown in the supplied excerpt. This is released implementation evidence, not a drop-in vLLM patch or demonstrated H200 improvement."
+    },
+    {
+      "source_id": "code:continuation:installed-dspark",
+      "quote": "for i in range(n_spec):",
+      "claim": "Installed DSpark contains repeated sampling work that provides a concrete target for an isolated fusion.",
+      "relation": "supports",
+      "conditions": "The dense sequential path computes base logits once, then performs Markov embedding lookup, bias projection, logits addition, sampling and token storage at each of the five configured draft positions. A separate top-k path can intercept dispatch.",
+      "reported_result": "Static code observation: later positions depend on previously sampled tokens. When AV uses a trained confidence head, the loop also collects Markov embeddings for confidence computation.",
+      "transfer_inference": "Prioritize checking whether this dense path actually runs and whether its non-GEMM sampling work is material. A portable fusion can retain the bias GEMM and sequential dependency while reducing intermediate launches and memory traffic. It must preserve the confidence-head inputs.",
+      "limitations": "Actual dense-versus-top-k dispatch, vocabulary remapping, graph capture, launch count, sampling share and local gain are unknown. Source presence alone establishes neither execution nor time."
+    },
+    {
+      "source_id": "code:continuation:vllm-project/vllm:61869:selected-patch",
+      "quote": "The fused path keeps the bias GEMM",
+      "claim": "The proposed unsharded Triton sampler is a separable implementation lead, distinct from porting the SM100 specialized engine.",
+      "relation": "supports",
+      "conditions": "The shown kernel combines logits addition and cache writes, seeded Gumbel selection, block-winner reduction, draft-token storage and next-position embedding lookup. It uses the draft step in the seed and an arrival counter for completion.",
+      "reported_result": "Unexecuted patch evidence: explicit dtype rounding, padding masks, first-NaN/first-maximum selection and counter reset are visible. No obvious SM100-specific instruction appears in the shown kernel.",
+      "transfer_inference": "Cheap checks: establish standalone SM90 compilation and compare the unsharded path with the installed eager sampler using real checkpoint weights, temperatures 0/0.6/1, repeated graph replay, padded rows and supported precision modes. Check draft-logit caches, RNG keys, vocabulary mapping, anchor layout and confidence outputs before timing.",
+      "limitations": "The excerpt truncates launcher and integration code, so portable dispatch is unproven. Compatibility with top-k sampling and confidence collection is unknown. Five sequential bias GEMMs remain; isolated H200 savings are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61869",
+      "quote": "The Markov weights are integer-valued",
+      "claim": "The PR supports sampler feasibility but does not isolate the portable fusion's contribution or establish an H200 gain.",
+      "relation": "challenges",
+      "conditions": "Open PR stacked on #61868; reported performance uses a GB300 tray, TP4, k5, Model Runner V2 and FULL graphs, with specialized decode enabled in both arms. Changes bundle draft execution, vocabulary sharding, sampling fusion and post-forward graph capture.",
+      "reported_result": "Author-reported: batch-one decode improves 6.4%; AgentX trace results show service-level changes, including higher throughput but 12% lower P90 interactivity at concurrency64. Kernel tests report bitwise parity, while GSM8K/GPQA/RULER and acceptance-length results are separate correctness evidence.",
+      "transfer_inference": "Extract the unsharded sampler as its own hypothesis. Compare it against the unchanged local k5/EP4/Marlin baseline without importing the specialized executor or attributing the bundled 6.4% gain to fusion.",
+      "limitations": "Integer-valued test weights reduce reduction-order sensitivity. H200 execution, realistic-weight parity and isolated fusion timing are unknown. Performance predates some restructuring, and cross-rank/post-forward validation is not fully covered by CI."
+    },
+    {
+      "source_id": "code:continuation:deepseek-ai/DeepInfer:54:selected-patch",
+      "quote": "if _profiler_enabled():",
+      "claim": "DeepInfer #54 exposes concrete mechanisms for removing fixed host overhead.",
+      "relation": "supports",
+      "conditions": "The patch gates profiler record scopes, pools timing events after synchronization and elapsed-time consumption, and reuses a sampling-completion event. If the private profiler query is unavailable, the fallback preserves unconditional wrapping.",
+      "reported_result": "Unexecuted patch evidence confirms these changes in DeepInfer timer and worker code. The excerpt passes a scheduler-side structured-output count but does not show maintenance of that count or the empty-output fast path.",
+      "transfer_inference": "Cheap local check: identify equivalent profiler scopes, per-step event allocations and completion-event lifetimes in installed vLLM. Verify they execute during ordinary serving and appear on the critical path before implementing an analogous change.",
+      "limitations": "No installed vLLM host code is supplied. Equivalent work, event-reuse safety, profiler-query availability, source hardware and local gain are unknown."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepInfer:54",
+      "quote": "~50-140us/step",
+      "claim": "The claimed host saving is an investigation lead, not a transferable measured effect.",
+      "relation": "context",
+      "conditions": "The open PR describes profiler gating, event reuse, replacing a per-request structured-output scan and fast-pathing empty output collections.",
+      "reported_result": "Author claim: approximately 50–140 microseconds saved per step. The supplied body contains no benchmark protocol or component attribution.",
+      "transfer_inference": "Use the claim to guide a local operation census and inspect C24 timing coverage when available. Promote only a matched, material local operation; do not recreate DeepInfer changes merely because the engines share a decode loop.",
+      "limitations": "Hardware, batch size, profiler state, structured-output workload, measurement uncertainty and end-to-end effect are unknown. Local H200 savings are unknown."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepInfer:111",
+      "quote": "LLM.generate output loop per step (1024 sequences, MTP 5)",
+      "claim": "Large-queue scheduler and output-loop savings are strongly workload-dependent and currently lack implementation evidence in the supplied material.",
+      "relation": "challenges",
+      "conditions": "Reported cases include 100,000 waiting requests, mass cancellation, unlogged queue-statistics scans and an offline output loop with 1,024 sequences.",
+      "reported_result": "Author-reported host-component results include scheduler time decreasing from 2.02 to 0.83 ms at 100,000 waiting requests and output-loop time decreasing from roughly 4.1–4.8 to 2.1–2.3 ms. These are not reported service throughput measurements.",
+      "transfer_inference": "Cheap checks: establish local queue-depth distributions, whether queue statistics are computed before logging guards, cancellation complexity and whether the measured output API is used. Drop a candidate if the equivalent scan or workload is absent.",
+      "limitations": "No patch, hardware description or controlled end-to-end comparison is supplied. Installed vLLM equivalence, local queue sizes and H200 gain are unknown."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:61903",
+      "quote": "No change for 24 or fewer tokens",
+      "claim": "The Hopper BF16x3 router proposal has relevant H200 evidence, conditional on the actual FP32-weight router branch and token-row count.",
+      "relation": "supports",
+      "conditions": "The open PR targets FP32 router weights with BF16 activations. Its new cutoff is above24 rows for the listed FP32-GEMV shapes; batch-invariant mode disables the tier. Kernel measurements use CUDA graphs with cold L2.",
+      "reported_result": "Author-reported H200 kernel gains span 1.6–3.8x at 33–512 rows. MiniMax-M2.5 on two H200s reports 4.6% more output tokens/s on a mixed workload. Beam results use dummy weights and a single simulated TP8 rank, so they are not service results.",
+      "transfer_inference": "Cheap check: inspect loaded router weight and activation dtypes, shape, active dispatch and effective padded rows. In k5 verification, count token rows rather than requests: five requests can mean30 real target rows. Benchmark only matched local shapes after confirming dispatch.",
+      "limitations": "This is proposed code, with no kernel patch supplied here. DeepSeek-V4.1 eligibility and H200 service gain are unknown. Other-model measurements do not establish local benefit."
+    },
+    {
+      "source_id": "code:continuation:pinned-router",
+      "quote": "out_dtype=torch.float32,",
+      "claim": "The nominal DeepSeek router construction does not establish eligibility for the FP32-weight optimization.",
+      "relation": "challenges",
+      "conditions": "The excerpt requests FP32 output from GateLinear and separately constructs hash-routing state for early layers. It does not show loaded weight dtype, the full forward branch or actual installed bytes.",
+      "reported_result": "Static nominal-source observation: GateLinear exists, but output dtype is not evidence that its weights are FP32 or that a GEMM executes in every layer.",
+      "transfer_inference": "Inspect actual loaded weights and forward dispatch, distinguish hash routing from learned routing, and count only affected layers. If weights are BF16 or the relevant branch bypasses the GEMM, reject this transfer regardless of upstream H200 speedups.",
+      "limitations": "This is nominal pinned upstream source rather than an attested installed router snapshot. Active branches, shapes, timing share and local gain are unknown."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepInfer:92",
+      "quote": "validated on 8x and 4x NVIDIA H20-3e (141 GB)",
+      "claim": "DeepInfer #92 is a broad proposed Hopper enablement port with author-reported H20 results, not an established H200 improvement over installed vLLM.",
+      "relation": "challenges",
+      "conditions": "The open PR changes56 files, including FlashMLA formats, FP8 linears, indexer kernels, routed experts, collectives and build dependencies. The author describes the released baseline as SM100/Ascend. Hopper experts default to Humming W4A8 when installed, rather than the task's Marlin baseline.",
+      "reported_result": "Author-reported offline H20 decode reaches2,463 total tokens/s on four GPUs at concurrency64 with random-token1024-input/512-output requests. Long-context TTFT uses cold individual requests and median-of-three timing. GSM8K and kernel tests are separate correctness results.",
+      "transfer_inference": "Treat individual kernels as conditional leads. First match formats, quantization arithmetic, EP/DP layout and actual dispatched operations; a whole-engine comparison would need matched sampling, workload and graph settings.",
+      "limitations": "No #92 implementation patch is supplied. No H200 measurement, matched vLLM comparison or production-service improvement is demonstrated. Prefill intervals differ between the reported four- and eight-GPU runs. Local gain is unknown."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepInfer:92",
+      "quote": "block exponents span at most 14 binades",
+      "claim": "The proposed Hopper indexer has an explicit arithmetic condition that limits claims of equivalence.",
+      "relation": "context",
+      "conditions": "The author describes FP4-index-key handling through Triton/Gluon kernels and states that FP4-to-FP8 re-encoding is exact only within the stated row exponent range, with a bound beyond it.",
+      "reported_result": "Author-reported tests compare logits with a reference under per-logit tolerances. Layer checks on4K/8K prompts report indexer top-k recall0.992–0.997; that is not identical selection. Encoding exactness alone does not establish identical full indexer arithmetic.",
+      "transfer_inference": "Cheap checks: identify the local indexer backend and packed scales, examine representative exponent spans, and compare logits and selected indices against the installed path. Only time a candidate if the branch matches and indexer work is material.",
+      "limitations": "The numerical bound beyond14 binades, kernel code, local exponent distribution, full-model impact and H200 timing are unknown. Reported accuracy does not establish a backend speedup."
+    },
+    {
+      "source_id": "github:vllm-project/vllm:59611",
+      "quote": "No change when `num_redundant_experts=0`.",
+      "claim": "Redundant-expert loading is a stronger correctness intervention if the affected configuration exists locally.",
+      "relation": "supports",
+      "conditions": "The merged fix concerns NVIDIA V4/V4.1 with EPLB enabled, positive redundant-expert count and the affected FusedMoE loading path. MegaMoE uses a separate mapping.",
+      "reported_result": "Author-reported B300 startup checks find all320 redundant V4.1 slots mismatched before the fix and none afterward. GSM8K remains similar despite the defect, demonstrating that aggregate accuracy can miss incorrect replica weights.",
+      "transfer_inference": "Cheap check: inspect local EPLB flags, redundant-slot count, installed loader mapping and whether the merged fix is present. If applicable, compare every replica's managed weights and scales with its logical source before rearrangement. Resolve a mismatch before performance promotion.",
+      "limitations": "EP4 alone does not imply EPLB or redundant slots. The tested backend was FlashInfer, not local Marlin; the installed loader path must be established. Local exposure and performance gain are unknown."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepInfer:107",
+      "quote": "the window was never cleared or re-keyed",
+      "claim": "History accumulated under changing expert placement can invalidate load-balancing decisions.",
+      "relation": "supports",
+      "conditions": "The described bug records physical-slot counts but later interprets the entire history using the current logical mapping. Ordinary interval mode masks it when the window is overwritten; forced rearrangement after each prefill can expose it.",
+      "reported_result": "Author reports CPU tests and smoke checks for recording counts in logical-expert coordinates. GPU execution and performance were not tested.",
+      "transfer_inference": "Cheap local audit: if adaptive EPLB is enabled, trace count-window coordinates through placement changes and check whether old samples remain correctly attributed. This becomes a priority only if equivalent history and rearrangement behavior exist in installed vLLM.",
+      "limitations": "No local EPLB implementation is supplied. Trigger frequency, GPU correctness, weight-shuffle cost and H200 gain are unknown. The DeepInfer-specific trigger flag is not evidence of a vLLM defect."
+    },
+    {
+      "source_id": "github:deepseek-ai/DeepInfer:99",
+      "quote": "It aims to make these nodes work, not to match GIN performance.",
+      "claim": "The NVLink Engram proposal addresses deployment availability, with explicit reasons it may cost more than the native path.",
+      "relation": "challenges",
+      "conditions": "The opt-in path targets single-node systems without GIN. It gathers padded indices, performs owner-side lookup and exchanges rows collectively; all ranks participate and buffers are padded to maximum token capacity.",
+      "reported_result": "Author reports byte-identical lookup-unit results and completion of50 offline samples on four B200s. End-to-end perplexity differs from the golden setup, one answer is wrong, and performance is unmeasured; the run included JIT compilation.",
+      "transfer_inference": "Consider only if a DeepInfer experiment is actually blocked by unavailable GIN. First establish local Engram transport and padding. This is not currently a stronger speed candidate for a working H200 vLLM service.",
+      "limitations": "Checkpoint, parallel configuration and other feature differences confound correctness. There is no native-path A/B or H200 evidence. Local applicability and gain are unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:45407",
+      "quote": "both on paths that SM100 does not take",
+      "claim": "The SGLang prefill-graph report demonstrates a concrete Hopper-specific metadata hazard, but does not establish a local vLLM optimization.",
+      "relation": "context",
+      "conditions": "Eight H200s, Marlin, k5, decoder SWA bounded replay and breakable prefill graphs. Tail live rows disagree with whole-extend metadata, and another source-KV path captures a fixed row count.",
+      "reported_result": "Author reports startup/replay failures before fixes and successful startup, equal GSM8K scores and six successful retrieval prompts afterward. These measurements predate the latest capture stub; current-head reruns and described unit tests remain pending.",
+      "transfer_inference": "Cheap check: determine whether installed vLLM has an equivalent bounded-tail prefill graph path and live-row contract. If so, inspect capture-versus-replay row handling. Hardware similarity alone does not justify porting this SGLang fix.",
+      "limitations": "No local branch equivalence or timing benefit is supplied. The evidence concerns enabling a failing configuration, not accelerating an already functioning service. H200 gain in the installed stack is unknown."
+    },
+    {
+      "source_id": "github:sgl-project/sglang:45433",
+      "quote": "The unconditional simulated accept-sampling bypass introduced in #45421 is unchanged",
+      "claim": "Synthetic-acceptance benchmarks cannot establish actual probabilistic decoding performance or correctness.",
+      "relation": "challenges",
+      "conditions": "The merged change makes two optional shortcuts opt-in, but leaves another simulated accept-sampling bypass intact.",
+      "reported_result": "The section labeled Accuracy Tests only verifies environment-switch behavior and a diff check. No GPU, end-to-end accuracy or speed tests were run.",
+      "transfer_inference": "Cheap protocol check: verify active simulation flags and the executed acceptance branch, not merely defaults. Portable DSpark fusion must preserve real draft probabilities and rejection sampling; service timing should use actual acceptance.",
+      "limitations": "This is SGLang-specific and does not show that installed vLLM uses simulated acceptance. Its tests provide no model-accuracy result, service effect or H200 gain."
+    },
+    {
+      "source_id": "code:continuation:deepinfer-qa",
+      "quote": "Decode: EP64–128 / DP64–128 (Wide-EP)",
+      "claim": "DeepInfer's production architecture and headline throughput are not matched evidence for an EP4 H200 continuation.",
+      "relation": "challenges",
+      "conditions": "The deployment document describes disaggregated stages, large decode groups, extensive load balancing and long-lived KV storage. Some cache-management and load-balancing components are not fully released.",
+      "reported_result": "Source-author deployment claims describe a production system, but the excerpt supplies no controlled k5/EP4/Marlin comparison.",
+      "transfer_inference": "Use released mechanisms as candidates and assess each against the local critical path. Do not attribute cluster-scale benefits to an isolated kernel or assume the released engine reproduces the complete production system.",
+      "limitations": "Hardware for the cited deployment, matched workload, component attribution and local effect size are unknown. Wide-EP efficiency and cache-reuse economics do not directly quantify EP4 performance."
+    },
+    {
+      "source_id": "fulltext:2607.05147",
+      "quote": "a hardware-aware prefix scheduler",
+      "claim": "The DSpark paper supplies conceptual support for confidence-dependent verification budgets.",
+      "relation": "context",
+      "conditions": "The supplied abstract and conclusion describe a parallel backbone, sequential head and verification selection based on survival probabilities and engine load.",
+      "reported_result": "Authors claim offline and production benefits. The supplied excerpt does not expose implementation details, experimental controls or quantitative results sufficient to assess this continuation.",
+      "transfer_inference": "Use the installed controller and released DeepInfer implementation as the stronger evidence. The paper motivates checking the budget objective but does not justify replacing local code.",
+      "limitations": "Despite fulltext metadata, the supplied content has large gaps. Hardware, workload, effect size and detailed limitations are unknown here; an abstract is not implementation evidence."
+    },
+    {
+      "source_id": "fulltext:2310.18813",
+      "quote": "the optimal speculation length depends on the batch size",
+      "claim": "Prior work supports conditioning speculation on workload and hardware rather than treating one fixed length as universally optimal.",
+      "relation": "context",
+      "conditions": "The supplied conclusion also conditions the optimum on model characteristics and GPU architecture.",
+      "reported_result": "Authors claim adaptive selection achieves equal or better performance than fixed speculation in their evaluations. Experimental details are absent from the supplied excerpt.",
+      "transfer_inference": "This supports continued investigation after the failed C03 screen, but does not reverse its decision or justify duplicating C24. Any next intervention needs a distinct causal mechanism and local evidence.",
+      "limitations": "Hardware, workload, quantitative effect, graph behavior and applicability to semi-autoregressive k5/EP4/Marlin are unknown from the supplied material."
+    }
+  ],
+  "unanswered": [
+    "C24 timing is pending. Its component coverage and results are unknown; consume it before scheduling overlapping timing work. C03's failed promotion remains the task-established decision.",
+    "What target and draft descriptors would AV actually select after cross-rank synchronization, including zero/full-budget boundaries and its changed capture inventory? The supplied calculation is counterfactual.",
+    "Do the installed AV curves accurately represent total critical-path cost, including draft padding, sampling, context effects and synchronization? DeepInfer's forward/sampler timing boundaries are not supplied.",
+    "Does the installed dense DSpark path execute for the actual checkpoint, and what time is attributable to its non-GEMM operations? Unsharded Hopper portability, full integration guards, confidence preservation and realistic-weight parity remain unknown.",
+    "Do equivalent profiler scopes, event allocations, structured-output scans, queue walks or output conversions exist and consume critical-path time in installed vLLM? No local host implementation evidence is supplied.",
+    "Are local router weights FP32, which layers actually execute the learned router GEMM, and what padded row counts reach it? FP32 output dtype alone does not answer eligibility.",
+    "Which local indexer and expert backends execute, with what packed formats and arithmetic? DeepInfer #92 provides neither a supplied kernel patch nor a matched H200-versus-Marlin comparison.",
+    "Are EPLB and redundant experts enabled, does the installed loader contain #59611, and does any count history survive placement changes incorrectly? These conditional correctness checks could outrank performance changes if exposed.",
+    "The local workload distribution, service latency constraints, active sampling settings and per-component timing shares are unknown. No supplied source establishes a positive local H200 effect size for any proposed intervention."
+  ]
+}

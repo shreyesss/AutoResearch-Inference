@@ -1,0 +1,692 @@
+From 50586231f718a708b1906cd0b5a3257a53fb6097 Mon Sep 17 00:00:00 2001
+From: morluto <76467478+morluto@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 18:22:28 +0800
+Subject: [PATCH 1/6] test: add CPU fixtures for native scheduler ownership
+ checks
+
+---
+ tests/engine/conftest.py | 113 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 113 insertions(+)
+ create mode 100644 tests/engine/conftest.py
+
+diff --git a/tests/engine/conftest.py b/tests/engine/conftest.py
+new file mode 100644
+index 0000000..b66eb45
+--- /dev/null
++++ b/tests/engine/conftest.py
+@@ -0,0 +1,113 @@
++"""CPU fixtures for the native scheduler; no model weights or device execution."""
++
++from collections.abc import Callable, Iterator
++from itertools import count
++from types import SimpleNamespace
++from typing import TYPE_CHECKING
++
++import numpy as np
++import pytest
++
++if TYPE_CHECKING:
++    from torch.distributed import ProcessGroup
++
++    from deepinfer._C.engine import BlockManager, Scheduler, Sequence, SequenceMetadataPool
++
++
++@pytest.fixture(scope="module")
++def scheduler_process_group() -> Iterator["ProcessGroup"]:
++    import torch.distributed as dist
++
++    owns_group = not dist.is_initialized()
++    if owns_group:
++        dist.init_process_group("gloo", store=dist.HashStore(), rank=0, world_size=1)
++    elif dist.get_world_size() != 1 or dist.get_backend() != "gloo":
++        pytest.skip("Native scheduler unit tests require a single-rank CPU Gloo group")
++    try:
++        yield dist.group.WORLD
++    finally:
++        if owns_group:
++            dist.destroy_process_group()
++
++
++@pytest.fixture
++def scheduler_factory(
++    scheduler_process_group: "ProcessGroup", monkeypatch: pytest.MonkeyPatch
++) -> Callable[..., tuple["Scheduler", "BlockManager", "BlockManager | None"]]:
++    from deepinfer._C.engine import BlockManager, Scheduler
++
++    def make(
++        num_blocks: int = 33,
++        *,
++        num_states: int | None = None,
++        stop_preempted_request: bool = True,
++        nextn: int = 0,
++        max_num_batched_tokens: int = 64,
++        max_num_seqs: int = 4,
++        max_model_len: int = 256,
++    ) -> tuple["Scheduler", "BlockManager", "BlockManager | None"]:
++        monkeypatch.setenv("DEEPINFER_USE_NEXTN_DECODE", str(nextn))
++        blocks = BlockManager(num_blocks)
++        states = BlockManager(num_states) if num_states is not None else None
++        config = SimpleNamespace(
++            max_model_len=max_model_len,
++            runtime_max_model_len=max_model_len + 64,
++            max_num_batched_tokens=max_num_batched_tokens,
++            max_num_seqs=max_num_seqs,
++            stop_preempted_request=stop_preempted_request,
++            chunked_prefill=True,
++            engine_type=0,
++            prefill_attempt_interval=2,
++            prefill_any_attempt_interval=100,
++        )
++        scheduler = Scheduler(
++            block_size=16,
++            block_manager=blocks,
++            state_manager=states,
++            eos_token_id=2,
++            dp_group=scheduler_process_group,
++            scheduler_config=config,
++            truncate_len=0,
++            lookahead_tokens=0,
++            prefill_max_sum_seqlen_k=4096,
++            flops_estimator=None,
++            engram_lookup_table=[],
++            cp_size=1,
++            vocab_size=100,
++            log_stats=False,
++        )
++        return scheduler, blocks, states
++
++    return make
++
++
++@pytest.fixture
++def sequence_factory() -> Callable[..., "Sequence"]:
++    from deepinfer._C.engine import Sequence
++    from deepinfer.sampling_params import SamplingParams
++
++    ids = count()
++
++    def make(length: int = 128, *, request_id: str = "request", block_size: int = 16) -> "Sequence":
++        tokens = np.ones(length, dtype=np.int32)
++        return Sequence(
++            seq_id=next(ids),
++            prompt_token_ids=tokens,
++            compressed_prompt_token_ids=tokens,
++            multi_modal_data=None,
++            block_size=block_size,
++            request_id=request_id,
++            user_id="test",
++            sampling_params=SamplingParams(max_tokens=4, ignore_eos=True, eos_id=2, seq_seed=0),
++            arrival_time=0.0,
++            golden_token_ids=None,
++        )
++
++    return make
++
++
++@pytest.fixture
++def metadata_pool() -> "SequenceMetadataPool":
++    from deepinfer._C.engine import SequenceMetadataPool
++
++    return SequenceMetadataPool()
+
+From 06d1abe8b9cde2a043443decfe609347d37fdf00 Mon Sep 17 00:00:00 2001
+From: morluto <76467478+morluto@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 18:19:50 +0800
+Subject: [PATCH 2/6] Fix shared KV cache capacity to respect the smallest rank
+ budget
+
+---
+ deepinfer/worker/base.py            |  5 ++-
+ tests/worker/test_cache_capacity.py | 65 +++++++++++++++++++++++++++++
+ 2 files changed, 68 insertions(+), 2 deletions(-)
+ create mode 100644 tests/worker/test_cache_capacity.py
+
+diff --git a/deepinfer/worker/base.py b/deepinfer/worker/base.py
+index 158e26a..6a44676 100644
+--- a/deepinfer/worker/base.py
++++ b/deepinfer/worker/base.py
+@@ -262,8 +262,9 @@ def profile_num_available_blocks(self) -> int:
+         )
+ 
+         num_gpu_blocks = torch.tensor(num_gpu_blocks, device="cuda", dtype=torch.int64)
+-        dist.all_reduce(num_gpu_blocks, op=dist.ReduceOp.SUM, group=PG.world_group())
+-        num_gpu_blocks = num_gpu_blocks.item() // PG.world_group().size() // 2 * 2
++        # Every rank must be able to allocate the common, even block count.
++        dist.all_reduce(num_gpu_blocks, op=dist.ReduceOp.MIN, group=PG.world_group())
++        num_gpu_blocks = num_gpu_blocks.item() // 2 * 2
+         self.cache_config.num_gpu_blocks = num_gpu_blocks
+         return num_gpu_blocks
+ 
+diff --git a/tests/worker/test_cache_capacity.py b/tests/worker/test_cache_capacity.py
+new file mode 100644
+index 0000000..d0e9240
+--- /dev/null
++++ b/tests/worker/test_cache_capacity.py
+@@ -0,0 +1,65 @@
++from types import SimpleNamespace
++from unittest.mock import Mock
++
++import pytest
++import torch
++import torch.distributed as dist
++
++import deepinfer.worker.base as worker_base
++from deepinfer.worker.base import WorkerBase
++
++
++@pytest.mark.parametrize(
++    "capacities",
++    [
++        (100, 200),
++        (201, 103),
++        (100, 100),
++        (0, 200),
++        (1, 200),
++        (-10, 200),
++        (103,),
++    ],
++)
++def test_cache_capacity_fits_every_rank(monkeypatch: pytest.MonkeyPatch, capacities: tuple[int, ...]) -> None:
++    """Profile each rank with fixed memory observations and emulate its collective."""
++    block_bytes = 10
++    total_bytes = 10000
++    group = SimpleNamespace(size=lambda: len(capacities))
++    tensor = torch.tensor
++
++    monkeypatch.setattr(worker_base.envs, "DEEPINFER_ENABLE_MEMORY_TRACING", False)
++    monkeypatch.setattr(worker_base.PG, "world_group", lambda: group)
++    monkeypatch.setattr(worker_base.CacheEngine, "get_cache_block_size", lambda *_: block_bytes)
++    monkeypatch.setattr(worker_base.CacheEngine, "get_state_shape", lambda *_: (0,))
++    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None)
++    monkeypatch.setattr(torch.cuda, "reset_peak_memory_stats", lambda: None)
++    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda: (total_bytes, total_bytes))
++    monkeypatch.setattr(torch.cuda, "memory_allocated", lambda: 0)
++    # Keep real int64 tensors while bypassing CUDA allocation.
++    monkeypatch.setattr(worker_base.torch, "tensor", lambda value, **kwargs: tensor(value, **{**kwargs, "device": "cpu"}))
++
++    local_capacities = [max(capacity, 0) for capacity in capacities]
++    expected = min(local_capacities) // 2 * 2
++    for rank, capacity in enumerate(capacities):
++        monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda: total_bytes - capacity * block_bytes)
++
++        def all_reduce(value: torch.Tensor, op: dist.ReduceOp, group: object) -> None:
++            assert group is worker_base.PG.world_group()
++            assert value.dtype == torch.int64
++            assert value.item() == local_capacities[rank]
++            assert op in (dist.ReduceOp.MIN, dist.ReduceOp.SUM)
++            value.fill_(min(local_capacities) if op == dist.ReduceOp.MIN else sum(local_capacities))
++
++        monkeypatch.setattr(dist, "all_reduce", all_reduce)
++        worker = WorkerBase.__new__(WorkerBase)
++        worker.cache_config = SimpleNamespace(block_size=64, gpu_memory_utilization=1.0)
++        worker.model_config = SimpleNamespace(max_num_seqs=8)
++        worker.model_runner = SimpleNamespace(set_block_size=Mock(), profile_run=Mock(), model=SimpleNamespace(cfg=None))
++
++        selected = worker.profile_num_available_blocks()
++
++        assert selected == expected
++        assert worker.cache_config.num_gpu_blocks == selected
++        assert selected % 2 == 0
++        assert all(selected <= limit for limit in local_capacities)
+
+From d2fbfa680bef56fb94e0ce54a63cd834caebb3fa Mon Sep 17 00:00:00 2001
+From: morluto <76467478+morluto@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 18:23:50 +0800
+Subject: [PATCH 3/6] Fix decode admission to reserve only missing KV blocks
+
+---
+ csrc/engine/scheduler.hpp                    | 10 ++-
+ tests/engine/test_scheduler_decode_blocks.py | 88 ++++++++++++++++++++
+ 2 files changed, 94 insertions(+), 4 deletions(-)
+ create mode 100644 tests/engine/test_scheduler_decode_blocks.py
+
+diff --git a/csrc/engine/scheduler.hpp b/csrc/engine/scheduler.hpp
+index ed6e897..fec483e 100644
+--- a/csrc/engine/scheduler.hpp
++++ b/csrc/engine/scheduler.hpp
+@@ -627,12 +627,13 @@ struct Scheduler {
+         size_t l = 0, r = running.size();
+         while (l < r && scheduled.size() < max_seqs) {
+             auto &seq = running[r - 1];
+-            while (!block_manager->can_allocate_single_nolock() && r - l > 1) {
++            const int additional_blocks = std::max(0, seq->get_num_blocks() - static_cast<int>(seq->cache.block_table.size()));
++            while (block_manager->can_allocate_nolock(additional_blocks) != AllocStatus::OK && r - l > 1) {
+                 auto victim_seq = running[l];
+                 _preempt(victim_seq, ignored_seqs);
+                 l += 1;
+             }
+-            if (block_manager->can_allocate_single_nolock()) {
++            if (block_manager->can_allocate_nolock(additional_blocks) == AllocStatus::OK) {
+                 _append_slot(*seq);
+                 scheduled.push_back(std::move(seq));
+             } else {
+@@ -816,9 +817,10 @@ struct Scheduler {
+     // only called in _schedule
+     void _append_slot(Sequence &seq) {
+         int num_blocks = seq.get_num_blocks();
+-        if (static_cast<decltype(num_blocks)>(seq.cache.block_table.size()) < num_blocks) {
++        while (static_cast<decltype(num_blocks)>(seq.cache.block_table.size()) < num_blocks) {
+             seq.cache.block_table.emplace_back(block_manager->allocate_single_nolock());
+-        } else if (static_cast<decltype(num_blocks)>(seq.cache.block_table.size()) > num_blocks) {
++        }
++        if (static_cast<decltype(num_blocks)>(seq.cache.block_table.size()) > num_blocks) {
+             std::vector<int> redundant_blocks(seq.cache.block_table.begin() + num_blocks, seq.cache.block_table.end());
+             block_manager->free_blocks_nolock(redundant_blocks);
+             seq.cache.block_table.erase(seq.cache.block_table.begin() + num_blocks, seq.cache.block_table.end());
+diff --git a/tests/engine/test_scheduler_decode_blocks.py b/tests/engine/test_scheduler_decode_blocks.py
+new file mode 100644
+index 0000000..73ef396
+--- /dev/null
++++ b/tests/engine/test_scheduler_decode_blocks.py
+@@ -0,0 +1,88 @@
++"""Decode admission must account for blocks already owned by each request."""
++
++from collections.abc import Callable
++
++import pytest
++import torch
++
++from deepinfer._C.engine import BlockManager, Scheduler, Sequence, SequenceData, SequenceMetadataPool, SequenceStatus
++
++
++@pytest.mark.parametrize("nextn", [0, 5])
++@pytest.mark.parametrize("overlap", [False, True])
++@pytest.mark.parametrize("stop_preempted_request", [False, True])
++def test_full_cache_can_decode_with_existing_reservation(
++    scheduler_factory: Callable[..., tuple[Scheduler, BlockManager, BlockManager | None]],
++    sequence_factory: Callable[..., Sequence],
++    metadata_pool: SequenceMetadataPool,
++    nextn: int,
++    overlap: bool,
++    stop_preempted_request: bool,
++) -> None:
++    scheduler, blocks, states = scheduler_factory(
++        num_blocks=4, num_states=2, nextn=nextn, stop_preempted_request=stop_preempted_request
++    )
++    seq = sequence_factory(length=33)
++    scheduler.add_sequence(seq)
++    metadata, output = scheduler.schedule(metadata_pool)
++    assert output.prompt_run
++    scheduler.process_outputs(output, torch.empty(0, dtype=torch.int32), torch.tensor([1], dtype=torch.int32), None)
++    metadata_pool.release(metadata)
++    seq.last_next_n_token = [1] * nextn
++
++    assert blocks.get_num_free_blocks() == 0
++    for _ in range(2 if overlap else 1):
++        # Leaving the previous decode uncommitted models the in-flight
++        # reservation present when zero-overhead scheduling overlaps steps.
++        metadata, output = scheduler.schedule(metadata_pool)
++        assert not output.prompt_run
++        assert output.scheduled_seqs == [seq]
++        assert seq.status == SequenceStatus.RUNNING
++        assert scheduler.get_num_preempted_seqs() == 0
++        assert blocks.get_num_free_blocks() == 0
++        assert states is not None and states.get_num_free_blocks() == 0
++        metadata_pool.release(metadata)
++
++
++@pytest.mark.parametrize("stop_preempted_request", [False, True])
++@pytest.mark.parametrize(
++    ("owned", "required", "usable", "scheduled", "free_after"),
++    [
++        (3, 2, 3, True, 1),  # Rejected drafts leave a surplus, with no free blocks.
++        (2, 4, 4, True, 0),  # More than one block must be appended.
++        (2, 3, 2, False, 2),  # A real deficit still requires preemption.
++    ],
++)
++def test_decode_resizes_to_the_full_block_requirement(
++    scheduler_factory: Callable[..., tuple[Scheduler, BlockManager, BlockManager | None]],
++    sequence_factory: Callable[..., Sequence],
++    metadata_pool: SequenceMetadataPool,
++    stop_preempted_request: bool,
++    owned: int,
++    required: int,
++    usable: int,
++    scheduled: bool,
++    free_after: int,
++) -> None:
++    scheduler, blocks, states = scheduler_factory(
++        num_blocks=usable + 1, num_states=2, stop_preempted_request=stop_preempted_request
++    )
++    seq = sequence_factory(length=owned * 16 - 8)
++    assert scheduler.try_allocate_seq(seq)
++    # Seed an owned reservation before the sequence length changes. This
++    # isolates admission and resizing without executing a model.
++    seq.data = SequenceData([1] * (required * 16 - 8))
++    seq.compressed_data = SequenceData([1] * (required * 16 - 8))
++    seq.status = SequenceStatus.RUNNING
++    scheduler.running = [seq]
++
++    metadata, output = scheduler.schedule(metadata_pool)
++    assert output.scheduled_seqs == ([seq] if scheduled else [])
++    assert scheduler.get_num_preempted_seqs() == (0 if scheduled else 1)
++    assert blocks.get_num_free_blocks() == free_after
++    assert states is not None and states.get_num_free_blocks() == (0 if scheduled else 1)
++    if not scheduled:
++        expected = SequenceStatus.FINISHED_PREEMPTED if stop_preempted_request else SequenceStatus.WAITING
++        assert seq.status == expected
++        assert list(scheduler.waiting) == ([] if stop_preempted_request else [seq])
++    metadata_pool.release(metadata)
+
+From 0e1fc327dc13895fc9fcdf58882a02689dcabb6e Mon Sep 17 00:00:00 2001
+From: morluto <76467478+morluto@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 18:23:10 +0800
+Subject: [PATCH 4/6] fix: reclaim cache references from terminated waiting
+ sequences
+
+---
+ csrc/engine/scheduler.hpp                  |   4 +
+ tests/engine/test_scheduler_reclamation.py | 140 +++++++++++++++++++++
+ 2 files changed, 144 insertions(+)
+ create mode 100644 tests/engine/test_scheduler_reclamation.py
+
+diff --git a/csrc/engine/scheduler.hpp b/csrc/engine/scheduler.hpp
+index fec483e..7ff061d 100644
+--- a/csrc/engine/scheduler.hpp
++++ b/csrc/engine/scheduler.hpp
+@@ -362,6 +362,8 @@ struct Scheduler {
+             // 入队前已判死的 seq 不跑 prefill，进 ignored_seqs 带 finish_reason 回传
+             if (seq->schedule.status == SequenceStatus::FINISHED_ABORTED || seq->schedule.status == SequenceStatus::FINISHED_VE_FAILED ||
+                 seq->schedule.status == SequenceStatus::FINISHED_SO_FAILED) {
++                // A completed prefill chunk (or a fork) can already own cache references.
++                free_seq_nolock(*seq);
+                 ignored_seqs.push_back(seq);
+                 waiting.pop_front();
+                 continue;
+@@ -569,6 +571,7 @@ struct Scheduler {
+         std::vector<SequencePtr> ignored_seqs;
+         for (auto it = waiting.begin(); it != waiting.end();) {
+             if ((*it)->is_finished()) {
++                free_seq_nolock(**it);
+                 ignored_seqs.push_back(std::move(*it));
+                 it = waiting.erase(it);
+             } else {
+@@ -740,6 +743,7 @@ struct Scheduler {
+         release_mtp_info_slot(seq);
+         if (seq.cache.state_id != -1) {
+             state_manager->free_blocks_nolock({seq.cache.state_id});
++            seq.cache.state_id = -1;
+         }
+         block_manager->free_blocks_nolock(seq.cache.block_table);
+         seq.cache.block_table.clear();
+diff --git a/tests/engine/test_scheduler_reclamation.py b/tests/engine/test_scheduler_reclamation.py
+new file mode 100644
+index 0000000..3bccca3
+--- /dev/null
++++ b/tests/engine/test_scheduler_reclamation.py
+@@ -0,0 +1,140 @@
++"""Exercise real scheduler allocation ownership without launching a model."""
++
++from collections.abc import Callable
++
++import pytest
++import torch
++
++from deepinfer._C.engine import Scheduler, SequenceData, SequenceMetadataPool, SequenceStatus
++
++pytestmark = [pytest.mark.ci, pytest.mark.ci_npu]
++
++
++def _cleanup_waiting(scheduler: Scheduler, metadata_pool: SequenceMetadataPool, phase: str) -> None:
++    scheduler.decode_step = 0 if phase == "prefill" else 1
++    metadata, outputs = scheduler.schedule(metadata_pool)
++    assert outputs.prompt_run == (phase == "prefill")
++    assert outputs.is_empty()
++    metadata_pool.release(metadata)
++    assert not scheduler.has_unfinished_seqs()
++
++
++@pytest.mark.parametrize("phase", ["prefill", "decode"])
++@pytest.mark.parametrize("num_states", [None, 5])
++@pytest.mark.parametrize("nextn", [0, 5])
++@pytest.mark.parametrize("terminal_status", ["FINISHED_ABORTED", "FINISHED_VE_FAILED", "FINISHED_SO_FAILED"])
++def test_completed_partial_prefill_releases_cache_when_terminated(
++    scheduler_factory: Callable,
++    sequence_factory: Callable,
++    metadata_pool: SequenceMetadataPool,
++    phase: str,
++    num_states: int | None,
++    nextn: int,
++    terminal_status: str,
++) -> None:
++    scheduler, blocks, states = scheduler_factory(num_blocks=17, num_states=num_states, nextn=nextn)
++    # More cancellations than the allocator capacity catch cumulative leaks.
++    for _ in range(20):
++        seq = sequence_factory()
++        scheduler.add_sequence(seq)
++        scheduler.decode_step = 0
++        metadata, outputs = scheduler.schedule(metadata_pool)
++        assert outputs.prompt_run
++        assert outputs.scheduled_seqs == [seq]
++        assert seq.chunked_rest_len == 64
++        assert blocks.get_num_free_blocks() == 8
++        if states is not None:
++            assert states.get_num_free_blocks() == 3
++        # Mirrors the engine's commit after the prefill completion event.
++        scheduler.process_outputs(
++            outputs,
++            torch.empty(0, dtype=torch.int32),
++            torch.tensor([1], dtype=torch.int32),
++            None,
++        )
++        metadata_pool.release(metadata)
++        assert seq.num_cached_tokens == 64
++        assert scheduler.waiting == [seq]
++        if terminal_status == "FINISHED_ABORTED":
++            assert scheduler.abort_sequence([seq.request_id]) == [seq]
++        else:
++            seq.status = getattr(SequenceStatus, terminal_status)
++
++        _cleanup_waiting(scheduler, metadata_pool, phase)
++        assert blocks.get_num_free_blocks() == 16
++        assert seq.state_id == -1
++        if states is not None:
++            assert states.get_num_free_blocks() == 4
++
++
++@pytest.mark.parametrize("phase", ["prefill", "decode"])
++def test_aborting_a_preempted_recompute_does_not_free_state_twice(
++    scheduler_factory: Callable, sequence_factory: Callable, metadata_pool: SequenceMetadataPool, phase: str
++) -> None:
++    scheduler, blocks, states = scheduler_factory(num_blocks=17, num_states=5, stop_preempted_request=False, nextn=0)
++    seq = sequence_factory()
++    assert scheduler.try_allocate_seq(seq)
++    seq.num_cached_tokens = 128
++    # Require a ninth block while owning eight, including after deficit-aware scheduling.
++    seq.data = SequenceData([1] * 129)
++    seq.compressed_data = SequenceData([1] * 129)
++    seq.status = SequenceStatus.RUNNING
++    scheduler.running = [seq]
++    # Leave no free blocks, forcing the existing preemption path.
++    reserved = blocks.allocate_nolock(blocks.get_num_free_blocks())
++    scheduler.decode_step = 1
++    metadata, outputs = scheduler.schedule(metadata_pool)
++    metadata_pool.release(metadata)
++    assert outputs.is_empty()
++    assert seq.status == SequenceStatus.WAITING
++    assert scheduler.waiting == [seq]
++    assert seq.state_id == -1
++    assert states.get_num_free_blocks() == 4
++
++    scheduler.abort_sequence([seq.request_id])
++    _cleanup_waiting(scheduler, metadata_pool, phase)
++    assert states.get_num_free_blocks() == 4
++    assert blocks.get_num_free_blocks() == 8
++    blocks.unpin_blocks(reserved)
++    assert blocks.get_num_free_blocks() == 16
++
++
++@pytest.mark.parametrize("phase", ["prefill", "decode"])
++def test_aborted_fork_releases_only_its_own_references(
++    scheduler_factory: Callable, sequence_factory: Callable, metadata_pool: SequenceMetadataPool, phase: str
++) -> None:
++    scheduler, blocks, states = scheduler_factory(num_blocks=17, num_states=5)
++    parent = sequence_factory(request_id="parent")
++    assert scheduler.try_allocate_seq(parent)
++    parent.num_cached_tokens = 64
++    child = scheduler.fork_seq(parent, None, "_child", parent.sampling_params, None, 1, -1, 2, 0.0)
++    child.request_id = "child"
++    scheduler.abort_sequence(["child"])
++    _cleanup_waiting(scheduler, metadata_pool, phase)
++    assert child.state_id == -1
++    assert parent.state_id != -1
++    assert blocks.get_num_free_blocks() == 8
++    assert states.get_num_free_blocks() == 3
++    scheduler.free_seq(parent)
++    assert blocks.get_num_free_blocks() == 16
++    assert states.get_num_free_blocks() == 4
++
++
++def test_rejected_fork_has_no_stale_state_handle(
++    scheduler_factory: Callable, sequence_factory: Callable, metadata_pool: SequenceMetadataPool
++) -> None:
++    scheduler, blocks, states = scheduler_factory(num_blocks=17, num_states=5, max_model_len=64)
++    parent = sequence_factory(request_id="parent")
++    assert scheduler.try_allocate_seq(parent)
++    parent.num_cached_tokens = 64
++    child = scheduler.fork_seq(parent, None, "_child", parent.sampling_params, None, 1, -1, 2, 0.0)
++    _cleanup_waiting(scheduler, metadata_pool, "prefill")
++    assert child.status == SequenceStatus.FINISHED_IGNORED
++    assert child.state_id == -1
++    # The fork rejection already freed the child's pins; a repeated visit is harmless.
++    scheduler.free_seq(child)
++    assert blocks.get_num_free_blocks() == 8
++    assert states.get_num_free_blocks() == 3
++    scheduler.free_seq(parent)
++    assert blocks.get_num_free_blocks() == 16
++    assert states.get_num_free_blocks() == 4
+
+From ee6195e6db810f7940d534fd28f45eb64892bf1e Mon Sep 17 00:00:00 2001
+From: morluto <76467478+morluto@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 18:27:40 +0800
+Subject: [PATCH 5/6] test: build unscheduled request outputs in scheduler
+ checks
+
+---
+ tests/engine/conftest.py | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/tests/engine/conftest.py b/tests/engine/conftest.py
+index b66eb45..a1a33a0 100644
+--- a/tests/engine/conftest.py
++++ b/tests/engine/conftest.py
+@@ -111,3 +111,36 @@ def metadata_pool() -> "SequenceMetadataPool":
+     from deepinfer._C.engine import SequenceMetadataPool
+ 
+     return SequenceMetadataPool()
++
++
++@pytest.fixture
++def unscheduled_outputs() -> Callable:
++    import torch
++
++    from deepinfer._C.engine import RequestOutput, RequestOutputPool, build_request_outputs
++
++    def build(outputs: object) -> list[object]:
++        pool = RequestOutputPool()
++        pointers = build_request_outputs(
++            outputs,
++            64,
++            torch.empty(0, dtype=torch.int32),
++            torch.empty(0, dtype=torch.float32),
++            top_logprobs_=None,
++            top_token_ids_=None,
++            sum_smaller_probs_=None,
++            accepted_token_ids_=None,
++            accepted_token_logprobs_=None,
++            accepted_top_logprobs_=None,
++            accepted_top_token_ids_=None,
++            accepted_sum_smaller_probs_=None,
++            accepted_token_last_logprobs_=None,
++            pushed_tokens_before_finish=np.empty(0, dtype=np.int32),
++            prompt_logprobs=None,
++            request_output_pool=pool,
++        )
++        result = [RequestOutput.clone(int(pointer)) for pointer in pointers]
++        pool.release(pointers)
++        return result
++
++    return build
+
+From 73a7298af03a8be167f326f10de1eff6df8e486a Mon Sep 17 00:00:00 2001
+From: morluto <76467478+morluto@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 18:28:40 +0800
+Subject: [PATCH 6/6] Cover pinned preemption victims and enable core
+ regression selection
+
+---
+ tests/engine/test_scheduler_decode_blocks.py | 43 ++++++++++++++++++++
+ tests/worker/test_cache_capacity.py          |  2 +
+ 2 files changed, 45 insertions(+)
+
+diff --git a/tests/engine/test_scheduler_decode_blocks.py b/tests/engine/test_scheduler_decode_blocks.py
+index 73ef396..ad983a7 100644
+--- a/tests/engine/test_scheduler_decode_blocks.py
++++ b/tests/engine/test_scheduler_decode_blocks.py
+@@ -7,6 +7,8 @@
+ 
+ from deepinfer._C.engine import BlockManager, Scheduler, Sequence, SequenceData, SequenceMetadataPool, SequenceStatus
+ 
++pytestmark = [pytest.mark.ci, pytest.mark.ci_npu]
++
+ 
+ @pytest.mark.parametrize("nextn", [0, 5])
+ @pytest.mark.parametrize("overlap", [False, True])
+@@ -86,3 +88,44 @@ def test_decode_resizes_to_the_full_block_requirement(
+         assert seq.status == expected
+         assert list(scheduler.waiting) == ([] if stop_preempted_request else [seq])
+     metadata_pool.release(metadata)
++
++
++@pytest.mark.parametrize("pin_victim", [False, True])
++def test_decode_rechecks_capacity_after_each_victim(
++    scheduler_factory: Callable[..., tuple[Scheduler, BlockManager, BlockManager | None]],
++    sequence_factory: Callable[..., Sequence],
++    metadata_pool: SequenceMetadataPool,
++    pin_victim: bool,
++) -> None:
++    scheduler, blocks, _ = scheduler_factory(num_blocks=6)
++    victims = []
++    for i in range(2):
++        seq = sequence_factory(length=1, request_id=f"victim-{i}")
++        scheduler.add_sequence(seq)
++        scheduler.decode_step = 0
++        metadata, output = scheduler.schedule(metadata_pool)
++        assert output.prompt_run
++        scheduler.process_outputs(output, torch.empty(0, dtype=torch.int32), torch.tensor([1], dtype=torch.int32), None)
++        metadata_pool.release(metadata)
++        victims.append(seq)
++
++    if pin_victim:
++        # A prompted fork keeps a reference after its running parent is preempted.
++        parent = victims[0]
++        scheduler.fork_seq(parent, None, "_child", parent.sampling_params, None, 1, -1, 20, 0.0)
++
++    target = sequence_factory(length=40, request_id="target")
++    assert scheduler.try_allocate_seq(target)  # Owns the remaining three blocks.
++    target.data = SequenceData([1] * 65)  # Needs five, so both victims are required.
++    target.compressed_data = SequenceData([1] * 65)
++    target.status = SequenceStatus.RUNNING
++    scheduler.running = [*scheduler.running, target]
++    # With no free blocks, the optional fork cannot clone its shared block yet.
++    scheduler.decode_step = 1
++    assert blocks.get_num_free_blocks() == 0
++
++    metadata, output = scheduler.schedule(metadata_pool)
++    assert output.scheduled_seqs == ([] if pin_victim else [target])
++    assert scheduler.get_num_preempted_seqs() == (3 if pin_victim else 2)
++    assert blocks.get_num_free_blocks() == (4 if pin_victim else 0)
++    metadata_pool.release(metadata)
+diff --git a/tests/worker/test_cache_capacity.py b/tests/worker/test_cache_capacity.py
+index d0e9240..90e6159 100644
+--- a/tests/worker/test_cache_capacity.py
++++ b/tests/worker/test_cache_capacity.py
+@@ -8,6 +8,8 @@
+ import deepinfer.worker.base as worker_base
+ from deepinfer.worker.base import WorkerBase
+ 
++pytestmark = [pytest.mark.ci, pytest.mark.ci_npu]
++
+ 
+ @pytest.mark.parametrize(
+     "capacities",

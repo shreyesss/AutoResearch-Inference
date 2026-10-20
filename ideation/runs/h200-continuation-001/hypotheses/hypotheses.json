@@ -1,0 +1,301 @@
+{
+  "hypotheses": [
+    {
+      "id": "h200-continuation-001:H01",
+      "parents": [],
+      "operation": "repair",
+      "statement": "Continue C24 by testing whether its existing k5 verification controller should price the actual target and draft graph dispatches after DP synchronization. The installed objective already charges drafting, but that charge depends only on request count; supplied source analysis shows verification-budget changes can enlarge the draft graph. A synthetic CPU example changes the selected budget when this dependency is included, without establishing real latency. The proposed optimization corrects the existing cost model while preserving five-token proposals and probabilistic verification. First repair the offline measurement design and reconstruct legal dispatches. Retain C24's completed instrumentation-inconclusive result and GPU hold until qualified measurements establish whether reduced verification work outweighs draft padding, lost accepted progress and controller overhead.",
+      "observed_bottleneck": "No expensive, removable bottleneck is established. Reported C24 observations include insufficient native-cycle coverage in one rank/window and unresolved CPU/GPU associations in five cells. Its target-occupied fractions cannot qualify savings. Static implementation evidence shows a request-count-indexed draft term. The supplied CPU artifact reports budgets 11 versus 3 under different invented cost assumptions; this establishes decision sensitivity, not preferable runtime behavior.",
+      "mechanism": "Affected-event frequency: unknown; count cases where candidate verification budgets change synchronized target/draft descriptors and the selected policy. Component occupied time: target, draft, controller, sampling and communication must be measured separately using same-device unions. Exposed time: determine which changes shorten the replica's dependency chain; collective residence is not automatically removable computation. Expected net saving: compare complete cycle time per accepted output token, including changed progress, padding, controller work and any synchronization. Service transfer: only a subsequent frozen, unprofiled replay can establish median ITL benefit.",
+      "proposed_change": "First audit the retained C24 traces and reader offline, preserving missing cycles and invalid associations rather than repairing them with invented timestamps. Specify a prospective measurement addendum. Reconstruct legal candidate budgets through installed varlen descriptors, DP maxima and draft sizing. Compare the existing solver with a solver using coupled dispatch costs and a locked static verification-prefix policy. Do not merely add another draft term. Implement a correction only after measured costs demonstrate consequential ranking errors. Determine whether existing metadata suffices; any additional collective must be explicitly priced. DeepInfer's runtime residual correction is a diagnostic comparator for calibration error, not an additional feature to bundle automatically.",
+      "code_surface": "Attested vllm/v1/worker/gpu/spec_decode/adaptive_verification.py, especially build_cost_tables_from_curves and the budget objective; installed gpu/dp_utils.py, gpu/cudagraph_utils.py and gpu/spec_decode/speculator.py dispatch chain; DSpark confidence-head activation; current FlashMLA capability inventory. Use actual installed model_state.py and file hashes. DeepInfer mtp_varlen.hpp at 774ce244b87cc0eb8d4b94ab9f5de2ab22049f01 supplies a reference estimator, not a drop-in patch.",
+      "applicability": "First priority for offline qualification, not first choice for execution. H200 SM90 eligibility is conditional on every current attention group supporting variable query lengths and the required graph behavior. Confidence-head metadata does not prove runtime activation or calibration. Research-design ready; GPU pilot held pending an independently reviewed instrumentation addendum; full experiment not ready. Preserve both TP1/DP4/EP4 replicas, Marlin, seq64, k5 and the frozen workload.",
+      "predicted_direction": "Primary metric: frozen Mooncake 0.5x long-output ITL p50; define improvement as 1 minus treatment/control. Numerical low/base/high deltas are unknown. An unfavorable case occurs when draft expansion, controller overhead or reduced progress dominates. A favorable case requires frequent budget-ranking errors and measurable reductions in exposed cycle time per accepted token. Needed measurements are actual policy frequency, synchronized descriptors, qualified component and dependency timing, accepted progress and controller overhead. Neither synthetic costs nor target-occupied percentages provide a service estimate or bound.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "The startup objective is adequate because problematic dispatch combinations are rare or cost almost the same.",
+          "distinguishing_test": "Replay all available profiling-phase states through both policies, then measure only frequently reached differing descriptor pairs. Record unchanged decisions and unchanged graph buckets as zero opportunity, not savings."
+        },
+        {
+          "explanation": "Confidence miscalibration or context-dependent execution costs cause poor decisions more than draft-cost coupling.",
+          "distinguishing_test": "Hold confidence arrays fixed when comparing cost models; separately compare predicted survival with actual acceptance and stratify cost residuals by context, graph shape and mixed-prefill status. Test static calibrated curves before adding an online estimator."
+        },
+        {
+          "explanation": "Large target attribution reflects collective waiting or profiling perturbation.",
+          "distinguishing_test": "Separate compute from communication and validate launch associations on all ranks. Compare matched instrumentation-on/off diagnostic brackets without interpreting unmatched brackets as an overhead estimate."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "code:continuation:installed-av-cost",
+          "quote": "draft_cost_ms[len(req_ids)]",
+          "relation": "supports"
+        },
+        {
+          "source_id": "code:continuation:av-feasibility",
+          "quote": "The same nominal k5 therefore does not imply unchanged draft execution cost when enabling AV.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "artifact:continuation:av-cpu-counterexample",
+          "quote": "\"coupled_cost_changes_decision\": true",
+          "relation": "supports"
+        },
+        {
+          "source_id": "artifact:continuation:c24-final",
+          "quote": "**Decision: `instrumentation_inconclusive`; adaptive verification remains unqualified.**",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "code:continuation:deepinfer-av",
+          "quote": "const double time_ms = baseline_ms + slope_ms * graph_size + sampler_ms;",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "No scientific novelty claimed; this is verification-budget cost-model qualification.",
+        "implementation": "Potential correction from request-count-only draft pricing to actual coupled dispatch pricing. Baseline inclusion of an equivalent correction must still be checked outside the supplied excerpt.",
+        "workload": "Adaptation to H200 EP4 graph padding and native prefix traffic; no transfer of SM100 or Wide-EP performance claims.",
+        "nearest_prior_art": "Installed vLLM adaptive verification and pinned DeepInfer MTPVarlen runtime-cost estimation.",
+        "specific_delta": "Price a demonstrated downstream draft-cost dependency instead of assuming draft cost is constant across candidate verification budgets."
+      },
+      "prior_art_query": "verification budget coupled costs",
+      "experiment": {
+        "control": "Attested AV-off fixed-k5 baseline. For mechanism isolation, also evaluate the unchanged installed AV objective and a legal static verification-prefix policy selected on development states and then locked, all retaining five-token proposals. Use identical measured curves and states for policy comparisons; synthetic replay is not a service result.",
+        "treatment": "Cheapest pilot: at most 8 engineering hours of offline reader, dispatch and objective checks, with zero GPU-hours. Stop before implementation if an equivalent correction exists or the dependency cannot occur. A later GPU pilot requires explicit resolution of the C24 measurement hold. Its maximum is one 60-minute baseline timing allocation, followed only on adequacy success by two 60-minute component/integration allocations for baseline and an AV harness. Compare stock, corrected and static policies on matched states within the harness. Total cap: 180 minutes on eight allocated GPUs, 24 GPU-hours, zero automatic retries. Use the exact diagnostic prefix and fixed capture schedule; exclude profiled results from the service frontier.",
+        "metrics": "Policy disagreement frequency; target/draft descriptors before and after DP synchronization; per-rank eligible cycles; categorized device-busy union; target compute, collective, draft, sampler and controller occupied time; dependency-chain span; actual accepted output per cycle; confidence calibration and cost residuals. Retain all-rank draft/verify/accepted counters, exact token counts, KV/preemption, replay lag and request joins. Later service metrics include the frozen ITL statistic, separately defined request TPOT, TTFT p99, E2E p99, goodput and quality.",
+        "supports_if": "Offline checks establish a real missing dependency and an implementable measurement design. GPU advancement additionally requires at least ten complete decode-only cycles per rank/window, valid launch associations, target/draft coverage and at least 95% categorized busy union, without weakening the old gate. Correctness must pass, differing decisions must have adequate native coverage, and blocked matched-state measurements must show positive net exposed savings per accepted token with workload incidence plausibly sufficient for the 2% objective. This permits consideration of one full attempt, not automatic execution. Full evaluation retains a positive screen, both 3% tail guards, and at least five alternating matched A/B confirmation blocks for a small gain; promotion requires the frozen 2% improvement criterion.",
+        "rejects_if": "Stop for incompatible attention/graph support, incorrect compaction or verification, an already equivalent objective, or adequately measured unfavorable net tradeoffs. Reject the correction if the unchanged or locked static policy matches or beats it after controller and synchronization costs. Do not relabel rejection of this correction as proof that every AV policy fails.",
+        "inconclusive_if": "Missing associations, insufficient cycles or budget disagreements, unavailable runtime confidence, ambiguous timing boundaries, excessive profiler perturbation, unstable cost curves, or any resource-cap overrun. Preserve the prior C24 verdict and defer advancement; no replacement run is automatic.",
+        "held_out_condition": "Preserve native agent-f75 8K/1K and the full fixed-schedule Mooncake anchors at seq64. Hold out long-context, ragged and mixed-prefill states, plus cold/warm cache conditions, from cost-model selection. Use 1K/1K cache-isolated traffic only as a separate diagnostic. Seq128 remains outside this arm.",
+        "correctness": "Apply relevant frozen G01-G05 and Q01-Q04 checks once their definitions are available. Test zero/intermediate/full budgets, empty and dummy ranks, lengths 1-6, DP disagreement, graph-boundary transitions, stale-confidence buffers, compaction/reallocation, bonus-token ownership, EOS, cancellation and recovery. Confirm real probabilistic rejection, watermark behavior and exact token accounting. Use controlled distributions and common-input verifier tests; acceptance diagnostics are not quality scores.",
+        "cost": "Planning estimates, not measured effort: inspection/offline pilot 4-8 engineering hours, hard cap 8, GPU 0. Implementation/correctness is uncertain: an 8-hour feasibility checkpoint within a provisional 16-32 engineering-hour allocation, hard cap 32; defer if new distributed coordination or unsupported backends exceed it. Instrumentation, pilot operation and analysis: 8-16 engineering hours, cap 16; future GPU pilot cap 24 GPU-hours as three 60-minute node slots. Each slot includes approximately 26 minutes historical cold startup plus capture/calibration, warmup, measurement, export and cleanup; AV calibration duration is unknown, and exceeding a slot is inconclusive. If independently selected later: screen cap two 75-minute node slots = 20 GPU-hours, with 3-6 engineering hours; confirmation cap ten 75-minute slots = 100 GPU-hours, with 6-12 engineering hours; held-out allowance two 75-minute slots = 20 GPU-hours, with 2-4 engineering hours. These are alternative-candidate budget ceilings, not reservations or permission. At node price P per hour, monetary allocation cost is GPU-hours/8 times P. This response consumes zero GPU-hours."
+      },
+      "revision_reason": "Existing family C24 remains on hold after a completed instrumentation-inconclusive diagnostic; stale descriptions of pending timing are superseded. New evidence is the supplied installed objective, explicit target/draft dispatch coupling and synthetic budget counterexample. These justify an offline repair question, not reopening GPU execution. C03 remains screen-deferred and its patch is not combined. No immutable C24 hypothesis ID was supplied, so parents is empty rather than using the family label as a fabricated memory ID."
+    },
+    {
+      "id": "h200-continuation-001:H01:r2",
+      "parents": [
+        "hypothesis:373fa65c90d11cc9b96ff7e8548e890ea0e6f9d144bab8aa3ec1578f2eed3218"
+      ],
+      "operation": "repair",
+      "statement": "Continue C24 by testing whether verification budgets should price the target and draft graphs actually selected after four-rank synchronization. The installed controller already includes drafting cost, but indexes that term only by request count. Supplied source analysis identifies budget-dependent draft expansion, and a synthetic CPU example demonstrates decision sensitivity without measuring latency. The proposed correction must beat AV-off k5, unchanged AV and a locked static verification policy after accounting for accepted progress and coordination overhead. First resolve the offline measurement design and reconstruct joint-rank dispatch. C24 remains completed and instrumentation-inconclusive; neither its occupied-time fractions nor the synthetic example releases the GPU hold. No C03 padding patch is included.",
+      "observed_bottleneck": "No expensive removable bottleneck is established. Reported observations: C24 retained only four eligible cycles in one rank/window and unresolved launch associations in five cells. Static implementation evidence: drafting cost is indexed by request count. Reported synthetic result: constant versus coupled invented costs selected budgets 11 versus 3. Transfer inference: an actual dispatch-dependent cost error might change useful decisions, but its frequency, latency and service effect are unknown.",
+      "mechanism": "Affected-event frequency: unknown; count profiling-phase joint states where candidate budgets change post-DP descriptors and policy decisions. Component occupied time: separately measure target compute, collective residence, draft execution, sampling and controller work using same-device unions. Exposed time: measure the dependency chain completing each replica cycle; neither summed rank time nor collective residence is automatically removable. Expected net saving: reduction in exposed time per committed output token, after lost accepted progress, draft expansion and coordination costs. Service transfer: this component result is only an allocation proxy; median request ITL requires the frozen unprofiled service experiment.",
+      "proposed_change": "First audit the existing C24 reader and traces without changing their verdict. Specify correlation keys including process, device/context and launch/replay identity; preserve impossible timing associations as unresolved. Add synthetic reader fixtures for mirrored annotations, reused identifiers, incomplete cycles and mixed prefill. Reconstruct legal budget vectors across all four ranks, including DP maxima and both graph descriptors. Compare the unchanged objective against coupled costs using identical confidence inputs. Implement only a demonstrated missing dependency. Counterfactual access to other ranks' states is not free deployable information: establish whether current synchronization exposes the required state, and price any additional collective. Use DeepInfer's runtime correction to test a competing calibration explanation, not as another bundled feature.",
+      "code_surface": "Attested adaptive_verification.py, hash d91b0b67474b17e2c2b579291182d70a26b3573ecc4b0756f1bb3018d936c3a6; installed gpu/dp_utils.py, gpu/cudagraph_utils.py and gpu/spec_decode/speculator.py dispatch chain; DSpark confidence activation and current FlashMLA capability inventory. Installed model_state.py bytes govern graph behavior. DeepInfer mtp_varlen.hpp at 774ce244b87cc0eb8d4b94ab9f5de2ab22049f01 is implementation reference evidence.",
+      "applicability": "Highest priority for offline design qualification. C24's GPU hold remains active; this is the existing continuation work item, not a parallel timing campaign. H200 eligibility requires every active attention group to support the relevant variable-query and graph contracts. Runtime confidence use, calibration and implementable joint-rank pricing remain unknown. Research-design ready; implementation conditional; GPU pilot and full experiment not ready.",
+      "predicted_direction": "Primary metric: frozen Mooncake 0.5x median long-output ITL; improvement means 1 minus treatment/control. Numerical low/base/high optimization deltas are unknown. The adverse case is increased draft padding, fewer committed tokens or added synchronization dominating target savings. A favorable case requires frequent consequential pricing errors and lower exposed time per committed token. Needed measurements: joint policy incidence, actual descriptors, qualified dependency timing, accepted progress and controller/coordination overhead. Synthetic costs and C24 occupied fractions supply neither a service estimate nor a bound.",
+      "classification": "adaptation",
+      "alternatives": [
+        {
+          "explanation": "The constant draft term is adequate because differing descriptors are rare or have similar runtime.",
+          "distinguishing_test": "Replay phase-only joint states through both policies, recording unchanged decisions and buckets. Time only materially represented differing descriptor pairs; retain their native frequency."
+        },
+        {
+          "explanation": "Confidence error or context-dependent calibration matters more than draft-cost coupling.",
+          "distinguishing_test": "Hold confidence arrays fixed for the cost comparison. Separately compare survival predictions with acceptance and stratify cost residuals by context and graph shape. Compare coupled startup tables with locked calibrated tables before considering online correction."
+        },
+        {
+          "explanation": "Large target attribution reflects waiting or profiler perturbation.",
+          "distinguishing_test": "Separate compute and communication, validate associations on every rank and use matched instrumentation brackets. Do not subtract a guessed waiting fraction or reinterpret the contaminated historical bracket."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "code:continuation:installed-av-cost",
+          "quote": "draft_cost_ms[len(req_ids)]",
+          "relation": "supports"
+        },
+        {
+          "source_id": "code:continuation:av-feasibility",
+          "quote": "The same nominal k5 therefore does not imply unchanged draft execution cost when enabling AV.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "artifact:continuation:av-cpu-counterexample",
+          "quote": "\"coupled_cost_changes_decision\": true",
+          "relation": "supports"
+        },
+        {
+          "source_id": "artifact:continuation:av-cpu-counterexample",
+          "quote": "no measured milliseconds, dispatch or service gain.",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "artifact:continuation:c24-final",
+          "quote": "**Decision: `instrumentation_inconclusive`; adaptive verification remains unqualified.**",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "code:continuation:deepinfer-av",
+          "quote": "const double time_ms = baseline_ms + slope_ms * graph_size + sampler_ms;",
+          "relation": "context"
+        }
+      ],
+      "novelty": {
+        "scientific": "No scientific novelty claimed.",
+        "implementation": "Conditional correction of an existing controller's dispatch-cost model; an equivalent correction elsewhere in the installed implementation must first be excluded.",
+        "workload": "H200 EP4 synchronization, graph padding and native prefix traffic determine the opportunity.",
+        "nearest_prior_art": "Installed vLLM adaptive verification and pinned DeepInfer MTPVarlen.",
+        "specific_delta": "Price demonstrated budget-dependent draft execution while retaining five-token proposals, rather than adding a draft term already present."
+      },
+      "prior_art_query": "verification budget coupled costs",
+      "experiment": {
+        "control": "Primary control is the attested AV-off k5 service. Mechanism comparators are unchanged installed AV and a legal fixed verification-prefix policy selected on development states and locked before validation; all retain k5 proposals. Joint-state comparisons use identical confidence arrays, context, request membership and cost observations. Corrected AV must outperform AV-off, not merely stock AV.",
+        "treatment": "Cheapest decision pilot: an eight-engineering-hour offline cap, zero GPU-hours, covering equivalent-feature inspection, trace-reader fixtures and joint-rank dispatch reconstruction. Missing traces/source remain pending rather than presumed inspected. Before any GPU release, independently review a concrete instrumentation addendum: explicit native-cycle identities, validated correlation schema, device-boundary timing compatible with existing stream dependencies, and capture termination based on complete native cycles rather than profiler-step count. Proposed captures request 40 complete decode cycles per rank in each fixed window, with a 30-second window cap and no post-result window shifts. Buffer/export scheduling must avoid the former bracket contamination. Conditional future GPU ceiling: one 60-minute baseline qualification slot; only if adequate, two additional 60-minute control/AV-harness slots. Total 180 minutes on eight allocated GPUs, 24 GPU-hours, no retries. The harness compares stock, coupled and locked-static policies on matched joint states; it is not a service frontier run.",
+        "metrics": "Joint policy disagreement and descriptor frequencies; all-rank eligible cycles and categorized busy union; target compute, communication, draft, sampler and controller occupied times; replica dependency-chain elapsed time; committed accepted-plus-bonus output tokens; confidence residuals; added synchronization. Predeclare matched replay blocks containing the same joint-state sequence, alternating policy order. Compute block-level exposed time per committed token, retaining differences in progress. Record exact tokens, request joins, draft/verify/accepted deltas, missing/reset counters, KV/preemption and replay lag. Later retain frozen ITL separately from request TPOT=(last-first token time)/(server output tokens-1), TTFT/E2E tails, goodput and quality.",
+        "supports_if": "Offline work establishes a missing, reachable cost dependency and a deployable state-access design. GPU adequacy requires valid launch associations, both graph paths, at least ten complete decode-only cycles per rank/window and at least 95% categorized device-busy union; the old gate is not weakened. Use twelve prospectively fixed paired replay blocks as technical measurement units, with a 95% block-resampled interval; these are not independent service runs. Advancement requires correctness, positive lower-bound net exposed savings against every comparator, and a conservative native-frequency/progress calculation reaching a 2% opportunity proxy. That proxy is not a predicted median ITL gain. Full service selection remains separate: positive frozen screen, both 3% tail guards, at least five alternating matched full-run confirmation pairs for small gains, and the existing 2% promotion requirement.",
+        "rejects_if": "Stop the scoped correction for an already equivalent objective, incompatible backend behavior, correctness failure, or required coordination exceeding feasibility scope. With adequate measurements, stop allocation if AV-off or the locked static policy is at least as good after progress and overhead, or if the upper uncertainty bound on the opportunity proxy is below 2%. This rejects the correction or its allocation value, not every possible AV policy.",
+        "inconclusive_if": "Offline work cannot explain the association failures, required native coverage remains absent, runtime confidence is unavailable, joint decisions cannot be reconstructed, timing boundaries overlap ambiguously, or the interval crosses the materiality threshold. Resource-cap exhaustion, unstable curves and excessive instrumentation perturbation also defer advancement. No automatic replacement capture or AV-on campaign follows.",
+        "held_out_condition": "Select policies on development states only. Hold out long-context, ragged DP, mixed prefill/decode and cold/warm states. Preserve native agent-f75 8K/1K and full fixed-schedule Mooncake anchors at seq64. Keep 1K/1K cache-isolated traffic diagnostic; seq128 is a separate configuration.",
+        "correctness": "Preserve relevant G01-G05 and Q01-Q04 requirements; their complete definitions are missing and remain a prerequisite. Test zero/intermediate/full budgets, lengths 1-6, empty/dummy ranks, cross-rank disagreement, graph boundaries, compaction/reallocation, stale-confidence buffers, token ownership, EOS, cancellation and recovery. Verify real probabilistic rejection, watermark behavior and exact token accounting with common-input distribution/verifier fixtures. Sampling acceptance is diagnostic, not a quality score. No C03 code is silently introduced.",
+        "cost": "All figures are prospective allocations, not measured effort; this response uses zero engineering execution and zero GPU-hours. Inspection/offline pilot: estimated 4-8 engineering hours, cap 8; GPU 0. Implementation/correctness: effort unknown until feasibility inspection; provisional estimate 16-32 engineering hours, cap 32 including an initial 8-hour checkpoint; CPU GPU usage 0, GPU correctness charged within the pilot below. Instrumentation/pilot operation and analysis: estimated 8-16 engineering hours, cap 16; GPU ceiling 24 hours across three 60-minute eight-GPU slots. Each slot includes startup, calibration/capture, warmup, measurement, export and cleanup. Historical cold startup was about 26 minutes; new calibration and capture costs are unknown. Stop at the slot cap. Separate conditional screen: 3-6 engineering hours, cap 6, two 75-minute node slots=20 GPU-hours. Confirmation: 6-12 engineering hours, cap 12, ten 75-minute slots=100 GPU-hours. Held-out allowance: 2-4 engineering hours, cap 4, two 75-minute slots=20 GPU-hours. No retries included; correctness needing more resources causes deferral. At full-node price P/hour, cost is P times allocated GPU-hours/8. Price and service cost-per-token savings remain unknown."
+      },
+      "revision_reason": "Repairs prior H01 within existing family C24. The supplied review requires explicit joint-rank counterfactuals, an instrumentation repair, block-level uncertainty and comparison with AV-off plus a locked static policy; these are now specified as prospective gates. Their implementation and validation remain pending. C24 stays completed/instrumentation-inconclusive and held, not reset to untested. C03's unfavorable screen remains unchanged and is not reopened."
+    },
+    {
+      "id": "h200-continuation-001:H03",
+      "parents": [],
+      "operation": "generate",
+      "statement": "Check whether the installed DeepSeek learned router reaches the FP32-weight GEMM branch targeted by the proposed Hopper BF16x3 kernel, then port only that kernel and its qualified dispatch if it does. The supplied nominal model constructs GateLinear with FP32 output, which does not establish FP32 weights or active GEMM execution; early hash-routing layers further limit exposure. This makes a short dtype, loader and dispatch audit the first decision point. If eligible, faster routing could shorten repeated target verification steps without replacing Marlin experts or communication. Count padded token rows rather than requests. Upstream H200 measurements support a hardware-specific lead, but their different models, shapes and workloads provide no DeepSeek service estimate.",
+      "observed_bottleneck": "No local router bottleneck or eligible weight dtype is observed. Nominal source establishes GateLinear construction and hash-routing state only. PR61903 authors report H200 kernel and other-model improvements, but no DeepSeek-V4.1 H200 result or kernel patch is supplied. Active installed bytes, learned-router layer count, shapes and time share are unknown.",
+      "mechanism": "Affected-event frequency: learned-router calls whose loaded weight/activation dtypes, shape, padded token rows and dispatch settings qualify; exclude hash bypasses and unaffected small-row paths. Component occupied time: the eligible router GEMM and any conversion or dispatch overhead. Exposed time: the portion on the target/draft dependency chain, not summed GPU time across ranks. Expected net saving: eligible call frequency times measured exposed per-call reduction, minus conversion/JIT/dispatch costs; treat this as component accounting, not a median-ITL prediction. Service transfer: routing changes must preserve quality and pass the frozen unprofiled comparison.",
+      "proposed_change": "Inspect actual installed GateLinear forward/loader code, parameter metadata, dtype conversions, shape-specific dispatch, batch-invariant settings and any equivalent SM90 implementation. Distinguish target from draft and learned from hash routing. If weights are BF16, the path is bypassed, or the optimization is already active, stop. If eligibility remains plausible, obtain and review the exact PR kernel and warmup implementation before defining a minimal isolated port. Preserve Marlin, activation formats outside the router, routing policy, allgather_reducescatter and graph settings.",
+      "code_surface": "Actual installed counterparts of vllm/models/deepseek_v4/nvidia/model.py and GateLinear's loader/forward/JIT dispatch, including V4.1 inheritance. The supplied model.py is nominal upstream source, not an attested installed router. PR61903 names torch.ops.vllm.sm90_bf16x3_router_gemm and VllmJitKernel warmup, but its implementation is absent from the supplied packet.",
+      "applicability": "Cheap eligibility audit ready; implementation and GPU pilot deferred pending loaded-dtype, active-branch and complete-source evidence. The PR's 24-token cutoff applies to its specified GEMV shapes and must not be generalized blindly to DeepSeek shapes. H200 SM90 matches the claimed hardware class, but model eligibility is unknown. Full experiment not ready.",
+      "predicted_direction": "Primary metric: frozen Mooncake 0.5x long-output ITL p50. Numerical low/base/high deltas are unknown. Ineligible or already optimized routing gives zero baseline delta; a qualifying path can still yield negligible service savings if rare or unexposed. A favorable case requires repeated costly learned-router calls at native padded row counts and preserved routing quality. Measure dtype/branch coverage, local shapes, graph-contained router time, exposed dependency time and downstream routing changes before estimating any gain. Other-model H200 speedups are not transferred.",
+      "classification": "upstream_port",
+      "alternatives": [
+        {
+          "explanation": "FP32 output is mistaken for FP32 weights, or hash routing bypasses the GEMM.",
+          "distinguishing_test": "Trace checkpoint metadata through installed loading/casts and forward dispatch, then attest actual parameter dtypes and path hits during any later qualified pilot. Count affected layers separately."
+        },
+        {
+          "explanation": "The upstream benefit depends on different router shapes, cold-L2 conditions or larger token counts.",
+          "distinguishing_test": "Benchmark exact local shapes and native padded rows under both cold-weight and steady graph-replay conditions; retain unaffected shapes as controls."
+        },
+        {
+          "explanation": "A faster GEMM changes near-tied expert selections enough to alter downstream work or quality.",
+          "distinguishing_test": "Compare router logits, top-k identities, routing weights and margins against the installed path on real activations; evaluate full-layer outputs and a frozen changed-math quality subset before timing service."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "code:continuation:pinned-router",
+          "quote": "out_dtype=torch.float32,",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "code:continuation:pinned-router",
+          "quote": "is_hash_moe = extract_layer_index(prefix) < num_hash_layers",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61903",
+          "quote": "This PR adds a CuteDSL BF16x3 kernel for SM90 behind the existing BF16x3 tier.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61903",
+          "quote": "No change for 24 or fewer tokens",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known mixed-component approximation for FP32-weight GEMM; no scientific novelty claimed.",
+        "implementation": "Conditional minimal port of an existing SM90 proposal with DeepSeek-specific eligibility and warmup coverage.",
+        "workload": "Measure native k5 verification token rows and hash/learned-router exposure in the existing EP4 service.",
+        "nearest_prior_art": "vLLM PR61903 and existing GateLinear GEMV/SGEMM dispatch.",
+        "specific_delta": "Replace only a demonstrated eligible router SGEMM, leaving expert GEMMs and transport unchanged."
+      },
+      "prior_art_query": "SM90 BF16x3 router GEMM",
+      "experiment": {
+        "control": "Actual installed GateLinear dispatch on identical loaded weights and recorded activations. Include its existing small-row GEMV path as a static comparator wherever legal; do not force a slower SGEMM control. Keep full serving configuration unchanged.",
+        "treatment": "Cheapest pilot: maximum 3 engineering hours of CPU/source/metadata eligibility inspection, zero GPU-hours. Stop for an absent or already optimized path. Only after exact kernel review and correctness design, cap a standalone shape/graph test at 30 minutes of eight-GPU reservation = 4 GPU-hours. A passing result permits two 60-minute all-rank integration allocations = 16 GPU-hours. Total future pilot cap: 150 minutes, 20 GPU-hours, zero automatic retries. Use fixed native diagnostic traffic and exclude profiled runs from the service frontier.",
+        "metrics": "Loaded weight and activation dtypes; target/draft role; learned/hash branch; native and padded rows; affected call frequency by layer/rank; graph-contained per-call duration and critical-path exposure; conversion/dispatch/JIT overhead; routing-logit error, top-k identities and routing weights. Integration retains all-rank speculative counters, exact tokens, KV/preemption and replay fidelity. Later evaluate frozen ITL, request TPOT, TTFT/E2E tails, goodput and changed-math quality.",
+        "supports_if": "An absent eligible branch is established, exact local shapes compile and pass numerical/graph tests, and matched graph replay shows net savings against the fastest legal installed path. Require at least twenty eligible learned-router invocations per affected role/rank in each of two predeclared integration windows, with complete layer-role attribution and qualified timing. Native-frequency/exposure accounting must make the 2% objective plausible; kernel speed alone does not suffice. Any full attempt retains the positive screen, 3% tail guards, five alternating matched confirmation pairs for small gains and the frozen 2% promotion requirement.",
+        "rejects_if": "Stop if weights are ineligible, the GEMM is bypassed, an equivalent optimization is already active, local shapes are unsupported within scope, correctness/quality fails, or adequately measured net exposed savings are unfavorable or immaterial for allocation. Do not change router precision or the workload merely to activate the candidate.",
+        "inconclusive_if": "Loaded dtype cannot be established offline, the exact proposed implementation remains unavailable, active branch telemetry is missing, opportunity coverage is inadequate, timing attribution fails, or compilation/startup exhausts a cap. Such outcomes defer the candidate rather than treating missing hits as zero opportunity.",
+        "held_out_condition": "Hold out graph-boundary row counts, ragged DP batches, near-tied routing inputs, long-context and mixed-prefill agent traffic, and cold/warm cache states. Preserve agent-f75 8K/1K and full Mooncake anchors at seq64; 1K/1K remains a separate cache-isolated diagnostic.",
+        "correctness": "Apply relevant G01-G05 and Q02/Q04 requirements. Compare real-weight logits against the installed implementation and an FP64 diagnostic reference, with prospectively fixed tolerances; lower average error alone is insufficient. Check top-k selection, normalization and routing weights, hash-layer bypass, partial tiles, strided inputs, all warmup keys, eager/graph parity, repeated replay and fallback boundaries. Test target and draft roles independently, then cancellation/EOS/recovery and the frozen quality subset for changed arithmetic.",
+        "cost": "Planning estimates with high implementation uncertainty: inspection 1-3 engineering hours, hard cap 3, GPU 0. Exact kernel availability and DeepSeek shape support are unknown; allocate a 4-hour feasibility checkpoint before a conditional 8-20 engineering-hour implementation/correctness budget, hard cap 20. Pilot instrumentation/analysis 4-8 engineering hours, cap 8. Standalone pilot cap 30 minutes/4 GPU-hours includes startup, JIT compilation, capture and tests. Two 60-minute integration slots add 16 GPU-hours and include historical approximately 26-minute cold startup per arm, warmup, capture, measurement, export and cleanup. Total pilot ceiling 20 GPU-hours. Conditional screen allowance: 3-6 engineering hours and 20 GPU-hours; confirmation: 6-12 engineering hours and 100 GPU-hours for ten 75-minute node slots; held-out allowance: 2-4 engineering hours and 20 GPU-hours. Failed compilation or cap exhaustion produces deferral, not an unbudgeted retry. Monetary cost is P times GPU-hours/8; P and service savings are unknown. This response uses zero GPU-hours."
+      },
+      "revision_reason": "Existing family C01's grouped-Humming hold and untested indexed arm are preserved. This separate MoE-stage lead targets the router before expert execution, so it neither repeats C01 nor changes its verdict. New evidence is PR61903's explicit SM90 proposal plus nominal GateLinear construction; the FP32-output versus FP32-weight objection restricts advancement to an eligibility audit. C19's native expert-backend proposal remains unchanged."
+    },
+    {
+      "id": "h200-continuation-001:H03:r2",
+      "parents": [
+        "hypothesis:84309e842464b53a78819a780627135eacb0a1152c2f6d13690884aaea462c4d"
+      ],
+      "operation": "repair",
+      "statement": "Check whether the installed learned router actually executes the FP32-weight GEMM targeted by the proposed Hopper BF16x3 kernel. The supplied constructor requests FP32 output, which establishes neither weight dtype nor active GEMM execution; hash routing may further reduce eligible work. A three-hour loader and dispatch audit is therefore the first decision point. If an eligible baseline branch is active and an equivalent optimization is absent, qualify a minimal kernel port while retaining Marlin experts and communication. Count actual padded token rows, not requests. Author-reported H200 results justify inspecting this hardware-specific lead, but different model shapes and cache conditions leave DeepSeek savings unknown. Complete kernel source and numerical qualification remain prerequisites.",
+      "observed_bottleneck": "No local router bottleneck is observed. Nominal source shows GateLinear construction and hash-routing state. Author-reported PR61903 results concern H200 kernels and other-model workloads; no matched DeepSeek-V4.1 service result is supplied. Installed weights, active dispatch, affected layers, source membership and timing share are unknown.",
+      "mechanism": "Affected-event frequency: learned-router calls meeting actual weight/activation dtype, shape, padded-row and dispatch predicates; exclude bypasses and unaffected small-row calls. Component occupied time: eligible GEMM plus casts and dispatch overhead. Exposed time: its contribution to the target or draft dependency chain, without summing ranks as wall time. Expected net saving: measured exposed per-call reduction weighted by native calls, minus conversion, warmup and resource-contention costs. Service transfer: routing arithmetic can alter subsequent expert work, so local kernel speed and quality must be checked before the frozen service test.",
+      "proposed_change": "Inspect installed loader/forward hashes, checkpoint-to-parameter dtype transformations, learned/hash routing branches, actual shapes, batch-invariant controls and any existing SM90 optimization. Stop if the path is ineligible or already optimized. If eligibility passes, require the exact proposed kernel revision and complete warmup/dispatch implementation before a minimal port. Preserve expert backend, routing policy, activation formats outside the router, allgather_reducescatter and graph configuration. Apply cutoffs only where the exact proposed dispatch supports them.",
+      "code_surface": "Actual installed counterparts of vllm/models/deepseek_v4/nvidia/model.py, V4.1 inheritance and GateLinear loading/forward/JIT dispatch. The supplied constructor is nominal upstream source, not installed attestation. PR61903 names sm90_bf16x3_router_gemm and VllmJitKernel warmup, but supplies no kernel implementation or exact inspected kernel revision.",
+      "applicability": "Three-hour eligibility audit ready. Implementation and GPU qualification remain held pending actual dtype/branch evidence and complete source. H200 matches the proposal's architecture, but DeepSeek shape and numerical compatibility are unknown. The reported 24-token cutoff applies to specified GEMV shapes, not automatically every local router. Full experiment not ready.",
+      "predicted_direction": "Primary metric: frozen Mooncake 0.5x median long-output ITL. Numerical low/base/high optimization deltas are unknown. Ineligible or already optimized routing supplies zero baseline delta; rare or unexposed calls can make a faster kernel immaterial. Benefit requires repeated eligible expensive calls with preserved downstream behavior. Measure actual dtypes, branch frequency, padded shapes, graph-contained and exposed timing, and routing changes before estimating any service improvement. Other-model H200 gains are not transferred.",
+      "classification": "upstream_port",
+      "alternatives": [
+        {
+          "explanation": "FP32 output is being confused with FP32 weights, or routing bypasses the GEMM.",
+          "distinguishing_test": "Trace installed loading/casts and forward control flow, then require runtime dtype and branch witnesses in any subsequent qualified pilot. Separate learned and hash layers and target/draft roles."
+        },
+        {
+          "explanation": "The reported benefit depends on other shapes, larger token counts or cold L2.",
+          "distinguishing_test": "Measure exact local shapes at native padded rows under both steady graph replay and cold-weight diagnostics, retaining unaffected paths as controls."
+        },
+        {
+          "explanation": "Numerical changes near routing ties alter expert selection, downstream work or quality.",
+          "distinguishing_test": "Compare same-input logits against FP64, selected logical experts, routing weights and full-layer outputs. Reject the scoped pilot for selection discrepancies under its conservative parity gate."
+        }
+      ],
+      "evidence": [
+        {
+          "source_id": "code:continuation:pinned-router",
+          "quote": "out_dtype=torch.float32,",
+          "relation": "challenges"
+        },
+        {
+          "source_id": "code:continuation:pinned-router",
+          "quote": "is_hash_moe = extract_layer_index(prefix) < num_hash_layers",
+          "relation": "context"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61903",
+          "quote": "This PR adds a CuteDSL BF16x3 kernel for SM90 behind the existing BF16x3 tier.",
+          "relation": "supports"
+        },
+        {
+          "source_id": "github:vllm-project/vllm:61903",
+          "quote": "No change for 24 or fewer tokens",
+          "relation": "challenges"
+        }
+      ],
+      "novelty": {
+        "scientific": "Known GEMM technique; no scientific novelty claimed.",
+        "implementation": "Conditional existing-kernel port with DeepSeek-specific dispatch and warmup qualification.",
+        "workload": "Native k5 verification token rows and actual learned-router exposure in the H200 EP4 service.",
+        "nearest_prior_art": "PR61903 and installed GateLinear GEMV/SGEMM dispatch.",
+        "specific_delta": "Replace a demonstrated eligible router SGEMM while preserving expert GEMMs and transport."
+      },
+      "prior_art_query": "SM90 BF16x3 router GEMM",
+      "experiment": {
+        "control": "Actual installed GateLinear dispatch on identical loaded weights and recorded activations, including its existing small-row GEMV wherever legal. Do not force SGEMM when a faster installed path is already selected. Compare complete router calls, including casts and dispatch.",
+        "treatment": "Cheapest pilot: three engineering hours of CPU/source/metadata eligibility work, zero GPU-hours. Establish an active eligible baseline branch and absence of an equivalent optimization. If these cannot be established, defer. After exact kernel review, allow one 30-minute standalone SM90 shape/correctness allocation, then only on success two 60-minute all-rank integration allocations. Total wall cap 150 minutes on eight allocated GPUs=20 GPU-hours; no retries. Freeze shapes, fixtures, phase windows and analysis before timing.",
+        "metrics": "Weight/activation dtypes, installed hashes, target/draft role, learned/hash branch, real/padded rows and eligible call counts. Measure complete graph-contained router duration, exposed dependency time, conversion/dispatch cost, numerical errors, ordered top-k identities and routing weights. Require twenty eligible calls per affected role/rank in each fixed window, complete layer attribution and valid timing. Later retain frozen ITL, separate request TPOT, exact tokens, TTFT/E2E tails, all-rank speculation counters, KV/preemption, replay lag, goodput and quality.",
+        "supports_if": "The baseline branch is active and eligible, equivalent optimization is absent, exact local shapes compile, and conservative numerical/graph gates pass. Use twelve fixed paired replay blocks with alternating order and a 95% block-resampled interval, treating them as technical component units. Require positive lower-bound exposed savings against the fastest legal installed path and a conservative native-frequency opportunity proxy reaching 2%. Kernel speed alone does not qualify a service attempt. Any full evaluation retains the positive screen, both 3% tail guards, five alternating matched full-run confirmation pairs for small gains and the existing 2% promotion criterion.",
+        "rejects_if": "Stop for ineligible weights, bypassed GEMM, an already active equivalent optimization, unsupported local shapes, numerical/quality failure or scope-expanding precision changes. With adequate timing, stop allocation for unfavorable net savings or an upper-bound opportunity proxy below 2%. Do not change workload or router precision merely to create eligibility.",
+        "inconclusive_if": "Loaded dtype/dispatch cannot be established, exact proposed source is unavailable, branch telemetry or opportunity coverage is missing, numerical reference requirements are unresolved, timing attribution fails, or startup/JIT exhausts a cap. An interval crossing the materiality threshold also defers advancement. Missing hits without coverage are not proof of zero opportunity.",
+        "held_out_condition": "Hold out graph-boundary rows, ragged DP batches, near-tied routing fixtures, long-context and mixed-prefill agent traffic, and cold/warm cache states. Preserve agent-f75 8K/1K and full fixed Mooncake anchors at seq64; isolate 1K/1K diagnostics.",
+        "correctness": "Prospective conservative pilot rules: identical ordered logical top-k selections on fixed same-input real-activation fixtures; reference tie behavior; finite normalized routing weights; per-fixture mean and maximum absolute error against FP64 no worse than the installed comparator. These rules may reject an otherwise acceptable approximation and must not be relaxed after observing results. Check full-layer outputs under existing backend numerical limits, partial tiles, strided inputs, hash bypass, all warmup keys, eager/graph parity and repeated replay. Preserve relevant G01-G05 and Q02/Q04 checks, EOS/cancellation/recovery and changed-math quality qualification. Existing backend and quality thresholds are not supplied, so their prospective specification remains a GPU-release prerequisite.",
+        "cost": "Prospective estimates; actual implementation effort is unknown and no work is executed here. Inspection: estimated 1-3 engineering hours, cap 3; GPU 0. Implementation/correctness: provisional 8-20 engineering hours, cap 20 including—not adding—a four-hour feasibility checkpoint. GPU compilation/correctness cap is 4 GPU-hours in the 30-minute standalone slot, included in the total pilot. Instrumentation/pilot analysis: 4-8 engineering hours, cap 8; two integration slots add 16 GPU-hours. Total qualification ceiling 20 GPU-hours includes startup, JIT, capture, tests, warmup, measurement, export and cleanup. Historical model startup was about 26 minutes per arm; shape compilation and fixtures remain unknown. Separate conditional screen: 3-6 engineering hours, cap 6, 20 GPU-hours. Confirmation: 6-12 engineering hours, cap 12, 100 GPU-hours for five full pairs. Held-out allowance: 2-4 engineering hours, cap 4, 20 GPU-hours. Service arms have 75-minute eight-GPU caps; no retries. Monetary cost=P times allocated GPU-hours/8; node price and cost-per-token savings are unknown."
+      },
+      "revision_reason": "Repairs prior H03's ambiguous support condition: eligibility now requires an active qualifying baseline branch and absence of equivalent optimization. The feasibility checkpoint is explicitly included within the implementation cap, and local numerical, timing and uncertainty gates are specified. Missing installed and proposed kernel evidence remains pending. Existing family C01 keeps its externally reported grouped hold and distinct untested indexed arm; this router intervention does not reopen either. C19's expert-backend work is unchanged."
+    }
+  ],
+  "status": "untested",
+  "publication_novelty": "unestablished"
+}

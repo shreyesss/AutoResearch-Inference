@@ -2,7 +2,7 @@
 
 ## Hypotheses and results
 
-Start with the [hypothesis register](hypotheses/README.md): one short record per idea, linking its builder/PR/research origin, execution history, key results and detailed logs. It covers the 33 consolidated families and the new C24 timing lead and the 66 original audit cards; [saved generations](hypotheses/GENERATIONS.md) retain earlier proposals and review revisions. [C03](hypotheses/C03.md) includes the completed H200 screen and its unfavorable result.
+Start with the [hypothesis register](hypotheses/README.md): one short record per idea, linking its builder/PR/research origin, execution history, key results and detailed logs. It covers 36 families, including C24 adaptive verification, C25 sampler fusion and C26 router eligibility, plus the 66 original audit cards; [saved generations](hypotheses/GENERATIONS.md) retain earlier proposals and review revisions. [C03](hypotheses/C03.md) includes the completed H200 screen and its unfavorable result.
 
 Browse [execution, analysis and meta-learning](records/README.md), including the [complete C03 evidence archive](evidence/c03-20261020/README.md).
 
@@ -42,6 +42,10 @@ On the VM, from `/home/ubuntu/shreyas/skunk-work/ideation`:
 The environment imports pinned DiscoveryRSI records/replay/tool registry, PyAlex, JSON Schema validation and pypdf. PaperQA is an optional adapter requiring a separate install and configured model/embedding providers. The default evidence and hypothesis calls use the existing authenticated agent. New setup: create a Python >=3.10 virtual environment and install `requirements-research.txt`; optional PaperQA needs Python >=3.11 and `requirements-evidence.txt`.
 
 Hypotheses use a task-derived rubric: novelty is off unless requested, and known methods/flags/ports can qualify. Every proposal and decision is retained in an append-only SQLite memory graph, linked to task, baseline, policy, evidence and scoped test outcomes. Selection remains distinct from experimental validation. See [adaptive policy and memory](docs/ADAPTIVE_POLICY_AND_MEMORY.md).
+
+After C03, apply the [benefit, cost and pilot rubric](docs/HYPOTHESIS_ROI.md) before spending a service attempt. The [October 21 collection audit](docs/CORPUS_AUDIT_2026-10-21.md) distinguishes completed URL indexing and targeted source acquisition from unverified bulk-archive completion.
+
+Use the [continuation workflow](docs/CONTINUATION.md) to carry the complete family register, experiment outcomes and evidence changes into new generation/review rounds. The [H200 continuation and DeepInfer scan](runs/h200-continuation-001/README.md) records its filtering audit, source evidence and intervention decisions.
 
 ## Earlier prototype and corpus operations
 

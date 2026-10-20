@@ -1,0 +1,61 @@
+{
+  "objective": "Select four plausible, baseline-relative H200 interventions for cheap qualification pilots. Prioritize improvement in frozen Mooncake 0.5x median primary long-output ITL while preserving its existing 2% promotion and 3% tail guards. Distinguish research readiness, pilot readiness and full-service readiness.",
+  "baseline_comparison": "Compare against the task-reported H200 seq64 baseline: eight H200 SM90 GPUs arranged as two independent TP1/DP4/EP4 replicas, API2 each; Marlin, MBT16384, FP8 KV, block64, prefix caching enabled, DSpark k5 and adaptive verification disabled. Pinned revisions are vLLM ac9126e58aa7bbab1856ba6593ba4d5003fea516 and deepseek-serve 11c249d28b2962f7384b4ab1fd7c1664704e7524. Preserve native agent-f75 8K/1K prefix traffic and fixed-schedule Mooncake anchors adapted to H200 seq64. Keep cache-isolated 1K/1K and held-out diagnostics separate; seq128 is a separate configuration arm. The task states: \"No measured bottleneck or new GPU result.\" Attention/MoE dispatch and the reported allgather_reducescatter route remain unverified. Treat C03 failed promotion, C01 external grouped hold and C24 pending timing work as task-reported history; the underlying ranking artifact is unavailable.",
+  "novelty_required": false,
+  "novelty_request": "",
+  "criteria": [
+    {
+      "id": "baseline_relative_value",
+      "description": "REQUIRED: Provide a credible, testable causal path to task value and either an identified baseline delta or an explicit cheap inspection test establishing whether the feature is already present and active. State expected optimization value conditionally, including eligible workload and likely metric affected; record effect size as unknown when unsupported. Activation counts, graph rows and upstream speedups are not measured local savings. A suspected bottleneck can justify a diagnostic without a measured speedup.",
+      "category": "improvement",
+      "weight": 35,
+      "required": true,
+      "justification": "The objective is useful improvement over an attested configuration, and its actual bottleneck is unknown. This receives the largest weight because an attractive implementation has little value without a plausible connection to the frozen long-output ITL objective. Existing flags, ports and parameter changes qualify."
+    },
+    {
+      "id": "engineering_effort_and_fit",
+      "description": "Assess the smallest viable change against the pinned implementation and actual H200 SM90, Marlin, EP4, graph-cache and speculative-decoding paths. Require each card to state a proposed engineering-hour cap, work breakdown, dependencies and correctness-test effort; distinguish budget allocations from evidence-based estimates. Identify relevant DeepInfer pinned implementation, PR and issue evidence as unavailable until supplied. Prefer bounded integration work with a clear fallback.",
+      "category": "feasibility",
+      "weight": 15,
+      "required": false,
+      "justification": "Dispatch proof and baseline inspection may resolve a candidate more cheaply than a backend port. Engineering time matters independently of GPU cost, especially when upstream implementations target different hardware or expert-parallel scales. Unknown effort supports a capped investigation rather than an invented estimate."
+    },
+    {
+      "id": "evaluation_gpu_budget",
+      "description": "Assess evaluation cost separately from engineering time. Each card must specify proposed pilot wall-clock and aggregate GPU-hour caps, participating GPUs, startup and warmup allowance, repetitions and termination behavior. Count four-GPU and eight-GPU allocations explicitly; keep monetary cost parameterized because the full-node H200 price is unknown. Prefer existing-artifact and CPU checks where they can answer the question. This research pass must consume zero serving GPU-hours.",
+      "category": "feasibility",
+      "weight": 15,
+      "required": false,
+      "justification": "Only two full-service attempts remain, so qualification should avoid spending an entire service attempt on activation or compatibility uncertainty. Evaluation GPU-hours need their own weight rather than being hidden inside an unsupported ROI ratio. Proposed future GPU tests remain allowed."
+    },
+    {
+      "id": "bounded_pilot_decision_value",
+      "description": "REQUIRED: Propose a bounded pilot resolving a named material uncertainty before a full-service attempt, with explicit engineering, wall-clock and GPU-hour caps. Support means adequate activation coverage, relevant correctness checks passing and evidence satisfying the predeclared mechanism or unprofiled-screen rule. Stop means demonstrated incompatibility, correctness failure, adequately covered mechanism falsification or a predeclared regression. Inconclusive means missing telemetry, inadequate opportunities, drift, uncertainty or budget exhaustion without sufficient evidence. State the next action for each outcome.",
+      "category": "testability",
+      "weight": 25,
+      "required": true,
+      "justification": "The next useful result may be a decision to avoid an expensive experiment. High weight therefore goes to pilots that distinguish absence, inactivity, incompatibility and low value. A supported pilot does not establish promotion: small-gain confirmation requires at least five matched full-run A/B pairs with alternating order, intervals and drift checks; requests are not independent replicates."
+    },
+    {
+      "id": "correctness_contract_and_history",
+      "description": "REQUIRED: Preserve the frozen workload, scorer and 2% promotion/3% tail guards; specify relevant G01-G05, numerical and graph-cache tests, plus quality checks for changed math. Keep primary ITL distinct from request TPOT and retain TTFT/tail checks. Verify telemetry across replicas/ranks and exclude profiled runs from the frontier. Reopening C03 or C01 requires a new mechanism or evidence and an explicit reason. Do not duplicate C24 timing work or infer its pending verdict.",
+      "category": "testability",
+      "weight": 10,
+      "required": true,
+      "justification": "A faster result is unusable if it changes correctness, the comparison contract or an unresolved historical decision. These are veto conditions regardless of their scoring weight. SPEED-Bench acceptance is a speculation diagnostic, and provisional diagnostic SLOs do not establish production correctness or service readiness."
+    }
+  ],
+  "threshold": 70,
+  "evidence": {
+    "minimum_independent_sources": 1,
+    "require_engineering": true,
+    "require_paper_fulltext": false,
+    "rationale": "One directly relevant primary engineering source can suffice for an implementation-backed claim; a paper or second source is not inherently necessary. No independent sources were supplied: available_evidence is empty. Observed results: none supplied. Task-reported claims include \"Read-only live image/args attested.\" External author claims: none supplied. Transfer inference: H200 benefit remains a hypothesis requiring dispatch, workload and pilot evidence. Task-specified hardware and workload are known as supplied configuration; candidate compatibility, bottleneck, local effect size, implementation limitations and actual engineering/evaluation costs remain unknown. Missing evidence defers implementation or service readiness while allowing a bounded inspection proposal. Any later evidence must separate observations, author claims and transfer inference, with short exact quotations. Abstracts cannot establish implementation behavior, and SM100/EP64 results cannot predict H200/EP4 gains."
+  },
+  "retrieval": {
+    "github": false,
+    "literature": false,
+    "rationale": "This response uses supplied material only, as instructed. DeepInfer code, PRs and issues, pinned dispatch evidence and the consolidated history were not provided or retrieved. Their absence must remain explicit; literature is unnecessary to define this rubric."
+  },
+  "rationale": "Weights sum to 100 and reflect this task's priorities: potential baseline value, decision value before scarce full-service attempts, and separate engineering and GPU costs. Score supported merits of the proposed next step on a 0–1 scale and sum weight times rating. The 70/100 threshold is an uncalibrated ordering choice for pilot prioritization, not a success probability, measured ROI or promotion rule. Leave unknown judgments unresolved rather than scoring them as failures. Explicitly REQUIRED clauses are true vetoes: a demonstrated violation prevents selection unless corrected; an unknown defers the dependent stage and can motivate a cheap resolving diagnostic. Actual speedup need not be known to select a well-designed pilot. Full-service readiness requires pilot support and resolution of material unknowns. Novelty is disabled by selection.require_novelty=false; prior publication is no rejection reason, and unavailable history must not create an originality requirement."
+}

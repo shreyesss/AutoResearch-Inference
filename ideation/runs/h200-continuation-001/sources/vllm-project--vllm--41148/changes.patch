@@ -1,0 +1,87 @@
+From 1d9a02ff2d883d35a7a6680c38545897d99a2029 Mon Sep 17 00:00:00 2001
+From: Jee Jee Li <pandaleefree@gmail.com>
+Date: Tue, 28 Apr 2026 14:58:12 +0000
+Subject: [PATCH 1/2] Init
+
+Signed-off-by: Jee Jee Li <pandaleefree@gmail.com>
+---
+ .../layers/rotary_embedding/deepseek_scaling_rope.py  | 11 ++++++++++-
+ vllm/model_executor/models/deepseek_v4.py             |  1 -
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py b/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py
+index 6cb9101a78b1..3b1f61c1fb04 100644
+--- a/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py
++++ b/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py
+@@ -45,6 +45,7 @@ def __init__(
+         beta_slow: int = 1,
+         mscale: float = 1,
+         mscale_all_dim: float = 0,
++        init_cache: bool = True,
+     ) -> None:
+         self.scaling_factor = scaling_factor
+         self.extrapolation_factor = extrapolation_factor
+@@ -65,7 +66,13 @@ def __init__(
+             and head_size in [64, 128, 256, 512]
+         )
+         super().__init__(
+-            head_size, rotary_dim, max_position_embeddings, base, is_neox_style, dtype
++            head_size,
++            rotary_dim,
++            max_position_embeddings,
++            base,
++            is_neox_style,
++            dtype,
++            init_cache=init_cache,
+         )
+ 
+     def _compute_inv_freq(self, scaling_factor: float) -> torch.Tensor:
+@@ -211,6 +218,8 @@ class DeepseekV4ScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
+     """
+ 
+     def __init__(self, *args, **kwargs):
++        # Avoid compute cache repeatedly
++        kwargs["init_cache"] = False
+         super().__init__(*args, **kwargs)
+         cache_fp32 = self._compute_cos_sin_cache()
+         self.register_buffer("cos_sin_cache", cache_fp32, persistent=False)
+diff --git a/vllm/model_executor/models/deepseek_v4.py b/vllm/model_executor/models/deepseek_v4.py
+index 97f755240a4c..bf5c6173886e 100644
+--- a/vllm/model_executor/models/deepseek_v4.py
++++ b/vllm/model_executor/models/deepseek_v4.py
+@@ -1028,7 +1028,6 @@ def __init__(
+             max_position=self.max_position_embeddings,
+             rope_parameters=rope_parameters,
+             is_neox_style=False,
+-            dtype=config.torch_dtype,
+         )
+ 
+         self.indexer = None
+
+From 952dc356055fbf910dd31d34e869032bdac01fa0 Mon Sep 17 00:00:00 2001
+From: Jee Jee Li <pandaleefree@gmail.com>
+Date: Wed, 29 Apr 2026 08:07:44 +0800
+Subject: [PATCH 2/2] Update
+ vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py
+
+Co-authored-by: gemini-code-assist[bot] <176961590+gemini-code-assist[bot]@users.noreply.github.com>
+Signed-off-by: Jee Jee Li <pandaleefree@gmail.com>
+---
+ .../layers/rotary_embedding/deepseek_scaling_rope.py          | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py b/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py
+index 3b1f61c1fb04..9a06eedd0f7d 100644
+--- a/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py
++++ b/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py
+@@ -219,8 +219,8 @@ class DeepseekV4ScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
+ 
+     def __init__(self, *args, **kwargs):
+         # Avoid compute cache repeatedly
+-        kwargs["init_cache"] = False
+-        super().__init__(*args, **kwargs)
++        kwargs.pop("init_cache", None)
++        super().__init__(*args, **kwargs, init_cache=False)
+         cache_fp32 = self._compute_cos_sin_cache()
+         self.register_buffer("cos_sin_cache", cache_fp32, persistent=False)
+ 

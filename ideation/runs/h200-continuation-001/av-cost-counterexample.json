@@ -1,0 +1,43 @@
+{
+  "scope": "Synthetic CPU source-method counterexample only; no measured milliseconds, dispatch or service gain.",
+  "source": "/home/ubuntu/Deepseek_serve-c03/c03/source/base/vllm/v1/worker/gpu/spec_decode/adaptive_verification.py",
+  "source_sha256": "d91b0b67474b17e2c2b579291182d70a26b3573ecc4b0756f1bb3018d936c3a6",
+  "method_lines": [
+    282,
+    350
+  ],
+  "fixture": {
+    "requests": 5,
+    "k": 5,
+    "confidence_per_request": [
+      0.9,
+      0.8,
+      0.5,
+      0.3,
+      0.1
+    ],
+    "constant_draft_cost": 0.7,
+    "synthetic_coupled_draft_cost_by_target_bucket": {
+      "8": 0.8,
+      "16": 1.6,
+      "24": 2.4,
+      "32": 3.2
+    }
+  },
+  "installed_method_budget": 11,
+  "independent_constant_cost_budget": 11,
+  "independent_coupled_cost_budget": 3,
+  "checks": {
+    "constant_cost_agrees": true,
+    "coupled_cost_changes_decision": true,
+    "selected_code_imports_no_torch_or_cuda": true
+  },
+  "implication": "A constant draft-cost assumption can choose the wrong budget if actual draft cost changes with the target graph. Establish real dispatch and measured costs before changing a controller.",
+  "not_established": [
+    "Frequency of this interaction",
+    "Actual component latency",
+    "Correctness of a candidate controller",
+    "End-to-end benefit",
+    "Permission to repeat C03 or enable AV"
+  ]
+}

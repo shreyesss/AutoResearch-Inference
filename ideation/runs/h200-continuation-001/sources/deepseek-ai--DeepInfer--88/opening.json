@@ -1,0 +1,26 @@
+{
+  "id": "github:deepseek-ai/DeepInfer:88",
+  "source": "github",
+  "kind": "pr",
+  "url": "https://github.com/deepseek-ai/DeepInfer/pull/88",
+  "title": "Support SM90 (Hopper) GPUs in get_bf16_tflops_limit",
+  "body": "### Motivation\n\n`get_bf16_tflops_limit()` currently hard-raises on any non-SM100 NVIDIA GPU, so `LLMEngine` (which passes `tflops_limit=get_bf16_tflops_limit() * 2` into the FLOPs estimator, `deepinfer/engine/llm_engine.py:304`) cannot even initialize on SM90 (Hopper) hardware such as H20 \u2014 today the most widely deployed inference GPU in mainland China. This is a small, self-contained step toward SM90 support; the heavier items (FlashMLA `sm_90a` target, DeepGEMM FP8/FP32-scale fallbacks for the `fp8_fp4_*` call sites, FP8-expert model variant) are tracked downstream.\n\n### Changes\n\n- `deep_cluster/hardware/nvidia.py`: read the marketing device name via `nvmlDeviceGetName` (same NVML/no-CUDA-context approach as `compute_capability`).\n- `deep_cluster/hardware/device.py`: add `is_sm_major_9()` (mirrors `is_sm_major_10()`) and an SM90 branch in `get_bf16_tflops_limit()`. SM90 parts differ ~6.7x in BF16 throughput (H20: 148 vs H100/H800/GH200: 989 TFLOPS dense), so the limit is dispatched on the NVML device-name prefix rather than capability alone; unknown SM90 parts raise with the device name in the message.\n- `tests/test_bf16_tflops_limit.py`: mocked unit tests (no GPU required) covering H20 / H20-NVL / H100 / H800 / GH200, unknown-name and missing-name error paths, unchanged SM100 and Ascend behavior.\n\n### Notes\n\n- SM100 and Ascend behavior is unchanged (the SM100 branch is reached before the new SM90 branch).\n- `vit.py` already gates on `is_sm_major_10()` with a `cublaslt` fallback, so no other call-site changes are needed for this fix.\n",
+  "created_at": "2026-10-20T14:34:25Z",
+  "updated_at": "2026-10-20T14:34:25Z",
+  "fetched_at": "2026-10-20T21:33:44Z",
+  "state": "open",
+  "merged_at": null,
+  "parent": null,
+  "tags": [
+    "h100",
+    "throughput",
+    "performance"
+  ],
+  "metadata": {
+    "number": 88,
+    "labels": [],
+    "comments": 0,
+    "state_reason": null
+  },
+  "content_hash": "bf9d41578a3437f98e16b2cb6736c96daf9fdc06d67b35e8ef04e9a97a917e64"
+}

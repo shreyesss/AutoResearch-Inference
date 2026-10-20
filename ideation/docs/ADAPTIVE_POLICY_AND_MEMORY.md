@@ -8,6 +8,8 @@ The task brief supplies the objective, current baseline, workload, constraints a
 
 There is no fixed novelty weight, fixed 65-point threshold, mandatory paper citation or prohibition on flags/ports. The task determines those choices. Known techniques can be valuable if they improve the current deployment. An unknown baseline inclusion can motivate a cheap inspection; it must not become a fabricated claim that the feature is absent.
 
+After the C03 review, new rubric/proposal/critique prompts also cover [expected benefit, engineering/GPU cost and bounded pilots](HYPOTHESIS_ROI.md). Generation records conditional estimates or explicit unknowns; the execution workflow resolves materiality before a full service attempt. These use existing card fields and task-specific criteria, with no automatic execution or retroactive change to frozen policies.
+
 Set this in your brief to explicitly disable novelty selection:
 
 ```json

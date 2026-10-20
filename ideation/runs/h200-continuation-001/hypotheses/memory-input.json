@@ -1,0 +1,270 @@
+[
+  {
+    "id": "hypothesis:a50211659561afd22b3c75c0946b24fe4eee81cf7b2a27aa9def0e3eaaa64c64",
+    "status": "deferred",
+    "fingerprint": "5700e56a81ac058e46137234913bf8d6b33a5d8d8c0adb854d919afb50b1effa",
+    "statement": "Test a minimal port of DeepGEMM #452’s contiguous SM90 FP8 MQA epilogue into the pinned H200 build, conditional on proving active header use and a safe numerical domain. The supplied installed excerpt retains fmaxf and unhalved KV scales, establishing a source-level delta but no execution or bottleneck evidence. The P…",
+    "mechanism": "Source proposal: replace fmaxf(x,0) with x+fabsf(x), then multiply each existing KV scale by 0.5. The author attributes improvement to replacing half-rate FMNMX with full-rate FADD using an absolute-value operand modifier. Transfer inference: this can shorten an exposed contiguous-prefill epilogue without changing scoring coverage or launch geometry. Instruction issue-rate improvement does not establish kernel or serving speedup. The separate paged kernel receives no direct optimization.",
+    "change": "First inspect the pinned process’s import/include resolution, DeepGEMM revision, JIT cache provenance and contiguous-prefill call sites. The visible header lacks the change, but the executing implementation remains unknown. If eligible and absent, port only commit ee53a16b089d441cbfc4020cd558c1f05f623d97’s transform replacement and two half-scale folds into an isolated build, with a comment coupl…",
+    "reasons": [
+      "h200_applicability_and_correctness_required: The matching SM90 header and author-reported H200 tests support a plausible narrow port. However, active artifact provenance and a suf…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "planned",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 83,
+      "known_baseline_match": false,
+      "task_token_overlap": 34,
+      "target_token_overlap": 15,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:5dcdbe37433b7e23201eae203f5979657929142f054fbb5c51f3cc4eb880de27",
+    "status": "rejected",
+    "fingerprint": "5700e56a81ac058e46137234913bf8d6b33a5d8d8c0adb854d919afb50b1effa",
+    "statement": "Test a minimal port of DeepGEMM #452’s contiguous SM90 FP8 MQA epilogue into the pinned H200 build, conditional on proving active header use and a safe numerical domain. The supplied installed excerpt retains fmaxf and unhalved KV scales, establishing a source-level delta but no execution or bottleneck evidence. The P…",
+    "mechanism": "Source proposal: replace fmaxf(x,0) with x+fabsf(x), then multiply each existing KV scale by 0.5. The author attributes improvement to replacing half-rate FMNMX with full-rate FADD using an absolute-value operand modifier. Transfer inference: this can shorten an exposed contiguous-prefill epilogue without changing scoring coverage or launch geometry. Instruction issue-rate improvement does not establish kernel or serving speedup. The separate paged kernel receives no direct optimization.",
+    "change": "First inspect the pinned process’s import/include resolution, DeepGEMM revision, JIT cache provenance and contiguous-prefill call sites. The visible header lacks the change, but the executing implementation remains unknown. If eligible and absent, port only commit ee53a16b089d441cbfc4020cd558c1f05f623d97’s transform replacement and two half-scale folds into an isolated build, with a comment coupl…",
+    "reasons": [
+      "Quote not found: github:deepseek-ai/DeepGEMM:452:live-page",
+      "h200_applicability_and_correctness_required: The matching SM90 header and author-reported H200 tests support a plausible narrow port. However, active artifact provenance and a suf…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 83,
+      "known_baseline_match": false,
+      "task_token_overlap": 34,
+      "target_token_overlap": 15,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:08bd87539ae26b8989f5ff52cee80060d1e5d457f309d46f84618ba625b983ca",
+    "status": "deferred",
+    "fingerprint": "aeb4ae079cb68f8c81071a29f385bb37d8d29f37396ac30dc53cc03d117ca655",
+    "statement": "Evaluate a workload-matched SGLang control, then isolate its H200 group32 GEMM configuration tuning as the first optimization arm. The supplied #41251 reports substantial H200 improvements from a multi-change SGLang bundle, but compares against SGLang main under TP8/EP1, another checkpoint, disabled host Engram, and b…",
+    "mechanism": "Transfer inference: fixed GEMM launch configurations better matched to actual Hopper matrix shapes may reduce inefficient tiling or execution overhead without changing operand formats. A matched SGLang control distinguishes this configuration effect from engine-wide scheduling and implementation differences.",
+    "change": "First construct a source/configuration parity matrix and inspect shape/config dispatch. If eligible, define S0 as a pinned matched SGLang control and S1 as the same build with only applicable H200 group32 configuration changes. Disable or hold constant every other #41251 component through verified controls or a minimal configuration-only ablation. Do not substitute TP8, device Engram, different a…",
+    "reasons": [
+      "h200_applicability_and_correctness_required: H200 execution is author-reported, but under TP8/EP1 and materially different checkpoint, Engram and replay settings. No pinned matche…",
+      "Priority below this task's threshold; reconsider with evidence or a revised policy"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 64,
+      "known_baseline_match": false,
+      "task_token_overlap": 27,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:d00802ccb98a8ce910339d34d9f8ce31b40d1ba9867ec833a429a844307f20cc",
+    "status": "proposed",
+    "fingerprint": "aeb4ae079cb68f8c81071a29f385bb37d8d29f37396ac30dc53cc03d117ca655",
+    "statement": "Evaluate a workload-matched SGLang control, then isolate its H200 group32 GEMM configuration tuning as the first optimization arm. The supplied #41251 reports substantial H200 improvements from a multi-change SGLang bundle, but compares against SGLang main under TP8/EP1, another checkpoint, disabled host Engram, and b…",
+    "mechanism": "Transfer inference: fixed GEMM launch configurations better matched to actual Hopper matrix shapes may reduce inefficient tiling or execution overhead without changing operand formats. A matched SGLang control distinguishes this configuration effect from engine-wide scheduling and implementation differences.",
+    "change": "First construct a source/configuration parity matrix and inspect shape/config dispatch. If eligible, define S0 as a pinned matched SGLang control and S1 as the same build with only applicable H200 group32 configuration changes. Disable or hold constant every other #41251 component through verified controls or a minimal configuration-only ablation. Do not substitute TP8, device Engram, different a…",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 64,
+      "known_baseline_match": false,
+      "task_token_overlap": 27,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:249a1e71e106968863d7f30c3f355944a2b4d5fd54a03e474186017e9b877b0b",
+    "status": "deferred",
+    "fingerprint": "14bd863050f6b34e30cfb2823d82b2bf0c455480f55ed15c48159a11c0dac453",
+    "statement": "Test prefix affinity at the final DP-rank decision, with affinity information shared across the two API workers within each replica. First inspect existing routing and join requests to replica, API worker and final rank; endpoint affinity alone cannot establish reusable KV locality. Narrow the earlier queue-skew propo…",
+    "mechanism": "Source mitigation: remember a prefix's prior engine and prefer it only on tied load scores. Transfer inference: sharing that hint across API2 can avoid process-local map fragmentation, but remembered placement is not proof of current residency. Queue load, exact-prefix retention and eviction determine value.",
+    "change": "After presence and opportunity checks, use a bounded per-replica affinity table at final internal DP selection, accessible to both API workers. Key hints by compatible cache namespace, LoRA identity and token-prefix identity. Preserve explicit-rank bypass, lower-load routing and load-only fallback; initially keep external replica routing unchanged.",
+    "reasons": [
+      "h200_applicability_and_correctness_required: A host routing adaptation is plausible on SM90, with appropriate cache isolation, stale-entry, concurrency and bypass checks. The shar…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 62,
+      "known_baseline_match": false,
+      "task_token_overlap": 26,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:b3a38eddefb9b2a0e0593e6f947d4c0810e26758290aa45765e6f4a8ee3a7e2d",
+    "status": "proposed",
+    "fingerprint": "14bd863050f6b34e30cfb2823d82b2bf0c455480f55ed15c48159a11c0dac453",
+    "statement": "Test prefix affinity at the final DP-rank decision, with affinity information shared across the two API workers within each replica. First inspect existing routing and join requests to replica, API worker and final rank; endpoint affinity alone cannot establish reusable KV locality. Narrow the earlier queue-skew propo…",
+    "mechanism": "Source mitigation: remember a prefix's prior engine and prefer it only on tied load scores. Transfer inference: sharing that hint across API2 can avoid process-local map fragmentation, but remembered placement is not proof of current residency. Queue load, exact-prefix retention and eviction determine value.",
+    "change": "After presence and opportunity checks, use a bounded per-replica affinity table at final internal DP selection, accessible to both API workers. Key hints by compatible cache namespace, LoRA identity and token-prefix identity. Preserve explicit-rank bypass, lower-load routing and load-only fallback; initially keep external replica routing unchanged.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 62,
+      "known_baseline_match": false,
+      "task_token_overlap": 26,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:eaa599659d884ea8fa57ac168bb78edeee17f66935c779deccdc8cc39dcab29b",
+    "status": "deferred",
+    "fingerprint": "9615bfba9f458b80c60a3ce48b5deeda59b522a1466050849194c714c26f68cf",
+    "statement": "Explicitly activate Humming for the shipped MXFP4 experts, then compare fixed indexed and grouped GEMM paths at unchanged activation precision. The supplied startup log selects MARLIN, and the installed automatic priority list omits Humming, so an indexed override alone cannot change execution. Installed code already …",
+    "mechanism": "Changing the expert implementation and its treatment of routed matrices may reduce GEMM and staging costs. Backend activation and grouped-versus-indexed selection require separate contrasts to identify which change matters.",
+    "change": "First inspect explicit-backend registration, loader support, effective environment, activation schema, and communication selection. Then compare MARLIN, Humming grouped_contiguous, and Humming indexed using --moe-backend humming and VLLM_HUMMING_MOE_GEMM_TYPE. Keep precision fixed. Use the existing override before considering #59488's automatic-selection policy.",
+    "reasons": [
+      "h200_applicability_and_correctness_required: The #59488 patch supplies an SM90 selector restricted to compatible communication, but pinned-loader registration and effective EP4 tr…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "planned",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 57,
+      "known_baseline_match": false,
+      "task_token_overlap": 24,
+      "target_token_overlap": 9,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:1cfa90d6272adde75b8849bc008e2654370d1db3fcf0f8046a13edb91a0ef42a",
+    "status": "proposed",
+    "fingerprint": "9615bfba9f458b80c60a3ce48b5deeda59b522a1466050849194c714c26f68cf",
+    "statement": "Explicitly activate Humming for the shipped MXFP4 experts, then compare fixed indexed and grouped GEMM paths at unchanged activation precision. The supplied startup log selects MARLIN, and the installed automatic priority list omits Humming, so an indexed override alone cannot change execution. Installed code already …",
+    "mechanism": "Changing the expert implementation and its treatment of routed matrices may reduce GEMM and staging costs. Backend activation and grouped-versus-indexed selection require separate contrasts to identify which change matters.",
+    "change": "First inspect explicit-backend registration, loader support, effective environment, activation schema, and communication selection. Then compare MARLIN, Humming grouped_contiguous, and Humming indexed using --moe-backend humming and VLLM_HUMMING_MOE_GEMM_TYPE. Keep precision fixed. Use the existing override before considering #59488's automatic-selection policy.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 57,
+      "known_baseline_match": false,
+      "task_token_overlap": 24,
+      "target_token_overlap": 9,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:9e5674217265d5ff78ecc8c3e9279b39ad8c879788a6d392034de2667983572c",
+    "status": "deferred",
+    "fingerprint": "a26267631869785418b79f2cb10133e22f84fb189f40475f337eb8688f25b75b",
+    "statement": "Test direct-NVLink DeepEP dispatch in two attributable stages: compatible backend activation, followed by the triple-buffered prefetch change in #693. First verify the effective baseline transport, four-rank NVLink connectivity, and whether the pinned engine can reach the elastic direct-NVLink implementation while pre…",
+    "mechanism": "Source code/review exposes three staging buffers and partial store-group waiting. Transfer inference: overlapping next-token loads and metadata preparation with prior remote stores can reduce serialized dispatch time. Increased shared-memory demand and the dispatch-warp cap can offset savings through occupancy loss or contention with expert computation.",
+    "change": "First establish transport and API compatibility. If feasible, integrate unmodified elastic direct-NVLink DeepEP while holding Marlin, routing semantics, payload format, topology, and speculation fixed. Then port only #693's pipeline with one shared host/device buffer-count definition and a verified reuse invariant. Preserve rollback to the original backend. If compute or activation format must ch…",
+    "reasons": [
+      "h200_applicability_and_correctness_required: The supplied H100 implementation is a plausible Hopper transfer lead, and buffer-lifetime, graph, token-identity and distributed check…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 54,
+      "known_baseline_match": false,
+      "task_token_overlap": 22,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:41df36bb4be53fef5cb6e5e98527dfdea3af1fe8535f5992a197b65ba82bd2df",
+    "status": "deferred",
+    "fingerprint": "4330730fcd37a8e5aadb22a3898973ca2edf7842034bcbcfad89d3b04c5714f8",
+    "statement": "Test coordinated prefill release only if measured mixed-step interference survives tuning the existing scheduler and static prefill interval. PR #61834 supplies a concrete per-step coordination protocol, but its reported interactivity gains come from an earlier MI355X branch and include substantial TTFT penalties; PR …",
+    "mechanism": "Source proposal: coordinate prefill FIRE/HOLD decisions and protect subsequent decode steps. Transfer inference: concentrating required prefills can reduce repeated lockstep decode interruption, but deferred chunks and an added CPU collective can erase the benefit.",
+    "change": "Inspect current static interval and any equivalent alignment logic first. If a useful delta remains, adapt the opt-in #61834 protocol with a globally agreed overdue flag based on each rank's local oldest-prefill waiting age. Give the wall-clock escape priority over protected steps. Tune bounds only on development traffic; retain disabled-policy fallback.",
+    "reasons": [
+      "h200_applicability_and_correctness_required: The host protocol is plausibly adaptable to fixed DP4/EP4, but installed scheduler compatibility and the proposed overdue mechanism ar…"
+    ],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 54,
+      "known_baseline_match": false,
+      "task_token_overlap": 24,
+      "target_token_overlap": 6,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:9927b047e0b711f0e3d577af1cbd013ad2f96cfa7319e3f6a6b83de3aaa46e5d",
+    "status": "proposed",
+    "fingerprint": "a26267631869785418b79f2cb10133e22f84fb189f40475f337eb8688f25b75b",
+    "statement": "Test direct-NVLink DeepEP dispatch in two attributable stages: compatible backend activation, followed by the triple-buffered prefetch change in #693. First verify the effective baseline transport, four-rank NVLink connectivity, and whether the pinned engine can reach the elastic direct-NVLink implementation while pre…",
+    "mechanism": "Source code/review exposes three staging buffers and partial store-group waiting. Transfer inference: overlapping next-token loads and metadata preparation with prior remote stores can reduce serialized dispatch time. Increased shared-memory demand and the dispatch-warp cap can offset savings through occupancy loss or contention with expert computation.",
+    "change": "First establish transport and API compatibility. If feasible, integrate unmodified elastic direct-NVLink DeepEP while holding Marlin, routing semantics, payload format, topology, and speculation fixed. Then port only #693's pipeline with one shared host/device buffer-count definition and a verified reuse invariant. Preserve rollback to the original backend. If compute or activation format must ch…",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 54,
+      "known_baseline_match": false,
+      "task_token_overlap": 22,
+      "target_token_overlap": 10,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  },
+  {
+    "id": "hypothesis:474c95a2da4bb7834371ee3e074f0b6d7f4dee55ebbee7a499739c2309dee970",
+    "status": "proposed",
+    "fingerprint": "4330730fcd37a8e5aadb22a3898973ca2edf7842034bcbcfad89d3b04c5714f8",
+    "statement": "Test coordinated prefill release only if measured mixed-step interference survives tuning the existing scheduler and static prefill interval. PR #61834 supplies a concrete per-step coordination protocol, but its reported interactivity gains come from an earlier MI355X branch and include substantial TTFT penalties; PR …",
+    "mechanism": "Source proposal: coordinate prefill FIRE/HOLD decisions and protect subsequent decode steps. Transfer inference: concentrating required prefills can reduce repeated lockstep decode interruption, but deferred chunks and an added CPU collective can erase the benefit.",
+    "change": "Inspect current static interval and any equivalent alignment logic first. If a useful delta remains, adapt the opt-in #61834 protocol with a globally agreed overdue flag based on each rank's local oldest-prefill waiting age. Give the wall-clock escape priority over protected steps. Tune bounds only on development traffic; retain disabled-policy fallback.",
+    "reasons": [],
+    "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+    "experiment_status": "untested",
+    "outcomes": [],
+    "omitted_outcome_scopes": 0,
+    "recall": {
+      "score": 54,
+      "known_baseline_match": false,
+      "task_token_overlap": 24,
+      "target_token_overlap": 6,
+      "method": "lexical_baseline_v1"
+    },
+    "detail": "Compact recall; use hypothesis.get with id for full evidence and event history."
+  }
+]

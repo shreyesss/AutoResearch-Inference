@@ -1,0 +1,388 @@
+From 70381d289c2b1e7c0e092a56a01a644e19fe37de Mon Sep 17 00:00:00 2001
+From: Eddy0623 <jiamin000623@163.com>
+Date: Tue, 20 Oct 2026 19:25:45 +0800
+Subject: [PATCH] Eddy:Reduce per-step fixed CPU overhead on the decode hot
+ path (~50-140us/step): gate cpu_timer's record_function on profiler activity,
+ pool CUDA timing events and reuse a persistent sample_end_evt, replace the
+ O(num_reqs) SO status scan with a scheduler-side num_active_so count, and
+ fast-path empty request-output collections
+
+---
+ OPTIMIZATION.md                             | 74 +++++++++++++++++++++
+ csrc/engine/pybind_scheduler.cpp            |  4 ++
+ csrc/engine/scheduler.hpp                   | 15 +++++
+ deepinfer/engine/llm_engine.py              | 16 ++++-
+ deepinfer/model_executor/layers/sampler.py  | 16 ++++-
+ deepinfer/model_executor/models/deepseek.py |  2 +
+ deepinfer/timer.py                          | 36 +++++++++-
+ deepinfer/worker/model_runner.py            |  2 +
+ deepinfer/worker/worker.py                  |  9 ++-
+ 9 files changed, 166 insertions(+), 8 deletions(-)
+ create mode 100644 OPTIMIZATION.md
+
+diff --git a/OPTIMIZATION.md b/OPTIMIZATION.md
+new file mode 100644
+index 0000000..673dd93
+--- /dev/null
++++ b/OPTIMIZATION.md
+@@ -0,0 +1,74 @@
++# Per-Step Fixed-Overhead Optimizations (optimize branch)
++
++This batch targets **fixed per-step CPU overhead on the decode hot path** — four changes, all pure performance optimizations with no functional behavior change. They share one goal: under ZOS (zero-overhead scheduling) the CPU side of each step has a budget of only 1–3 ms, so any cost paid unconditionally on every step (object creation, pybind crossings, unconditional profiler bridging) eats decode throughput directly.
++
++Summary of changes:
++
++| # | Optimization | Main files | Est. per-step gain |
++|---|---|---|---|
++| 1 | Skip `record_function` in `cpu_timer.record` when no profiler is active | `deepinfer/timer.py` | ~20–60us |
++| 2 | CUDA event-pair pooling + drop timing from `sample_end_evt` | `deepinfer/timer.py`, `deepinfer/worker/worker.py` | ~10–25us |
++| 3 | SO fast path driven by a scheduler-side count, eliminating the per-request pybind scan | `csrc/engine/scheduler.hpp` + 5 more files | ~30–50us (bsz=256) |
++| 4 | `collect_request_outputs` empty-input fast path + documented borrow semantics | `deepinfer/engine/llm_engine.py` | ~2–5us |
++
++Combined, this removes an estimated 50–140us per decode step for small batches (1–5%), with the change #1 gain already measured on hardware (see Verification results below).
++
++---
++
++## 1. CPUTimer: gate `record_function` on profiler activity
++
++**Problem**: `CPUTimer.record` in `deepinfer/timer.py` unconditionally enters a `torch.profiler.record_function` context. The hot path executes 20+ such calls per step (engine `schedule`/`run_workers`, worker `post_process`, sampler `verification`, ...). `record_function.__enter__` always dispatches `torch.ops.profiler._record_function_enter_new` (Python → dispatcher) even when no profiler is running — roughly 1–3us per enter/exit pair.
++
++**Change**: before entering the context, consult `torch.autograd._profiler_enabled()` (a C-level query, ~0.1us); when no profiler is active, simply `yield`. While a `torch.profiler.profile` session is active — including the HTTP-driven collection in `engine/profile_server.py` — the query returns True and behavior is identical to before. The repo has no `emit_nvtx` usage. If the private API is missing, a try/except fallback restores the old always-wrap behavior.
++
++**Note**: the timing values themselves (`time.perf_counter` deltas) are unaffected — `add_time` statistics keep the same granularity; the only thing removed is the profiler-bridge tax paid when idle.
++
++## 2. CUDA event pooling + `sample_end_evt` reuse
++
++**Problem**: five fresh CUDA events are created (and later destroyed) every step:
++
++- `worker/worker.py` builds `sample_end_evt = torch.cuda.Event(enable_timing=True)` — it is only ever `synchronize()`d in `_post_process_step`, so `enable_timing` is pure waste;
++- `timer.py` `CUDATimer.record` creates two `enable_timing=True` events per call (four per step for `device_forward`/`device_sample` when MTP varlen is enabled).
++
++**Changes**:
++
++- `sample_end_evt` becomes a lazily-created persistent Worker member event, without `enable_timing`. Reuse is safe by ordering: the only re-record point is beat 4 of the current step, while the previous unconsumed state (`prev_step_state`) was already `synchronize()`d in beat 2 of the same step — "overwritten before consumed" cannot happen.
++- `CUDATimer` gains an event-pair free pool (capped at 16 pairs): pairs that `flush_out` has already `synchronize()`d and read `elapsed_time` from are recycled; `record()` pops from the pool before allocating.
++
++**Ordering argument** (what makes the pool correct): a recycled pair can only be re-recorded by the **next** `record()` call. Within one ZOS step the sequence is: beat 2 — `flush_out` inside `model_runner.post_process` (recycles), then engine `post_process_fn` in the same beat reads `elapsed_time` in `update_mtp_runtime` (it holds object references; nothing has been re-recorded yet); beat 3 — `record("device_sample")` may reuse the pair. That is, **no holder ever reads an event after it could have been re-recorded**. The `end_event.query()` guard in `flush_out(non_blocking=True)` additionally guarantees that incomplete pairs stay in `remaining` and are never recycled.
++
++## 3. SO fast path: replace the O(num_reqs) pybind scan with a scheduler-side count
++
++**Problem**: `_get_so_mask` in `sampler.py` checks `all(s.so_status <= 0 for s in seq_metadata_list)` every step. Each `s.so_status` is a cross-pybind attribute read — ~30–50us at bsz=256 — while the vast majority of deployments, and the vast majority of steps, have no structured-output requests at all. This is one of the sites flagged by the in-tree `TODO(CPU): Eliminate O(num_reqs) python operations in decoding step`.
++
++**Changes** (six touchpoints across C++/Python):
++
++1. `csrc/engine/scheduler.hpp`: `SchedulerOutputs` gains `int num_active_so = 0`; the existing metadata-building loop in `schedule()` counts `so_status > 0` entries (no extra traversal);
++2. `csrc/engine/pybind_scheduler.cpp`: exposed as `def_readwrite`;
++3. `deepinfer/engine/llm_engine.py`: when the last prefill chunk promotes `so_status` from 0 to 1 — the **only** promotion path between `schedule()` and sampling — the engine bumps `num_active_so += 1`;
++4. the count is threaded as an optional parameter `num_active_so: int | None = None` through `worker.py → model_runner.execute_sample → DeepseekForCausalLM.sample → Sampler.forward` into `_get_so_mask` (`None` falls back to the legacy scan, keeping all existing callers compatible);
++5. `_get_so_mask`: return early when the count is `<= 0`, equivalent to the old `all()` check.
++
++**Invariant**: at sampling time the count can only be conservatively **high**, never low — after `schedule()`, `so_status` either gets promoted 0→1 (bumped accordingly) or demoted to <= 0 (kill path, not decremented). A too-high count merely falls back to the per-request scan (slow path); it can never miss an active request, and no path can produce a too-low count. The maintenance contract (engine must +1 on promotion) is documented both on the C++ field and in the pybind docstring.
++
++**Side benefit**: on steps where an SO request was killed, the code now takes the slow path and writes the `-1` status back to the ledger properly, instead of the old behavior of silently swallowing it.
++
++## 4. `DeferredRelease.collect_request_outputs`: empty-input fast path
++
++**Problem**: every step ran `np.concatenate([pending_array, new_array])` even though the base is empty on most steps, allocating a fresh array through the concatenate machinery each time.
++
++**Change and safety**: return immediately for empty input; when the base is empty use `request_outputs.copy()`, otherwise keep `concatenate`. **The copy must stay** — the array returned by `build_request_outputs` (csrc/engine/outputs.hpp) borrows a `static std::vector` inside the C++ function that is overwritten in place on the next call, while `release` happens at the next step's `pre_sampler_sync` (after the next build). Holding the borrowed array directly would let the pointer values be overwritten and cause double releases. This is now documented in a code comment to prevent a future "optimization" from removing the copy.
++
++---
++
++## Verification results
++
++Verified on a local machine (CUDA 13.0, torch 2.13.0+cu132, GCC 13.3, Python 3.12, one SM86 GPU):
++
++1. **C++ rebuild**: `python setup.py build_ext --inplace` compiles and links `deepinfer._C` cleanly with the `scheduler.hpp` / `pybind_scheduler.cpp` changes; `SchedulerOutputs.num_active_so` is importable and writable from Python.
++2. **Unit tests**: `pytest tests/engine/test_sequence.py tests/test_cuda_sync_guards.py` — 21 passed (Sequence/_C extension plus GPU sync-guard paths).
++3. **Timer smoke tests** (script driven against the built extension):
++   - CPUTimer still records timings while idle and the `deepinfer:*` record_function range still appears inside an active `torch.profiler.profile` session;
++   - measured per-call overhead: **1.43us gated vs 7.76us unconditional** (~6.3us saved per call; with 20+ calls per step this alone is worth ~120us+ per step, better than the original estimate);
++   - CUDATimer pool recycles pairs on `flush_out`, reuses them on the next `record()`, and `elapsed_time` reads stay correct through the pool;
++   - the persistent non-timing `sample_end_evt` record/synchronize/re-record loop behaves as expected.
+diff --git a/csrc/engine/pybind_scheduler.cpp b/csrc/engine/pybind_scheduler.cpp
+index a379e85..1855754 100644
+--- a/csrc/engine/pybind_scheduler.cpp
++++ b/csrc/engine/pybind_scheduler.cpp
+@@ -28,6 +28,10 @@ void pybind_engine_scheduler(pybind11::module &engine) {
+         .def_readonly("attn_tflops", &SchedulerOutputs::attn_tflops)
+         .def_readonly("total_tflops", &SchedulerOutputs::total_tflops)
+         .def_readonly("num_cached_tokens_gpu", &SchedulerOutputs::num_cached_tokens_gpu)
++        .def_readwrite(
++            "num_active_so", &SchedulerOutputs::num_active_so,
++            "Number of requests with so_status > 0 in this step (counted in schedule()). The sampler uses it to skip the "
++            "per-request scan on steps without SO requests; the engine must bump it when promoting so_status 0->1.")
+         .def_property_readonly(
+             "clone_states",
+             [](const SchedulerOutputs &self) {
+diff --git a/csrc/engine/scheduler.hpp b/csrc/engine/scheduler.hpp
+index ed6e897..727c774 100644
+--- a/csrc/engine/scheduler.hpp
++++ b/csrc/engine/scheduler.hpp
+@@ -62,6 +62,15 @@ struct SchedulerOutputs {
+     // optimistic estimation in async-scheduling varlen case
+     std::vector<int> seqlens_q;
+ 
++    // Number of requests with so_status > 0 in this step, counted while
++    // schedule() builds the metadata list. Python uses it to skip the
++    // per-request scan of the SO mask path; the engine must bump it when it
++    // promotes so_status from 0 to 1 on the last prefill chunk (the only
++    // promotion path after schedule() and before sampling; demotions to
++    // <= 0 only leave the count conservatively high, i.e. slow path, which
++    // is safe).
++    int num_active_so = 0;
++
+     int64_t sum_seqlen_qxk;
+     int max_seqlen_k;
+     int min_seqlen_k;
+@@ -703,6 +712,12 @@ struct Scheduler {
+                             "seqlen_q={} prompt_run={}",
+                     position_end, runtime_max_model_len, seq->request.request_id, seq->schedule.branch_id, seq->get_len(),
+                     seq->cache.num_tokens, seq->schedule.total_inflight_tokens, seqlen_q, scheduler_outputs.prompt_run));
++            // The metadata's so_status is copied from seq->structured_output.status
++            // inside allocate(); reading the same source here is equivalent
++            // (refresh_for_sampling later re-copies the same unchanged value).
++            if (seq->structured_output.status > 0) {
++                scheduler_outputs.num_active_so += 1;
++            }
+             auto &&p_metadata =
+                 sequence_metadata_pool->allocate(seq, scheduler_outputs.prompt_run, seqlen_q, seqlen_k, std::move(golden_token));
+ 
+diff --git a/deepinfer/engine/llm_engine.py b/deepinfer/engine/llm_engine.py
+index cb87941..42ecd58 100644
+--- a/deepinfer/engine/llm_engine.py
++++ b/deepinfer/engine/llm_engine.py
+@@ -90,7 +90,17 @@ def collect_sequence_metadata(self, seq_metadata_list: list[SequenceMetadata]) -
+         self.sequence_metadata_to_release.extend(seq_metadata_list)
+ 
+     def collect_request_outputs(self, request_outputs: np.ndarray[np.uint64]) -> None:
+-        self.request_outputs_to_release = np.concatenate([self.request_outputs_to_release, request_outputs])
++        # build_request_outputs returns an array borrowing a C++ static buffer
++        # (the static vector in outputs.hpp) that is overwritten in place on
++        # the next call; the pointer values must be copied out here and are
++        # released at the next step's pre_sampler_sync. Never hold the borrowed
++        # array directly just to save this copy.
++        if request_outputs.size == 0:
++            return
++        if self.request_outputs_to_release.size == 0:
++            self.request_outputs_to_release = request_outputs.copy()
++        else:
++            self.request_outputs_to_release = np.concatenate([self.request_outputs_to_release, request_outputs])
+ 
+     def collect_clone_unpins(self, states_to_unpin: np.ndarray[np.int32], blocks_to_unpin: np.ndarray[np.int32]) -> None:
+         assert self.clone_unpins_to_release is None
+@@ -913,6 +923,10 @@ def step(self) -> np.ndarray[np.uint64]:
+                     if seq_metadata.is_last_prompt_chunk and seq_metadata.sampling_params.so_args is not None:
+                         if seq_metadata.so_status == 0 and seq_metadata.so_matcher is not None:
+                             seq_metadata.so_status = 1
++                            # The schedule-side SO count only ever sees a 0->1
++                            # promotion after schedule() (here); keep it in sync
++                            # so the sampler can rely on it to skip the scan.
++                            scheduler_outputs.num_active_so += 1
+                         else:
+                             # SO 簿记 bug 只判死本请求：直接置 FINISHED_SO_FAILED 让 process_outputs
+                             # 当步回收；置 -1 仅让本步 sampler 早退（不能依赖 sampler 写回落账本，
+diff --git a/deepinfer/model_executor/layers/sampler.py b/deepinfer/model_executor/layers/sampler.py
+index 384a588..650eaf2 100644
+--- a/deepinfer/model_executor/layers/sampler.py
++++ b/deepinfer/model_executor/layers/sampler.py
+@@ -120,6 +120,7 @@ def forward(
+         main_input_metadata: InputMetadata,
+         nextn_kv_caches: GPUCacheInterface | None = None,
+         seq_metadata_list: list[SequenceMetadata] | None = None,
++        num_active_so: int | None = None,
+     ) -> SamplerOutput:
+         hidden_states = hidden_states.move()
+         selected_token_indices = sampler_inputs.selected_token_indices
+@@ -135,7 +136,7 @@ def forward(
+         # Start preparing the structured-output mask while logits are computed.
+         driver_inputs = sampler_inputs.driver
+         if driver_inputs is not None:
+-            so_indices, so_bitmasks, so_status, so_mask_ready = self._get_so_mask(seq_metadata_list)
++            so_indices, so_bitmasks, so_status, so_mask_ready = self._get_so_mask(seq_metadata_list, num_active_so)
+ 
+         # CUDA Graph model_output retains graph-batch padding; gather trims hidden_states.
+         hidden_states = gather(hidden_states, selected_token_indices)
+@@ -302,6 +303,7 @@ def _decode_post_func() -> None:
+     def _get_so_mask(
+         self,
+         seq_metadata_list: list[SequenceMetadata] | None,
++        num_active_so: int | None = None,
+     ) -> tuple[
+         list[torch.Tensor] | None,
+         list[torch.Tensor] | None,
+@@ -314,8 +316,16 @@ def _get_so_mask(
+             # NOTE: only calculate and apply SO mask on CP rank 0
+             return None, None, None, None
+ 
+-        # TODO(CPU): Eliminate O(num_reqs) python operations in decoding step
+-        if all(s.so_status <= 0 for s in seq_metadata_list):
++        # Fast path: num_active_so is the so_status > 0 count taken by the
++        # scheduler in schedule() (the engine bumps it when it promotes
++        # so_status 0->1 on the last prefill chunk). The count can only be
++        # conservatively high (post-schedule demotions are not subtracted);
++        # a high count merely falls back to the per-request scan.
++        if num_active_so is not None:
++            if num_active_so <= 0:
++                return None, None, None, None
++        elif all(s.so_status <= 0 for s in seq_metadata_list):
++            # TODO(CPU): Eliminate O(num_reqs) python operations in decoding step
+             return None, None, None, None
+ 
+         num_sampling_token = len(seq_metadata_list)
+diff --git a/deepinfer/model_executor/models/deepseek.py b/deepinfer/model_executor/models/deepseek.py
+index ca31b1c..b948120 100644
+--- a/deepinfer/model_executor/models/deepseek.py
++++ b/deepinfer/model_executor/models/deepseek.py
+@@ -387,6 +387,7 @@ def sample(
+         input_metadata: InputMetadata,
+         kv_caches: GPUCacheInterface | None = None,
+         seq_metadata_list: list[SequenceMetadata] | None = None,
++        num_active_so: int | None = None,
+     ) -> SamplerOutput:
+         output = model_output.move()
+         sampler_output: SamplerOutput = self.sampler(
+@@ -397,6 +398,7 @@ def sample(
+             main_input_metadata=input_metadata,
+             nextn_kv_caches=kv_caches,
+             seq_metadata_list=seq_metadata_list,
++            num_active_so=num_active_so,
+         )
+ 
+         expert_lb = eplb.current()
+diff --git a/deepinfer/timer.py b/deepinfer/timer.py
+index d9f4909..53f6142 100644
+--- a/deepinfer/timer.py
++++ b/deepinfer/timer.py
+@@ -57,12 +57,28 @@ def record(
+             yield
+             return
+         t0 = time.perf_counter()
+-        with torch.profiler.record_function(f"deepinfer:{record_name or name}"):
++        # record_function only produces output while a profiler is active, yet
++        # each enter/exit still pays a Python->dispatcher round trip; with 20+
++        # calls per step on the hot path, gate it behind this cheap C-level
++        # query (~0.1us). Behavior is unchanged while torch.profiler.profile
++        # (incl. the profile server) is active.
++        if _profiler_enabled():
++            with torch.profiler.record_function(f"deepinfer:{record_name or name}"):
++                yield
++        else:
+             yield
+         elapsed = time.perf_counter() - t0
+         self.add_time(name, elapsed)
+ 
+ 
++try:
++    _profiler_enabled = torch.autograd._profiler_enabled
++except AttributeError:  # private API missing: always wrap, keeping the old behavior
++
++    def _profiler_enabled() -> bool:
++        return True
++
++
+ cpu_timer = CPUTimer()
+ 
+ 
+@@ -221,6 +237,9 @@ def flush_out(self) -> dict[str, float]:
+ 
+ 
+ class CUDATimer(BaseTimer):
++    _EVENT_POOL_LIMIT = 16
++    """Event-pair pool cap: in steady state only the device_forward/device_sample pairs rotate."""
++
+     def latest_event_pair(self, name: str) -> tuple[torch.cuda.Event, torch.cuda.Event] | None:
+         events = self.events.get(name)
+         return (events[-1][0], events[-1][1]) if events else None
+@@ -228,6 +247,16 @@ def latest_event_pair(self, name: str) -> tuple[torch.cuda.Event, torch.cuda.Eve
+     def __init__(self) -> None:
+         super().__init__()
+         self.events = defaultdict(list)
++        self._event_pool: list[tuple[torch.cuda.Event, torch.cuda.Event]] = []
++        """Pairs that flush_out has already synchronized and read elapsed_time
++        from are recycled here, avoiding a cudaEventCreate/destroy per record.
++        A recycled pair is only reused by the next record() call, by which time
++        every holder (the step_state forward/sample events) has consumed it."""
++
++    def _acquire_event_pair(self) -> tuple[torch.cuda.Event, torch.cuda.Event]:
++        if self._event_pool:
++            return self._event_pool.pop()
++        return (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+ 
+     @contextmanager
+     def record(
+@@ -240,10 +269,9 @@ def record(
+             yield
+             return
+ 
+-        start_event = torch.cuda.Event(enable_timing=True)
++        start_event, end_event = self._acquire_event_pair()
+         start_event.record()
+         yield
+-        end_event = torch.cuda.Event(enable_timing=True)
+         end_event.record()
+         self.events[name].append((start_event, end_event, scale))
+ 
+@@ -268,6 +296,8 @@ def flush_out(
+                     end_event.synchronize()
+                     s = event_scale if event_scale is not None else 1.0
+                     total_time_ms += start_event.elapsed_time(end_event) * s
++                    if len(self._event_pool) < self._EVENT_POOL_LIMIT:
++                        self._event_pool.append((start_event, end_event))
+                 else:
+                     remaining.append((start_event, end_event, event_scale))
+             if remaining:
+diff --git a/deepinfer/worker/model_runner.py b/deepinfer/worker/model_runner.py
+index 9a03065..ec3c3e2 100644
+--- a/deepinfer/worker/model_runner.py
++++ b/deepinfer/worker/model_runner.py
+@@ -340,6 +340,7 @@ def execute_sample(
+         input_metadata: InputMetadata,
+         model_output: Movable[CausalLMForwardOutput],
+         kv_caches: GPUCacheInterface,
++        num_active_so: int | None = None,
+     ) -> SamplerOutput:
+         """Run sampling on the main model output (prepare sampler inputs, launch sample).
+ 
+@@ -349,6 +350,7 @@ def execute_sample(
+         kwargs = {
+             "input_metadata": input_metadata,
+             "seq_metadata_list": seq_metadata_list,  # To calculate the SO mask
++            "num_active_so": num_active_so,  # so_status > 0 count from scheduler; skips the SO scan when 0
+         }
+         if self.nextn:
+             kwargs["kv_caches"] = kv_caches
+diff --git a/deepinfer/worker/worker.py b/deepinfer/worker/worker.py
+index fdf47ad..3df5204 100644
+--- a/deepinfer/worker/worker.py
++++ b/deepinfer/worker/worker.py
+@@ -71,6 +71,7 @@ def __init__(
+         logger.info("init Worker")
+         self.engine_callbacks = engine_callbacks
+         self.prev_step_state: WorkerStepState | None = None
++        self._sample_end_evt: torch.cuda.Event | None = None
+         self.nextn = envs.DEEPINFER_USE_NEXTN_DECODE
+ 
+         super().__init__(
+@@ -156,6 +157,7 @@ def execute_model_step(
+             input_metadata,
+             model_output,
+             self.gpu_cache,
++            num_active_so=scheduler_outputs.num_active_so if scheduler_outputs is not None else None,
+         )
+ 
+         sample_events = cuda_timer.latest_event_pair("device_sample") if record_runtime else None
+@@ -164,7 +166,12 @@ def execute_model_step(
+                 self.engine_callbacks.pre_sampler_sync_fn(scheduler_outputs)
+             self.maybe_gc_collect()
+ 
+-        sample_end_evt = torch.cuda.Event(enable_timing=True)
++        # Reuse one persistent event: the previous unconsumed step state was
++        # already synchronized in beat 2 of this step, so re-recording here is
++        # safe. The event only marks sampling completion; no timing needed.
++        if self._sample_end_evt is None:
++            self._sample_end_evt = torch.cuda.Event()
++        sample_end_evt = self._sample_end_evt
+         sample_end_evt.record()
+ 
+         curr_step_state = WorkerStepState(

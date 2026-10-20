@@ -12,4 +12,6 @@ This is the navigation layer for research, experiments and lessons. Original run
 
 Latest diagnostic: [C24 baseline timing report](../runs/av-k5-timing-001/REPORT.md), [independent verdict](../runs/av-k5-timing-001/FINAL_VERDICT.md), [complete evidence archive](../evidence/av-k5-timing-001/README.md). Outcome: instrumentation inconclusive; no AV-ON experiment or speedup claim.
 
+Latest research: [history-aware H200 continuation and DeepInfer scan](../runs/h200-continuation-001/README.md), with a filtering audit, cheap applicability checks, updated ROI rubric and bounded intervention plans. This research uses no serving/GPU allocation.
+
 After substantive work, update the affected hypothesis card and bucket entry, preserve raw evidence and append the outcome, then commit and push the research branch to `shreyesss/AutoResearch-Inference`. Keep public conclusions readable without downloading large archives. Never publish credentials, environment directories or unreviewed unrelated working-tree changes. Evaluator design, evaluator implementation and optimization development remain separate roles; the orchestrator owns runtime actions and publication.

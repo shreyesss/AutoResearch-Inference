@@ -1,0 +1,192 @@
+{
+  "question": "Update the research state from these artifacts. C24 finished instrumentation-inconclusive, not pending and not a speedup/failure of AV. The CPU counterexample uses invented costs and only establishes possible decision sensitivity; no local latency inference. PR61869 fused sampling is gated behind specialized_decode_requested in the model interface, with AV off, no top-k and no watermark; enabling the generic CUDA sampler requires an explicit qualified port, not claiming an existing simple flag. Extract exact short support/challenge claims with scope, limitations and cheap next checks.",
+  "created_at": "2026-10-20T21:43:03Z",
+  "sources": [
+    {
+      "id": "artifact:continuation:c24-final",
+      "source": "local_experiment",
+      "kind": "resource",
+      "url": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/av-k5-timing-001/REPORT.md",
+      "title": "C24 completed instrumentation-inconclusive diagnostic",
+      "body": "# C24 baseline timing diagnostic — AV off, k5\n\n**Decision: `instrumentation_inconclusive`; adaptive verification remains unqualified.** Traffic, runtime identity and cleanup passed, but the timing evidence failed its predeclared adequacy checks. This is a limitation of our measurement, not an AV performance failure. Adaptive verification was never enabled, and no service speedup or full hypothesis A/B result is claimed. The user's two remaining full attempts are unchanged.\n\n## Mechanism being qualified\n\nThe current server drafts five tokens, then runs the large target model to verify the proposed continuation. Adaptive verification keeps that five-token proposal but uses confidence and cost estimates to choose how many proposed tokens are worth verifying. Its potential benefit is fewer target-model token rows. Its costs include the controller itself, fewer accepted tokens per iteration, different graph shapes and extra draft padding. It needs a net improvement in time per accepted output token, not merely fewer target rows.\n\nThis differs from C03's occasional reduction of draft padding. C03 proved that its graph-selection mechanism activated, but never established a sufficiently expensive time contribution; its valid service screen failed promotion. Here the prerequisite is a direct, bounded observation of baseline target and draft work before selecting an AV experiment.\n\nA concrete source-derived warning remains: with five real requests per rank, one valid adaptive dispatch changes target capacity **36→16 rows**, while draft capacity changes **35→80 rows**. These are reachable source-level capacities, not observed AV choices or predicted latency. The installed code already contains an AV controller and the checkpoint index contains its confidence-head weight; metadata presence is not proof of the head's runtime use. See [source feasibility and exact code chain](IMPLEMENTATION_FEASIBILITY.md).\n\n## What ran\n\n| Setting | Exact diagnostic |\n| --- | --- |\n| Node | `jl-vm-541077`, eight H200s; this node only |\n| Baseline profile | Original `latency-2xdep4-sla.yaml`, SHA256 `edb4c68cb4ee72415abe65c077683a8f88942bfcc8fff5833270ba05cdddcab8` |\n| Runtime | Original pinned vLLM image, nominal revision `ac9126e58aa7bbab1856ba6593ba4d5003fea516`; installed file identities are authoritative |\n| Model | DeepSeek-V4.1-Flash, revision `2cba9e42aa026125f3ed06c6d98c1db82f7ca027` |\n| Parallel layout | Two replicas, each TP1/DP4/EP4; two API processes per replica |\n| Speculation | DSpark k5, probabilistic drafting, block rejection; **AV off** |\n| Other baseline behavior | FP8 KV, prefix cache, Engram host offload and DP embedding; original graph capacities and request logging |\n| Workload | First986 exact rows of the median Mooncake trace, ordinary runner at 0.5×; 299.232 s arrival span |\n| Client | Original `.venv-aiperf`, seed 42, maximum 256 workers, 120 s warmup |\n| Captures | Phase +90 s and +210 s; all eight workers; CPU+CUDA, warmup 1 / active 20 / max 20; no stack/shape/memory/FLOP recording |\n| Observation | Three CPU `record_function` labels in two read-only source copies; removing labels reproduces original AST; no new synchronization or computation |\n| Evaluator separation | Independent designer `c03_evaluator`; tooling builder `c03_evaluator_builder_review`; source/launch developer `c03_dev_review`; root owns runtime and publication |\n\nThe986-row prefix is a short sample, not the full 4,004-request workload. Its service score cannot be compared directly with C03's full-trace score. [Subset receipt](subset-receipt.json), [contract](EVALUATION_CONTRACT.md), [actual runtime identity](runtime-identity.json) and [capture inventory](startup-capture-inventory.json) bind the settings and sources.\n\n## Workload and control validity\n\n| Check | Observed result |\n| --- | --- |\n| Warmup | 55 completed, 0 errors |\n| Profiling requests | 986/986 completed, 0 errors, 0 cancellations; unique IDs and workload keys |\n| Completion ratio | 100% |\n| Replay p99 / degraded | 4.6538368 ms / false |\n| NOTICE versus exact phase start |NOTICE is 46,323 ns earlier; within the prospective 1 s bound |\n| Four capture dispatch errors |+2.894ms,+4.844ms,+0.326ms,+0.713ms relative to exact phase+offset |\n| Saved traces | 16 files, all eight workers in both episodes; no silent selection of favorable ranks |\n| Final drain |Router and all eight running/waiting pairs zero for three consecutive 1 s samples |\n| Original files and environments |All 30 pinned file checks and both package inventories unchanged |\n| Cleanup |All eight GPU allocations released; ports 8000/8100/8101 closed; monitoring 9400 preserved |\n\nThe console's 107,615 ms replay warning exactly matches the **separate warmup** aggregate, not profiling. Both phase exports are retained. A server-metrics completion RPC timed out after the workload ended; its Parquet export later completed 3,105,464 rows and the client reported all results received. This is an observability delay, not a request failure or proof that every telemetry scrape succeeded. The runner exited 1 because the completed prefix missed service SLOs; service eligibility is not this diagnostic's fidelity gate. See [phase reconciliation](phase-final.json), [fidelity receipts](fidelity-builder.json), [cleanup](cleanup.json) and [integrity](final-integrity.json).\n\n## Timing interpretation\n\nThe frozen criteria require at least ten complete decode-only cycles per rank/window, actual CPU-launch-to-CUDA correlations, both target and draft graph coverage, and at least 95% categorized device-busy union. The conditional materiality heuristic is target-attributed occupied time at least 20% of complete-cycle span on every rank in both windows. The adequacy gate failed before that heuristic could authorize any next experiment.\n\nThe decisive shortfall is replica 1, DP 2, phase +90 s: the trace contains 26 target ranges but only 8 native execute ranges, and only **4 complete eligible decode cycles** survive the required joins. Nineteen target candidates lack an unambiguous native/draft join, two are mixed prefill/no-generation, and one lacks its following boundary. Other rank/window cells retain 15–19 eligible cycles. A configuration requesting 20 active profiler steps did not guarantee20 readable decode cycles.\n\nFive cells also contain GPU activities whose recorded end precedes the start of their supposedly correlated CPU launch:53,406,43,91 and54 events respectively. The reader retains them as unattributed and flags graph-coverage uncertainty. These observations do not distinguish a timestamp calibration problem from a correlation/trace-format problem; no invented correction or timestamp tolerance was applied. Their exact cause remains unresolved.\n\nReadable cycle subsets show target-attributed occupied fractions of roughly 39.6–97.1% of cycle span. These are **descriptive values from an inadequately qualified capture**, not a validated AV opportunity or expected percentage saving. Some target-owned kernels are NCCL collectives, with individual long activities around 40–52 ms in replica 0's second episode. Execution or waiting inside a collective is not necessarily reducible by verifying fewer tokens. Uneven profiling/export across cooperating ranks is a plausible perturbation, not a measured causal explanation.\n\nThe predeclared inactive bracket at phase 110–130 s overlaps the first episode's replica 1 stop/export response until phase 113.651 s. It remains marked contaminated and is not shifted to a more favorable interval. The other three brackets have no control/export overlap. These brackets are descriptive context under different traffic, not an unbiased profiler-overhead estimate.\n\nSee the complete [reader output](trace-summary-v2.json), [trace inventory](trace-inventory-builder.json), [independent review](EVALUATOR_REVIEW.md), and per-cell timing table below. A cell passing local reader checks does not repair the required all 16-cell coverage.\n\n| Phase offset | Replica / DP rank | Eligible cycles | Target occupied | Draft proposal occupied | No observed GPU activity | Local adequacy |\n| --- | --- | ---: | ---: | ---: | ---: | --- |\n| +90 s | 0 / 0 | 19 | 86.77% | 6.99% | 4.27% | Pass local checks |\n| +90 s | 0 / 1 | 19 | 86.74% | 7.01% | 4.29% | Pass local checks |\n| +90 s | 0 / 2 | 19 | 86.83% | 6.82% | 4.30% | Pass local checks |\n| +90 s | 0 / 3 | 19 | 86.64% | 6.97% | 4.40% | Pass local checks |\n| +90 s | 1 / 0 | 16 | 96.05% | 2.05% | 1.46% | Association uncertainty |\n| +90 s | 1 / 1 | 19 | 80.19% | 8.17% | 8.90% | Pass local checks |\n| +90 s | 1 / 2 | 4 | 39.56% | 0.43% | 59.98% | Only 4 cycles; association uncertainty |\n| +90 s | 1 / 3 | 19 | 80.09% | 8.13% | 9.03% | Association uncertainty |\n| +210 s | 0 / 0 | 17 | 97.07% | 1.83% | 0.83% | Pass local checks |\n| +210 s | 0 / 1 | 15 | 90.53% | 5.92% | 2.38% | Pass local checks |\n| +210 s | 0 / 2 | 15 | 90.27% | 5.78% | 2.62% | Pass local checks |\n| +210 s | 0 / 3 | 18 | 97.13% | 1.81% | 0.81% | Pass local checks |\n| +210 s | 1 / 0 | 19 | 87.58% | 6.46% | 4.15% | Association uncertainty |\n| +210 s | 1 / 1 | 19 | 87.60% | 6.49% | 4.18% | Pass local checks |\n| +210 s | 1 / 2 | 19 | 87.60% | 6.46% | 4.23% | Pass local checks |\n| +210 s | 1 / 3 | 19 | 88.00% | 6.41% | 3.83% | Association uncertainty |\n\nPercentages use summed same-device complete-cycle span within each cell. Absence of observed GPU activity does not establish physical idleness, especially in flagged cells. Other/unattributed work and any overlap are retained in the [full table](timing-table.json) and [CSV](timing-table.csv); these columns are not an exhaustive additive partition. The required all-cell gate fails despite 11 cells passing local reader checks.\n\nThis heuristic does not establish a service critical path, reducible computation, an AV budget or expected speedup. Target ranges include graph-contained communication. Draft execution is a composite graph containing context preparation, model and sampling; draft execution is contained in draft proposal and must not be added to it again. Same-device unions and overlaps are required; summing ranks is not wall time.\n\n## Consequence for the remaining attempts\n\nDo not select AV as the highest-ROI experiment from this evidence and do not launch an AV-ON campaign. The source mechanism is still plausible, but we have not measured its removable cost. There is no automatic replacement run. Any further timing diagnostic needs a prospective instrumentation addendum addressing actual trace categories, timestamp associations, native decode-cycle coverage and rank-dependent profiling perturbation before consuming more GPU time. A later AV qualification must also measure its controller overhead, draft-padding tradeoff, accepted progress and correctness. No C03 patch is silently combined with it.\n\n## Measurement issue preserved\n\nTorch emitted CPU `user_annotation` and mirrored `gpu_user_annotation` events with identical names. The original reader selected by name alone and mixed CPU worker identities with the GPU namespace. The corrected, separately retained reader selects CPU annotation parents explicitly, then uses the same actual CUDA correlations. Independent review approved its two-line schema fix and ten CPU tests before the full 16-trace pass. The original reader/source and first-actual-trace reproduction are retained. No runtime rerun, different threshold or weaker attribution rule was used. [Offline schema addendum](READER_SCHEMA_ADDENDUM.md).\n\n## Cost and preservation\n\nCold startup took about 26 minutes on this node, including about 20 minutes of model loading. The measured cause of that slow load is unknown. Task-owned containers occupied the node from 20:51:10 to approximately21:29:48 UTC: about 38.6 minutes, or 5.15 allocated GPU-hours across eight GPUs. This includes startup, warmup, replay, export and cleanup; it is not all active inference time. The arrival trace itself spans about 5 minutes. Future pilot budgets must include startup and evidence-processing costs.\n\nAll raw traces, backend/client/router logs, request exports and evaluator/source versions are preserved in the [checksummed evidence archive](../../evidence/av-k5-timing-001/README.md). Readable records are organized through [execution](../../records/EXECUTION.md), [analysis](../../records/ANALYSIS.md), [meta-learning](../../records/META_LEARNING.md) and the [C24 hypothesis card](../../hypotheses/C24.md). The original C03 execution artifacts and verdict remain unchanged.\n",
+      "created_at": null,
+      "updated_at": null,
+      "fetched_at": "2026-10-20T21:41:50Z",
+      "state": null,
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "deepseek-v4.1-flash",
+        "deepseek",
+        "performance",
+        "speculation",
+        "kv-cache"
+      ],
+      "metadata": {
+        "sha256": "5e8b9c9c70342e2bfb6567f260a43ef6627b50ac196e80ee5dc39f3baf2a0a7d",
+        "scope": "AV-OFF profiling diagnostic, not performance validation"
+      },
+      "content_hash": "6cd7772625b071c28b8c1c80a816849752debfa079fd3638ecadf93d9236fd60"
+    },
+    {
+      "id": "artifact:continuation:av-cpu-counterexample",
+      "source": "local_cpu_check",
+      "kind": "resource",
+      "url": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/av-cost-counterexample.json",
+      "title": "Synthetic CPU installed-method cost counterexample",
+      "body": "{\n  \"scope\": \"Synthetic CPU source-method counterexample only; no measured milliseconds, dispatch or service gain.\",\n  \"source\": \"/home/ubuntu/Deepseek_serve-c03/c03/source/base/vllm/v1/worker/gpu/spec_decode/adaptive_verification.py\",\n  \"source_sha256\": \"d91b0b67474b17e2c2b579291182d70a26b3573ecc4b0756f1bb3018d936c3a6\",\n  \"method_lines\": [\n    282,\n    350\n  ],\n  \"fixture\": {\n    \"requests\": 5,\n    \"k\": 5,\n    \"confidence_per_request\": [\n      0.9,\n      0.8,\n      0.5,\n      0.3,\n      0.1\n    ],\n    \"constant_draft_cost\": 0.7,\n    \"synthetic_coupled_draft_cost_by_target_bucket\": {\n      \"8\": 0.8,\n      \"16\": 1.6,\n      \"24\": 2.4,\n      \"32\": 3.2\n    }\n  },\n  \"installed_method_budget\": 11,\n  \"independent_constant_cost_budget\": 11,\n  \"independent_coupled_cost_budget\": 3,\n  \"checks\": {\n    \"constant_cost_agrees\": true,\n    \"coupled_cost_changes_decision\": true,\n    \"selected_code_imports_no_torch_or_cuda\": true\n  },\n  \"implication\": \"A constant draft-cost assumption can choose the wrong budget if actual draft cost changes with the target graph. Establish real dispatch and measured costs before changing a controller.\",\n  \"not_established\": [\n    \"Frequency of this interaction\",\n    \"Actual component latency\",\n    \"Correctness of a candidate controller\",\n    \"End-to-end benefit\",\n    \"Permission to repeat C03 or enable AV\"\n  ]\n}\n",
+      "created_at": null,
+      "updated_at": null,
+      "fetched_at": "2026-10-20T21:41:50Z",
+      "state": null,
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "performance",
+        "speculation"
+      ],
+      "metadata": {
+        "sha256": "22935de8fda4afb3e1bb0c94a90414b239c34f6d25985fcd5bd2f9b9296919e4",
+        "scope": "Invented cost fixtures; no measured milliseconds or speedup"
+      },
+      "content_hash": "f034f12bb997e88a1ad2ecd3f42028cd8ec7e6033a000e40edfc5823040b4a7a"
+    },
+    {
+      "id": "code:continuation:fused-sampler-gates",
+      "source": "github",
+      "kind": "code",
+      "url": "https://github.com/vllm-project/vllm/pull/61869",
+      "title": "PR61869 exact opt-in and disabled-feature gates",
+      "body": "@@ -353,6 +438,31 @@ def markov_embed(self, token_ids: torch.Tensor) -> torch.Tensor:\n     def markov_bias(self, markov_embed: torch.Tensor) -> torch.Tensor:\n         return self.model.markov_head.bias(markov_embed, self.logits_processor)\n \n+    def markov_embed_weight(self) -> torch.Tensor | None:\n+        \"\"\"The table ``markov_embed`` looks up, for fused DSpark sampling with\n+        decode_backend=latency_specialized (None without it: the eager loop).\"\"\"\n+        if not self.specialized_decode_requested:\n+            return None\n+        return self.model.markov_head.markov_w1.weight\n+\n+    def markov_bias_weight(self) -> torch.Tensor | None:\n+        \"\"\"The ``[vocab, rank]`` matrix ``markov_bias`` multiplies by, for the\n+        vocabulary-sharded DSpark sampler: with decode_backend=latency_specialized, and\n+        when ``markov_bias`` is a plain BF16 product with it.\"\"\"\n+        head = self.model.markov_head.markov_w2\n+        processor = self.logits_processor\n+        if (\n+            not self.specialized_decode_requested\n+            or not isinstance(head.quant_method, UnquantizedEmbeddingMethod)\n+            or head.weight.dtype != torch.bfloat16\n+            or processor.scale != 1.0\n+            or processor.soft_cap is not None\n+            or processor.logits_as_input\n+            or processor.head_dtype not in (None, torch.bfloat16)\n+        ):\n+            return None\n+        return head.weight\n+\n     def compute_confidence(\n         self, head_hidden: torch.Tensor, markov_embed: torch.Tensor\n     ) -> torch.Tensor:\ndiff --git a/vllm/models/deepseek_v41/nvidia/specialized_decode/AGENTS.md b/vllm/models/deepseek_v41/nvidia/specialized_decode/AGENTS.md\nindex 0986fd485687..0ea5f3486f22 100644\n--- a/vllm/models/deepseek_v41/nvidia/specialized_decode/AGENTS.md\n+++ b/vllm/models/deepseek_v41/nvidia/specialized_decode/AGENTS.md\n@@ -3,8 +3,8 @@\n A decode executor for small decode batches of DeepSeek-V4.1 on GB300, enabled\n with `--additional-config '{\"decode_backend\": \"latency_specialized\"}'` (the\n\n+        self._draft_local_logits = False\n \n     def load_draft_model(\n         self,\n@@ -111,6 +129,52 @@ def load_draft_model(\n             # The acceptance estimator is not needed when a trained confidence head\n             # is available.\n             self.use_acceptance_estimator = False\n+\n+        get_embed_weight = getattr(model, \"markov_embed_weight\", None)\n+        draft_vocab_size = (\n+            getattr(self.draft_model_config.hf_config, \"draft_vocab_size\", None)\n+            or self.vocab_size\n+        )\n+        if (\n+            get_embed_weight is not None\n+            and current_platform.is_cuda()\n+            and self.draft_logits is not None\n+            and self.draft_logits.shape[-1] == draft_vocab_size\n+            and self._draft_topk is None\n+            and self.draft_watermarker is None\n+            and not self.enable_adaptive_verification\n+            and (embed_weight := get_embed_weight()) is not None\n+        ):\n+            self._fused_sampler = DSparkFusedMarkovSampler(\n+                self.max_num_reqs,\n+                draft_vocab_size,\n+                embed_weight,\n+                self.use_fp64_gumbel,\n+            )\n+\n+        # A model shares its Markov head only in configurations where every\n+        # rank can run the cross-rank chain, so all ranks get here or none.\n+        get_head_weight = getattr(model, \"markov_bias_weight\", None)\n+        if (\n+            self._fused_sampler is not None\n+            and not self.use_fp64_gumbel\n+            and get_head_weight is not None\n+            and (head_weight := get_head_weight()) is not None\n+        ):\n+            assert self.draft_logits is not None\n+            tp_group = get_tp_group()\n+            self._sharded_sampler = make_sharded_sampler(\n+                self._fused_sampler.embed_weight,\n+                head_weight,\n+                draft_vocab_size,\n+                self.num_speculative_steps,\n+                self.draft_logits.dtype,\n+                tp_group.cpu_group if tp_group.world_size > 1 else None,\n+                self.max_num_reqs,\n+            )\n+        get_shard = getattr(model, \"draft_logits_shard\", None)\n+        if self._sharded_sampler is not None and get_shard is not None:\n+            self._draft_local_logits = self._sharded_sampler.accepts_shard(get_shard())\n         return model\n \n     def _sample_logits(",
+      "created_at": null,
+      "updated_at": null,
+      "fetched_at": "2026-10-20T21:41:50Z",
+      "state": null,
+      "merged_at": null,
+      "parent": null,
+      "tags": [
+        "deepseek-v4.1-flash",
+        "deepseek",
+        "speculation"
+      ],
+      "metadata": {
+        "full_patch_sha256": "6af61c1e1e5a910a402eaac97dff4a336b7c3376d301da4e09ba92bb497fe63f",
+        "note": "Selected diff line ranges 13065-13103 and 17266-17322; full patch retained. Not applied."
+      },
+      "content_hash": "ec3beae011d899857073780d85b321688caa4aec5b3410de1760721fecc68055"
+    }
+  ],
+  "claims": [
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "**Decision: `instrumentation_inconclusive`; adaptive verification remains unqualified.**",
+      "claim": "Research state: C24 is completed and instrumentation-inconclusive, not pending. It establishes neither an AV speedup nor an AV performance failure.",
+      "relation": "context",
+      "conditions": "AV-off baseline diagnostic on eight H200s; DeepSeek-V4.1-Flash with DSpark k5.",
+      "reported_result": "Author disposition: timing adequacy failed despite valid traffic, runtime identity and cleanup. AV was never enabled. The two remaining full attempts are unchanged.",
+      "transfer_inference": "Retain AV as unqualified; do not count C24 as a completed AV A/B test.",
+      "limitations": "AV performance effect is unknown. The supplied report excerpt is truncated.",
+      "id": "E1"
+    },
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "986/986 completed, 0 errors, 0 cancellations",
+      "claim": "C24 supports successful execution of the diagnostic workload, independently of timing adequacy.",
+      "relation": "supports",
+      "conditions": "First 986 rows of the median Mooncake trace at 0.5×; 299.232-second arrival span; two TP1/DP4/EP4 replicas.",
+      "reported_result": "Reported observations: all profiling requests completed; 16 traces covered all eight workers in both windows; file and package checks passed. Runner exit 1 reflected baseline service SLO misses.",
+      "transfer_inference": "The exit status does not establish an AV failure. Preserve the distinction between workload fidelity, service eligibility and timing adequacy.",
+      "limitations": "This prefix is not the full 4,004-request workload and cannot be directly compared with C03's full-trace score. Complete telemetry collection was not established.",
+      "id": "E2"
+    },
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "only **4 complete eligible decode cycles** survive the required joins",
+      "claim": "The timing evidence fails its predeclared adequacy gate and cannot qualify an AV opportunity.",
+      "relation": "challenges",
+      "conditions": "Required at least ten complete decode-only cycles per rank/window, actual launch correlations, target/draft graph coverage and at least 95% categorized device-busy union.",
+      "reported_result": "Reported observations: replica 1, DP 2 at +90 seconds retained only four eligible cycles. Five cells also contained GPU activities ending before their supposedly correlated CPU launches. Readable subsets showed roughly 39.6–97.1% target-attributed occupied fractions.",
+      "transfer_inference": "Those fractions are descriptive, not expected savings. Cheap next check: audit existing native/draft joins, correlation identifiers and timestamp metadata before considering another capture.",
+      "limitations": "Timestamp calibration versus correlation/trace-format error remains unresolved. The adequacy failure prevented the conditional 20% materiality heuristic from qualifying an experiment.",
+      "id": "E3"
+    },
+    {
+      "source_id": "artifact:continuation:c24-final",
+      "quote": "target capacity **36→16 rows**, while draft capacity changes **35→80 rows**",
+      "claim": "A reported source-derived dispatch example supports checking coupled target and draft costs before judging AV.",
+      "relation": "supports",
+      "conditions": "Five real requests per rank under one reachable adaptive dispatch.",
+      "reported_result": "Author's source analysis: target capacity can decrease while draft capacity increases. These are reachable capacities, not observed AV selections.",
+      "transfer_inference": "Fewer target rows alone do not establish lower time per accepted token. Cheap next check: inspect the referenced dispatch and graph-bucket chain, then identify which cost measurements are missing.",
+      "limitations": "The underlying implementation chain is not supplied here. Dispatch frequency, component latency and net benefit are unknown. Controller and confidence-weight presence do not establish runtime confidence-head use.",
+      "id": "E4"
+    },
+    {
+      "source_id": "artifact:continuation:av-cpu-counterexample",
+      "quote": "\"coupled_cost_changes_decision\": true",
+      "claim": "The synthetic CPU check establishes possible budget sensitivity to the assumed draft-cost model.",
+      "relation": "supports",
+      "conditions": "Five requests, k=5, confidence values 0.9/0.8/0.5/0.3/0.1; invented constant cost 0.7 versus invented bucket-dependent costs 0.8/1.6/2.4/3.2.",
+      "reported_result": "Reported CPU-check result: installed-method and independent constant-cost budgets both equal 11; the independent coupled-cost budget equals 3. The author interprets this as a conditional warning about constant draft costs.",
+      "transfer_inference": "A change in synthetic cost assumptions can change the selected budget. Cheap next check: inspect the supplied method range and independent objective calculation for matching candidate sets and accounting.",
+      "limitations": "The costs are invented, not measured milliseconds. CPU hardware is unknown. The result does not establish which budget is preferable on the local serving system.",
+      "id": "E5"
+    },
+    {
+      "source_id": "artifact:continuation:av-cpu-counterexample",
+      "quote": "no measured milliseconds, dispatch or service gain.",
+      "claim": "The CPU counterexample provides no local latency inference or controller-performance validation.",
+      "relation": "challenges",
+      "conditions": "Synthetic execution of selected installed-source logic without Torch or CUDA imports.",
+      "reported_result": "Artifact explicitly leaves interaction frequency, actual component latency, candidate-controller correctness and end-to-end benefit unestablished.",
+      "transfer_inference": "Keep the research state at possible decision sensitivity. Real dispatch observations and qualified cost measurements would be needed before converting the example into a controller-change rationale.",
+      "limitations": "Local latency effect size and production relevance are unknown. C24 does not supply qualified measurements to fill this gap.",
+      "id": "E6"
+    },
+    {
+      "source_id": "code:continuation:fused-sampler-gates",
+      "quote": "if not self.specialized_decode_requested:",
+      "claim": "The supplied model interface gates fused-sampler weight exposure behind specialized_decode_requested; it does not demonstrate a simple generic-CUDA enable flag.",
+      "relation": "challenges",
+      "conditions": "PR61869's markov_embed_weight accessor returns None when specialized_decode_requested is false.",
+      "reported_result": "Static code observation: the sampler initializer requires a non-None embedding weight. Author documentation associates the specialized executor with small DeepSeek-V4.1 decode batches on GB300.",
+      "transfer_inference": "Generic CUDA use requires an explicit qualified port. Cheap next check: trace specialization-dependent weight ownership, layouts and call sites to define that port before proposing activation.",
+      "limitations": "The supplied patch was not applied. Merge state, installed availability, H200 compatibility, runtime activation and performance effect are unknown.",
+      "id": "E7"
+    },
+    {
+      "source_id": "code:continuation:fused-sampler-gates",
+      "quote": "and not self.enable_adaptive_verification",
+      "claim": "The shown fused-sampler initialization requires AV off, no draft top-k and no draft watermark, alongside CUDA and compatible logits.",
+      "relation": "supports",
+      "conditions": "Embedding accessor exists and returns a weight; CUDA platform; draft_logits exists and its final dimension matches draft_vocab_size; _draft_topk and draft_watermarker are None.",
+      "reported_result": "Static code observation: these conditions jointly gate construction of DSparkFusedMarkovSampler.",
+      "transfer_inference": "Treat this as a separate AV-off candidate. Cheap next check: compare every constructor predicate with the actual baseline configuration and inventory semantic-equivalence tests for a generic port.",
+      "limitations": "AV-off alone is insufficient. No runtime gate evaluation, sampling-equivalence result, benchmark workload or speedup is supplied.",
+      "id": "E8"
+    },
+    {
+      "source_id": "code:continuation:fused-sampler-gates",
+      "quote": "and not self.use_fp64_gumbel",
+      "claim": "The sharded sampler has additional restrictions that must be distinguished from the initial fused sampler's gates.",
+      "relation": "context",
+      "conditions": "Requires an existing fused sampler, FP64 Gumbel disabled and an eligible bias weight. Bias exposure requires specialization, an unquantized BF16 head, scale 1, no soft cap, logits_as_input false and head_dtype None or BF16.",
+      "reported_result": "Static code observation: make_sharded_sampler is reached only after these checks. Local-logits use additionally depends on accepts_shard.",
+      "transfer_inference": "Qualify fused and sharded paths separately. Cheap next check: map baseline head properties, RNG precision and shard layout to the corresponding gates and fallbacks.",
+      "limitations": "The excerpt passes use_fp64_gumbel into the initial fused sampler; its prohibition here applies to sharded construction. Runtime correctness, cross-rank behavior and latency effects remain unknown.",
+      "id": "E9"
+    }
+  ],
+  "unanswered": [
+    "What causes C24's missing cycle joins and impossible launch/activity ordering? Existing traces are the cheapest first diagnostic; no corrected timing result is supplied.",
+    "Does the local runtime actually invoke the confidence head, and how often would AV select dispatches that increase draft capacity? Metadata and reachable capacities do not answer this.",
+    "What are qualified target, draft and controller costs, acceptance changes and time per accepted output token under real AV dispatches? No local effect size is established.",
+    "What changes are required to expose and run PR61869's sampler through the generic CUDA model path while preserving sampling semantics and fallbacks? The supplied excerpt does not establish port size or simplicity.",
+    "What correctness and performance evidence supports such a port on H200 with the local workload? Neither that evidence nor PR merge status is supplied."
+  ],
+  "quote_validation": {
+    "valid": true,
+    "errors": []
+  },
+  "limitations": "Quote existence is checked; entailment and transfer remain judgments. No experimental result is created."
+}

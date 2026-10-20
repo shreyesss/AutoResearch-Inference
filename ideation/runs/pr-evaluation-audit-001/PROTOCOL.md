@@ -60,6 +60,8 @@ For G01–G05 the primary contract is scoped correctness/reliability, not the3% 
 
 ## What additional evaluation is justified
 
+The [evaluator reconciliation](evaluation/EVALUATOR_RECONCILIATION.md) records why general telemetry/profiling is useful but insufficient for some correctness claims. The [enhanced evaluation plan](evaluation/EVALUATION_PLAN.md) defines a fixed final evalset and internal measurement contract; its diagnostic cohorts do not replace historical E1/E2 results. [Mechanism cards](evaluation/MECHANISM_CARDS.md) separate upstream claims from our own hypotheses.
+
 | Missing claim | Why E1/E2 cannot establish it | Minimal addition |
 |---|---|---|
 | Sampling distribution | Successful streaming and token counts do not test probability laws | Reuse upstream sampler regression/reference fixture; extend cases only for missing rounds/parameters |

@@ -9,6 +9,9 @@ Audit: October20,2026. Target: existing DeepSeek-V4.1-Flash serving, synthetic `
 - [Experiment index](EXPERIMENT_INDEX.md):18 performance families and5 correctness/reliability gates, each with isolated arms, metrics and evaluation-gap reasoning.
 - [Common execution/decision protocol](PROTOCOL.md): actual baseline, ranking policy, controlled comparisons, replication, SLO/cost definitions and fork/image workflow.
 - [Existing evaluation source audit](evaluation/EVALUATION_CAPABILITIES.md): verified source references and commands;149 files snapshotted with hashes.
+- [Evaluator reconciliation](evaluation/EVALUATOR_RECONCILIATION.md): accepted suggestions, corrections and evidence standards from the two evaluator notes.
+- [Mechanism cards](evaluation/MECHANISM_CARDS.md): upstream inefficiency and source fix, separately from agent hypotheses and activation evidence for E01–E18/G01–G05.
+- [Enhanced evaluation plan](evaluation/EVALUATION_PLAN.md): PR-specific activation/correctness gates, internal telemetry/profiling, AIPerf SPEED-Bench/MTP inventory, integration requirements and final cost–TTFT–TPOT evalset.
 - [Machine-readable experiment designs](experiments.json), [coverage](coverage.json), [input hashes](input-manifest.json).
 
 ## What was actually reviewed

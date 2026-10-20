@@ -2,6 +2,8 @@
 
 All plans are untested and conditional on actual runtime/source eligibility. See [protocol](PROTOCOL.md).
 
+For each experiment, [mechanism cards](evaluation/MECHANISM_CARDS.md) separate the upstream inefficiency and fix from our own hypothesis. The [evaluator reconciliation](evaluation/EVALUATOR_RECONCILIATION.md) critiques the suggested tooling changes; the [evaluation plan](evaluation/EVALUATION_PLAN.md) defines activation gates, internal measurements, integrations and the fixed enhanced evalset.
+
 | ID | Priority | Experiment | Source records |
 |---|---:|---|---:|
 | E01 | 1 | [Length-aware decode indexer](experiments/E01.md) | 1 |

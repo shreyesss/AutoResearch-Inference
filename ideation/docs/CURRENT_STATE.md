@@ -2,7 +2,7 @@
 
 ## Supplied PR catalog → B200 evaluation audit
 
-[Report](../runs/pr-evaluation-audit-001/REPORT.md) · [5,532-row disposition ledger](../runs/pr-evaluation-audit-001/PR_DISPOSITIONS.csv) · [Ranked PRs](../runs/pr-evaluation-audit-001/RANKED_PRS.csv) · [23 experiment plans](../runs/pr-evaluation-audit-001/EXPERIMENT_INDEX.md) · [Existing evaluator source audit](../runs/pr-evaluation-audit-001/evaluation/EVALUATION_CAPABILITIES.md).
+[Reconstruction guide](../runs/pr-evaluation-audit-001/README.md) · [Report](../runs/pr-evaluation-audit-001/REPORT.md) · [5,532-row disposition ledger](../runs/pr-evaluation-audit-001/PR_DISPOSITIONS.csv) · [Ranked PRs](../runs/pr-evaluation-audit-001/RANKED_PRS.csv) · [23 experiment plans](../runs/pr-evaluation-audit-001/EXPERIMENT_INDEX.md) · [Existing evaluator source audit](../runs/pr-evaluation-audit-001/evaluation/EVALUATION_CAPABILITIES.md).
 
 All input rows were triaged; 94 items received primary-source review, yielding 64 candidate/dependency records and 30 exclusions/holds. Another 1,089 items remain explicitly deferred for source review. This is a complete triage ledger, not a claim that every body/diff was independently reviewed. The source catalog's B300/v0.32 assumptions differ from the actual configured B200 image (`ac9126e…`).
 

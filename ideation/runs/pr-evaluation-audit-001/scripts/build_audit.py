@@ -132,7 +132,7 @@ def main():
         w=csv.DictWriter(f,fieldnames=list(ledger[0])); w.writeheader(); w.writerows(r for r in ledger if r['rule']=='review_override')
     write_json('experiments.json',experiments)
     write_json('coverage.json',dict(input_rows=len(rows),unique_identities=len({r['identity'] for r in ledger}),cached_opening_records=len(corpus),original_auto=sum(r['action']=='auto' for r in rows),dispositions=dict(Counter(r['disposition'] for r in ledger)),review_depth=dict(Counter(r['review_depth'] for r in ledger)),reviewed_candidates=len(selected),reviewed_negative_items=len(excluded),experiment_plans=len(experiments),gpu_experiments_run=0))
-    write_json('input-manifest.json',{p.name:dict(sha256=hashlib.sha256(p.read_bytes()).hexdigest(),bytes=p.stat().st_size) for p in (ROOT/'inputs').iterdir() if p.is_file()})
+    write_json('input-manifest.json',{p.name:dict(sha256=hashlib.sha256(p.read_bytes()).hexdigest(),bytes=p.stat().st_size) for p in sorted((ROOT/'inputs').iterdir()) if p.is_file()})
     # Coverage and links are deliverable invariants, not performance tests.
     assert len(rows)==5532 and len({r['identity'] for r in ledger})==5532
     assert all(r['reason'] and r['rule'] for r in ledger)

@@ -2,7 +2,7 @@
 
 ## B200 PR audit and experiment explanations
 
-- [PR evaluation audit](runs/pr-evaluation-audit-001/REPORT.md): source triage, 18 conditional performance plans and five correctness gates. No GPU experiments from this audit have run.
+- [PR evaluation audit and reconstruction guide](runs/pr-evaluation-audit-001/README.md): source pins, frozen inputs, archive map, offline rebuild steps, 18 conditional performance plans and five correctness gates. No GPU experiments from this audit have run.
 - [Plain-language experiment guide](runs/pr-evaluation-audit-001/walkthrough/NOVICE_GUIDE.md): the serving path, each proposed inefficiency and the first observation needed to decide whether to test it.
 - [Detailed E01–E03 walkthroughs](runs/pr-evaluation-audit-001/walkthrough/README.md): source-level mechanism, eligibility and evaluation caveats from the October 20 discussion.
 - [Evaluator critique and enhanced evalset](runs/pr-evaluation-audit-001/evaluation/EVALUATOR_RECONCILIATION.md): reconciled tooling advice, [source versus agent mechanism cards](runs/pr-evaluation-audit-001/evaluation/MECHANISM_CARDS.md) and [PR-specific measurement/frontier plan](runs/pr-evaluation-audit-001/evaluation/EVALUATION_PLAN.md). Documentation only; no benchmark or implementation was run.

@@ -4,6 +4,8 @@ Audit: October20,2026. Target: existing DeepSeek-V4.1-Flash serving, synthetic `
 
 ## Start here
 
+For a fresh checkout, start with the [reconstruction guide](README.md), which distinguishes the working decision files from archived evidence and gives offline rebuild commands.
+
 - [All5,532 item dispositions](PR_DISPOSITIONS.csv): original fields, new decision, individual reason, review depth, source lines, baseline-membership uncertainty and experiment link.
 - [64 ranked candidate/dependency records](RANKED_PRS.csv): actionable inspection queue, including correctness prerequisites and conditional alternatives.
 - [Experiment index](EXPERIMENT_INDEX.md):18 performance families and5 correctness/reliability gates, each with isolated arms, metrics and evaluation-gap reasoning.

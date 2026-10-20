@@ -2,7 +2,7 @@
 
 ## Audit identity and limits
 
-Repository: `sofia-gpu-mumbai:/home/ubuntu/shreyas/skunk-work/Deepseek_serve`, clean commit **`2e6fa287d90adf7318ad314de27aa2f595aac821`**. Relevant files are copied under `snapshot/`; `snapshot-manifest.json` records SHA-256 and source line counts. This audit reads code and runs help/dry-run paths only. No model, GPU benchmark, package installation, image build or serving change was executed.
+Repository: `sofia-gpu-mumbai:/home/ubuntu/shreyas/skunk-work/Deepseek_serve`, clean commit **`2e6fa287d90adf7318ad314de27aa2f595aac821`**. Relevant files are copied under [`../archive/evaluator-source-snapshot/`](../archive/evaluator-source-snapshot/); [the snapshot manifest](snapshot-manifest.json) records SHA-256 and source line counts. This audit reads code and runs help/dry-run paths only. No model, GPU benchmark, package installation, image build or serving change was executed.
 
 The controller checkout has **no `.venv/bin/python`**. Its system `python3` successfully executes the AIPerf runner's help and both dry-runs; ideation's research venv lacks PyYAML. The code's configured `.venv-aiperf/bin/aiperf` and model datasets were not execution-tested. Consequently successful command generation is not a benchmark pass.
 
@@ -81,7 +81,7 @@ bash ops_latency/run_concurrency_sweep.sh \
   CANDIDATE-R7B latency-2xdep4-sla "lat-seqs-128" --no-sync
 ```
 
-Supported settings verified in source; not executed. The convenience `bash ops_latency/run_2xdep4.sh --plan` was executed successfully and its seq64 output is archived in `native-plan.txt`.
+Supported settings verified in source; not executed. The convenience `bash ops_latency/run_2xdep4.sh --plan` was executed successfully and its seq64 output is archived in [`native-plan.txt`](../archive/evaluator-cli/native-plan.txt).
 
 ### Existing Mooncake, unchanged dataset and scaled arrival load
 
@@ -95,7 +95,7 @@ python3 -m ops_aiperf.runner \
   --dry-run --no-sync
 ```
 
-Dry-run was executed successfully; see `mooncake-dry-run.txt`. Remove `--dry-run` only for a provisioned/authorized run. Repeat with `mooncake-burst` and `mooncake-cache-heavy`; speedups 1/1.25/1.5/2 are parameters, not new evaluations. `--duration` does not truncate the fixed-schedule Mooncake branch: prepare a separate labelled subset if a shorter trace is required.
+Dry-run was executed successfully; see [`mooncake-dry-run.txt`](../archive/evaluator-cli/mooncake-dry-run.txt). Remove `--dry-run` only for a provisioned/authorized run. Repeat with `mooncake-burst` and `mooncake-cache-heavy`; speedups 1/1.25/1.5/2 are parameters, not new evaluations. `--duration` does not truncate the fixed-schedule Mooncake branch: prepare a separate labelled subset if a shorter trace is required.
 
 ### Existing AIPerf synthetic analog
 
@@ -107,7 +107,7 @@ python3 -m ops_aiperf.runner \
   --phase discovery --dry-run --no-sync
 ```
 
-Executed successfully as dry-run; see `synthetic-dry-run.txt`. It does not reproduce E1's cache layout. These command forms are verified; no fabricated arbitrary tool/sampling flag is appended to this wrapper.
+Executed successfully as dry-run; see [`synthetic-dry-run.txt`](../archive/evaluator-cli/synthetic-dry-run.txt). It does not reproduce E1's cache layout. These command forms are verified; no fabricated arbitrary tool/sampling flag is appended to this wrapper.
 
 ## Fork vLLM → build image → deploy → evaluate
 

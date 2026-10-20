@@ -22,7 +22,7 @@ Ranking concerns usefulness to the current serving system, not publication novel
 
 The audited serving repo is `2e6fa287d90adf7318ad314de27aa2f595aac821`; its configured vLLM source is `ac9126e58aa7bbab1856ba6593ba4d5003fea516`. CSV claims based on v0.32/B300 are not inclusion proof.
 
-In `../evaluation/snapshot/lib/serve_recipe.py`, line243 selects `deepseek_v41` tokenizer mode; lines295–305 choose `FLASHMLA_MEGA_ATTN_DSV41` and `deep_gemm_mega_moe` for the normal EP path. R7b is two DP4/EP4 groups, API2 per group, with a seq128 override. Runtime image and flags remain to be attested.
+In [`../archive/evaluator-source-snapshot/lib/serve_recipe.py`](../archive/evaluator-source-snapshot/lib/serve_recipe.py), line243 selects `deepseek_v41` tokenizer mode; lines295–305 choose `FLASHMLA_MEGA_ATTN_DSV41` and `deep_gemm_mega_moe` for the normal EP path. R7b is two DP4/EP4 groups, API2 per group, with a seq128 override. Runtime image and flags remain to be attested.
 
 The **external** router already bounds session-hash placement at 1.1× in-flight load through latency-helper overrides. Therefore adding bounded endpoint affinity is not itself a new baseline delta. Internal rank affinity and coordination across the four ranks are distinct.
 

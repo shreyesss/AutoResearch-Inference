@@ -56,8 +56,9 @@ def main():
         jsonschema.validate(card,CARD)
         prepared.append((ex,card,sources,contract))
     # Validate every card and quote before first persistent mutation.
-    db=Path('data/hypotheses.sqlite'); backup=ROOT/'memory-before.sqlite'
+    db=Path('data/hypotheses.sqlite'); backup=ROOT/'archive/memory/memory-before.sqlite'
     if not backup.exists():
+        backup.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(db) as src, sqlite3.connect(backup) as dst: src.backup(dst)
     memory=HypothesisMemory(db); receipts=[]
     for ex,card,sources,contract in prepared:

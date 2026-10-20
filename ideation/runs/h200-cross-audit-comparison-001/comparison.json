@@ -1,0 +1,906 @@
+[
+  {
+    "id": "C01",
+    "title": "Humming: backend first, then indexed versus grouped",
+    "rank": 1,
+    "prior": {
+      "B": [
+        "E18"
+      ],
+      "A": [
+        "H01",
+        "H07"
+      ],
+      "F": [
+        "H01"
+      ]
+    },
+    "stage": "existing controls, conditional",
+    "problem": "Marlin currently executes the MXFP4 experts. Backend GEMMs and expert packing can consume different amounts of time for the same routed tokens; EP also affects grouped versus indexed execution.",
+    "solution": "Compare Marlin, Humming grouped and Humming indexed at identical BF16 activation semantics, routing, transport and graph settings. Use installed controls first; port only missing dispatch behavior.",
+    "feasibility": "Both audits agree. Fresh adds Humming0.1.16 schema counterevidence and failed #59488 patch application. A selectable name is not proof of legal W1/W2 schemas. Three fixed arms are more informative than bundling backend, activation and precision.",
+    "first_check": "Record effective backend, W1/W2 schema and GEMM type for both target and draft on every rank. Logs contain E384/top6/local96 and E128/top3/local32 configurations; resolve their role tags and qualify both. Preserve clamp10.",
+    "evaluation": "Existing E1/E2 plus exact-shape expert/reference fixtures. Measure full routed-expert span including permutation/quantization/combine, HBM/KV loss, accepted tokens and qualified goodput. Static indexed must beat static grouped to support indexed preference.",
+    "stop_rule": "Stop on illegal schema, silent precision fallback, dispatch mismatch, numerical failure or no useful service improvement. Do not infer a win from GEMM time alone.",
+    "b200_transfer": "Generic MoE evaluation logic transfers; Blackwell MegaMoE and precision defaults do not. Humming is a particularly concrete Hopper comparator.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E18](../pr-evaluation-audit-001/experiments/E18.md)",
+      "[A:H01](../h200-pr-evaluation-audit-001/experiments/H01.md)",
+      "[A:H07](../h200-pr-evaluation-audit-001/experiments/H07.md)",
+      "[F:H01](../h200-fresh-research-001/experiments/H01.md)"
+    ]
+  },
+  {
+    "id": "C02",
+    "title": "Share compatible FlashMLA planning metadata",
+    "rank": 2,
+    "prior": {
+      "B": [],
+      "A": [],
+      "F": [
+        "H02"
+      ]
+    },
+    "stage": "small source port",
+    "problem": "Compatible attention groups can each rebuild the same execution plan during one metadata-building pass, repeating host work and planner launches.",
+    "solution": "Reuse a plan holder within that pass only when all live compatibility fields match. A tensor-shape match alone is insufficient if lengths, masks or graph buffers differ.",
+    "feasibility": "Genuinely new to the fresh shortlist: #58818. Its three vLLM source-file changes applied to disposable installed-source copies. No execution, correctness or end-to-end gain was demonstrated.",
+    "first_check": "Trace active sparse attention builders and count duplicate planner calls plus compatible opportunities. Inspect existing same-type reuse and the holder lifetime. Include target and draft and changing graph replay lengths.",
+    "evaluation": "E1/E2 remain sufficient for performance. Add shared-versus-separate plan reference tests for ragged lengths, masks, mixed groups, prefill/decode and graph replay. Measure eliminated launches, exposed CPU/planning time and unprofiled TPOT.",
+    "stop_rule": "Hold if planning is already shared or no compatible duplicates occur. Reject unsafe reuse; mark a tiny effect inconclusive if drift exceeds it.",
+    "b200_transfer": "Potentially portable orchestration improvement, not a small-head TP4 optimization. No H200 gain follows from H20 synthetic-acceptance results.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[F:H02](../h200-fresh-research-001/experiments/H02.md)"
+    ]
+  },
+  {
+    "id": "C03",
+    "title": "Use logical requests rather than target padding for drafting",
+    "rank": 3,
+    "prior": {
+      "B": [
+        "E02"
+      ],
+      "A": [
+        "H02"
+      ],
+      "F": [
+        "H04"
+      ]
+    },
+    "stage": "source adaptation",
+    "problem": "Target CUDA graphs pad requests to a capture capacity. Reusing this padded capacity for DP draft dispatch schedules unnecessary rows, including on lightly loaded/dummy ranks.",
+    "solution": "Carry real request counts alongside graph capacity and use them coherently in draft inputs, metadata and dispatch, retaining full startup capture capacity.",
+    "feasibility": "All three audits converge on #58984. Fresh shows source conflicts with the pinned image, so this is an adaptation rather than a demonstrated clean cherry-pick.",
+    "first_check": "Trace DSpark inheritance into the installed helper; record real, target-padded and draft-padded request counts and every dummy rank. Check equivalent behavior before editing.",
+    "evaluation": "Use existing E1 and burst/idle-skew E2. Add upstream dummy-rank/distributed fixtures. Compare draft rows/time, collectives, graph mode and ITL at identical acceptance and load.",
+    "stop_rule": "No eligible excess rows means inactive. Inconsistent per-rank counts or graph-buffer bounds block execution. Padding reduction without service value is a negative serving result.",
+    "b200_transfer": "The repeated-work mechanism transfers. Seq128 saturation claims and Blackwell timing do not.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E02](../pr-evaluation-audit-001/experiments/E02.md)",
+      "[A:H02](../h200-pr-evaluation-audit-001/experiments/H02.md)",
+      "[F:H04](../h200-fresh-research-001/experiments/H04.md)"
+    ]
+  },
+  {
+    "id": "C04",
+    "title": "Reduce CPU DP metadata synchronization overhead",
+    "rank": 4,
+    "prior": {
+      "B": [
+        "E04"
+      ],
+      "A": [
+        "H03"
+      ],
+      "F": [
+        "H05"
+      ]
+    },
+    "stage": "source adaptation",
+    "problem": "Tiny CPU reductions can delay dispatch even when GPU compute and GPU collectives are fast. Time waiting for late ranks can look like slow transport.",
+    "solution": "Use the reviewed low-latency CPU reduction implementation only for compatible groups and message ordering; preserve fallback and failure behavior.",
+    "feasibility": "All three identify #61767. Fresh finds patch conflicts and exposes group-local rank/tag/order checks. Two local DP4 groups differ from the source multi-node benchmarks.",
+    "first_check": "Measure arrival skew separately from time after the last rank arrives. Attest actual process-group backend, ranks, tensor shape, tags and sequence of calls.",
+    "evaluation": "E1/E2 plus upstream collective tests and CPU spans. Track scheduler-to-GPU gaps, all-rank progress, collective cost, TTFT/TPOT tails and qualified goodput.",
+    "stop_rule": "Defer if skew dominates or reduction cost is hidden. Reject ordering/deadlock failures or worse end-to-end tails.",
+    "b200_transfer": "Hardware-independent CPU logic may transfer, but topology and NUMA determine actual benefit.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E04](../pr-evaluation-audit-001/experiments/E04.md)",
+      "[A:H03](../h200-pr-evaluation-audit-001/experiments/H03.md)",
+      "[F:H05](../h200-fresh-research-001/experiments/H05.md)"
+    ]
+  },
+  {
+    "id": "C05",
+    "title": "Tune SM90 mHC for actual one-to-eight-row launches",
+    "rank": 5,
+    "prior": {
+      "B": [],
+      "A": [
+        "H06"
+      ],
+      "F": [
+        "H03"
+      ]
+    },
+    "stage": "small port; low-load lane",
+    "problem": "The repeated fused mHC post/pre-norm kernel uses a launch split tuned for Blackwell. Hopper can prefer a different split at tiny row counts.",
+    "solution": "Apply #61461 only for SM90 and rows1\u20138, preserving other shapes and math except documented reduction order.",
+    "feasibility": "Fresh confirms source hunks apply. Both H200 runs cite H20 evidence; neither measured H200. k5 suggests six logical rows for one request, but graph padding can exceed the gate.",
+    "first_check": "Count actual executed delayed5120-wide kernel rows, not client concurrency. Resolve the active prenorm binary and qualify the relevant DeepGEMM448/59129 lifetime fix first if executed.",
+    "evaluation": "Existing client at node concurrency1/2/8 plus normal E1/E2; upstream numerical tests. Track eligible-row fraction, mHC microseconds and low-load TPOT. Treat saturation as a separate endpoint.",
+    "stop_rule": "Do not rank as a broad capacity win without exposure. A small kernel gain can be beneath server noise; no global benefit if most calls have >8 rows.",
+    "b200_transfer": "Architecture-specific tuning changes. B200 parameters are precisely what must not be assumed optimal on H200.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[A:H06](../h200-pr-evaluation-audit-001/experiments/H06.md)",
+      "[F:H03](../h200-fresh-research-001/experiments/H03.md)"
+    ]
+  },
+  {
+    "id": "C06",
+    "title": "Repair demonstrated prefix-cache/draft interactions",
+    "rank": 6,
+    "prior": {
+      "B": [
+        "E11"
+      ],
+      "A": [
+        "H04"
+      ],
+      "F": []
+    },
+    "stage": "diagnosis before selecting a patch",
+    "problem": "A target prefix hit may be vetoed by draft-group bookkeeping or expose draft context whose KV was not written. Junction handling can lose reachable sibling prefixes.",
+    "solution": "Select one matching fix among #47926/#62278/#57110 and related annotations only after distinguishing invalid restored draft context from target-hit loss.",
+    "feasibility": "Earlier H200/B200 work covers this more explicitly than fresh17. Prefix cache and DSpark are active; symptoms and exact missing behavior remain unmeasured.",
+    "first_check": "Correlate cached token counts per group, final DP rank, hit length, unaligned boundaries and acceptance. APC-off/cold/warm controls distinguish cache bugs from general drafter weakness.",
+    "evaluation": "Reuse agent-f75 and cache-heavy Mooncake. Add small same-client sibling/unaligned-prefix fixtures only when absent from the trace. Track recomputed prefill, acceptance, TTFT and reference quality.",
+    "stop_rule": "Do not cherry-pick a bundle or treat higher acceptance alone as correctness. Hold if equivalent fixes already exist or no specific symptom appears.",
+    "b200_transfer": "Generic cache/drafter semantics transfer, but V4 flags and other-model evidence need V4.1 inspection.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E11](../pr-evaluation-audit-001/experiments/E11.md)",
+      "[A:H04](../h200-pr-evaluation-audit-001/experiments/H04.md)"
+    ]
+  },
+  {
+    "id": "C07",
+    "title": "Remove repeated scheduler cache work",
+    "rank": 7,
+    "prior": {
+      "B": [
+        "E12"
+      ],
+      "A": [
+        "H05"
+      ],
+      "F": []
+    },
+    "stage": "profile-triggered small port",
+    "problem": "Long SWA block tables have large null heads; unchanged partial-prefix boundaries can be registered repeatedly in Python before GPU work starts.",
+    "solution": "Test #61724 null-head skipping separately from #51333 registration memoization; preserve promotion, copy-on-write, release and preemption invalidation.",
+    "feasibility": "Retain from earlier audit. Fresh omission is not rejection. Seq64 and H200 GPU costs may leave less exposed CPU time than the B200 high-concurrency source case.",
+    "first_check": "CPU sample the actual scheduler; count scanned null entries and repeat registrations at identical block/hash. Verify missing implementation.",
+    "evaluation": "E1/E2 with long-context cohorts and CPU spans; upstream cache lifecycle tests. Measure GPU idle gaps and useful end-to-end improvement.",
+    "stop_rule": "No measured repeated work or hidden CPU cost means defer. Cache lifetime regressions reject the patch.",
+    "b200_transfer": "Code-level mechanism transfers; source percentages from roughly900 running requests do not.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E12](../pr-evaluation-audit-001/experiments/E12.md)",
+      "[A:H05](../h200-pr-evaluation-audit-001/experiments/H05.md)"
+    ]
+  },
+  {
+    "id": "C08",
+    "title": "Hopper selector integration and length-aware block selection",
+    "rank": 8,
+    "prior": {
+      "B": [
+        "E01",
+        "E06"
+      ],
+      "A": [
+        "H09"
+      ],
+      "F": [
+        "H07"
+      ]
+    },
+    "stage": "native dependency + narrow dispatch",
+    "problem": "The installed selector gates DeepSelect to SM100; candidate-block selection can scan max-context-width padding instead of only valid blocks.",
+    "solution": "First qualify SM90 native DeepSelect with the correct FP32/stride contract. Then isolate #61039 valid-length selection from the selector replacement. These are distinct factors.",
+    "feasibility": "Fresh #59204 Python hunks apply, but native compilation/tests were excluded from that check. Earlier H200 correctly identifies #61039 cannot deliver its intended Hopper path merely by changing Python.",
+    "first_check": "Resolve extension revision/build target, actual dtype/K/width/alignment, valid counts and loaded binary. Test actual width rather than equating prompt tokens with compressed logit columns.",
+    "evaluation": "E1 short live contexts under large max context diagnose padded work; E2 covers ragged cases. Upstream top-k bounds/ties/NaN and changed-input graph tests; compare selector-only, then length-aware.",
+    "stop_rule": "Do not confuse this with candidate-only decode scoring C09. No native support or mismatched numerical/ordering contract blocks execution.",
+    "b200_transfer": "B200 can access different native selector paths; the same PR ID does not imply equal integration effort on Hopper.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E01](../pr-evaluation-audit-001/experiments/E01.md)",
+      "[B:E06](../pr-evaluation-audit-001/experiments/E06.md)",
+      "[A:H09](../h200-pr-evaluation-audit-001/experiments/H09.md)",
+      "[F:H07](../h200-fresh-research-001/experiments/H07.md)"
+    ]
+  },
+  {
+    "id": "C09",
+    "title": "Candidate-only long-context decode scoring",
+    "rank": 9,
+    "prior": {
+      "B": [],
+      "A": [
+        "H08"
+      ],
+      "F": [
+        "H06"
+      ]
+    },
+    "stage": "source adaptation; long-context lane",
+    "problem": "Dense Hopper decode indexing can score the full compressed context even though only a candidate subset will be consumed.",
+    "solution": "Compare dense scoring with #62000 candidate-K gathering and #62463 direct paged-K scoring as separate alternatives, keeping selection semantics and prefill unchanged.",
+    "feasibility": "Both H200 audits converge. Fresh shows both patches conflict with installed code; #62000 reports a single-request regression. Neither author result proves current H200 value.",
+    "first_check": "Match FP8 cache format, compressed row IDs, causal bounds and candidate producer. Count candidates versus full live columns; configured pool2048\u00d78 is not automatically the number used on every request.",
+    "evaluation": "Inspect Mooncake length histogram before adding a new cohort. Existing client can extend32K/128K and feasible longer lengths if needed. Measure bytes, gather/temp cost, score/selection agreement and context-stratified ITL, including short/C1 controls.",
+    "stop_rule": "If candidate setup costs exceed avoided dense work, keep dense fallback. Fixed8K E1 alone cannot establish a long-context frontier improvement.",
+    "b200_transfer": "Earlier B200 E01 length-aware block selection is related, not the same algorithm; do not count them as repeated independent confirmation.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[A:H08](../h200-pr-evaluation-audit-001/experiments/H08.md)",
+      "[F:H06](../h200-fresh-research-001/experiments/H06.md)"
+    ]
+  },
+  {
+    "id": "C10",
+    "title": "Preserve cache affinity at the final DP rank",
+    "rank": 10,
+    "prior": {
+      "B": [
+        "E14"
+      ],
+      "A": [
+        "H12"
+      ],
+      "F": [
+        "H09"
+      ]
+    },
+    "stage": "routing adaptation",
+    "problem": "Endpoint affinity can be lost when separate API workers choose different internal DP ranks, scattering warm prefixes.",
+    "solution": "Use load-aware internal prefix tie-breaking (#52464), retaining salt isolation and load precedence. Shared frontend state is a distinct expansion beyond a local tie-break.",
+    "feasibility": "All three contain the idea; source high-load effects are weak/mixed. Actual router source differs between baseline snapshots and must be reconciled.",
+    "first_check": "Join request, endpoint, API PID and final rank. Show locality loss at the internal selector and absent equivalent affinity before implementation.",
+    "evaluation": "Existing E1 prefix pools and E2 cache-heavy/burst. Measure token-weighted hit rate, queue skew, CPU overhead and TTFT tails; hold out new sessions and heavy imbalance.",
+    "stop_rule": "Reject stale/unsafe shared state or worsened tails. Affinity that only improves idle C1 does not establish saturation throughput value.",
+    "b200_transfer": "Generic routing idea transfers; different router source/settings can entirely change the apparent opportunity.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E14](../pr-evaluation-audit-001/experiments/E14.md)",
+      "[A:H12](../h200-pr-evaluation-audit-001/experiments/H12.md)",
+      "[F:H09](../h200-fresh-research-001/experiments/H09.md)"
+    ]
+  },
+  {
+    "id": "C11",
+    "title": "Bound coordinated DP prefill release",
+    "rank": 11,
+    "prior": {
+      "B": [
+        "E13"
+      ],
+      "A": [
+        "H11"
+      ],
+      "F": [
+        "H10"
+      ]
+    },
+    "stage": "scheduler/protocol adaptation",
+    "problem": "A prefill-heavy rank can stall decode peers during synchronized steps, producing decode tail spikes.",
+    "solution": "Compare existing scheduling with one of #51199/#61834, separately. Freeze a bounded policy after discovery; preserve dummy/pause/cancel participation.",
+    "feasibility": "Shared lead across all audits. A check performed only when a step starts does not guarantee a hard wall-clock waiting bound during long steps.",
+    "first_check": "Measure mixed-step interference and oldest-prefill age. Inspect starvation escape, long-step timing and interaction with existing prefill interval controls.",
+    "evaluation": "E1 and E2 burst/mixed loads plus distributed lifecycle fixtures. Track TTFT and TPOT together, per-rank backlog, accepted tokens/step and collective wait.",
+    "stop_rule": "Reject decode gains bought with violated prefill SLOs or deadlocks. Do not interpret fixed steps as fixed emitted tokens under DSpark.",
+    "b200_transfer": "Scheduling mechanism transfers, but slower/faster prefill and communication change the useful policy.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E13](../pr-evaluation-audit-001/experiments/E13.md)",
+      "[A:H11](../h200-pr-evaluation-audit-001/experiments/H11.md)",
+      "[F:H10](../h200-fresh-research-001/experiments/H10.md)"
+    ]
+  },
+  {
+    "id": "C12",
+    "title": "Contiguous prefill MQA epilogue",
+    "rank": 12,
+    "prior": {
+      "B": [],
+      "A": [
+        "H16"
+      ],
+      "F": [
+        "H08"
+      ]
+    },
+    "stage": "narrow kernel change; numerical gate",
+    "problem": "The contiguous SM90 MQA logits epilogue can spend instructions on ReLU that a different arithmetic form may reduce.",
+    "solution": "Evaluate DeepGEMM452 at identical compile/launch settings, with an enforceable numerical domain or stock fallback. Paged decode is unchanged.",
+    "feasibility": "Fresh strengthens earlier H16: installed header is old, but loaded JIT artifact remains unproved. Saved CPU counterexample disproves universal finite-input equivalence, not actual deployment correctness.",
+    "first_check": "Trace actual contiguous prefill calls, FP8/BF16 API and logit dtype, loaded header/JIT binary and input/scale ranges. Positive x near FLT_MAX can overflow in x+abs(x) before later compensation.",
+    "evaluation": "Existing uncached/mixed prefill E1/E2; warm-prefix and paged-only negative controls. Add extreme/real-range, scale-underflow, tie/top-k and quality references. Compare full prefill TTFT, not best-of-three kernel time.",
+    "stop_rule": "No defendable bounds or reference mismatch blocks the arithmetic change. An extreme CPU counterexample alone does not prove real H200 model failure.",
+    "b200_transfer": "Hardware-specific Hopper kernel lead; do not attribute any decode gain to this prefill-only epilogue.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[A:H16](../h200-pr-evaluation-audit-001/experiments/H16.md)",
+      "[F:H08](../h200-fresh-research-001/experiments/H08.md)"
+    ]
+  },
+  {
+    "id": "C13",
+    "title": "Per-token FP8 Humming activation",
+    "rank": 13,
+    "prior": {
+      "B": [
+        "E18"
+      ],
+      "A": [
+        "H07"
+      ],
+      "F": [
+        "H11"
+      ]
+    },
+    "stage": "separate precision arm",
+    "problem": "Activation format can change expert GEMM arithmetic and memory cost, independently of backend choice and indexed/grouped execution.",
+    "solution": "After C01 establishes a legal incumbent, compare BF16 and explicitly supported per-token FP8 with fixed GEMM/transport; quantify conversion costs and quality.",
+    "feasibility": "Fresh correctly splits this from backend selection. Humming0.1.16 block-FP8 schema mismatch and MXFP8 limitations cannot be ignored or silently bypassed.",
+    "first_check": "Attest effective target/draft W1/W2 scales, formats and no fallback. Do not infer that advertised schema acceptance proves a legal SM90 kernel.",
+    "evaluation": "E1/E2 plus actual generation-quality/reference fixtures because arithmetic changes. Measure quantization+GEMM+combine, acceptance, output quality and KV/workspace cost.",
+    "stop_rule": "Reject hidden format fallback, unsupported schema, quality regression or no useful combined-span improvement.",
+    "b200_transfer": "Precision names and native hardware support differ; Blackwell FP4/FP8 choices are not interchangeable Hopper controls.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E18](../pr-evaluation-audit-001/experiments/E18.md)",
+      "[A:H07](../h200-pr-evaluation-audit-001/experiments/H07.md)",
+      "[F:H11](../h200-fresh-research-001/experiments/H11.md)"
+    ]
+  },
+  {
+    "id": "C14",
+    "title": "Fuse top-k with physical KV-slot mapping",
+    "rank": 14,
+    "prior": {
+      "B": [],
+      "A": [],
+      "F": [
+        "H13"
+      ]
+    },
+    "stage": "consumer-aware kernel integration",
+    "problem": "After selection, index IDs may be converted to physical KV slots in separate launches, creating temporary traffic and synchronization.",
+    "solution": "For consumers needing only physical slots, fuse mapping into selection. Preserve raw-ID paths and ordering for consumers that still need logical positions.",
+    "feasibility": "Fresh cross-engine extension (SGLang41561); also inspect FlashInfer5889/current vLLM equivalents before custom implementation. Torch-chain microbench is not the strongest comparator.",
+    "first_check": "Trace all consumers, block64 mapping, causal/order/tie contracts and native SM90 operator. Compare to C08 selector-only with identical selected sets.",
+    "evaluation": "Three arms: current chain, fast selector+separate mapping, fast selector+fused mapping. Same E1/E2 plus raw-ID fallback, page-reuse and changed-length graph correctness.",
+    "stop_rule": "If raw IDs are still needed, saved traffic may disappear. Do not attribute fast-selector gains to mapping fusion.",
+    "b200_transfer": "Transfer concept from another engine, not a drop-in PR; existing vLLM implementation must be checked.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[F:H13](../h200-fresh-research-001/experiments/H13.md)"
+    ]
+  },
+  {
+    "id": "C15",
+    "title": "Shared Engram placement and exposed lookup cost",
+    "rank": 15,
+    "prior": {
+      "B": [
+        "E10"
+      ],
+      "A": [
+        "H10"
+      ],
+      "F": [
+        "H17"
+      ]
+    },
+    "stage": "rescope; shared path only",
+    "problem": "CPU-offloaded lookup cost may depend on shared physical backing, NUMA placement and translation behavior even when private allocation waste is absent.",
+    "solution": "Keep current shared ownership. First compare supported NUMA-local placement/settings; only then consider separately scoped shared-cuMem or lookup-threshold changes.",
+    "feasibility": "Fresh proves dp_shared_memory=True on both replicas. Earlier H10 included multiple arms: its private exact-allocation arm is inactive, but shared placement is not disproven. dp_shared_memory does not identify physical backing by itself.",
+    "first_check": "Inspect /dev/shm versus cuMem, physical PSS, registration/page type, allocation NUMA and exposed lookup spans. Probe FABRIC/export support before proposing a shared-cuMem implementation.",
+    "evaluation": "Reuse E1/E2 with host memory/NUMA/lookup counters. Keep sorting and placement isolated; compare lookup span and end-to-end prefill, not summed RSS of shared mappings.",
+    "stop_rule": "No active allocation delta or fully hidden lookup cost means hold. Host-memory savings alone do not free GPU KV or lower node price.",
+    "b200_transfer": "GB200 coherent-memory/page-walk thresholds are not H200 defaults. Requires a new shared-storage scope rather than reviving the rejected private card.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E10](../pr-evaluation-audit-001/experiments/E10.md)",
+      "[A:H10](../h200-pr-evaluation-audit-001/experiments/H10.md)",
+      "[F:H17](../h200-fresh-research-001/experiments/H17.md)"
+    ]
+  },
+  {
+    "id": "C16",
+    "title": "Scheduler budget reserved for separate drafts",
+    "rank": 16,
+    "prior": {
+      "B": [
+        "E07"
+      ],
+      "A": [
+        "H13"
+      ],
+      "F": []
+    },
+    "stage": "low priority; prove binding budget",
+    "problem": "Charging separate DSpark draft slots against target scheduling can reduce usable work when the token budget is tight.",
+    "solution": "Compare #59468 at unchanged seq64/MBT16384/k5 only when actual budget-bound steps are observed.",
+    "feasibility": "Earlier audit retains this; fresh top17 omits it. At this large budget, source MBT512 gains are a weak transfer. Prefill can still consume budget, so not a mathematical proof of inactivity.",
+    "first_check": "Measure charged versus scheduled target tokens and requests blocked by budget, separating prefill pressure and buffers.",
+    "evaluation": "E1/E2 and upstream buffer-bound tests. Preserve MBT; a smaller-budget synthetic diagnostic is labelled separately.",
+    "stop_rule": "Do not lower MBT merely to manufacture a baseline benefit. No binding resource means defer.",
+    "b200_transfer": "Generic scheduler logic transfers; original bottleneck severity does not.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E07](../pr-evaluation-audit-001/experiments/E07.md)",
+      "[A:H13](../h200-pr-evaluation-audit-001/experiments/H13.md)"
+    ]
+  },
+  {
+    "id": "C17",
+    "title": "Unreachable draft graph buckets",
+    "rank": 17,
+    "prior": {
+      "B": [
+        "E03"
+      ],
+      "A": [
+        "H14"
+      ],
+      "F": []
+    },
+    "stage": "low priority; boundary evidence required",
+    "problem": "Rounding target-derived capture sizes to draft query length can omit an otherwise legal full draft batch.",
+    "solution": "Apply #62040 boundary correction only if an actual missing bucket or eager fallback is demonstrated.",
+    "feasibility": "Both H200 audits reject carrying seq128\u00d76 pressure unchanged: target384 and draft320 fit cap512 at seq64. Capacity coverage alone still does not prove every intermediate bucket exists.",
+    "first_check": "Enumerate actual target/draft capture ladders and observe selected bucket/eager fraction at live shapes.",
+    "evaluation": "Existing E1/E2 and boundary tests; record launch overhead, graph HBM and remaining KV blocks.",
+    "stop_rule": "No missing live bucket means no-op. Do not increase graph cap blindly and consume KV headroom.",
+    "b200_transfer": "B200 benchmark seq128 differs from H200 seq64; a launch-configuration diagnosis is not an architecture-independent fact.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E03](../pr-evaluation-audit-001/experiments/E03.md)",
+      "[A:H14](../h200-pr-evaluation-audit-001/experiments/H14.md)"
+    ]
+  },
+  {
+    "id": "C18",
+    "title": "Bound drafter context if long-context acceptance collapses",
+    "rank": 18,
+    "prior": {
+      "B": [
+        "E17"
+      ],
+      "A": [
+        "H15"
+      ],
+      "F": []
+    },
+    "stage": "symptom-dependent",
+    "problem": "Draft attention cost or acceptance can deteriorate outside a drafter-compatible context range.",
+    "solution": "Test #61261 bounded window only after separating length effects from prefix-restoration bugs and workload domain. Adaptive verification stays off.",
+    "feasibility": "Earlier audit retains this; absence from fresh17 is not a refutation. Current evidence comes from another model/hardware.",
+    "first_check": "Measure draft time and accepted length versus actual context, hit state and content; inspect drafter training context/RoPE.",
+    "evaluation": "Existing long-context/session/Mooncake cohorts and cached real-domain SPEEDBench if necessary. Keep short-context control and task quality.",
+    "stop_rule": "No length-dependent problem means hold. Acceptance gain with quality or throughput loss does not support serving value.",
+    "b200_transfer": "Concept may transfer; the original Kimi evidence does not validate DeepSeek.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E17](../pr-evaluation-audit-001/experiments/E17.md)",
+      "[A:H15](../h200-pr-evaluation-audit-001/experiments/H15.md)"
+    ]
+  },
+  {
+    "id": "C19",
+    "title": "Native MXFP4 SM90 fused expert backend",
+    "rank": 19,
+    "prior": {
+      "B": [
+        "E18"
+      ],
+      "A": [
+        "X02"
+      ],
+      "F": [
+        "H12"
+      ]
+    },
+    "stage": "large native integration",
+    "problem": "Separate expert dispatch, staging, GEMM and combine can expose more time than a compatible fused implementation.",
+    "solution": "Compare FlashInfer6343/6517 and DeepGEMM411/473 eligibility before writing an adapter. Keep native MXFP4 semantics and required activation clamp; use a dependency-matched unfused control.",
+    "feasibility": "Fresh materially improves old X02 with native-MXFP4 leads. vLLM62603 is block-FP8, not a ready native-MXFP4 adapter. Current FlashInfer0.7.0.post1 may lack required APIs.",
+    "first_check": "Prove E384/top6/local96 AND E128/top3/local32 routing branches, H5120/I2304, clamp10, nibble order, scale ranges, EP4 workspace agreement, empty ranks and graph lifetimes.",
+    "evaluation": "Kernel/reference and distributed correctness before E1/E2. Measure fused expert span plus workspace/KV loss and quality. If precision changes, label combined backend/precision effect instead of pure fusion.",
+    "stop_rule": "Stop unsupported semantics before spending on serving builds. EP8 push-dispatch source gains do not predict EP4.",
+    "b200_transfer": "Blackwell integrated MegaMoE is an active incumbent there; Hopper requires separate integration, so priority and cost change sharply.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E18](../pr-evaluation-audit-001/experiments/E18.md)",
+      "[A:X02](../h200-pr-evaluation-audit-001/experiments/X02.md)",
+      "[F:H12](../h200-fresh-research-001/experiments/H12.md)"
+    ]
+  },
+  {
+    "id": "C20",
+    "title": "DeepEP activation, then triple-buffer dispatch",
+    "rank": 20,
+    "prior": {
+      "B": [],
+      "A": [],
+      "F": [
+        "H14"
+      ]
+    },
+    "stage": "communication backend integration",
+    "problem": "Direct-NVLink dispatch may benefit from overlapping hidden/scales/metadata movement, but the current allgather/reducescatter path never executes that DeepEP kernel.",
+    "solution": "Stage1: compatible fixed DeepEP versus current AG/RS. Stage2: DeepEP baseline versus #693 triple buffering, with combine unchanged.",
+    "feasibility": "Fresh-only explicit design. H100 direct-NVLink evidence and later elastic API changes require version-matched adapter work.",
+    "first_check": "Check EP4 payload/scales, routing ranks, shared-memory/workspace limits, direct path eligibility and exact adapter API. Require independent idle/zero-token collective participation.",
+    "evaluation": "E1/E2 with skew and mixed loads; measure dispatch AND combine, queue/compute overlap and memory/KV cost. Isolate activation from the kernel patch.",
+    "stop_rule": "No active compatible DeepEP path means the patch is inapplicable; a changed backend gain does not validate triple buffering.",
+    "b200_transfer": "Communication concepts transfer but actual selected backend and EP topology govern eligibility.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[F:H14](../h200-fresh-research-001/experiments/H14.md)"
+    ]
+  },
+  {
+    "id": "C21",
+    "title": "SM90 mHC coefficient overlap",
+    "rank": 21,
+    "prior": {
+      "B": [],
+      "A": [
+        "X01"
+      ],
+      "F": [
+        "H15"
+      ]
+    },
+    "stage": "experimental integration",
+    "problem": "Coefficient work may run concurrently with another stage if dependencies and GPU resources permit useful overlap.",
+    "solution": "Opt in to #60768 on SM90 after qualifying affected prenorm synchronization. Keep TF32 overlap separate from compensated-BF16 primitives.",
+    "feasibility": "Both H200 runs retain as exploratory; old installed gate is SM100. Draft proposal has no target serving validation.",
+    "first_check": "Trace executed JIT artifact, event/stream dependencies and resource occupancy; first resolve DeepGEMM448/vLLM59129 applicability.",
+    "evaluation": "Reference/repeatability and changed-input graph fixtures; short Nsight timeline separate from unprofiled E1/E2. Measure exposed critical path, not merely concurrent kernel bars.",
+    "stop_rule": "Overlap that slows both kernels or introduces races is rejected. CPU tests do not establish GPU lifetime safety.",
+    "b200_transfer": "SM100 fused-allreduce overlap implementation cannot simply be enabled on SM90.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[A:X01](../h200-pr-evaluation-audit-001/experiments/X01.md)",
+      "[F:H15](../h200-fresh-research-001/experiments/H15.md)"
+    ]
+  },
+  {
+    "id": "C22",
+    "title": "KV offload as a separate capacity configuration",
+    "rank": 22,
+    "prior": {
+      "B": [
+        "E16"
+      ],
+      "A": [
+        "X03"
+      ],
+      "F": []
+    },
+    "stage": "feature activation + correctness",
+    "problem": "Cache eviction may force repeated prefill; external KV capacity helps only when avoided recomputation exceeds transfer and management costs.",
+    "solution": "Activate one compatible connector as a separate baseline, then test matching save/restore fixes individually.",
+    "feasibility": "Not enabled in the observed commands. Engram CPU offload and Mooncake trace replay do not imply KV offload is active.",
+    "first_check": "Prove reuse beyond GPU capacity and resolve draft-group ownership, transport and host budget. Verify each connector prerequisite and restore lifetime.",
+    "evaluation": "Existing cache-heavy replay plus narrow eviction/restore/cancel/stale-KV fixtures. Measure hit-source tokens, transfers, acceptance, TTFT and physical memory.",
+    "stop_rule": "No pressure/benefit means hold. Wrong restored KV or transfer-induced tail failure vetoes the path.",
+    "b200_transfer": "Generic capacity tradeoff, but H200 memory and transfer costs change the crossover.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E16](../pr-evaluation-audit-001/experiments/E16.md)",
+      "[A:X03](../h200-pr-evaluation-audit-001/experiments/X03.md)"
+    ]
+  },
+  {
+    "id": "C23",
+    "title": "Matched SGLang control",
+    "rank": 23,
+    "prior": {
+      "B": [],
+      "A": [],
+      "F": [
+        "H16"
+      ]
+    },
+    "stage": "external engine comparator",
+    "problem": "A different serving engine may expose an achievable service gap, but engine-level differences bundle many mechanisms.",
+    "solution": "Match checkpoint/tokenizer, TP1/DP4/EP4, host Engram, KV precision, graph/cache settings and actual DSpark rejection. Then isolate any group32 tuning within SGLang separately.",
+    "feasibility": "Fresh adds a useful external comparator. It is not a vLLM-fork patch and should not displace cheap first experiments.",
+    "first_check": "Produce a parity checklist with irreducible differences, including tool encoding, target/drafter math, sampling and output counts.",
+    "evaluation": "Same frozen E1/E2 and quality gates; report unmatched factors. A matched engine gap motivates investigation, not attribution to a single kernel.",
+    "stop_rule": "No semantic parity means report an informative but confounded comparison, not a valid A/B for one PR.",
+    "b200_transfer": "Source H200 bundle headlines cannot be decomposed into additive vLLM patch gains.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[F:H16](../h200-fresh-research-001/experiments/H16.md)"
+    ]
+  },
+  {
+    "id": "D01",
+    "title": "Private Engram exact allocation: inactive",
+    "rank": null,
+    "prior": {
+      "B": [
+        "E10"
+      ],
+      "A": [
+        "H10"
+      ],
+      "F": [
+        "H17"
+      ]
+    },
+    "stage": "hold: contradicted path",
+    "problem": "The exact-registration proposal targets rounded private tables.",
+    "solution": "No live change proposed: preserve the historical card and reject its private-path applicability; use separately scoped C15 for shared storage.",
+    "feasibility": "Fresh resolved logs prove dp_shared_memory=True for both replicas. That meets the private card's own rejection condition.",
+    "first_check": "Reopen only if a future baseline actually uses private rounded allocations.",
+    "evaluation": "No GPU experiment needed for an inactive branch. Retain the evidence in the decision ledger.",
+    "stop_rule": "Do not call all Engram work disproven; only this allocation intervention is inactive.",
+    "b200_transfer": "Original GB10/B200 private allocation evidence is not this deployed branch.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E10](../pr-evaluation-audit-001/experiments/E10.md)",
+      "[A:H10](../h200-pr-evaluation-audit-001/experiments/H10.md)",
+      "[F:H17](../h200-fresh-research-001/experiments/H17.md)"
+    ]
+  },
+  {
+    "id": "D02",
+    "title": "TP4 Marlin alignment alternative",
+    "rank": null,
+    "prior": {
+      "B": [],
+      "A": [
+        "T01"
+      ],
+      "F": []
+    },
+    "stage": "different topology",
+    "problem": "TP4 expert width576 pads to640 at128 alignment;64 alignment avoids that padding.",
+    "solution": "Only evaluate #56697 against a separately qualified TP4 baseline.",
+    "feasibility": "Current TP1/EP4 width2304 is already128-aligned, so this mechanism is inactive.",
+    "first_check": "User must deliberately select a TP topology study; do not mix a topology switch with the patch effect.",
+    "evaluation": "Same E1/E2 with TP4-specific memory/quality checks and standalone baseline.",
+    "stop_rule": "No padding difference at live TP1 means no live patch gain.",
+    "b200_transfer": "Shape arithmetic, not GPU brand alone, determines applicability.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[A:T01](../h200-pr-evaluation-audit-001/experiments/T01.md)"
+    ]
+  },
+  {
+    "id": "D03",
+    "title": "Small-head sparse attention alternative",
+    "rank": null,
+    "prior": {
+      "B": [],
+      "A": [
+        "T02"
+      ],
+      "F": []
+    },
+    "stage": "different topology",
+    "problem": "Padding8/16/32 local attention heads to64 can waste work.",
+    "solution": "Native-head prefill #61615 and decode #59418, or alternative #57673, only on eligible local-head shapes.",
+    "feasibility": "TP1 retains64 heads; live configuration does not match. TP4 gives16, a different experiment.",
+    "first_check": "Confirm local heads and actual query rows; resolve FlashMLA26 dependency.",
+    "evaluation": "Separate TP4 E1/E2 plus numerical attention references; alternatives isolated.",
+    "stop_rule": "No small-head shape means inactive on the requested deployment.",
+    "b200_transfer": "Architecture-specific backend support and topology both matter.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[A:T02](../h200-pr-evaluation-audit-001/experiments/T02.md)"
+    ]
+  },
+  {
+    "id": "D04",
+    "title": "TP-sharded fused prefill projection",
+    "rank": null,
+    "prior": {
+      "B": [],
+      "A": [
+        "T03"
+      ],
+      "F": []
+    },
+    "stage": "different topology",
+    "problem": "Replicated TP projection can duplicate work at sufficiently large prefill batches.",
+    "solution": "Shard rows and all-gather via #58872 only when TP>1 and break-even is measured.",
+    "feasibility": "TP1 has no cross-TP redundancy; H20-derived H200 thresholds are unmeasured.",
+    "first_check": "Separate TP4 baseline and compatible collective/SP/LoRA checks.",
+    "evaluation": "Prefill E1/E2, projection plus gather timing, numerical references.",
+    "stop_rule": "No TP redundancy means no current benefit.",
+    "b200_transfer": "Do not extrapolate a TP4 optimization to DP4.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[A:T03](../h200-pr-evaluation-audit-001/experiments/T03.md)"
+    ]
+  },
+  {
+    "id": "D05",
+    "title": "Blackwell MegaMoE warmup and activation repacking",
+    "rank": null,
+    "prior": {
+      "B": [
+        "E05",
+        "E08"
+      ],
+      "A": [],
+      "F": []
+    },
+    "stage": "hold: backend not established",
+    "problem": "First-use compilation and redundant activation packing can waste time on particular MegaMoE paths.",
+    "solution": "Retain B200 designs; reopen only for the exact equivalent active Hopper backend.",
+    "feasibility": "Current H200 Marlin/AGRS does not establish the Blackwell MegaMoE call path. Cold-start time is also distinct from warm serving capacity.",
+    "first_check": "Find matching symbols/dtypes in an actually selected H200 route before porting any PR.",
+    "evaluation": "If active later, independent startup or packing diagnostics plus E1/E2, appropriate to the claim.",
+    "stop_rule": "Hardware-tag keywords do not prove a generic fix irrelevant, but no active equivalent path means no recommendation.",
+    "b200_transfer": "B200 E05/E08 priorities cannot be inherited unchanged.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E05](../pr-evaluation-audit-001/experiments/E05.md)",
+      "[B:E08](../pr-evaluation-audit-001/experiments/E08.md)"
+    ]
+  },
+  {
+    "id": "D06",
+    "title": "B200 FlashMLA pipeline and Engram/mHC fusion",
+    "rank": null,
+    "prior": {
+      "B": [
+        "E09",
+        "E15"
+      ],
+      "A": [],
+      "F": []
+    },
+    "stage": "hold: explicit architecture gate",
+    "problem": "The B200-specific FlashMLA pipeline and Blackwell-only TP1 fusion target unavailable SM100 behavior.",
+    "solution": "Retain as B200 work; a real SM90 adaptation would be a new scoped proposal.",
+    "feasibility": "TP1 matching alone does not bypass the Blackwell gate in #60938.",
+    "first_check": "Require an actual Hopper implementation and correctness evidence before reopening.",
+    "evaluation": "No current H200 experiment from a mere flag change.",
+    "stop_rule": "Do not silently remove architecture guards.",
+    "b200_transfer": "These are major examples of why copying the B200 rank would be wrong.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:E09](../pr-evaluation-audit-001/experiments/E09.md)",
+      "[B:E15](../pr-evaluation-audit-001/experiments/E15.md)"
+    ]
+  },
+  {
+    "id": "Q01",
+    "title": "Sampling distribution qualification",
+    "rank": null,
+    "prior": {
+      "B": [
+        "G01"
+      ],
+      "A": [
+        "Q01"
+      ],
+      "F": []
+    },
+    "stage": "correctness prerequisite",
+    "problem": "Reused random draws across block-verification rounds can bias generation despite normal acceptance and throughput.",
+    "solution": "Qualify #61161/equivalent implementation on the actual stochastic path.",
+    "feasibility": "Probabilistic DSpark/block rejection is configured; source membership and executed path still matter.",
+    "first_check": "Use upstream analytical target/draft fixture and independent seeds/temperatures.",
+    "evaluation": "Distribution tests with predeclared tolerance and comparisons; temperature0 E1 cannot prove this property.",
+    "stop_rule": "A sampling failure blocks affected performance comparisons; no speedup is claimed.",
+    "b200_transfer": "Semantic correctness transfers; image membership must be checked.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:G01](../pr-evaluation-audit-001/experiments/G01.md)",
+      "[A:Q01](../h200-pr-evaluation-audit-001/experiments/Q01.md)"
+    ]
+  },
+  {
+    "id": "Q02",
+    "title": "Index/graph bounds and mHC lifetime qualification",
+    "rank": null,
+    "prior": {
+      "B": [
+        "G02",
+        "G03"
+      ],
+      "A": [
+        "Q02"
+      ],
+      "F": []
+    },
+    "stage": "correctness prerequisite; scope kernels",
+    "problem": "Invalid top-k tail lanes, graph state or asynchronous operand lifetime can silently corrupt results.",
+    "solution": "Map each active H200 kernel to its relevant fix, especially62467 and DeepGEMM448/59129; retain Blackwell-only barrier checks in B200 scope.",
+    "feasibility": "Fresh source shows affected TF32 header ordering, but executed JIT/binary must be resolved. Source presence is not observed corruption.",
+    "first_check": "Identify exact dispatch, dependency binary and changed-input graph/tail/empty-row cases.",
+    "evaluation": "Upstream references, replay/repeatability and bounded sanitizer cases for changed paths; no unrelated universal test quota.",
+    "stop_rule": "Do not claim a slow/fast candidate is valid before this scope passes.",
+    "b200_transfer": "B200 G03 SM100 mega_mhc barrier fix is not identical to Hopper WGMMA lifetime fix.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:G02](../pr-evaluation-audit-001/experiments/G02.md)",
+      "[B:G03](../pr-evaluation-audit-001/experiments/G03.md)",
+      "[A:Q02](../h200-pr-evaluation-audit-001/experiments/Q02.md)"
+    ]
+  },
+  {
+    "id": "Q03",
+    "title": "API2 liveness and restart identity",
+    "rank": null,
+    "prior": {
+      "B": [
+        "G05"
+      ],
+      "A": [
+        "Q03"
+      ],
+      "F": []
+    },
+    "stage": "correctness prerequisite; topology-specific",
+    "problem": "DP wake-up ordering and draft compile-cache identity can fail during idle/resume or cached restart.",
+    "solution": "Qualify #59559 and #62062 only when the specific coordinated/independent DP semantics match.",
+    "feasibility": "API2 is present; #62062 dense independent DP evidence is not automatically coordinated EP4 proof.",
+    "first_check": "Inspect data_parallel_index and pause/wave transitions on a test deployment.",
+    "evaluation": "Small lifecycle fixtures; steady E1/E2 alone do not cover them.",
+    "stop_rule": "No restart of user services performed during this comparison.",
+    "b200_transfer": "Generic lifecycle concerns transfer, exact DP mode determines each fix.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:G05](../pr-evaluation-audit-001/experiments/G05.md)",
+      "[A:Q03](../h200-pr-evaluation-audit-001/experiments/Q03.md)"
+    ]
+  },
+  {
+    "id": "Q04",
+    "title": "Tool encoding, parser and changed-math quality",
+    "rank": null,
+    "prior": {
+      "B": [
+        "G04"
+      ],
+      "A": [
+        "Q04"
+      ],
+      "F": []
+    },
+    "stage": "correctness prerequisite",
+    "problem": "Fast token output can hide malformed tool encodings/streams or degraded task quality after precision/engine changes.",
+    "solution": "Freeze intended checkpoint encoding, use reference tool-role fixtures and evaluate changed-math quality with a pinned suitable suite.",
+    "feasibility": "DeepSeek v41 parser is active; encoder upgrades change input token counts and must become a common qualified control.",
+    "first_check": "Check #62199/#62259/equivalent behavior and actual tokenizer revision.",
+    "evaluation": "Golden token IDs/JSON stream assembly plus quality only where math/engine changes warrant it. Synthetic text sessions are insufficient for actual tool-role semantics.",
+    "stop_rule": "Correctness/quality regression vetoes affected serving promotion.",
+    "b200_transfer": "Same checks across hardware, while deployed revisions may differ.",
+    "status": "comparison_only_unexecuted",
+    "source_plan_links": [
+      "[B:G04](../pr-evaluation-audit-001/experiments/G04.md)",
+      "[A:Q04](../h200-pr-evaluation-audit-001/experiments/Q04.md)"
+    ]
+  }
+]

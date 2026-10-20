@@ -1,6 +1,6 @@
 # H200 overnight continuation: interim evidence
 
-The native C25 pilot is being prepared. Completed results below are scoped; no new service speedup is established. Original C03 and C24 verdicts remain unchanged.
+The first native C25 allocation passed all eight baseline native checks but failed container identity recording before traffic or candidate execution. A CPU-proven narrow infrastructure repair passed independent review and fresh A/B002 is running. Completed results below are scoped; no new service speedup is established. Original C03 and C24 verdicts remain unchanged.
 
 | Family | Completed evidence | Decision |
 | --- | --- | --- |
@@ -39,4 +39,4 @@ C26's [source audit](developer/APPLICABILITY.md) and [independent review](evalua
 
 The requested [meta-critic](meta-critic/CONTRACT_REVIEW_003.md) supports a separately declared C25 native-model pilot. C03's 2% service confirmation rule remains unchanged; it is not a universal veto on a valid smaller component/native observation. The [prospective native contract](evaluator/C25_NATIVE_PILOT_CONTRACT.md) specifies original FULL graph replay, captured-activation reference comparison, real request lifecycle fixtures, all-cell reporting and 90 minutes / 12 GPU-hours including cold startup and cleanup. Padded dummy timing excludes ordinary expert routing/accepted-token progress; it cannot establish production service gain.
 
-Completed small allocations consumed 0.0243944 visible GPU-hours (0.195155 eight-GPU-node equivalent hours under the whole-node idle policy), including the failed mount attempt. Two full service attempts remain. Native execution and publication are pending; [status](status.json) and [journal](journal.jsonl) are the progress pointers.
+Completed small allocations consumed 0.0243944 visible GPU-hours (0.195155 eight-GPU-node equivalent hours under the whole-node idle policy), including the failed mount attempt. Two full service attempts remain. Native allocation001 additionally consumed 2.558871 GPU-hours (19.1915 minutes), including its infrastructure failure and cleanup. Its closed receipts record all GPUs/containers idle despite transient Docker zombie-init removal errors. A fresh002 must remain inside001’s original 00:19:00.993689 UTC work deadline and 00:24:00.993689 UTC hard deadline on October21, with no baseline pooling. [Failure review](evaluator/C25_NATIVE_001_INFRA_REVIEW.md), [CPU reproduction](native-root/identity-cpu-reproduction.json), [meta-critic repair recommendation](meta-critic/INFRASTRUCTURE_REPAIR_005.md). Native comparison and final publication are pending; [status](status.json) and [journal](journal.jsonl) are the progress pointers.

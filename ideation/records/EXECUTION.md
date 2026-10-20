@@ -9,3 +9,7 @@
 C03 A and B are completed runs, although both failed service SLO eligibility. That is different from an incomplete export or a failed benchmark. A had one HTTP failure among 4,004 requests; B had none. The original artifacts preserve those distinctions.
 
 The grouped-Humming C01 result reported on node 219 is external evidence; its raw result is unavailable here. It is not silently counted as a local run. [C01 record](../hypotheses/C01.md).
+
+## Overnight C24–C26 continuation (in progress)
+
+[Run report](../runs/h200-overnight-001/REPORT.md), [status](../runs/h200-overnight-001/status.json), [evidence archive](../evidence/h200-overnight-001/README.md). C25 passed exact real-weight sampler-component checks and improved component graph duration by 25–40% across eight shapes; native integration is being prepared under a new independent contract. C24's bounded instrument probes were clean but did not repair its historical timing failure. C26's FP32-weight mechanism is inapplicable to the actual BF16 baseline. The failed initial checkpoint mount and both clean probes remain retained. No new service result or full attempt is claimed.

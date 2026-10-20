@@ -1,0 +1,133 @@
+--- installed/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py
++++ overlay/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py
+@@ -25,14 +25,19 @@
+ 
+ from typing import Any
+ 
++import json
++
+ import torch
+ 
+ from vllm.config import VllmConfig
+ from vllm.config.compilation import CUDAGraphMode
+ from vllm.logger import init_logger
++from vllm.platforms import current_platform
+ from vllm.v1.worker.gpu.sample.gumbel import gumbel_sample
+ from vllm.v1.worker.gpu.spec_decode.dflash.speculator import DFlashSpeculator
+ from vllm.v1.worker.gpu.spec_decode.dspark.utils import load_dspark_model
++from vllm.v1.worker.gpu.spec_decode.dspark.c25_adapter import eligible_markov_embedding
++from vllm.v1.worker.gpu.spec_decode.dspark.c25_fused_sampler import DSparkFusedMarkovSampler
+ 
+ logger = init_logger(__name__)
+ 
+@@ -80,6 +85,62 @@
+         )
+ 
+         self.use_confidence_head: bool = False
++        self._c25_fused_sampler: DSparkFusedMarkovSampler | None = None
++        self._c25_activation: dict[str, Any] = {"active": False, "reason": "not_loaded"}
++
++    def load_model(self, target_model: torch.nn.Module) -> None:
++        # Base load_model assigns self.model only after load_draft_model returns.
++        # Initialize the persistent sampler here, before profiling/capture.
++        super().load_model(target_model)
++        target_tp = self.vllm_config.parallel_config.tensor_parallel_size
++        draft_tp = self.speculative_config.draft_parallel_config.tensor_parallel_size
++        model_type = type(self.model)
++        outer_eligible = (
++            target_tp == 1
++            and draft_tp == 1
++            and self.vllm_config.watermark_config is None
++            and self.vllm_config.lora_config is None
++            and current_platform.is_device_capability((9, 0))
++            and model_type.__module__ == "vllm.models.deepseek_v41.nvidia.dspark"
++            and model_type.__name__ == "DSparkDeepseekV4ForCausalLM"
++            and self.sample_from_anchor
++            and self.num_query_per_req == 5
++            and self.acceptance_estimator is None
++            and not self.use_confidence_head
++        )
++        weight = (
++            eligible_markov_embedding(self, tensor_parallel_size=draft_tp)
++            if outer_eligible else None
++        )
++        if weight is not None:
++            self._c25_fused_sampler = DSparkFusedMarkovSampler(
++                self.max_num_reqs,
++                self.vocab_size,
++                weight,
++                self.use_fp64_gumbel,
++            )
++        self._c25_activation = {
++            "active": self._c25_fused_sampler is not None,
++            "outer_eligible": outer_eligible,
++            "dp_rank": self.dp_rank,
++            "target_tp": target_tp,
++            "draft_tp": draft_tp,
++            "model_class": model_type.__module__ + "." + model_type.__name__,
++            "sample_from_anchor": bool(self.sample_from_anchor),
++            "query_width": self.num_query_per_req,
++            "num_speculative_steps": self.num_speculative_steps,
++            "vocab_size": self.vocab_size,
++            "adaptive_verification": self.enable_adaptive_verification,
++            "engine_watermark_absent": self.vllm_config.watermark_config is None,
++            "draft_watermarker_absent": self.draft_watermarker is None,
++            "draft_topk": self._draft_topk,
++            "use_fp64_gumbel": self.use_fp64_gumbel,
++            "embedding_shape": list(weight.shape) if weight is not None else None,
++            "cache_shape": list(self.draft_logits.shape) if self.draft_logits is not None else None,
++            "cache_dtype": str(self.draft_logits.dtype) if self.draft_logits is not None else None,
++            "max_num_reqs": self.max_num_reqs,
++        }
++        logger.info("C25_NATIVE_ACTIVATION %s", json.dumps(self._c25_activation, sort_keys=True))
+ 
+     def load_draft_model(
+         self,
+@@ -154,6 +215,9 @@
+         )
+ 
+     def _sample_sequential(self, num_reqs: int, head_hidden: torch.Tensor) -> None:
++        if self._c25_fused_sampler is not None:
++            self._sample_sequential_c25(num_reqs, head_hidden)
++            return
+         if self._draft_topk is not None:
+             self._sample_sequential_topk(num_reqs, head_hidden)
+             return
+@@ -196,6 +260,37 @@
+             )
+             self.draft_token_confidence_probs[:num_reqs] = confidence.view(
+                 num_reqs, n_spec
++            )
++
++    def _sample_sequential_c25(self, num_reqs: int, head_hidden: torch.Tensor) -> None:
++        sampler = self._c25_fused_sampler
++        assert sampler is not None and self.draft_logits is not None
++        if num_reqs == 0:
++            return
++        n_spec = self.num_speculative_steps
++        num_sample = num_reqs * n_spec
++        # Keep the installed gather and full-vocabulary base projection.
++        sample_hidden = head_hidden[self.sample_indices[:num_sample]]
++        base_logits = self.model.compute_draft_logits(sample_hidden)
++        base_logits = base_logits.view(num_reqs, n_spec, base_logits.shape[-1])
++        idx_mapping = self.sample_idx_mapping[:num_sample]
++        sample_pos = self.sample_pos[:num_sample]
++        embed = sampler.embed_anchor(
++            self.input_buffers.input_ids, self.num_query_per_req, num_reqs
++        )
++        for step in range(n_spec):
++            # The installed model owns the unchanged bias GEMM/logits processor.
++            bias = self.model.markov_bias(embed)
++            sampler.sample_step(
++                base_logits,
++                bias,
++                step,
++                idx_mapping,
++                sample_pos,
++                self.temperature,
++                self.seeds,
++                self.draft_logits,
++                self.draft_tokens,
+             )
+ 
+     def _sample_sequential_topk(self, num_reqs: int, head_hidden: torch.Tensor) -> None:

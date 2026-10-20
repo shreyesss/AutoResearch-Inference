@@ -1,0 +1,9 @@
+# C24 second bounded instrument probe: independent result review
+
+2026-10-20 UTC. The predeclared GPU6 short-operation probe completed its single allocation. Verdict: **structurally valid clean synthetic recording; historical serving instrumentation remains unresolved**. Park this issue for this allocation; do not iterate further probes automatically.
+
+I reviewed `executions/synthetic-short-gpu6-001/analysis.json`, raw receipt, execution receipt and console. Analysis SHA256: `2f1156796e88ff8c17d166426112a80c4c197e9baace91ad6f8c7a6507b870f1`; execution SHA256: `2391b732a3aad933656bd648cff811fd6255909095eb9a82b17b2ec3fb7e683c`; receipt SHA256: `4cf4cf694f1133d955d58285adc395329727bd8b475adad26367f35ac2a2d67e`; retained trace SHA256: `1c883293506a1c249dfcc06de33371eef159cceb7cddcbc1579c40ca6a247c8b`.
+
+The actual UUID is GPU-63d6a52f-f4e3-722c-2821-4b411f9e2ec8, the historically problematic physical GPU6. The 1,536 eager/graph add/copy scopes were retained across the continuous 0/20/40-second recording. Unique association, activity inventory, graph-node completeness and exact finite CPU output checks passed. Both signed start-before-launch and end-before-launch counts are zero; no clock correction was applied. The console contains ordinary profiler start/stop records and no warning. The runner records 44.037 seconds, 0.012233 visible GPU-hours, unchanged frozen inputs and no GPU process after cleanup.
+
+This second probe addressed two limitations of the first: wrong physical device and longer kernels. It still did not reproduce the serving-context failure. It therefore does not identify a clock transform or justify tolerating negative chronology in the old trace. The retained 647 old chronology anomalies, missing native-cycle attribution, failed old timing coverage and C24 instrument-inconclusive disposition stand unchanged. No model recapture or C24 service attempt follows automatically.

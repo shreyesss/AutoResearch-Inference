@@ -87,3 +87,9 @@ experiment decision fields. Their current schemas do not mechanically enforce
 the completeness of ROI estimates or authorize execution. Existing frozen rubrics
 and historical decisions remain unchanged; new runs should generate or explicitly
 adopt an appropriate rubric.
+
+## Course correction without changing an old result
+
+Use the requested meta-critic to challenge gates that do not answer the next decision, especially after an unexpected setup failure or a valid incremental improvement. Record a prospective new scope and independent evaluator review when changing the endpoint or diagnostic. Preserve exact correctness, input identity and cost accounting; keep the previous result and its threshold unchanged.
+
+Report the evidence level explicitly: applicable source path, correct faster component, native graph activation/performance, real request lifecycle, and matched service benefit are different conclusions. A single startup pair supplies exploratory within-start precision, not independent launch replication. If many predeclared cells are inspected, a positive per-cell interval is not a simultaneous confidence statement. Publish the whole matrix and stop when additional information is unlikely to justify its cost.

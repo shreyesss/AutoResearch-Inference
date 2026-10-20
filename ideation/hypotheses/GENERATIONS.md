@@ -258,3 +258,7 @@ Some original proposal IDs changed during review recovery; family mapping is sho
 | `R3` | SM90 BF16x3 router GEMM | [history.json](../runs/h200-continuation-001/eligibility-followup/history.json) | deferred; score 63.0 | [C26](C26.md) |
 
 The first continuation batch retains its original duplicate-parent shortlist as a runner defect. The corrected runner and final follow-up use one latest revision per mechanism; see the report and current dispositions. Scores never establish runtime benefit.
+
+## Execution continuation after h200-continuation-001
+
+[h200-overnight-001](../runs/h200-overnight-001/REPORT.md) follows the same C24–C26 immutable hypothesis IDs and preserves their original generation/review decisions. It adds source applicability, component execution, instrument diagnosis and an independently designed native C25 pilot. These are execution/continuation records, not additional generated hypothesis instances; the batch and family counts are unchanged. The requested meta-critic's [course correction](../runs/h200-overnight-001/meta-critic/COURSE_CORRECTION_001.md) is distinct from a new model selection score.

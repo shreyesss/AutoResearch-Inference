@@ -51,4 +51,6 @@ Apply the [ROI rubric](HYPOTHESIS_ROI.md) at both generation and pilot selection
 Validate source claims, applicability, measurement adequacy and correctness
 before allocating an expensive run. Software checks and synthetic CPU probes
 can demonstrate that the research process discriminates between cases; only
-matched service experiments can establish optimization value.
+matched service experiments can establish service optimization value. Correct
+component or native-stage gains remain useful scoped evidence and must not be
+silently promoted to a service result.

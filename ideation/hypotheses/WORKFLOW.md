@@ -14,3 +14,11 @@ If a workflow uses the existing `hypothesis.plan_test`, `hypothesis.start_test` 
 Use relative links for research artifacts in this checkout. Artifacts in the separate serving worktree may use absolute local paths; keep that worktree until they are archived and update the links when moving it. Do not copy large logs or rewrite sealed evidence to improve an index. Dates in these cards use Asia/Calcutta; original artifacts retain their recorded UTC timestamps.
 
 Maintain the [execution, analysis and meta-learning buckets](../records/README.md) after substantive research discussions. The user authorized pushing important research and evidence to the AutoResearch-Inference upstream. Commit readable records and manifests, archive bulky logs with checksums (Git LFS is available), verify restoration, and push the research branch. Preserve original sealed bytes; do not silently omit failed runs or replace the main serving environment.
+
+## Meta-critic and course correction
+
+When requested, retain an independent meta-critic alongside evaluator design, evaluator tooling and optimization development. At a blocked gate or unexpected failure, the critic should identify the larger research decision, the observable evidence needed for that decision, and the cheapest useful next action. Record the recommendation and the evaluator's disposition before allocating the changed experiment.
+
+A gate can be inappropriate for a newly declared scope without making an earlier result invalid. Preserve historical contracts and results; name the new endpoint, exact inputs, correctness checks, cost cap and interpretation prospectively. A service confirmation threshold is not a universal minimum for a component or native-stage observation. Conversely, a positive component result does not satisfy a service gate. An observed correctness failure remains binding for its implementation; missing evidence stays inconclusive.
+
+For setup failures, diagnose the concrete cause, preserve the failed receipt, and independently review a bounded repair before a new execution ID. Do not rerun an unchanged unfavorable experiment to obtain a better result. The [overnight meta-critic record](../runs/h200-overnight-001/meta-critic/COURSE_CORRECTION_001.md) shows this distinction in practice.

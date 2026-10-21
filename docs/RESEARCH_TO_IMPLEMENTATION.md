@@ -39,6 +39,8 @@ The host still judges mechanisms, transfer conditions and evaluator coverage. St
 
 ```bash
 researchctl doctor
+researchctl paper-search 'speculative decoding' --provider arxiv --provider openalex \
+  --after 2026-09-01 --before 2026-10-23 --limit 20
 researchctl expand --question 'Reduce exposed DSpark draft cost under high load'
 researchctl pr-search 'draft K=0' --repo vllm-project/vllm --after 2026-09-01 --limit 20
 researchctl show github:vllm-project/vllm:53426 --history
@@ -75,7 +77,7 @@ research-mcp --state-dir "$HOME/.local/share/inference-autoresearch"
 research-mcp --state-dir "$HOME/.local/share/inference-autoresearch" --allow-network --publish
 ```
 
-Fourteen tools cover doctor, local search, source inspection, expansion, discovery, investigation, claim/hypothesis recording, dossier reading, evidence linking, screening, plan checks, decisions and changes. All use the same writer lock and command journal as CLI. Tool responses are structured JSON. Default server mode is local; live retrieval requires `--allow-network`. The server exposes no GPU execution, shell execution, Git write or implicit LLM tool. MCP client installation/configuration is a separate integration; this change tested the server and stdio protocol, not a configured chat client.
+Fifteen tools cover doctor, local search, online paper search, source inspection, expansion, discovery, investigation, claim/hypothesis recording, dossier reading, evidence linking, screening, plan checks, decisions and changes. All use the same writer lock and command journal as CLI. Tool responses are structured JSON. Default server mode is local; live retrieval requires `--allow-network`. The server exposes no GPU execution, shell execution, Git write or implicit LLM tool. MCP client installation/configuration is a separate integration; this change tested the server and stdio protocol, not a configured chat client.
 
 Provider REST APIs remain the cached, durable retrieval layer. Additional external MCP providers can be useful search sources, but their responses must still become retained evidence before supporting a decision. There is no mandatory external MCP dependency.
 
@@ -90,3 +92,12 @@ For implementation, the agent first resolves blocked pins and source applicabili
 See the [real-source demonstration](verification/refined-research-20261022/REPORT.md) and [integration assessment](../research/INTEGRATION_GAP_ANALYSIS.md).
 
 Implemented: typed claims and decisions, conditional screens, checked handoffs, optional MCP, source-change review, configurable discovery and durable state integration. Remaining limits: no automated numerical entailment proof; no verified provider billing ledger; no guarantee of exhaustive discovery; no newly autonomous custom-evaluator designer; no measured serving improvement from this infrastructure work. `costs` explicitly reports unsupported billing accounting. Experiments still require the existing execution workflow and actual target access.
+
+
+## Online discovery versus background ingestion
+
+`paper-search` / MCP `search_papers` explicitly searches cached live arXiv, OpenAlex or HF endpoints by keyword and publication/submission date. Choose providers per call; `after` is inclusive, `before` exclusive, and the limit is 1–20 results per provider. The tools retain sources, revision hashes, query provenance and a run receipt. Retrieval is bounded and relevance-ranked; top-k results do not establish exhaustive recall. arXiv/OpenAlex dates are sent upstream and checked locally; HF dates are checked after retrieval. A provider failure is reported explicitly without logging authenticated URLs. MCP requires `--allow-network`.
+
+The current detached backfill job collects **GitHub opening records only**. Paper feeds update on `refresh` or non-offline `run`, within configured budgets. `refresh_hours: 24` means a completed query is due again after 24 hours when invoked; it does **not** install a paper-search timer. The VM replica timer copies state and performs no research. Exact seed retrieval is a reachability check, not evidence that unknown relevant papers would be discovered automatically.
+
+Live check: [keyword discovery of the supplied speculative-decoding papers](verification/paper-discovery-20261022/REPORT.md), including the extra TreeSpark miss and exact returned ranks.

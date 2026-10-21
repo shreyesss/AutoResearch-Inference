@@ -49,6 +49,23 @@ def create_server(state_dir, *, allow_network=False, publish=False):
         return {'hits': call(args)}
 
     @server.tool(structured_output=True)
+    def search_papers(query: str, providers: list[str] | None = None, after: str | None = None,
+                      before: str | None = None, limit: int = 10) -> dict[str, object]:
+        """Live cached arXiv/OpenAlex/HF keyword search with publication dates; retain sources and query provenance. Requires --allow-network. Limit is per provider, 1..20."""
+        if not allow_network:
+            raise ToolError('Online paper search requires server --allow-network; use search_local for the retained corpus')
+        args = ['paper-search', query, '--limit', str(limit)]
+        if providers is not None:
+            if not providers or any(p not in ('arxiv', 'openalex', 'hf') for p in providers):
+                raise ToolError('Choose arxiv, openalex and/or hf')
+            for provider in providers:
+                args += ['--provider', provider]
+        for key, value in (('after', after), ('before', before)):
+            if value is not None:
+                args += ['--' + key, value]
+        return call(args)
+
+    @server.tool(structured_output=True)
     def source_show(source_id: str, history: bool = False) -> dict[str, object]:
         """Read a local source plus typed claims, or immutable source revision history."""
         return call(['show', source_id, '--history' if history else '--claims'])

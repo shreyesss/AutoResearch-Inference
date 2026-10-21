@@ -332,6 +332,21 @@ def _execute(root, args):
         replica = _read(root / "replicas/research/CURRENT.json")
         if not replica:
             raise ValueError("No downloaded research replica; run sync-replica first")
+    if command == "paper-search":
+        from .paper_search import search_papers
+        from .store import Store
+        if not (root / 'research/config.json').exists():
+            raise ValueError('Run researchctl init first')
+        store = Store(root / 'research/corpus.sqlite')
+        output = root / 'research/records' / (dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S') + '-paper-search-' + uuid.uuid4().hex[:8])
+        try:
+            result = search_papers(store, args.query_text, args.provider, args.after, args.before, args.limit)
+            result['output'] = str(output)
+            _write(output / 'search.json', result)
+        finally:
+            store.db.close()
+        result['snapshot'] = _snapshot(root, 'research', publish=not args.local_only)
+        return result
     if command in {"doctor", "costs"}:
         if command == "costs":
             return {"supported": False, "reason": "Reconciled provider billing is not implemented; logical calls are not costs. Unknown spend is not zero.", "default_model_calls": 0, "default_gpu_calls": 0}
@@ -599,6 +614,12 @@ def parser():
     commands.add_parser("status")
     commands.add_parser("doctor", help="Local DB/credential-presence checks; does not spend API credits")
     commands.add_parser("costs", help="Report billing-ledger availability; unknown cost is not zero")
+    papers = commands.add_parser('paper-search', help='Cached online keyword/date search; retain results and provenance')
+    papers.add_argument('query_text')
+    papers.add_argument('--provider', action='append', choices=('arxiv', 'openalex', 'hf'), help='Repeatable; default arxiv + openalex')
+    papers.add_argument('--after')
+    papers.add_argument('--before')
+    papers.add_argument('--limit', type=int, default=10, help='1..20 per provider')
     claim = commands.add_parser("claim").add_subparsers(dest="claim_command", required=True)
     claim.add_parser("record").add_argument("--record", required=True)
     claim.add_parser("show").add_argument("id")
@@ -726,7 +747,7 @@ def invoke(argv=None):
     root = Path(args.state_dir).expanduser().resolve()
     if args.env_file:
         os.environ["IDEATION_ENV_FILE"] = str(Path(args.env_file).expanduser().resolve())
-    if args.env_file or args.command in {"refresh", "run", "investigate", "doctor"}:
+    if args.env_file or args.command in {"refresh", "run", "investigate", "doctor", "paper-search"}:
         from .providers import load_provider_env
         load_provider_env()
     with _locked(root):

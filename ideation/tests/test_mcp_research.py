@@ -26,10 +26,30 @@ def test_mcp_shared_tools_and_network_boundary(tmp_path):
             assert fixture['source']['id'] in json.dumps(result.structured_content)
             denied=await client.call_tool('discover',{'dry_run':False})
             assert denied.is_error
+            denied=await client.call_tool('search_papers',{'query':'speculation','after':'2026-09-01'})
+            assert denied.is_error
             recorded=await client.call_tool('record_claim',{'claim':fixture['claim']})
             assert not recorded.is_error
             assert 'reported' in json.dumps(recorded.structured_content)
     asyncio.run(check())
+
+
+def test_mcp_online_search_forwards_dates_and_provider(tmp_path):
+    from unittest.mock import patch
+    calls=[]
+    def fake(args):
+        calls.append(args)
+        return {'status':'completed','hits':[]}
+    async def check():
+        with patch('ideation.foundation.invoke', fake):
+            async with Client(create_server(tmp_path,allow_network=True)) as client:
+                result=await client.call_tool('search_papers',{'query':'speculative decoding','providers':['openalex'],
+                    'after':'2026-09-01','before':'2026-10-23','limit':12})
+                assert not result.is_error
+                assert result.structured_content['status']=='completed'
+    asyncio.run(check())
+    assert calls[0][3:]==['paper-search','speculative decoding','--limit','12','--provider','openalex',
+                         '--after','2026-09-01','--before','2026-10-23']
 
 
 def test_stdio_real_transport_roundtrip(tmp_path):

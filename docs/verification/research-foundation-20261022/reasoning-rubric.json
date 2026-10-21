@@ -1,0 +1,69 @@
+{
+  "objective": "Select one bounded TreeSpark transfer diagnostic for DeepSeek-V4.1-Flash on H200 and B200, qualified separately, using the existing Mooncake and agent-75 workloads once their manifests are re-attested. Prioritize a useful improvement over the current system and knowledge; no GPU execution occurs in this session.",
+  "baseline_comparison": "The supplied baseline calls DSpark fixed k5 “historical user context, not re-attested live deployment.” First inspect the current manifests and serving configuration to establish whether that baseline or an adaptive feature is already present. Compare any adaptive proposal or verification budget with the strongest feasible static budget selected under the same workload and cost accounting. For each hardware target, assess service cost per accepted token as (drafter cost + verifier cost + sampling cost) / accepted tokens. All local costs, gains, and live topology details remain unknown.",
+  "novelty_required": false,
+  "novelty_request": "",
+  "criteria": [
+    {
+      "id": "improvement_path",
+      "description": "Required veto: identify a credible, testable route to task value and either a delta from the re-attested baseline or a cheap configuration inspection that resolves whether the feature is already present. An unknown judgment defers selection.",
+      "category": "improvement",
+      "weight": 30,
+      "required": true,
+      "justification": "The stated k5 baseline is historical. Establishing the live baseline is essential before claiming an improvement."
+    },
+    {
+      "id": "expected_value",
+      "description": "Assess plausible service optimization value using drafter, verifier, and sampling cost per accepted token, including acceptance and load effects. Record numerical gain as unknown until measured.",
+      "category": "improvement",
+      "weight": 20,
+      "required": false,
+      "justification": "A tree that helps one component may increase total serving cost. The task seeks service value, and upstream benchmark gains cannot establish local savings."
+    },
+    {
+      "id": "engineering_time",
+      "description": "Assess engineering time to inspect configuration, instrument costs, and integrate a candidate with the model and serving stack. Record unknown time explicitly.",
+      "category": "feasibility",
+      "weight": 15,
+      "required": false,
+      "justification": "A cheap diagnostic is preferred before a live vLLM change; model integration obstacles may dominate the work."
+    },
+    {
+      "id": "evaluation_gpu_hours",
+      "description": "Assess future evaluation GPU-hours separately for H200 and B200, with bounded runs and unknown estimates left unknown.",
+      "category": "feasibility",
+      "weight": 10,
+      "required": false,
+      "justification": "The two hardware targets may have different topology and costs. The session’s “No GPU execution” constraint does not preclude proposing future tests."
+    },
+    {
+      "id": "pilot_decision_value",
+      "description": "Required veto: specify a bounded pilot, the material uncertainty it resolves, and support, stop, and inconclusive rules before any full service attempt. An unknown judgment defers selection.",
+      "category": "testability",
+      "weight": 15,
+      "required": true,
+      "justification": "Live deployment and bottleneck evidence are missing. A useful pilot should resolve those gaps at limited cost."
+    },
+    {
+      "id": "integration_evidence",
+      "description": "Check the pinned implementation paths and the distinct roles of the two TreeSpark papers; identify model, topology, and verification obstacles without treating an abstract, README, or simulation as deployment proof.",
+      "category": "evidence",
+      "weight": 10,
+      "required": false,
+      "justification": "The supplied items identify potentially relevant code and papers, but provide no passages establishing a working DeepSeek-V4.1-Flash service path."
+    }
+  ],
+  "threshold": 70,
+  "evidence": {
+    "minimum_independent_sources": 1,
+    "require_engineering": true,
+    "require_paper_fulltext": false,
+    "rationale": "One pinned implementation source plus direct baseline inspection can suffice for an engineering diagnostic; two independent citations or paper full text are not universal requirements. Observed supplied evidence consists of titles, source identities, revisions, paths, and task context. No paper passages or code contents were supplied, so author claims, implementation behavior, benchmark effects, hardware support, and limitations cannot be verified or quoted. The papers can be distinguished by their supplied titles, not by asserted mechanisms."
+  },
+  "retrieval": {
+    "github": false,
+    "literature": false,
+    "rationale": "This response uses only supplied material, as requested. Future execution of the rubric would inspect the pinned code and live configuration; literature retrieval is optional if it adds no decision-relevant evidence."
+  },
+  "rationale": "The weights sum to 100 and emphasize establishing a real baseline and plausible service value. The 70-point threshold is an uncalibrated prioritization choice, not a success probability or ROI forecast. Required criteria are vetoes only after a supported negative judgment; unknowns defer. A concrete first diagnostic is to re-attest manifests and inspect the pinned cost model and serving simulation for exposed drafter, verifier, sampling, acceptance, and budget controls. Then design a bounded comparison against the strongest static budget, with H200 and B200 decisions kept separate. No local speedup, engineering-time estimate, GPU-hour estimate, or implementation support is claimed from the supplied metadata."
+}

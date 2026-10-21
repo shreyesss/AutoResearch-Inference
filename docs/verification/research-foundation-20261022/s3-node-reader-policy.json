@@ -1,0 +1,54 @@
+{
+  "http_status": 204,
+  "reason": "Fresh-node restore using existing instance role; no long-lived credentials copied",
+  "policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "DenyInsecureTransport",
+        "Effect": "Deny",
+        "Principal": "*",
+        "Action": "s3:*",
+        "Resource": [
+          "arn:aws:s3:::autoresearch-641134885443-us-east-1",
+          "arn:aws:s3:::autoresearch-641134885443-us-east-1/*"
+        ],
+        "Condition": {
+          "Bool": {
+            "aws:SecureTransport": "false"
+          }
+        }
+      },
+      {
+        "Sid": "BitlaneNodeReadManifestPrefix",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::641134885443:role/bitlane-host"
+        },
+        "Action": [
+          "s3:ListBucket"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-641134885443-us-east-1",
+        "Condition": {
+          "StringLike": {
+            "s3:prefix": [
+              "autoresearch",
+              "autoresearch/*"
+            ]
+          }
+        }
+      },
+      {
+        "Sid": "BitlaneNodeReadResearchState",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::641134885443:role/bitlane-host"
+        },
+        "Action": [
+          "s3:GetObject"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-641134885443-us-east-1/autoresearch/*"
+      }
+    ]
+  }
+}

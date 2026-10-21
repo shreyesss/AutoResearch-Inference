@@ -1,4 +1,48 @@
-# Inference serving research
+# AutoResearch Inference
+
+A portable research and experiment companion to Bitlane. Discover papers and PRs, inspect primary evidence, formulate hypotheses against a pinned deployment, and retain experiment decisions across machines.
+
+## Current entry points
+
+| Need | Start here |
+|---|---|
+| System architecture, controls and honest capability boundaries | [Research foundation](docs/RESEARCH_FOUNDATION.md) |
+| Install on a node; keep Bitlane and research state separate | [Portable setup](docs/PORTABLE_SETUP.md) |
+| Corpus, memory and experiment backups; S3 costs | [Durable storage](ideation/docs/STORAGE.md) |
+| Task-specific selection; novelty off by default | [Adaptive policy and memory](ideation/docs/ADAPTIVE_POLICY_AND_MEMORY.md) |
+| Expected service benefit before expensive experiments | [ROI guidance](ideation/docs/HYPOTHESIS_ROI.md) |
+| What was actually recovered, tested and published | [Foundation verification](docs/verification/research-foundation-20261022/REPORT.md) |
+
+```bash
+scripts/bootstrap-node.sh --storage --agents
+source "$HOME/.local/share/autoresearch/venv/bin/activate"
+researchctl init                     # fresh state only; restore first if recovering
+researchctl plan                     # offline coverage/budget preview
+researchctl refresh                  # bounded source updates + local snapshot
+researchctl search 'speculation tpot' --after 2026-09-01 --limit 10
+researchctl run --question 'Reduce exposed draft latency' --offline
+```
+
+Mutable state defaults to `~/.local/share/inference-autoresearch/`, outside both code repositories. `run` refreshes due feeds; `--reason --brief task.json` explicitly enables model reasoning. Cloud publication uses explicit `push` or a configured `--auto-publish` remote; bootstrap starts no scheduler or GPU workload. Local search is free of network/model calls.
+
+## Code map
+
+| Path | Responsibility |
+|---|---|
+| `ideation/ideation/foundation.py` | Small command composition and writer lock |
+| `ideation/ideation/discovery.py` | Configurable multi-repo feeds, paper discovery, shortlist |
+| `ideation/ideation/deep_dive.py`, `evidence.py` | Selected text/code reading and evidence validation |
+| `ideation/ideation/hypotheses.py`, `policy.py`, `hypothesis_memory.py` | Task-derived hypothesis decisions and persistent graph |
+| `ideation/ideation/experiments.py` | Independent scoped execution journal |
+| `ideation/ideation/storage.py` | Verified snapshots, local/S3 transport, stale-writer protection |
+| `scripts/bootstrap-node.sh`, `scripts/import_*` | Node installation and explicit legacy recovery |
+| `src/inference_autoresearch/`, `infra/` | Existing execution/benchmark systems; their environment requirements are separate |
+| `ideation/runs/`, `results/`, `b200-bench-analysis/` | Retained historical artifacts; new mutable runs go outside Git |
+
+## Historical serving studies
+
+The material below describes completed campaigns and their original environments. It is retained as evidence, not the installation contract for the new research layer.
+
 
 Find better serving configurations through real measurements, operating curves, and held-out checks. This repository contains the experiment code, frozen configuration, results, graphs, and evidence needed to inspect the findings.
 

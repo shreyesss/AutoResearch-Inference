@@ -7,13 +7,16 @@ name = "inference-ideation"
 version = "0.1.0"
 description = "Inference source corpus and evidence-backed research"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = ["python-dotenv>=1.0,<2", "jsonschema>=4.20,<5", "pyalex>=0.19,<1", "pypdf>=5,<7"]
 
 [project.optional-dependencies]
 web-research = ["gpt-researcher==0.16.1; python_version >= '3.12'"]
+storage = ["boto3>=1.36,<2"]
+agents = ["discovery-rsi @ https://github.com/Gen-Verse/DiscoveryRSI/archive/8f7214865548bc9b48170aa844e205341d24c4b9.zip"]
 
 [project.scripts]
 ideate = "ideation.cli:main"
+researchctl = "ideation.foundation:main"
 
 [tool.setuptools.packages.find]
 include = ["ideation*"]

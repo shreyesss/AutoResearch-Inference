@@ -52,6 +52,8 @@ def quote_errors(citations, documents):
 
 def canonical(doc):
     """arXiv metadata, HF mirrors and full text are one paper, not independent evidence."""
+    if doc.get("metadata", {}).get("canonical_paper_id"):
+        return doc["metadata"]["canonical_paper_id"]
     if doc["id"].startswith(("arxiv:", "hf:", "fulltext:")):
         return "arxiv:" + doc["id"].split(":", 1)[1].split("v")[0]
     if doc["id"].startswith("fathom:read:"):
@@ -126,11 +128,18 @@ class ResearchTools:
         inverted = work.get("abstract_inverted_index") or {}
         words = {i: word for word, positions in inverted.items() for i in positions}
         id = "openalex:" + work["id"].rsplit("/", 1)[-1]
+        locations = work.get("locations", []) or []
+        doi = (work.get("doi") or "").lower().replace("https://doi.org/", "")
+        arxiv = next((m.group(1) for loc in locations for value in (loc.get("landing_page_url") or "", loc.get("pdf_url") or "")
+                      if (m := re.search(r"arxiv.org/(?:abs|pdf|html)/(\d{4}\.\d+)", value))), None)
+        identity = "arxiv:" + arxiv if arxiv else "doi:" + doi if doi else id
         self.store.put(dict(id=id, source="openalex", kind="paper", title=work["display_name"],
                             body=" ".join(words[i] for i in sorted(words)), url=work.get("doi") or work["id"],
                             created_at=work.get("publication_date"), updated_at=work.get("updated_date"),
-                            metadata={"read_depth": "abstract", "doi": work.get("doi"),
-                                      "references": work.get("referenced_works", []), "locations": work.get("locations", [])}))
+                            metadata={"read_depth": "abstract", "doi": work.get("doi"), "canonical_paper_id": identity,
+                                      "references": work.get("referenced_works", []), "locations": locations}))
+        if identity != id:
+            self.store.edge(id, "same_paper", identity, id, {"basis": "provider DOI or explicit arXiv location; never title similarity"})
         return id
 
     def citations(self, id, direction="both", limit=5, refresh=False):

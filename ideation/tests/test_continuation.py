@@ -43,7 +43,7 @@ class ContinuationTests(unittest.TestCase):
             self.tools.check(first)
         second = self.prepare('second', previous=first)
         context = load_context(second)
-        self.assertEqual(context['changes']['modified'], [str(self.register / 'C24.md')])
+        self.assertEqual(context['changes']['modified'], [str((self.register / 'C24.md').resolve())])
         frozen = load_context(first, check=False)
         self.assertEqual((Path(first).parent / frozen['inputs'][2]['snapshot']).read_text(), 'Diagnostic pending, not a speedup.')
 

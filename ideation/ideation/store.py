@@ -49,6 +49,24 @@ def fts_query(query, match="any"):
         groups.append("(" + " OR ".join('"' + a.replace('"', '""') + '"' for a in aliases) + ")")
     return (" AND " if match == "all" else " OR ").join(groups)
 
+# These describe our retrieval, not a change in the primary source. They remain
+# in the latest document/first observed revision, but cannot create revisions by
+# themselves (otherwise every cache hit or refetch duplicates corpus history).
+_RETRIEVAL_METADATA = {"retrieval_cache", "pr_detail_fetched_at", "query", "retrieval_query", "effective_arxiv_query"}
+
+
+def content_fingerprint(doc):
+    metadata = doc.get("metadata", {})
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    if isinstance(metadata, dict):
+        metadata = {k: v for k, v in metadata.items() if k not in _RETRIEVAL_METADATA}
+    material = {k: doc.get(k) for k in ("source", "kind", "url", "title", "body", "created_at", "updated_at", "state", "merged_at", "parent")}
+    material["metadata"] = metadata
+    return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)
@@ -71,6 +89,13 @@ class Store:
           src TEXT, relation TEXT, dst TEXT, evidence TEXT, detail TEXT,
           PRIMARY KEY(src,relation,dst,evidence));
         CREATE INDEX IF NOT EXISTS edge_dst ON edges(dst);
+        CREATE TABLE IF NOT EXISTS document_revisions (
+          id TEXT NOT NULL, content_hash TEXT NOT NULL, observed_at TEXT NOT NULL,
+          document TEXT NOT NULL, PRIMARY KEY(id,content_hash));
+        CREATE TRIGGER IF NOT EXISTS revisions_no_update BEFORE UPDATE ON document_revisions
+          BEGIN SELECT RAISE(ABORT, 'document revisions are immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS revisions_no_delete BEFORE DELETE ON document_revisions
+          BEGIN SELECT RAISE(ABORT, 'document revisions are immutable'); END;
         """)
 
     def get_checkpoint(self, key, default=None):
@@ -90,8 +115,21 @@ class Store:
         for k in ("created_at", "updated_at", "state", "merged_at", "parent"):
             doc.setdefault(k, None)
         doc["tags"] = json.dumps(tags_for(doc["title"] + " " + doc["body"]))
-        doc["metadata"] = json.dumps(doc.get("metadata", {}), ensure_ascii=False)
-        doc["content_hash"] = hashlib.sha256((doc["title"] + doc["body"] + doc["metadata"]).encode()).hexdigest()
+        doc["metadata"] = json.dumps(doc.get("metadata", {}), sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        # Fetch timestamps are not content changes. Source dates and state ARE:
+        # a PR merge or paper revision must survive a later refresh.
+        doc["content_hash"] = content_fingerprint(doc)
+        old = self.db.execute("SELECT * FROM documents WHERE id=?", (doc["id"],)).fetchone()
+        for revision in ([dict(old)] if old else []) + [doc]:
+            # Older installations used a different hash formula. Normalize the
+            # revision identity without losing the original legacy hash or body.
+            identity = content_fingerprint(revision)
+            if revision["content_hash"] != identity:
+                revision["legacy_content_hash"] = revision["content_hash"]
+                revision["content_hash"] = identity
+            self.db.execute("INSERT OR IGNORE INTO document_revisions VALUES (?,?,?,?)",
+                            (revision["id"], identity, revision["fetched_at"],
+                             json.dumps(revision, sort_keys=True, ensure_ascii=False)))
         columns = [r[1] for r in self.db.execute("PRAGMA table_info(documents)")]
         self.db.execute("INSERT OR REPLACE INTO documents (" + ",".join(columns) + ") VALUES (" + ",".join("?" for _ in columns) + ")", [doc[c] for c in columns])
         self.db.execute("DELETE FROM search_index WHERE id=?", (doc["id"],))
@@ -110,6 +148,11 @@ class Store:
     def get(self, id):
         r = self.db.execute("SELECT * FROM documents WHERE id=?", (id,)).fetchone()
         return self.decode(r) if r else None
+
+    def revisions(self, id):
+        """Immutable content revisions, including the previous version on upgrade."""
+        return [self.decode(json.loads(row[0])) for row in self.db.execute(
+            "SELECT document FROM document_revisions WHERE id=? ORDER BY observed_at,rowid", (id,))]
 
     @staticmethod
     def decode(row):

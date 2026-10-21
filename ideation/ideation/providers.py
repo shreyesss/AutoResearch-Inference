@@ -2,7 +2,8 @@
 import os
 from pathlib import Path
 
-KEYS = ("OPENALEX_API_KEY", "SERPER_API_KEY", "JINA_API_KEY", "OPENAI_API_KEY")
+KEYS = ("OPENALEX_API_KEY", "SERPER_API_KEY", "JINA_API_KEY", "OPENAI_API_KEY",
+        "GITHUB_TOKEN", "GH_TOKEN", "SEMANTIC_SCHOLAR_API_KEY")
 
 
 def load_provider_env():

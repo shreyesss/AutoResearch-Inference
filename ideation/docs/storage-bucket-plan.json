@@ -1,0 +1,137 @@
+{
+  "mode": "plan-only",
+  "region": "us-east-1",
+  "bucket": "autoresearch-641134885443-us-east-1",
+  "prefix": "autoresearch",
+  "approval_required": true,
+  "operations": [
+    {
+      "operation": "create_bucket",
+      "arguments": {
+        "Bucket": "autoresearch-641134885443-us-east-1",
+        "ObjectOwnership": "BucketOwnerEnforced"
+      }
+    },
+    {
+      "operation": "put_public_access_block",
+      "arguments": {
+        "Bucket": "autoresearch-641134885443-us-east-1",
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "IgnorePublicAcls": true,
+          "BlockPublicPolicy": true,
+          "RestrictPublicBuckets": true
+        }
+      }
+    },
+    {
+      "operation": "put_bucket_encryption",
+      "arguments": {
+        "Bucket": "autoresearch-641134885443-us-east-1",
+        "ServerSideEncryptionConfiguration": {
+          "Rules": [
+            {
+              "ApplyServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operation": "put_bucket_versioning",
+      "arguments": {
+        "Bucket": "autoresearch-641134885443-us-east-1",
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        }
+      }
+    },
+    {
+      "operation": "put_bucket_policy",
+      "arguments": {
+        "Bucket": "autoresearch-641134885443-us-east-1",
+        "Policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"DenyInsecureTransport\", \"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"arn:aws:s3:::autoresearch-641134885443-us-east-1\", \"arn:aws:s3:::autoresearch-641134885443-us-east-1/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]}"
+      }
+    },
+    {
+      "operation": "put_bucket_lifecycle_configuration",
+      "arguments": {
+        "Bucket": "autoresearch-641134885443-us-east-1",
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "ID": "ResearchHeadHistory",
+              "Status": "Enabled",
+              "Filter": {
+                "Prefix": "autoresearch/research/HEAD"
+              },
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 30,
+                "NewerNoncurrentVersions": 3
+              }
+            },
+            {
+              "ID": "RegistryHeadHistory",
+              "Status": "Enabled",
+              "Filter": {
+                "Prefix": "autoresearch/experiments/registry/HEAD"
+              },
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 30,
+                "NewerNoncurrentVersions": 3
+              }
+            },
+            {
+              "ID": "AbortIncompleteUploads",
+              "Status": "Enabled",
+              "Filter": {
+                "Prefix": "autoresearch/"
+              },
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 1
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "application_iam_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-641134885443-us-east-1",
+        "Condition": {
+          "StringLike": {
+            "s3:prefix": [
+              "autoresearch/",
+              "autoresearch/*"
+            ]
+          }
+        }
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetBucketLocation"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-641134885443-us-east-1"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject",
+          "s3:PutObject"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-641134885443-us-east-1/autoresearch/*"
+      }
+    ]
+  },
+  "retention": "All manifest/chunk versions retained. Research and registry HEAD: three latest noncurrent versions protected; older versions eligible after 30 days. Per-experiment HEAD histories retained. No automatic current-object GC."
+}

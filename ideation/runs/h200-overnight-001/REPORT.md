@@ -66,3 +66,5 @@ Both loaded arms will undergo the same native oracle and 26-request lifecycle be
 The [resume instructions](live-root/README.md) require resolved node ownership, an active independent evaluator and fresh input/idle checks. An unanswered ownership question does not authorize a restart. The original native campaign remains closed, and a service improvement remains unproven.
 
 The [current immutable handoff](handoff-004/continuation.json) carries all 36 families and original selection decisions. Its integrity check passes; earlier handoffs with running pointers are preserved as historical snapshots.
+
+Completed evidence, reviews, the prepared launch and continuation were pushed to `experiment/c03-plan` in content commit `bfaba05`. [Publication verification](../../evidence/h200-overnight-001/publication-native-003-and-prepared-live.json) confirms fresh remote downloads of all four evidence archives and local restoration of all 436 files.

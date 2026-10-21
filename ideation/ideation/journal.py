@@ -31,7 +31,7 @@ def start(root, args):
     # Keep normalized, redacted query text and explicit controls for replay.
     # File contents, environment and arbitrary argument values stay absent.
     allowed = ('command', 'backfill_command', 'hypothesis_command', 'experiment_command', 'namespace',
-               'after', 'before', 'limit', 'offline', 'reason', 'deep_count', 'recent_days', 'repo', 'provider')
+               'after', 'before', 'limit', 'offline', 'reason', 'deep_count', 'recent_days', 'repo', 'provider', 'only')
     fields = {k: getattr(args, k) for k in allowed if hasattr(args, k)}
     def redacted(value):
         value = ' '.join(value.split())

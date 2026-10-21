@@ -80,8 +80,22 @@ def create_server(state_dir, *, allow_network=False, publish=False):
         return call(args)
 
     @server.tool(structured_output=True)
+    def refresh_repositories(repositories: list[str] | None = None, force: bool = False) -> dict[str, object]:
+        """Refresh PR/issue opening records for configured repos or explicit owner/repo names, including new repos. Bounded/resumable; no paper calls. Explicit repos override this invocation only, not the saved watchlist. Requires --allow-network."""
+        if not allow_network:
+            raise ToolError('Repository refresh requires server --allow-network')
+        if repositories is not None and (not repositories or len(repositories) > 50):
+            raise ToolError('Choose 1..50 owner/repo names, or omit for configured repos')
+        args = ['refresh', '--only', 'github']
+        for repo in repositories or []:
+            args += ['--repo', repo]
+        if force:
+            args.append('--force')
+        return call(args)
+
+    @server.tool(structured_output=True)
     def discover(query: str | None = None, dry_run: bool = True) -> dict[str, object]:
-        """Plan or refresh configured bounded feeds; live discovery requires server --allow-network."""
+        """Plan or refresh configured feeds. For explicit keyword/provider/date paper queries use search_papers; for GitHub-only refresh use refresh_repositories. Live discovery requires --allow-network."""
         if not dry_run and not allow_network:
             raise ToolError('Network disabled; restart server with --allow-network for explicit provider calls')
         return call(['plan' if dry_run else 'refresh'] + (['--query', query] if query else []))

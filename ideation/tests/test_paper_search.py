@@ -49,3 +49,17 @@ def test_cli_search_keeps_receipt_and_dates(tmp_path):
     assert len(result['hits'])==2
     from pathlib import Path
     assert (Path(result['output'])/'search.json').exists()
+
+
+def test_refresh_source_selection_is_per_invocation(tmp_path):
+    from ideation.foundation import _config, parser
+    invoke(['--state-dir',str(tmp_path),'init'])
+    config_path=tmp_path/'research/config.json'
+    original=config_path.read_bytes()
+    args=parser().parse_args(['refresh','--only','github','--repo','example/new-repo'])
+    cfg=_config(tmp_path,args)
+    assert cfg['repositories']==['example/new-repo']
+    assert cfg['budgets']['paper_requests']==cfg['budgets']['citation_requests']==0
+    papers=_config(tmp_path,parser().parse_args(['refresh','--only','papers']))
+    assert papers['repositories']==[] and papers['budgets']['github_pages']==0
+    assert config_path.read_bytes()==original

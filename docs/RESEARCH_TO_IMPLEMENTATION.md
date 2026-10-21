@@ -1,5 +1,7 @@
 # Research that reaches an experiment
 
+For the consolidated implementation audit and exact CLI/MCP boundaries, start with [System design](SYSTEM_DESIGN.md).
+
 ## Architecture
 
 One host coding/research agent chooses questions, reads evidence, authors hypotheses and critiques their applicability. Skills guide that work. Python tools provide retrieval, persistence, checks and arithmetic. The optional MCP server exposes those same tools; it is not another reasoning agent or a persistent autonomous researcher.
@@ -77,7 +79,7 @@ research-mcp --state-dir "$HOME/.local/share/inference-autoresearch"
 research-mcp --state-dir "$HOME/.local/share/inference-autoresearch" --allow-network --publish
 ```
 
-Fifteen tools cover doctor, local search, online paper search, source inspection, expansion, discovery, investigation, claim/hypothesis recording, dossier reading, evidence linking, screening, plan checks, decisions and changes. All use the same writer lock and command journal as CLI. Tool responses are structured JSON. Default server mode is local; live retrieval requires `--allow-network`. The server exposes no GPU execution, shell execution, Git write or implicit LLM tool. MCP client installation/configuration is a separate integration; this change tested the server and stdio protocol, not a configured chat client.
+Sixteen tools cover doctor, repository refresh, local search, online paper search, source inspection, expansion, discovery, investigation, claim/hypothesis recording, dossier reading, evidence linking, screening, plan checks, decisions and changes. All use the same writer lock and command journal as CLI. Tool responses are structured JSON. Default server mode is local; live retrieval requires `--allow-network`. The server exposes no GPU execution, shell execution, Git write or implicit LLM tool. MCP client installation/configuration is a separate integration; this change tested the server and stdio protocol, not a configured chat client.
 
 Provider REST APIs remain the cached, durable retrieval layer. Additional external MCP providers can be useful search sources, but their responses must still become retained evidence before supporting a decision. There is no mandatory external MCP dependency.
 

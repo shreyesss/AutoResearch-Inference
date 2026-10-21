@@ -62,3 +62,21 @@ def test_stdio_real_transport_roundtrip(tmp_path):
             assert not result.is_error
             assert result.structured_content['network_checked'] is False
     asyncio.run(check())
+
+
+def test_mcp_repo_refresh_online_boundary_and_scope(tmp_path):
+    from unittest.mock import patch
+    calls=[]
+    def fake(args):
+        calls.append(args)
+        return {'scope':'opening_records','status':'partial'}
+    async def check():
+        with patch('ideation.foundation.invoke',fake):
+            async with Client(create_server(tmp_path)) as client:
+                denied=await client.call_tool('refresh_repositories',{'repositories':['example/new-repo']})
+                assert denied.is_error and calls==[]
+            async with Client(create_server(tmp_path,allow_network=True)) as client:
+                result=await client.call_tool('refresh_repositories',{'repositories':['example/new-repo'],'force':True})
+                assert not result.is_error
+    asyncio.run(check())
+    assert calls[0][3:]==['refresh','--only','github','--repo','example/new-repo','--force']

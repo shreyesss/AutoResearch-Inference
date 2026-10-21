@@ -87,6 +87,11 @@ def _config(root, args):
     if getattr(args, "recent_days", None) is not None:
         config["recency_days"] = args.recent_days
         config["github_initial_days"] = args.recent_days
+    if getattr(args, 'only', 'all') == 'github':
+        config['budgets'] = {**config['budgets'], 'paper_requests': 0, 'citation_requests': 0}
+    elif getattr(args, 'only', 'all') == 'papers':
+        config['repositories'] = []
+        config['budgets'] = {**config['budgets'], 'github_pages': 0}
     return validate(config)
 
 
@@ -659,6 +664,7 @@ def parser():
     backfill.add_parser("stop")
     def config_options(command):
         command.add_argument("--config")
+        command.add_argument('--only', choices=('all', 'github', 'papers'), default='all', help='Select refresh sources for this invocation; saved config is unchanged')
         command.add_argument("--repo", action="append", help="Override repository list; repeatable")
         command.add_argument("--query", action="append", help="Additional arXiv search query; repeatable")
         command.add_argument("--recent-days", type=int)

@@ -10,11 +10,11 @@
   },
   "comparison_manifest": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/comparison-A002-B003.json",
   "started_at_utc": "2026-10-20T23:45:03.317402+00:00",
-  "state": "running",
+  "state": "failed",
   "arms": {
     "B": {
       "started_at_utc": "2026-10-20T23:45:03.341990+00:00",
-      "state": "starting",
+      "state": "failed",
       "commands": [
         [
           "docker",
@@ -312,8 +312,30 @@
         "h200-c25-native-B-continuation-003-b-1"
       ],
       "no_prior_client_requests": true,
-      "elapsed_seconds": 32.94616056799714,
-      "observer_receipts": 0
+      "elapsed_seconds": 696.6325580319972,
+      "observer_receipts": 0,
+      "error": "TimeoutExpired(['nvidia-smi', '--query-gpu=index,uuid,temperature.gpu,power.draw,clocks.sm,clocks.mem,pstate,memory.used,utilization.gpu', '--format=csv,noheader'], 30)",
+      "cleanup": {
+        "containers": [
+          {
+            "name": "h200-c25-native-B-continuation-003-b-0",
+            "returncode": 0,
+            "stdout": "h200-c25-native-B-continuation-003-b-0\n",
+            "stderr": ""
+          },
+          {
+            "name": "h200-c25-native-B-continuation-003-b-1",
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "Error response from daemon: No such container: h200-c25-native-B-continuation-003-b-1\n"
+          }
+        ],
+        "gpu_processes_after": "",
+        "running_containers_after": ""
+      },
+      "wall_seconds": 758.4113349759937,
+      "allocated_GPU_hours": 1.6853585221688747,
+      "finished_at_utc": "2026-10-20T23:57:41.753713+00:00"
     }
   },
   "allocated_gpus": 8,
@@ -335,5 +357,16 @@
     "remaining_work_seconds": 2037.6518368889956,
     "required_seconds": 1438.615606420004,
     "basis": "fixed A002 startup/native +300 traffic +120 reserve; no timing outcome selection"
-  }
+  },
+  "error": "TimeoutExpired(['nvidia-smi', '--query-gpu=index,uuid,temperature.gpu,power.draw,clocks.sm,clocks.mem,pstate,memory.used,utilization.gpu', '--format=csv,noheader'], 30)",
+  "traceback": "Traceback (most recent call last):\n  File \"/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/controller_v3.py\", line 144, in run\n    telemetry(armout/'gpu-telemetry.jsonl');last=time.monotonic()\n  File \"/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/controller_v3.py\", line 47, in telemetry\n    sample={'time_utc':now(),'csv':cmd(['nvidia-smi','--query-gpu=index,uuid,temperature.gpu,power.draw,clocks.sm,clocks.mem,pstate,memory.used,utilization.gpu','--format=csv,noheader'])}\n  File \"/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/controller_v3.py\", line 22, in cmd\n    def cmd(argv): return subprocess.check_output(argv,text=True,timeout=30).strip()\n  File \"/usr/lib/python3.10/subprocess.py\", line 421, in check_output\n    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,\n  File \"/usr/lib/python3.10/subprocess.py\", line 505, in run\n    stdout, stderr = process.communicate(input, timeout=timeout)\n  File \"/usr/lib/python3.10/subprocess.py\", line 1154, in communicate\n    stdout, stderr = self._communicate(input, endtime, timeout)\n  File \"/usr/lib/python3.10/subprocess.py\", line 2022, in _communicate\n    self._check_timeout(endtime, orig_timeout, stdout, stderr)\n  File \"/usr/lib/python3.10/subprocess.py\", line 1198, in _check_timeout\n    raise TimeoutExpired(\nsubprocess.TimeoutExpired: Command '['nvidia-smi', '--query-gpu=index,uuid,temperature.gpu,power.draw,clocks.sm,clocks.mem,pstate,memory.used,utilization.gpu', '--format=csv,noheader']' timed out after 30 seconds\n",
+  "wall_seconds": 758.5819254460002,
+  "allocated_GPU_hours": 1.6857376121022227,
+  "finished_at_utc": "2026-10-20T23:57:41.899356+00:00",
+  "changed_inputs": [],
+  "gpu_processes_after": "",
+  "running_containers_after": "",
+  "hard_cap_exceeded": false,
+  "owned_children_alive": [],
+  "watchdog_disarmed_after_verified_idle": true
 }

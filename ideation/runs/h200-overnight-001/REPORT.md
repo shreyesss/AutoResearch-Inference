@@ -1,11 +1,13 @@
 # H200 overnight continuation: interim evidence
 
-The two native allocations retained valid baseline checks but did not reach candidate execution. Allocation001 failed host container identity access; its CPU-proven repair succeeded in002. Allocation002 then passed all eight native checks and ten exact requests, but its drain reader required gauges from ranks that had never handled a request. Pinned source and CPU reproduction show those mostrecent gauges remain absent until set. The baseline native result is preserved; lifecycle remains incomplete. A separately reviewed B-only continuation is being prepared against fixed A002, with six deterministic rank primers and the original absolute budget. No new service speedup is established.
+C25 has a correct, faster sampler component, but the native campaign closed without a candidate measurement. Allocation001 failed host container identity access after valid baseline checks; the bounded identity repair succeeded in002. Allocation002 then passed all eight A native checks and ten exact requests, but its drain reader required gauges from ranks that had never handled a request. Allocation003 was interrupted during candidate startup: both Docker containers received SIGTERM before the controller's later monitoring timeout. The initiating command remains unknown. A nearby SSH session is only a temporal correlation, not attribution. All failed receipts and costs are retained, and the node is idle.
+
+A new candidate-first real-request diagnostic is prepared and technically reviewed within the existing C25 cost envelope, with the same native and lifecycle qualification on both arms. GPU execution awaits clarification of node ownership. No new service speedup is established.
 
 | Family | Completed evidence | Decision |
 | --- | --- | --- |
 | C24 coupled verification/draft cost | Actual joint-DP source reconstruction; preserved 647 historical chronology flags; two bounded synthetic probes are clean but do not reproduce or repair the old instrument failure. | Park full AV timing work. Remote budget/confidence state and accepted-progress effects remain unresolved. |
-| C25 unsharded sampler fusion | Installed RNG adapted, real BF16 Markov weights, 108 correctness fixtures, 2,560 graph replays, six rejected negative controls; positive sampler-component timing at all eight fixed shapes. | Advance to independently designed native integration pilot, before considering service testing. |
+| C25 unsharded sampler fusion | Installed RNG adapted, real BF16 Markov weights, 108 correctness fixtures, 2,560 graph replays, six rejected negative controls; positive sampler-component timing at all eight fixed shapes. | Native campaign incomplete; candidate-first actual-request diagnostic technically accepted, pending node ownership. |
 | C26 FP32-weight router port | All 43 learned-router checkpoint headers and actual allocation/load/dispatch inspected; weights remain BF16. | Proposed FP32-weight mechanism is inapplicable to this frozen baseline. No weight cast or GPU experiment. |
 
 ## C25 component result
@@ -35,8 +37,32 @@ C24's [saved trace audit](tooling-evidence/C24_TRACE_AUDIT.md) does not find a d
 
 C26's [source audit](developer/APPLICABILITY.md) and [independent review](evaluator/APPLICABILITY_REVIEW.md) close applicability for this baseline. FP32 output does not imply FP32 router weights. This is not a measured kernel-performance failure.
 
-## Course correction and next allocation
+## Course correction and prepared continuation
 
 The requested [meta-critic](meta-critic/CONTRACT_REVIEW_003.md) supports a separately declared C25 native-model pilot. C03's 2% service confirmation rule remains unchanged; it is not a universal veto on a valid smaller component/native observation. The [prospective native contract](evaluator/C25_NATIVE_PILOT_CONTRACT.md) specifies original FULL graph replay, captured-activation reference comparison, real request lifecycle fixtures, all-cell reporting and 90 minutes / 12 GPU-hours including cold startup and cleanup. Padded dummy timing excludes ordinary expert routing/accepted-token progress; it cannot establish production service gain.
 
-Completed small allocations consumed 0.0243944 visible GPU-hours (0.195155 eight-GPU-node equivalent hours under the whole-node idle policy), including the failed mount attempt. Two full service attempts remain. Native allocation001 additionally consumed 2.558871 GPU-hours (19.1915 minutes), including its infrastructure failure and cleanup. Its closed receipts record all GPUs/containers idle despite transient Docker zombie-init removal errors. A fresh002 must remain inside001’s original 00:19:00.993689 UTC work deadline and 00:24:00.993689 UTC hard deadline on October21, with no baseline pooling. [Failure review](evaluator/C25_NATIVE_001_INFRA_REVIEW.md), [CPU reproduction](native-root/identity-cpu-reproduction.json), [meta-critic repair recommendation](meta-critic/INFRASTRUCTURE_REPAIR_005.md). Native comparison and final publication are pending; [status](status.json) and [journal](journal.jsonl) are the progress pointers.
+Completed small allocations consumed 0.0243944 visible GPU-hours (0.195155 eight-GPU-node equivalent hours under the whole-node idle policy), including the failed mount attempt. Native001 consumed 2.558871 GPU-hours and native002 consumed 2.419461 GPU-hours, including failed setup/observation and cleanup. These are retained costs. The native campaign closed before the original 00:19:00.993689 UTC work deadline and 00:24:00.993689 UTC hard deadline on October 21; repairs did not reset the budget. [Live cost snapshot](cost-current.json) labels active allocations provisional.
+
+[Identity failure review](evaluator/C25_NATIVE_001_INFRA_REVIEW.md), [metrics failure review](evaluator/C25_NATIVE_002_INFRA_REVIEW.md), [frozen A002 baseline](native-root/baseline-native-002-frozen.json) and [continuation release](evaluator/C25_NATIVE_CONTINUATION_003_REVIEW.md) preserve the chain. A002's incomplete lifecycle remains incomplete. No baseline pooling or favorable baseline selection is permitted.
+
+A conditional [real-request proposal-stage contract](evaluator/C25_REAL_REQUEST_STAGE_CONTRACT.md) is frozen before B003 results. It uses the original 150-second Mooncake prefix, 120-second warmup and eight deliberate rank primers, with a separately bounded observer on actual proposal calls. Forty-one CPU controls and pinned-image source mount checks pass. The full native matrix, candidate lifecycle, small event-pool resource preflight and cumulative cost determine release. It has a 75-minute / 10-GPU-hour ceiling within C25's existing 22-GPU-hour envelope and makes no unprofiled service claim. [Implementation review](evaluator/C25_LIVE_IMPLEMENTATION_REVIEW.md), [meta-critic review](meta-critic/LIVE_INSTRUMENT_REVIEW_011.md).
+
+Two full service attempts remain unconsumed. The original native comparison is unavailable. Any qualified live diagnostic, final continuation state and publication remain pending; [status](status.json) and [journal](journal.jsonl) are the progress pointers.
+
+## Startup interruption and event-pool feasibility
+
+[Independent interruption review](evaluator/C25_NATIVE_003_INTERRUPTION_REVIEW.md) preserves the ordering: both Docker SIGTERM events at 23:56:48 UTC preceded the later 30-second telemetry timeout and cleanup. B003 consumed 1.685738 GPU-hours with no native receipt or client traffic. Neither candidate correctness nor native speed was measured. The original campaign budget is closed; a new design does not reset it.
+
+The separately released one-GPU [event-pool preflight](evaluator/C25_LIVE_POOL_RESULT_REVIEW.md) passed: 65,536 pairs / 131,072 events initialized in 1.388 seconds and flushed in 0.223 seconds. Overall supervision took 5.500 seconds with verified idle cleanup. Maximum process RSS rose from 628,992 to 731,136 KiB; device free memory did not change at the reported granularity. This establishes feasibility of that observer resource allocation, not equal overhead on eight workers or any candidate speedup.
+
+All completed research allocations total **6.689683 visible GPU-hours**, or **6.868979 eight-GPU-node-equivalent hours** under the exclusive-node policy. Engineering time and dollar cost are not inferred. Two full service attempts remain untouched.
+
+## Exact next plan, not executed
+
+The independent evaluator accepted the [concrete B-then-A launch](live-root/launch-live-pair-001.json), conditional on node ownership, in the [final prelaunch review](evaluator/C25_LIVE_GATED_PRELAUNCH_REVIEW.md). All 67 input hashes match; actual image mount preflight covers every source overlay. The [revised transition](tooling-evidence/live-v2/BUILD_REVIEW.md) passed 20 CPU controls in addition to the original 41 observer controls. Preparation finished at about 00:10 UTC, within the original approximately 00:25 ceiling. No live allocation has started.
+
+Both loaded arms will undergo the same native oracle and 26-request lifecycle before independent review of frozen log prefixes, followed by the unchanged 480-request profiling cohort and warmup. The original candidate implementation and observer are unchanged. The [distinct contract](evaluator/C25_LIVE_GATED_CONTINUATION_CONTRACT.md) retains strict correctness, explicit prior counters, complete cohort accounting and the 75-minute ceiling. Prior C25 cost of 6.676231 GPU-hours plus its maximum 10-GPU-hour allocation is 16.676231, below the existing 22-GPU-hour envelope. Two full service attempts remain separate and unconsumed.
+
+The [resume instructions](live-root/README.md) require resolved node ownership, an active independent evaluator and fresh input/idle checks. An unanswered ownership question does not authorize a restart. The original native campaign remains closed, and a service improvement remains unproven.
+
+The [current immutable handoff](handoff-004/continuation.json) carries all 36 families and original selection decisions. Its integrity check passes; earlier handoffs with running pointers are preserved as historical snapshots.

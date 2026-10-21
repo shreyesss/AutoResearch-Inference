@@ -1,0 +1,49 @@
+# Prospective candidate-first live-stage continuation
+
+2026-10-21 UTC, after native003 was interrupted without candidate measurements and after the event-pool engineering preflight passed. **Design and implementation review only; no allocation is released here.** Node ownership must first be resolved by root. This is a distinct proposed allocation and source version; do not modify the contracts, sources or receipts frozen by native003 or the completed pool preflight.
+
+## Purpose and admission
+
+The qualified real-weight component result remains positive. Paired native candidate timing is missing because no candidate oracle or timing completed before the infrastructure interruption. Treat that as missing evidence, not a candidate failure or an automatically satisfied prerequisite. The new allocation brings exact native and lifecycle qualification onto the same loaded model used for the actual-request stage diagnostic, avoiding another standalone cold start.
+
+Use a newly frozen run ID, the same pinned two-replica/four-DP/TP1 model/profile, and **candidate B first, installed baseline A second**. Both receive identical observation and traffic phases. The qualified candidate is unchanged. Every worker must complete the existing exact native oracle, final FULL-capture/activation witness, finite active-cache/token checks and restoration before any client traffic. Each arm then completes the identical reviewed 26-request lifecycle before its live cohort. Any observed correctness, identity, restoration or ownership failure stops the allocation. No paired-native speed threshold is added as an admission rule for this distinct live endpoint; preserve all native timings regardless of direction.
+
+Do not present A002 versus the new live overlay as a matched native comparison. A002 remains historical context. If the new B and A both finish, their own identically instrumented native receipts can be summarized under the frozen native statistic as a separate B-then-A exploratory comparison, with explicit run/source/order binding and the same limited within-start interpretation. The live primary endpoint and descriptive reader remain those of `C25_REAL_REQUEST_STAGE_CONTRACT.md`.
+
+## Identical phases on both loaded arms
+
+1. Cold start, exact native qualification/restoration and initialization of the unchanged 65,536-pair live pool. Verify all eight native/live identities, pinned UUIDs, source hashes and API health.
+2. Run the exact existing 26-request native-v2 lifecycle, including the original five concurrent rank0 requests per replica, six explicit rank1–3 primers, cancellation/recovery, forced EOS/wake and bounded natural-stop fixtures. Retain all raw requests, exact token/counter oracles and strict drains. This phase already publishes every engine's gauges. Its candidate and baseline bodies, routing and ordering must be identical.
+3. Freeze and independently review the completed lifecycle's abort evidence while the service stays loaded. The snapshot protocol below replaces only the earlier need to wait for container cleanup before inspecting those completed events. Missing or failed ownership acceptance does not silently become success.
+4. After acceptance and another strict all-eight/router drain, run the unchanged 120-second warmup and fixed 480-row profiling cohort, then strict drain and collective observer flush. The exact source prefix, random seed, payload defaults, 300-second maximum warmup grace and client exports remain unchanged. No additional eight-primer phase is needed because the preceding 26 requests have already primed all ranks.
+5. Retain final worker/flush identities, complete logs, telemetry and cleanup. Start the second arm only after the first is complete, idle and has sufficient remaining budget. Do not choose second-arm admission by the direction of timing results.
+
+For the ignore_eos:true live cohort, require exact native and committed-token checks, cancellation ownership/recovery, forced EOS/wake and observed drain with no correctness failure. A natural-stop fixture reaching 512 tokens remains explicitly inconclusive; it does not by itself block this scope. The unchanged distinction grants no general lifecycle completeness or service readiness.
+
+The live driver must bind the authorized prior lifecycle receipt and its final counter/drain baseline to the same run, arm, worker/container identity and source manifest. It must not assert that the service has had no prior traffic, require fresh-zero counters, or silently subtract unknown counters. Reuse the reviewed typed missing-publication semantics. All observed terminal counter deltas and exact expected request counts stay explicit.
+
+Keep the original pre-lifecycle `identity.json` immutable: its no-prior-client assertion describes the start of that lifecycle. The subsequent `lifecycle-prefix-review.json` authorizes the exact prior traffic with fields `schema_version:1`, `status:"accepted"`, `run_id`, `arm`, `lifecycle_receipt_sha256`, `identity_sha256`, `allowed_next_phase:"live_profiling"`, and `log_prefix_attestation:{path,sha256}`. The independent review retains its detailed abort and natural-stop disposition. The driver verifies these bindings and requires the lifecycle's `scoped_observable_checks:"pass"`, exactly26 requests, and status `pending_external_abort_acceptance` or `inconclusive_natural_stop`; the separate accepted review resolves the external abort qualification for this scope.
+
+## Stable runtime log evidence
+
+After the lifecycle's final strict drain, root freezes a complete-line prefix of each still-open container stdout/stderr log into a new immutable snapshot. Record original path, run/arm/container/API and worker identities, snapshot time, exact byte length, source-size observation and SHA256. The snapshot must include the full relevant request interval and end at a complete line. It is a retained copy, not a mutable reference or grep-only extraction.
+
+The independent evaluator checks the same exact Added/internal-ID, Aborted/internal-ID and external request-aborted evidence, same process/window, plus the already required positive ownership witness or its source-qualified equivalent. A bounded review receipt binds both snapshots, lifecycle receipt and identity hashes before live traffic. Final closed logs must begin with those exact snapshot bytes; any mismatch invalidates the earlier ownership attestation. Preserve the final full logs separately. This proves already-completed events without a scientifically unnecessary model restart.
+
+Allow at most 180 seconds for this review, subordinate to the phase and shared allocation deadlines. An explicit failed or missing release blocks the live cohort. No reviewer decision may waive a failed exact token, cancellation, EOS, restoration or identity check.
+
+## Observer and phase accounting
+
+Keep the approved live observer, event pool, event boundaries and native oracle unchanged. The pool observes lifecycle work as well as warmup/profiling, so retain that inventory and its contribution to capacity. Exact lifecycle response IDs must be labeled `lifecycle_control` using the source-proven completion choice suffix and server internal suffix; unmappable IDs stay explicitly unknown. They never enter profiling cells, profiling committed-token denominators or the standardized primary comparison. A missing classification must not be guessed from timestamps. The later AIPerf join remains exact.
+
+Both arms receive the same lifecycle and warmup, reducing asymmetric prior traffic without claiming that cache/content/scheduler states are numerically identical. Context/local capacity strata do not fully condition EP peer work or rendezvous waits. The live endpoint includes such waits and remains descriptive single-start evidence, not isolated kernel causality, an unprofiled ITL effect or a 95% service claim.
+
+## Budget and infrastructure handling
+
+The new allocation remains at most **75 wall minutes / 10 allocated GPU-hours**, with 70 minutes of work and five minutes for cleanup. Add all prior C25 costs, including failed starts and pool engineering, before launch; prior actual cost plus the ceiling must not exceed 22 GPU-hours. This does not reset or extend the closed original native campaign. Two full service attempts remain unconsumed.
+
+Each arm has at most 40 minutes for startup/native qualification. Its lifecycle, snapshot review, live cohort, drain and flush share a **1,080-second post-readiness ceiling**: lifecycle at most 300 seconds, independent review at most 180 seconds, and the live driver at most its original 600 seconds. The shared allocation deadline can leave less time than these nominal caps; a timeout is incomplete rather than a truncated successful cohort. Before A, require remaining work time at least observed B startup plus 1,080 seconds plus 120 seconds cleanup reserve. The overall deadline takes precedence over every sublimit.
+
+Periodic thermal/clock/power telemetry is diagnostic. A bounded query failure may be recorded with its timestamp/error and missing interval instead of terminating an otherwise live backend. This exception applies only to optional telemetry; source identity, GPU ownership before/after allocation, worker/capture receipts, backend liveness, correctness, strict drain and watchdog deadlines remain mandatory. The initiating SIGTERM in native003 is still unresolved and is not repaired by this handling change.
+
+Keep preparation within the original approximately 00:25 UTC engineering ceiling. No automatic retry, kernel change, source edit during allocation, output-dependent repeat, service threshold waiver or silent extension. Final release requires the new concrete controller/driver/reader manifests, CPU controls of the narrow lifecycle-to-live transition, source/mount validation, completed pool review, resolved node ownership and remaining-cost receipt.

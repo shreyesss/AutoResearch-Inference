@@ -1,0 +1,965 @@
+{
+  "version": 1,
+  "created_at": "2026-10-21T00:11:14Z",
+  "brief": {
+    "name": "h200-overnight-001",
+    "mode": "gated_execution",
+    "count": 3,
+    "target": {
+      "model": "DeepSeek-V4.1-Flash",
+      "gpu": "8x NVIDIA H200 SM90, 143771 MiB per GPU",
+      "topology": "two independent four-GPU TP1/DP4/EP4 replicas, API2 each",
+      "workload": "Preserve native agent-f75 8K/1K prefix workload and fixed-schedule Mooncake anchors, adapted explicitly to H200 seq64; separate 1K/1K cache-isolated diagnostic and long-context, ragged, mixed, cold/warm held-out diagnostics.",
+      "metrics": [
+        "TTFT",
+        "TPOT",
+        "throughput",
+        "cost per token",
+        "quality"
+      ]
+    },
+    "baseline": {
+      "vllm_commit": "ac9126e58aa7bbab1856ba6593ba4d5003fea516",
+      "deepseek_serve_commit": "11c249d28b2962f7384b4ab1fd7c1664704e7524",
+      "note": "Preserved H200 runtime evidence establishes Marlin with allgather_reducescatter in two TP1/DP4/EP4 replicas. C03 has a completed unfavorable service screen (ITL +1.85%, TTFT p99 +7.83%, E2E p99 -5.33%); no component causal timing explains it. Installed model_state.py differs from nominal upstream, so use actual extracted files. C01 grouped outcome is externally reported, raw evidence absent here. C24 timing completed instrumentation-inconclusive; see its report and independent verdict. Price and candidate-specific exposed savings remain unknown.",
+      "runtime_attested_at": "2026-10-20T12:12:07Z",
+      "image": "sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c",
+      "model_revision": "2cba9e42aa026125f3ed06c6d98c1db82f7ca027",
+      "profile": "seq64 MBT16384 context1048576 graphcap512 FP8KV block64 hostEngram embedding_across_dp prefixON DSpark k5 probabilistic draft/block rejection adaptiveOFF no-swa-bounded-replay; verbose request/output/delta telemetry ON",
+      "serving_source_note": "Historical baseline commit retained; exact per-experiment manifests and installed file hashes govern current membership."
+    },
+    "after": "2026-01-01",
+    "seed_numbers": [],
+    "code_sources": [],
+    "queries": [
+      "deepseek-v4.1-flash b200",
+      "speculation tpot",
+      "moe communication",
+      "kv-cache ttft",
+      "nvfp4"
+    ],
+    "paper_queries": [
+      "speculative decoding adaptive draft length inference",
+      "mixture of experts inference communication overlap",
+      "prefix caching routing serving"
+    ],
+    "prior_decisions": [
+      "runs/c03-execution-001/REPORT.md",
+      "runs/c03-mechanism-review-001/REPORT.md",
+      "hypotheses/C01.md",
+      "hypotheses/C24.md",
+      "runs/av-k5-timing-001/REPORT.md",
+      "hypotheses/C25.md",
+      "hypotheses/C26.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/REPORT.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/dispositions.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/AUTHORIZATION.md"
+    ],
+    "constraints": {
+      "gpu_execution": true,
+      "full_service_attempts_remaining": 2,
+      "preserve_frozen_contract": true,
+      "pilot_limits": "Qualification stages may advance under current overnight authorization after independent prospective review; C24 first CPU cap 8 engineer-hours, C25 4, C26 3. No automatic failed-diagnostic retry. Two full service attempts remain.",
+      "primary_metric": "Frozen Mooncake 0.5x median primary long-output ITL; preserve existing 2% promotion and 3% tail guards for that contract; other objectives require separate scope."
+    },
+    "instructions": "Continue the top three existing families C24, C25, C26 following the prior independent evaluator and root execution protocol. Current user authorizes sustained work and qualified bounded pilots/full attempts; supersedes previous turn source-only restriction, never scientific holds. Rank by plausible frozen ITL benefit and cost to resolve uncertainty; no measured local deltas exist. Preserve previous unfavorable/inconclusive results. Resolve source applicability, correctness and measurement adequacy first. No automatic rerun, watermark disabling, weight conversion to manufacture applicability, or original environment modification. Frozen Mooncake median 0.5x long-output ITL objective and all tail/fidelity gates remain. Root owns GPU and service operations; separate designer, tooling builder and optimization builder. Stop a scoped candidate on demonstrated inapplicability, correctness failure, adequate unfavorable result or its budget. Record all findings and actual allocation costs.",
+    "selection": {
+      "require_novelty": false
+    },
+    "repos": [
+      "SemiAnalysisAI/InferenceX",
+      "deepseek-ai/DeepEP",
+      "deepseek-ai/DeepGEMM",
+      "deepseek-ai/DeepInfer",
+      "deepseek-ai/DeepJIT",
+      "deepseek-ai/DeepSelect",
+      "deepseek-ai/DeepSpec",
+      "deepseek-ai/Engram",
+      "deepseek-ai/FlashMLA",
+      "deepseek-ai/TileKernels",
+      "deepseek-ai/deepseek-recipe",
+      "flashinfer-ai/flashinfer",
+      "sgl-project/sglang",
+      "vllm-project/recipes",
+      "vllm-project/vllm"
+    ],
+    "evaluator_contract": {
+      "version": "h200-evalset-v1-research",
+      "baseline": "live H200 seq64; seq128 is a separate configuration arm",
+      "stages": [
+        "attestation",
+        "activation",
+        "correctness",
+        "unprofiled screen",
+        "separate mechanism diagnostic",
+        "paired confirmation and held-out frontier"
+      ],
+      "activation": "record path hits and eligible opportunities; zero only interpretable with adequate coverage; missing telemetry is unverified",
+      "metrics": "request TPOT=(last-first token time)/(server output tokens-1), TTFT tails, exact tokens, all-rank draft/verify/accepted counters, KV blocks and preemption, qualified request goodput, replay lag",
+      "statistics": "matched full-run A/B units; >=5 paired confirmation blocks for small gains, alternating order; baseline drift and intervals; never request-level pseudoreplication",
+      "cost": "full eight-GPU node price remains unset; parameterized cost only",
+      "slo": "preserve historical scorer definitions but H200 product SLO not supplied; diagnostic 2s TTFT/50ms TPOT is provisional, not production",
+      "telemetry": "all replicas/ranks; raw counter deltas, resets/missing coverage, request-to-final-rank join where needed; Nsight profiled results excluded from frontier",
+      "correctness": "relevant G01-G05, numerical/graph-cache branch tests; quality subset for changed math, SPEED-Bench acceptance diagnostic for speculation is not a correctness score",
+      "capability_gaps": [
+        "AIPerf local 0.11 versus planned 0.13 needs separate environment verification",
+        "profiler requires instrumented launch and clean-marker integration",
+        "historical B200 seq128 and node pricing cannot transfer unchanged"
+      ]
+    },
+    "objective": "Find plausible baseline-relative H200 interventions using primary engineering evidence and prior outcomes. Qualify cheap pilots before expensive service attempts.",
+    "prior_decision_text": {
+      "runs/c03-execution-001/REPORT.md": "# C03 execution result: stop after the median screen\n\nC03 reached a valid, unfavorable screening result. The candidate exercised the intended smaller draft CUDA graphs, but median long-request ITL increased **1.8467%** and TTFT p99 increased **7.8332%**. The frozen reader returned **`screen_deferred_inconclusive`**. Do not promote this candidate, run the five-pair confirmation, or run the held-out burst under this execution plan.\n\nThis is one AB screening pair, not a confidence interval or statistical falsification of a ≥2% benefit. There is no demonstrated service speedup and no production qualification. The independent evaluator accepted the measurement, source identity, scoped prerequisites and final interpretation. See the [sealed paired result](screen-paired-result.json), [complete pair ledger](screen-pair-ledger.json), [independent review](evaluator-review.md), and [current-run prerequisite receipt](reviewed-gates-screen.json).\n\n## What was built\n\nThe isolated three-file vLLM change sizes draft work from synchronized logical request counts instead of carrying target-graph padding into the draft path. It preserves the target descriptor capacity, capture grid, collective protocol, speculative width, sampler and verifier. DFlash and autoregressive draft paths clamp the relevant preparation/launch extent; bounds and the zero-count guard remain explicit. This implementation is preserved in [candidate.patch](/home/ubuntu/Deepseek_serve-c03/c03/candidate.patch), with [implementation handoff](/home/ubuntu/Deepseek_serve-c03/c03/CANDIDATE_HANDOFF.md) and [launch handoff](/home/ubuntu/Deepseek_serve-c03/c03/SCREEN_LAUNCH_HANDOFF.md).\n\nOnly these source files differ between A and B:\n\n- `vllm/v1/worker/gpu/dp_utils.py`\n- `vllm/v1/worker/gpu/spec_decode/dflash/speculator.py`\n- `vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py`\n\nThey were mounted read-only into fresh containers. The existing installed vLLM/image packages and main environments were not edited. Exact A/B source hashes and image digest are bound in [screen-pair-fidelity.json](screen-pair-fidelity.json) and the ledger.\n\n## Fixed setup\n\n| Item | Actual execution |\n| --- | --- |\n| Node | This node only: `jl-vm-541077`, eight H200 GPUs; identical physical UUIDs for A/B |\n| Profile | Original `/home/ubuntu/Deepseek_serve/serving/h200/vllm/profiles/latency-2xdep4-sla.yaml` |\n| vLLM | `0.30.1rc1.dev493+gac9126e58`, source `ac9126e58aa7bbab1856ba6593ba4d5003fea516` |\n| Container | `vllm/vllm-openai@sha256:3d17635c5aa0340e2f2502c067ce4b587d8e7dc678195e90b71142490dc6d71c` |\n| Model | DeepSeek-V4.1-Flash, revision `2cba9e42aa026125f3ed06c6d98c1db82f7ca027` |\n| Replicas | Two TP1/DP4/EP4 replicas; GPUs 0–3 and 4–7; two API workers per replica |\n| Routing | Original router code/environment, port 8000 → 8100/8101; connection limit 100, retries disabled |\n| Batching | max sequences 64; max batched tokens 16,384; configured graph maximum 512 |\n| Speculation | DSpark, five draft tokens, probabilistic drafting, block rejection, adaptive verification off |\n| Memory/caching | FP8 KV; CLI block size 64; prefix caching on; bounded replay off; Engram CPU offload |\n| Workload | Fixed Mooncake median trace, **0.5×**, 4,004 scheduled profiling requests |\n| Client | Existing `.venv-aiperf`, AIPerf 0.13; client seed 42; workers maximum 256 |\n| Sampling | Temperature 1, top-p 1, top-k 0, request seed unset, ignore EOS true, watermark true |\n| Warmup/cache policy | Fresh containers/request caches per arm; existing shared compile cache; fresh private bytecode cache; fixed 120-second warmup |\n| Observability | Original verbose service metrics/logging and client/telemetry collection retained; diagnostic probe **off** during both screen arms |\n\nActual argv, environments, device assignments, source mounts and worker process identities are preserved in the per-arm container/startup/post-run attestations. The screen scripts are [run-A-screen.sh](run-A-screen.sh) and [run-B-screen.sh](run-B-screen.sh); service scripts are [start-A-screen.sh](start-A-screen.sh) and [start-B-screen.sh](start-B-screen.sh). These are archival reproduction commands, not instructions to automatically rerun an unfavorable pair.\n\n## Measured results\n\nA is the **fresh matched control**, not the earlier supplied baseline. B is the frozen candidate. Percent changes below use B/A−1; lower is better for latency.\n\n| Metric | A: fresh control | B: C03 | B versus A |\n| --- | ---: | ---: | ---: |\n| Long-output ITL p50, primary | 39.194800741 ms | 39.918618771 ms | **+1.8467% worse** |\n| TTFT p99 | 11,815.256073 ms | 12,740.770988 ms | **+7.8332% worse** |\n| Request latency p99 | 89,843.217656 ms | 85,054.602206 ms | −5.3300% better |\n| Long-output ITL p90 | 126.750208000 ms | 131.567603719 ms | Descriptive |\n| Long-output ITL p95 | 175.004047651 ms | 177.397036985 ms | Descriptive |\n| Long-output ITL p99 | 305.543426972 ms | 260.626116114 ms | Descriptive |\n| Output token throughput | 586.598801496 tok/s | 586.753925152 tok/s | Fixed offered load; no capacity claim |\n| Long-output cohort | 1,692 | 1,692 | Outputs ≥50 tokens |\n| Successful / attempted | 4,003 / 4,004 | 4,004 / 4,004 | A's one HTTP 502/reset retained |\n| Error rate | 0.024975% | 0% | Both within fidelity gate |\n| Replay scheduling lag p99 | 4.871086080 ms | 5.050462720 ms | Both within 500 ms gate |\n| Replay degraded | false | false | Pass |\n| Good-request fraction | 57.917083% | 57.217782% | Both below 95% |\n| Long-output ≥30 tok/s attainment | 42.139480% | 42.375887% | Both below 95% |\n| Existing service eligibility | Ineligible | Ineligible | Complete runs; latency/SLO failures |\n\nThe primary is the existing scorer's token-normalized **post-first-chunk ITL**, restricted to outputs ≥50 tokens. No endpoint or cohort was changed after observing B. The frozen screen requires a positive primary gain and both observed tail regressions ≤3%. B fails the primary and TTFT conditions. The E2E improvement cannot override them. There were **zero invalid-pair replacements** and no repeat-until-win.\n\n| Arm | Run ID | Profiling interval, UTC | Final export completion, UTC |\n| --- | --- | --- | --- |\n| A | `20261020-183933` | 18:41:42.039–19:01:57.039 | 19:05:23.853847 |\n| B | `20261020-192708` | 19:29:15.697–19:49:30.391 | 19:53:02.381849 |\n\nAll timestamps above are on 2026-10-20. Exact nanosecond boundaries are in [screen-A-phase.json](screen-A-phase.json) and [screen-B-phase.json](screen-B-phase.json). Each normal export took several minutes after the workload drained. Both wrapper exit codes are 1 because the unchanged scorer rejected service eligibility, not because export was incomplete. Completion receipts hash the required exports and attest that all client processes exited: [A](client-A-screen-completion.json), [B](client-B-screen-completion.json).\n\nFull run directories:\n\n- [A artifacts](/home/ubuntu/Deepseek_serve-c03/results/h200/vllm/c03/production/mooncake-median/c03-A-screen-median-0p5x/20261020-183933)\n- [B artifacts](/home/ubuntu/Deepseek_serve-c03/results/h200/vllm/c03/production/mooncake-median/c03-B-screen-median-0p5x/20261020-192708)\n\nThe corrected supplied median baseline `20261020-145417` remains complete and retained: 4,001/4,004 successful, replay p99 4.334592 ms, long ITL p50 35.885356115 ms, TTFT p99 12,571.636821 ms, E2E p99 78,664.609965 ms. It is historical context and the client-identity reference; it is **not** substituted for fresh A. The supplied burst used different GPU UUIDs and remains contextual only. No local burst was run after this unfavorable screen.\n\n## What the mechanism and correctness checks establish\n\nThe separate diagnostic runs confirmed the mechanism. A recorded 31,424 unique online replica/DP-step events and 2,469 smaller-bucket opportunities. B recorded 30,832 events and **1,941 opportunities, all selecting the predicted smaller draft graph**, with zero bucket, extent or target-synchronization violations. Conservative intervals wholly inside profiling retained 2,063 A opportunities and 1,350 B opportunities; warmup and trailing drain were excluded. These counts establish reduced selected/submitted draft graph capacity, not a direct kernel-time or instruction-count saving. Diagnostic latency was never used as the service comparison.\n\nAll eight workers retained exactly 41 target and 37 draft FULL graph descriptors, with target/draft maxima 384/320. Startup qualification also required completed captures, engine/API readiness and matching process/source identities; a list of attempted captures alone was insufficient.\n\nBoth arms passed common-input actual-function CPU checks, 170 GPU preparation cases per arm, controlled actual dense/sparse verifier checks with negative controls, and the prospectively frozen 20-request controlled integration matrix per arm. The integration checks include known token ownership, active width-five speculation, exact forced EOS, natural stop observations, cancellation witnesses, request-linked abort logs, recovery, and 13 strict all-eight-engine/router drains per arm.\n\nThis is bounded layout/row transport, verifier, distributed graph and controlled integration evidence. It does **not** certify unrestricted model-output equivalence, all KV cells or the full watermark distribution. Earlier free-form repeatability failures remain unresolved and retained; they were not relabeled as passing.\n\n## Context and limitations preserved\n\nThe independent descriptive join found all 4,004 workload keys in both arms, with no invalid or duplicate keys. All 4,003 common successful requests have identical actual input/output/prompt lengths. The failed A key remains in the outer join. Both long cohorts have actual server first-chunk counts for every request, with no fallback, delayed-usage substitution or malformed chunks. Each long cohort has 1,691 first chunks containing one token and one larger first chunk; their actual counts are retained in the scorer.\n\nWhole-run speculative totals (steps / proposed / accepted) are A **265,716 / 1,328,580 / 448,869**, B **265,882 / 1,329,410 / 448,689**. Common-success denominators are separately retained. Sixteen zero-step one-token outputs per arm omit optional per-step arrays; no arrays were fabricated. Width/histogram/per-step invariants passed. These measurements do not prove identical acceptance distributions.\n\nThe cache **policy** matched, while observed cache state differed. Warmup completed 52 requests in A and 53 in B under the same 120-second rule. Cached-prompt share was 27.797100% versus 28.259502%; 205 common requests had different cached-token counts (102 higher and 103 lower in B, net +159,936 B tokens). No adjustment or rerun was selected from these differences. Categorical KV configuration matched and all eight ranks had zero observed preemptions. This context limits a causal explanation for the unfavorable timing result; it does not change the frozen stop rule.\n\nPrimary independent telemetry had complete counter boundaries for all eight endpoint/rank identities with no observed resets. The separate AIPerf replica-1 counter export lacks an end boundary in both arms; that corroboration gap remains explicit. The primary collector and its boundary rule were fixed before the first screen client. Collection-loop sample means are descriptive, not time-weighted kernel measurements. See [paired context and denominators](SCREEN_PAIR_CONTEXT.md), [paired context JSON](screen-pair-context-comparison.json), and [full outer request join](screen-pair-requests-joined.csv).\n\n## Triage retained without hiding failures\n\n| Observation | Resolution and scope |\n| --- | --- |\n| Initial cold scheduler gauges absent | First lifecycle attempt sent zero requests; absent gauges were not treated as zero. Diagnostic workload initialized metrics before strict drains. |\n| Free-form seeded T0 outputs differed after cancellation | Fixed-rank no-cancel control also differed in all four pairs. Exact-repeatability lane stopped; cancellation causality and unrestricted numerical equivalence remain unproven. |\n| First controlled adapter expected abort success-counter increment | Actual pinned frontend removes requests before terminal success statistics. Failed receipt retained; independent designer froze V2's exact abort-log/live-rank/drain observable before B. New common V2 ran on A, then identically on B. |\n| Large console replay warning during warmup | Corresponds to the separate concurrency-paced warmup timestamps. Actual profiling replay lag passes in both arms; the corrected historical baseline had the same warning. |\n| Export continued after request completion | Normal aggregation/server-metric export completed. Artifact completion, fidelity and SLO eligibility were checked separately. |\n| A screen HTTP 502/reset | Preserved as one failed profiling request; within predeclared error/completion gates. Its cause was not established and the pair was not rerun. |\n| Unfavorable candidate timing | Retained as the only fixed screen pair. No confirmation or burst promotion. |\n\n## Responsibilities, integrity and final node state\n\nThe orchestrator alone launched services, containers, clients and GPU checks. `c03_evaluator` owned design and independent qualification; `c03_evaluator_builder_review` implemented evaluator/probe/fixture/readers; `c03_dev_review` implemented isolated launch support and the optimization. The optimization developer did not author its evaluator. The evaluator designer did not implement either candidate or evaluator code.\n\nWork remains in `/home/ubuntu/AutoResearch-Inference-c03` and `/home/ubuntu/Deepseek_serve-c03`. Final verification matched all **21 frozen input hashes**, all nine recorded original source/config hashes and both original environment package inventories (141 packages in `.venv`, 138 in `.venv-aiperf`). No installs/upgrades were performed. See [integrity receipt](final-integrity-check.json).\n\nAfter full log archival and strict drain, task-owned B containers and the task-owned router were stopped. The node is back to its initial idle state: no serving containers; ports 8000/8100/8101 closed; all eight GPUs report zero allocated memory and zero utilization. Existing monitoring processes were preserved. See [cleanup receipt](final-node-cleanup.json), [A full-log attestation](screen-A-complete-log-attestation.json) and [B full-log attestation](screen-B-complete-log-attestation.json).\n\nAny further C03 investigation needs a new prospectively documented question or implementation revision. This execution is complete at its frozen screening stop; it does not authorize tuning the evaluator or silently repeating the pair.\n",
+      "runs/c03-mechanism-review-001/REPORT.md": "# Why C03 did not earn another run\n\n**C03 fixed a real padding inefficiency, but we never established that it was an expensive bottleneck on this workload.** The implementation changed the intended graph selection. The complete service screen did not improve. The exact cause of the observed latency regression remains unmeasured.\n\nThis is a read-only explanation using retained evidence, dated 2026-10-21 (Asia/Calcutta). No new service, profiler, benchmark or correctness experiment ran. The [original result](../c03-execution-001/REPORT.md) and its sealed verdict remain unchanged. The independent evaluator recounted the saved histograms; [ACCOUNTING.json](ACCOUNTING.json) preserves counts, denominators and input hashes.\n\n## The concrete mechanism\n\nThe target model checks proposed tokens. The drafter proposes the next block. CUDA graphs use a finite set of captured shapes, so a live batch can be padded to a larger capacity. The old code passed the target's padded request capacity into draft sizing. The draft graph then padded it again.\n\nThis is the actual common affected case in the B diagnostic:\n\n| Quantity | Original rule | C03 |\n| --- | ---: | ---: |\n| Maximum logical requests across the four ranks | 5 | 5 |\n| Target graph request capacity | 6 | 6 |\n| Request count passed to draft sizing | 6 | 5 |\n| Draft query rows requested, at width 5 | 30 | 25 |\n| Selected draft graph rows | 35 | 25 |\n\nThe patch separates logical requests from target capacity and keeps dummy-rank input/metadata extents coherent. The target graph, speculative width, sampler and verifier are preserved. It does not stop verifying low-value draft positions, make real tokens cheaper, or remove target-model prefill work. See the [actual patch](/home/ubuntu/Deepseek_serve-c03/c03/candidate.patch).\n\n## How much of the run benefited\n\n| Diagnostic observation | Count | What it means |\n| --- | ---: | --- |\n| Unique online replica/step events | 30,832 | Warmup plus profiling, startup excluded; ranks are not summed as independent events |\n| Supported uniform FULL-target events | 29,277 | Denominator for the graph-capacity calculation below |\n| Events selecting a smaller draft graph | 1,941 | **6.30% of all recorded online events** |\n| Common reduction: 35 → 25 draft rows | 1,848 | 28.57% fewer rows for this affected launch only |\n| Other reduction: 75 → 65 draft rows | 93 | A smaller reduction for another boundary shape |\n| Target padding existed, but draft bucket did not change | 431 | Removing logical padding does not always change executed graph capacity |\n| Other supported FULL events with unchanged draft bucket | 26,905 | No graph-capacity saving from this mechanism |\n| Eager/piecewise-target events outside this accounting | 1,555 | Not reader failures; actual unsupported-failure count is zero |\n\nApplying the old padding rule to the **same B shapes** gives 502,000 supported FULL draft rows. The candidate selected 482,590: **19,410 fewer, or 3.87%**. This is descriptor-capacity accounting, not an A/B GPU-time comparison. It excludes target work and the 1,555 other events. All four ranks participate; multiplying both row totals by four would leave the percentage unchanged.\n\nThe separate strict-profiling receipt establishes 1,350 smaller-graph opportunities inside profiling. It does not convert the warmup-inclusive histogram totals into exact profiling-only time weights.\n\n## Where the performance argument was incomplete\n\nThe full claim needed four links:\n\n1. The installed code unnecessarily inflates draft graph size. **Established.**\n2. The change selects a smaller graph on real workload events without violating the scoped checks. **Established.**\n3. Those smaller graphs save a material amount of exposed time per step. **Not measured.**\n4. That saving improves the service objective under actual arrivals. **Not demonstrated; the fixed screen was unfavorable.**\n\nThe activation floor proved enough events to observe the mechanism; it was not an ROI test. We advanced without measuring the time contribution that would connect row savings to a plausible service gain. That is the selection weakness to correct before spending another attempt.\n\nRows are not milliseconds. The pinned Marlin expert path chooses blocks from 8/16/32/48/64 rows, and routing then pads each expert to its block size. Removing some draft rows can therefore leave expert block counts unchanged. The all-gather payload can shrink, but collective count and five sequential draft sampling rounds remain fixed. These source-level effects explain why proportional savings cannot be assumed; they were not measured as the cause of this result. Source: [pinned Marlin expert implementation](https://github.com/vllm-project/vllm/blob/ac9126e58aa7bbab1856ba6593ba4d5003fea516/vllm/model_executor/layers/fused_moe/experts/marlin_moe.py), [expert row alignment](https://github.com/vllm-project/vllm/blob/ac9126e58aa7bbab1856ba6593ba4d5003fea516/vllm/model_executor/layers/fused_moe/moe_align_block_size.py). Kernel tiling, weight traffic, collectives, overlap and synchronization can make graph runtime nonlinear in row count. Most service work was unchanged. As an illustration only, if precisely this draft component consumed 20% of step time and its runtime scaled linearly with rows, a 3.87% reduction there would save roughly 0.77% of total step time. **Neither the 20% share nor linear scaling was measured.** This is not a speedup estimate or bound.\n\nThe candidate's one AB screen measured ITL +1.85%, TTFT p99 +7.83% and E2E p99 −5.33%. That is sufficient to stop under the frozen rule. It does not explain the regression: realized cache counts differed, warmup completed 52 versus 53 requests, and acceptance/scheduling varied. Some differences may themselves result from the change. We cannot choose one as the cause, declare them external noise, or dismiss the valid screen. See [paired context](../c03-execution-001/SCREEN_PAIR_CONTEXT.md).\n\n## Consequence for the remaining two attempts\n\nThe next candidate needs an observed expensive operation, a concrete way to remove or shorten it, and a same-shape component measurement showing that the saving can matter after overhead. A PR, another engine's implementation, or a reviewer score cannot supply that evidence. A short baseline profile is diagnostic preparation; it must be budgeted explicitly and kept separate from unprofiled service results.\n\nDeepInfer is useful source evidence, but its released NVIDIA engine targets SM100 and does not provide a drop-in H200 service. Its confidence-budgeted verification is relevant because it can trim **target verification** work; that is a broader cost than C03's occasional draft padding. Our pinned vLLM already contains an adaptive-verification manager, so an engine port is not required to investigate this mechanism. It remains a conditional lead, not a measured high-ROI choice. Verify cost-table calibration, confidence handling, variable-length graph/backend support, sampling correctness and runtime overhead before assigning a service attempt. A high rejection fraction alone does not establish the best draft budget.\n\nThe cheap C02 planner-sharing port is also not automatically a good use of the remaining budget: its upstream higher-concurrency result was about 0.6% lower ITL on H20 with synthetic acceptance, not a demonstrated ≥2% win on our workload. Humming's grouped result is reported poor on node 219; the user confirmed that location, but its raw results are not present here. Treat it as external caution, not a matched measurement on this node.\n\nSources inspected for the selection discussion: [DeepInfer README](https://github.com/deepseek-ai/DeepInfer), [pinned budget controller](https://github.com/deepseek-ai/DeepInfer/blob/774ce244b87cc0eb8d4b94ab9f5de2ab22049f01/csrc/engine/mtp_varlen.hpp), [local comparison](../../../../AutoResearch-Inference/ideation/runs/deepinfer-comparison-001/REPORT.md), [vLLM adaptive-verification explanation](https://github.com/vllm-project/vllm-project.github.io/blob/main/_posts/2026-08-14-dspark-adaptive-verification.md), [C02 upstream test](https://github.com/vllm-project/vllm/pull/58818). The local comparison's C01 failure-audit link is unavailable on this node.\n\nThe next full experiment is **not selected for execution by this note**. The leading mechanism to qualify is adaptive verification at the existing k5; choosing another winner from the catalog before measuring its cost would repeat the same mistake.\n",
+      "hypotheses/C01.md": "# C01 — Humming: backend first, then indexed versus grouped\n\nStatus: **Grouped arm on hold after an externally reported poor result; indexed arm untested in the inspected records**. Updated: 2026-10-21 (Asia/Calcutta).\n\n**Claim:** Compare Marlin, Humming grouped and Humming indexed at identical BF16 activation semantics, routing, transport and graph settings. Use installed controls first; port only missing dispatch behavior.\n\n**Why:** Marlin currently executes the MXFP4 experts. Backend GEMMs and expert packing can consume different amounts of time for the same routed tokens; EP also affects grouped versus indexed execution.\n\n**Research finding:** Both audits agree. Fresh adds Humming0.1.16 schema counterevidence and failed #59488 patch application. A selectable name is not proof of legal W1/W2 schemas. Three fixed arms are more informative than bundling backend, activation and precision.\n\n**Original design:** [consolidated family card](../runs/h200-cross-audit-comparison-001/families/C01.md). The original card is a pre-execution snapshot; current execution history is below.\n\n## Generation and sources\n\n| Original identity | Saved generation / audit | Immutable memory identity |\n| --- | --- | --- |\n| `pr-evaluation-audit-001:E18` | [audit card](../runs/pr-evaluation-audit-001/experiments/E18.md) | `hypothesis:e3100621232016609bf5aab023207c5c7eed0f9d8f3fac2ba45ed0bca4470ae7` |\n| `h200-pr-evaluation-audit-001:H01` | [audit card](../runs/h200-pr-evaluation-audit-001/experiments/H01.md) | `hypothesis:146439e8d3fc755d219601f10413002d3a5f1845e963340a44906de059adbcd6` |\n| `h200-pr-evaluation-audit-001:H07` | [audit card](../runs/h200-pr-evaluation-audit-001/experiments/H07.md) | `hypothesis:f8233e5d4b7c4b826d28ff6413e9978513152fd4dadbb336e990337ba7a27de9` |\n| `h200-fresh-research-001:H01` | [audit card](../runs/h200-fresh-research-001/experiments/H01.md) · [builder/review R1](../runs/h200-fresh-research-001/compute/review-recovery/history.json) | `hypothesis:eaa599659d884ea8fa57ac168bb78edeee17f66935c779deccdc8cc39dcab29b` |\n\nPR/issue/paper URLs retained from the original cards and their cited source records (snapshot citations, not a fresh upstream-status check):\n\n- [deepseek-ai/DeepGEMM/pull/394](https://github.com/deepseek-ai/DeepGEMM/pull/394)\n- [deepseek-ai/DeepGEMM/pull/404](https://github.com/deepseek-ai/DeepGEMM/pull/404)\n- [deepseek-ai/DeepGEMM/pull/436](https://github.com/deepseek-ai/DeepGEMM/pull/436)\n- [deepseek-ai/DeepGEMM/pull/471](https://github.com/deepseek-ai/DeepGEMM/pull/471)\n- [flashinfer-ai/flashinfer/pull/5523](https://github.com/flashinfer-ai/flashinfer/pull/5523)\n- [vllm-project/humming/issues/38](https://github.com/vllm-project/humming/issues/38)\n- [vllm-project/recipes/pull/1002](https://github.com/vllm-project/recipes/pull/1002)\n- [vllm-project/vllm/issues/60600](https://github.com/vllm-project/vllm/issues/60600)\n- [vllm-project/vllm/pull/47583](https://github.com/vllm-project/vllm/pull/47583)\n- [vllm-project/vllm/pull/52318](https://github.com/vllm-project/vllm/pull/52318)\n- [vllm-project/vllm/pull/52657](https://github.com/vllm-project/vllm/pull/52657)\n- [vllm-project/vllm/pull/59488](https://github.com/vllm-project/vllm/pull/59488)\n- [vllm-project/vllm/pull/59488.patch](https://github.com/vllm-project/vllm/pull/59488.patch)\n- [vllm-project/vllm/pull/61149](https://github.com/vllm-project/vllm/pull/61149)\n- [vllm-project/vllm/pull/61371](https://github.com/vllm-project/vllm/pull/61371)\n- [vllm-project/vllm/pull/62011](https://github.com/vllm-project/vllm/pull/62011)\n\nSaved builder/research/DR evidence and source snapshots:\n\n- [h200-fresh-research-001/compute/evidence/packet.json](../runs/h200-fresh-research-001/compute/evidence/packet.json)\n- [h200-fresh-research-001/compute/review-recovery/brief.json](../runs/h200-fresh-research-001/compute/review-recovery/brief.json)\n- [h200-fresh-research-001/compute/review-recovery/history.json](../runs/h200-fresh-research-001/compute/review-recovery/history.json)\n- [h200-fresh-research-001/compute/review-recovery/input-evidence.json](../runs/h200-fresh-research-001/compute/review-recovery/input-evidence.json)\n- [h200-fresh-research-001/compute/review-recovery/sources.json](../runs/h200-fresh-research-001/compute/review-recovery/sources.json)\n- [h200-pr-evaluation-audit-001/sources/vllm-project__vllm__52318.json](../runs/h200-pr-evaluation-audit-001/sources/vllm-project__vllm__52318.json)\n- [h200-pr-evaluation-audit-001/sources/vllm-project__vllm__59488.json](../runs/h200-pr-evaluation-audit-001/sources/vllm-project__vllm__59488.json)\n- [pr-evaluation-audit-001/kernel-candidates/candidates.json](../runs/pr-evaluation-audit-001/kernel-candidates/candidates.json)\n- [pr-evaluation-audit-001/root-candidates/candidates.json](../runs/pr-evaluation-audit-001/root-candidates/candidates.json)\n\n## Execution history\n\n| Run | Outcome / key result | Detailed artifacts |\n| --- | --- | --- |\n| External grouped-Humming run; exact run ID unavailable here | Poor service outcome reported in the DeepInfer comparison. User confirmed this was on node 219. Raw results and linked failure audit are unavailable on this node; no numerical or matched-node conclusion imported. Indexed arm remains untested in the inspected records. | [External result notice](/home/ubuntu/AutoResearch-Inference/ideation/runs/deepinfer-comparison-001/REPORT.md) |\n\n**Next check:** Record effective backend, W1/W2 schema and GEMM type for both target and draft on every rank. Logs contain E384/top6/local96 and E128/top3/local32 configurations; resolve their role tags and qualify both. Preserve clamp10.\n\n**Stop/defer rule:** Stop on illegal schema, silent precision fallback, dispatch mismatch, numerical failure or no useful service improvement. Do not infer a win from GEMM time alone.\n\n[Back to index](README.md) · [Recording workflow](WORKFLOW.md)\n",
+      "hypotheses/C24.md": "# C24 — Adaptive target verification at the existing k5\n\nStatus: baseline timing diagnostic complete, **instrumentation inconclusive**; full hypothesis experiment not selected. Two full hypothesis attempts remain according to the user. This diagnostic is preparation, not an A/B claim.\n\n**Mechanism:** retain the five-token draft proposal, then use confidence and measured cost curves to allocate fewer target verification tokens where their expected progress is not worth their execution cost. The pinned vLLM already contains this controller. It can affect target work that C03 left unchanged; it can also add controller overhead, change graph execution and retain DP padding, so rejection rate alone is insufficient.\n\n**Origin:** the user's next-lead discussion following [C03's mechanism review](../runs/c03-mechanism-review-001/REPORT.md), and N03 in the [DeepInfer comparison](../runs/deepinfer-comparison-001/REPORT.md). This is a new manually recorded mechanism, not a fabricated builder/memory ID. Existing sources: [DeepInfer pinned budget controller](https://github.com/deepseek-ai/DeepInfer/blob/774ce244b87cc0eb8d4b94ab9f5de2ab22049f01/csrc/engine/mtp_varlen.hpp), [vLLM adaptive verification explanation](https://github.com/vllm-project/vllm-project.github.io/blob/main/_posts/2026-08-14-dspark-adaptive-verification.md). Saved source/research provenance remains in the linked comparison and original audits; no new deep-research response is claimed for this diagnostic.\n\n| Run | Scope | Result / evidence |\n| --- | --- | --- |\n| av-k5-timing-001 | Local H200 node, original pinned vLLM and latency-2xdep4-sla profile, Mooncake 0.5x; AV off. | [Report](../runs/av-k5-timing-001/REPORT.md), [complete evidence](../evidence/av-k5-timing-001/README.md). 986/986 successes, replay p99 4.65ms. One rank/window has only4 eligible decode cycles; five cells have unresolved GPU/launch timing associations. No AV qualification or speedup claim. |\n| synthetic-clock-001 | One H200 GPU0, bounded eager/graph long-operation instrument probe. | Clean structural/chronology checks; historical C24 failure unresolved. [Independent review](../runs/h200-overnight-001/evaluator/C24_FINAL_OFFLINE_REVIEW.md) |\n| synthetic-short-gpu6-001 | One previously implicated H200 GPU6, short add/copy operations across a 40-second recording. | All 1,536 pairs valid with zero negative chronology; old trace remains inconclusive. [Independent review](../runs/h200-overnight-001/evaluator/C24_SHORT_PROBE_RESULT_REVIEW.md) |\n\nQualification must establish useful target-versus-draft timing attribution, distinguish mixed prefill from decode, account for graph/DP padding and overlap, and verify current FlashMLA/backend/controller compatibility. A positive profile permits further component qualification; it is not proof of a service speedup or permission to skip correctness evaluation.\n\nThe first diagnostic did not satisfy that qualification. Its source/runtime identity and traffic fidelity passed, and all16 traces were preserved. A separately reviewed offline reader correction handles mirrored CPU/GPU annotation names, but does not resolve insufficient native cycle coverage or invalid timing associations. Target-owned GPU work also includes collective waiting. Keep AV provisional; there is no automatic rerun or AV-ON campaign. Original environments and all12 sealed C03 artifacts remain unchanged, and the node was returned to idle.\n\n## Pre-run source findings\n\nThe current DP path can consume an adaptive target graph's padded request capacity when sizing the draft. For five real requests/rank, a source-derived example changes target capacity36→16 rows but draft capacity35→80 rows. This is a valid dispatch counterfactual, not a measured budget choice or latency outcome. Any subsequent AV qualification must measure both costs and actual graph selection. See [complete source chain and boundary cases](../runs/av-k5-timing-001/IMPLEMENTATION_FEASIBILITY.md).\n\nThe pinned image also contains decoder-replay changes beyond its nominal upstream revision in `model_state.py`; the installed file is retained and attested. Version strings do not substitute for file hashes. The profiler and both observation-overlay bases match the actual image.\n\n## Research continuation: coupled target/draft cost\n\n[h200-continuation-001](../runs/h200-continuation-001/REPORT.md) preserves this\ndiagnostic's verdict and investigates a specific correction: the installed\nobjective already includes drafting, but `draft_cost_ms[len(req_ids)]` is constant\nacross verification budgets even when the subsequent draft descriptor changes.\nA [synthetic CPU probe](../runs/h200-continuation-001/av-cost-counterexample.json)\nchecks the actual installed budget method against an independent exhaustive\nprefix-allocation oracle. Both select budget11 with constant draft costs;\ninvented coupled costs change the oracle optimum to3. This demonstrates possible\ndecision sensitivity, not real timing, policy frequency, a correct new controller\nor an AV benefit. The probe was reproduced from a retained source snapshot.\n\nGenerated IDs `h200-continuation-001:H01` → `H01:r2`; final follow-up `R1`, immutable\nID `hypothesis:278baef7c495100debc4f103e3ec5d14355050e52c2595046fb74d25eff65b05`.\nThe [final review](../runs/h200-continuation-001/eligibility-followup/history.json)\naccepts **offline research design only**, score83/100. The next capped work is\njoint-rank dispatch reconstruction, deployable confidence/state access and an\ninstrumentation addendum. AV-off traces must not be presumed to contain runtime\nconfidence arrays. Account for changed accepted progress, controller and\ncoordination costs; compare AV-off, stock AV and a locked static policy.\n\nThe [intervention plan](../runs/h200-continuation-001/INTERVENTIONS.md) caps that\noffline work at8 engineer-hours with zero GPU-hours. The timing hold and both\nremaining full attempts are unchanged. [Scoped memory outcomes](../runs/h200-continuation-001/cheap-check-memory.json)\nlabel the synthetic CPU claim separately from service validation.\n\n## Overnight continuation started\n\n[h200-overnight-001](../runs/h200-overnight-001/README.md) resumes the coupled-cost\ninvestigation under the user’s overnight authorization. Independent evaluator,\ntooling and optimization roles are retained. The original timing verdict remains\ninconclusive. A bounded synthetic one-GPU profiler diagnostic is planned before\nany full-model recapture; it tests instrumentation, not AV performance.\n\n## Overnight offline conclusion\n\nThe [joint dispatch audit](../runs/h200-overnight-001/developer/C24_JOINT_DISPATCH.md) establishes missing remote budget/confidence state and target/draft capacity coupling. The installed objective already includes a request-indexed draft cost; simply adding a draft term is not a new intervention. Two bounded synthetic clock probes passed structural checks with zero chronology failures, but the historical timing failure remains unexplained. The independent [short-probe result review](../runs/h200-overnight-001/evaluator/C24_SHORT_PROBE_RESULT_REVIEW.md) recommends parking further instrumentation allocation. No AV implementation or performance result is claimed. See the [interim report](../runs/h200-overnight-001/REPORT.md).\n",
+      "runs/av-k5-timing-001/REPORT.md": "# C24 baseline timing diagnostic — AV off, k5\n\n**Decision: `instrumentation_inconclusive`; adaptive verification remains unqualified.** Traffic, runtime identity and cleanup passed, but the timing evidence failed its predeclared adequacy checks. This is a limitation of our measurement, not an AV performance failure. Adaptive verification was never enabled, and no service speedup or full hypothesis A/B result is claimed. The user's two remaining full attempts are unchanged.\n\n## Mechanism being qualified\n\nThe current server drafts five tokens, then runs the large target model to verify the proposed continuation. Adaptive verification keeps that five-token proposal but uses confidence and cost estimates to choose how many proposed tokens are worth verifying. Its potential benefit is fewer target-model token rows. Its costs include the controller itself, fewer accepted tokens per iteration, different graph shapes and extra draft padding. It needs a net improvement in time per accepted output token, not merely fewer target rows.\n\nThis differs from C03's occasional reduction of draft padding. C03 proved that its graph-selection mechanism activated, but never established a sufficiently expensive time contribution; its valid service screen failed promotion. Here the prerequisite is a direct, bounded observation of baseline target and draft work before selecting an AV experiment.\n\nA concrete source-derived warning remains: with five real requests per rank, one valid adaptive dispatch changes target capacity **36→16 rows**, while draft capacity changes **35→80 rows**. These are reachable source-level capacities, not observed AV choices or predicted latency. The installed code already contains an AV controller and the checkpoint index contains its confidence-head weight; metadata presence is not proof of the head's runtime use. See [source feasibility and exact code chain](IMPLEMENTATION_FEASIBILITY.md).\n\n## What ran\n\n| Setting | Exact diagnostic |\n| --- | --- |\n| Node | `jl-vm-541077`, eight H200s; this node only |\n| Baseline profile | Original `latency-2xdep4-sla.yaml`, SHA256 `edb4c68cb4ee72415abe65c077683a8f88942bfcc8fff5833270ba05cdddcab8` |\n| Runtime | Original pinned vLLM image, nominal revision `ac9126e58aa7bbab1856ba6593ba4d5003fea516`; installed file identities are authoritative |\n| Model | DeepSeek-V4.1-Flash, revision `2cba9e42aa026125f3ed06c6d98c1db82f7ca027` |\n| Parallel layout | Two replicas, each TP1/DP4/EP4; two API processes per replica |\n| Speculation | DSpark k5, probabilistic drafting, block rejection; **AV off** |\n| Other baseline behavior | FP8 KV, prefix cache, Engram host offload and DP embedding; original graph capacities and request logging |\n| Workload | First986 exact rows of the median Mooncake trace, ordinary runner at 0.5×; 299.232 s arrival span |\n| Client | Original `.venv-aiperf`, seed 42, maximum 256 workers, 120 s warmup |\n| Captures | Phase +90 s and +210 s; all eight workers; CPU+CUDA, warmup 1 / active 20 / max 20; no stack/shape/memory/FLOP recording |\n| Observation | Three CPU `record_function` labels in two read-only source copies; removing labels reproduces original AST; no new synchronization or computation |\n| Evaluator separation | Independent designer `c03_evaluator`; tooling builder `c03_evaluator_builder_review`; source/launch developer `c03_dev_review`; root owns runtime and publication |\n\nThe986-row prefix is a short sample, not the full 4,004-request workload. Its service score cannot be compared directly with C03's full-trace score. [Subset receipt](subset-receipt.json), [contract](EVALUATION_CONTRACT.md), [actual runtime identity](runtime-identity.json) and [capture inventory](startup-capture-inventory.json) bind the settings and sources.\n\n## Workload and control validity\n\n| Check | Observed result |\n| --- | --- |\n| Warmup | 55 completed, 0 errors |\n| Profiling requests | 986/986 completed, 0 errors, 0 cancellations; unique IDs and workload keys |\n| Completion ratio | 100% |\n| Replay p99 / degraded | 4.6538368 ms / false |\n| NOTICE versus exact phase start |NOTICE is 46,323 ns earlier; within the prospective 1 s bound |\n| Four capture dispatch errors |+2.894ms,+4.844ms,+0.326ms,+0.713ms relative to exact phase+offset |\n| Saved traces | 16 files, all eight workers in both episodes; no silent selection of favorable ranks |\n| Final drain |Router and all eight running/waiting pairs zero for three consecutive 1 s samples |\n| Original files and environments |All 30 pinned file checks and both package inventories unchanged |\n| Cleanup |All eight GPU allocations released; ports 8000/8100/8101 closed; monitoring 9400 preserved |\n\nThe console's 107,615 ms replay warning exactly matches the **separate warmup** aggregate, not profiling. Both phase exports are retained. A server-metrics completion RPC timed out after the workload ended; its Parquet export later completed 3,105,464 rows and the client reported all results received. This is an observability delay, not a request failure or proof that every telemetry scrape succeeded. The runner exited 1 because the completed prefix missed service SLOs; service eligibility is not this diagnostic's fidelity gate. See [phase reconciliation](phase-final.json), [fidelity receipts](fidelity-builder.json), [cleanup](cleanup.json) and [integrity](final-integrity.json).\n\n## Timing interpretation\n\nThe frozen criteria require at least ten complete decode-only cycles per rank/window, actual CPU-launch-to-CUDA correlations, both target and draft graph coverage, and at least 95% categorized device-busy union. The conditional materiality heuristic is target-attributed occupied time at least 20% of complete-cycle span on every rank in both windows. The adequacy gate failed before that heuristic could authorize any next experiment.\n\nThe decisive shortfall is replica 1, DP 2, phase +90 s: the trace contains 26 target ranges but only 8 native execute ranges, and only **4 complete eligible decode cycles** survive the required joins. Nineteen target candidates lack an unambiguous native/draft join, two are mixed prefill/no-generation, and one lacks its following boundary. Other rank/window cells retain 15–19 eligible cycles. A configuration requesting 20 active profiler steps did not guarantee20 readable decode cycles.\n\nFive cells also contain GPU activities whose recorded end precedes the start of their supposedly correlated CPU launch:53,406,43,91 and54 events respectively. The reader retains them as unattributed and flags graph-coverage uncertainty. These observations do not distinguish a timestamp calibration problem from a correlation/trace-format problem; no invented correction or timestamp tolerance was applied. Their exact cause remains unresolved.\n\nReadable cycle subsets show target-attributed occupied fractions of roughly 39.6–97.1% of cycle span. These are **descriptive values from an inadequately qualified capture**, not a validated AV opportunity or expected percentage saving. Some target-owned kernels are NCCL collectives, with individual long activities around 40–52 ms in replica 0's second episode. Execution or waiting inside a collective is not necessarily reducible by verifying fewer tokens. Uneven profiling/export across cooperating ranks is a plausible perturbation, not a measured causal explanation.\n\nThe predeclared inactive bracket at phase 110–130 s overlaps the first episode's replica 1 stop/export response until phase 113.651 s. It remains marked contaminated and is not shifted to a more favorable interval. The other three brackets have no control/export overlap. These brackets are descriptive context under different traffic, not an unbiased profiler-overhead estimate.\n\nSee the complete [reader output](trace-summary-v2.json), [trace inventory](trace-inventory-builder.json), [independent review](EVALUATOR_REVIEW.md), and per-cell timing table below. A cell passing local reader checks does not repair the required all 16-cell coverage.\n\n| Phase offset | Replica / DP rank | Eligible cycles | Target occupied | Draft proposal occupied | No observed GPU activity | Local adequacy |\n| --- | --- | ---: | ---: | ---: | ---: | --- |\n| +90 s | 0 / 0 | 19 | 86.77% | 6.99% | 4.27% | Pass local checks |\n| +90 s | 0 / 1 | 19 | 86.74% | 7.01% | 4.29% | Pass local checks |\n| +90 s | 0 / 2 | 19 | 86.83% | 6.82% | 4.30% | Pass local checks |\n| +90 s | 0 / 3 | 19 | 86.64% | 6.97% | 4.40% | Pass local checks |\n| +90 s | 1 / 0 | 16 | 96.05% | 2.05% | 1.46% | Association uncertainty |\n| +90 s | 1 / 1 | 19 | 80.19% | 8.17% | 8.90% | Pass local checks |\n| +90 s | 1 / 2 | 4 | 39.56% | 0.43% | 59.98% | Only 4 cycles; association uncertainty |\n| +90 s | 1 / 3 | 19 | 80.09% | 8.13% | 9.03% | Association uncertainty |\n| +210 s | 0 / 0 | 17 | 97.07% | 1.83% | 0.83% | Pass local checks |\n| +210 s | 0 / 1 | 15 | 90.53% | 5.92% | 2.38% | Pass local checks |\n| +210 s | 0 / 2 | 15 | 90.27% | 5.78% | 2.62% | Pass local checks |\n| +210 s | 0 / 3 | 18 | 97.13% | 1.81% | 0.81% | Pass local checks |\n| +210 s | 1 / 0 | 19 | 87.58% | 6.46% | 4.15% | Association uncertainty |\n| +210 s | 1 / 1 | 19 | 87.60% | 6.49% | 4.18% | Pass local checks |\n| +210 s | 1 / 2 | 19 | 87.60% | 6.46% | 4.23% | Pass local checks |\n| +210 s | 1 / 3 | 19 | 88.00% | 6.41% | 3.83% | Association uncertainty |\n\nPercentages use summed same-device complete-cycle span within each cell. Absence of observed GPU activity does not establish physical idleness, especially in flagged cells. Other/unattributed work and any overlap are retained in the [full table](timing-table.json) and [CSV](timing-table.csv); these columns are not an exhaustive additive partition. The required all-cell gate fails despite 11 cells passing local reader checks.\n\nThis heuristic does not establish a service critical path, reducible computation, an AV budget or expected speedup. Target ranges include graph-contained communication. Draft execution is a composite graph containing context preparation, model and sampling; draft execution is contained in draft proposal and must not be added to it again. Same-device unions and overlaps are required; summing ranks is not wall time.\n\n## Consequence for the remaining attempts\n\nDo not select AV as the highest-ROI experiment from this evidence and do not launch an AV-ON campaign. The source mechanism is still plausible, but we have not measured its removable cost. There is no automatic replacement run. Any further timing diagnostic needs a prospective instrumentation addendum addressing actual trace categories, timestamp associations, native decode-cycle coverage and rank-dependent profiling perturbation before consuming more GPU time. A later AV qualification must also measure its controller overhead, draft-padding tradeoff, accepted progress and correctness. No C03 patch is silently combined with it.\n\n## Measurement issue preserved\n\nTorch emitted CPU `user_annotation` and mirrored `gpu_user_annotation` events with identical names. The original reader selected by name alone and mixed CPU worker identities with the GPU namespace. The corrected, separately retained reader selects CPU annotation parents explicitly, then uses the same actual CUDA correlations. Independent review approved its two-line schema fix and ten CPU tests before the full 16-trace pass. The original reader/source and first-actual-trace reproduction are retained. No runtime rerun, different threshold or weaker attribution rule was used. [Offline schema addendum](READER_SCHEMA_ADDENDUM.md).\n\n## Cost and preservation\n\nCold startup took about 26 minutes on this node, including about 20 minutes of model loading. The measured cause of that slow load is unknown. Task-owned containers occupied the node from 20:51:10 to approximately21:29:48 UTC: about 38.6 minutes, or 5.15 allocated GPU-hours across eight GPUs. This includes startup, warmup, replay, export and cleanup; it is not all active inference time. The arrival trace itself spans about 5 minutes. Future pilot budgets must include startup and evidence-processing costs.\n\nAll raw traces, backend/client/router logs, request exports and evaluator/source versions are preserved in the [checksummed evidence archive](../../evidence/av-k5-timing-001/README.md). Readable records are organized through [execution](../../records/EXECUTION.md), [analysis](../../records/ANALYSIS.md), [meta-learning](../../records/META_LEARNING.md) and the [C24 hypothesis card](../../hypotheses/C24.md). The original C03 execution artifacts and verdict remain unchanged.\n",
+      "hypotheses/C25.md": "# C25 — Isolated unsharded DSpark sampler fusion\n\nStatus: component qualified with a positive measured signal; native integration\nincomplete after baseline observation failures and candidate startup interruption. No new service result. Scope: H200 seq64, two TP1/DP4/EP4 replicas,\nMarlin, probabilistic DSpark k5, AV off. Updated 2026-10-21 Asia/Calcutta.\n\n**Claim:** retaining the bias GEMM while fusing repeated logits, Gumbel sampling,\ncache writes, reduction and embedding transport could shorten eligible draft\ncalls. Local frequency, exposed time and service delta are unknown. This is\ndistinct from [C03](C03.md)'s occasional draft-capacity reduction.\n\n**Origin:** [vLLM PR61869](https://github.com/vllm-project/vllm/pull/61869), installed\nDSpark source, and [H200 continuation](../runs/h200-continuation-001/REPORT.md).\nGeneration IDs `h200-continuation-001:H02` → `H02:r2`; follow-up `R2`, immutable\nID `hypothesis:00dd9a19b06277117d485b35911490178106782ea69466d69053e140a2024d5f`.\nSee [all original proposals/reviews](../runs/h200-continuation-001/hypotheses/history.json)\nand [follow-up](../runs/h200-continuation-001/eligibility-followup/history.json).\n\n**Current conclusion:** the original model selection remains deferred, score 71/100. Subsequent operator-authorized qualification has established source eligibility, exact component parity and a 25–40% sampler-component gain across eight fixed shapes. The native campaign retained valid baseline evidence but never measured the candidate; a prospective actual-request diagnostic remains conditional. Service benefit remains unknown.\n\nThe first proposal's unregistered citation was rejected and repaired. Later\nreviews retained an outdated statement that the complete launcher/reduction was\nmissing. **Operator clarification:** the full 284-line implementation is now\n[retained and source-reviewed](../runs/h200-continuation-001/ELIGIBILITY_CHECKS.md).\nThat availability blocker is resolved; original cards/reviews are unchanged.\nCounter ordering, scratch replay, SM90 compilation and real-weight parity were\nsubsequently qualified within the overnight component scope. This clarification does not convert the model's decision to accepted.\n\n| Run | Scope / result | Evidence |\n| --- | --- | --- |\n| h200-continuation-001 | Source audit only; effective draft watermark configuration and a specialization-independent adapter remain unresolved. | [Checks](../runs/h200-continuation-001/ELIGIBILITY_CHECKS.md), [full retained sampler](../runs/h200-continuation-001/sources/proposed-fused-sampler.py) |\n| sampler-component-001 | Infrastructure error before weights/fixtures; checkpoint mount did not resolve nested symlinks. | [Retained receipt](../runs/h200-overnight-001/executions/sampler-component-001/execution.json), [reviewed repair](../runs/h200-overnight-001/evaluator/C25_MOUNT_REPAIR_REVIEW.md) |\n| sampler-component-002 | Exact controlled component parity; 24.99–39.73% graph-duration gain across eight fixed shapes. | [Raw result](../runs/h200-overnight-001/executions/sampler-component-002/component/result.json), [independent review](../runs/h200-overnight-001/evaluator/C25_COMPONENT_RESULT_REVIEW.md) |\n| native-pair-001 | Infrastructure error reading root-owned container executable identity after all eight A native oracles/capture/restoration checks passed. No traffic or B; 2.558871 GPU-hours retained. | [Receipt](../runs/h200-overnight-001/native-executions/native-pair-001/execution.json), [independent failure review](../runs/h200-overnight-001/evaluator/C25_NATIVE_001_INFRA_REVIEW.md) |\n| native-pair-002 | All eight A native checks and ten exact requests passed; incomplete lifecycle because never-used ranks omitted lazy running/waiting gauges. No B; 2.419461 GPU-hours. | [Repair release](../runs/h200-overnight-001/evaluator/C25_NATIVE_REPAIR_002_REVIEW.md), [receipt](../runs/h200-overnight-001/native-executions/native-pair-002/execution.json) |\n| native-B-continuation-003 | Infrastructure interruption before candidate native receipts or traffic; Docker SIGTERM preceded telemetry timeout, initiating command unresolved. 1.685738 GPU-hours. | [Independent interruption review](../runs/h200-overnight-001/evaluator/C25_NATIVE_003_INTERRUPTION_REVIEW.md), [receipt](../runs/h200-overnight-001/native-executions/native-B-continuation-003/execution.json) |\n| live-event-pool-001 | Engineering preflight passed for 65,536 event pairs; 5.500 seconds overall supervision, no model/traffic. | [Resource review](../runs/h200-overnight-001/evaluator/C25_LIVE_POOL_RESULT_REVIEW.md), [receipt](../runs/h200-overnight-001/executions/live-event-pool-001/execution.json) |\n| No service screen | No service speedup measured. | [Bounded intervention plan](../runs/h200-continuation-001/INTERVENTIONS.md) |\n\n**Next gate:** clarify node ownership after the unresolved startup SIGTERM, then review the distinct candidate-first real-request design. Both loaded arms must qualify actual native capture/oracle and identical lifecycle checks before profiling. Preserve the original service gates and distinguish actual proposal-stage timing from useful decode progress and unprofiled ITL.\n\n[Back to index](README.md)\n\n## Overnight component qualification started\n\n[h200-overnight-001](../runs/h200-overnight-001/README.md) resolves source/config\neligibility from actual installed files and prior effective argv. No engine\nwatermark configuration was supplied, so the request flag did not instantiate a\ndraft watermarker. The upstream sampler also uses a draft-step RNG helper absent\nfrom this image; a compatible port must preserve the installed RNG instead.\nSee the [source audit](../runs/h200-overnight-001/developer/APPLICABILITY.md) and\n[prospective component contract](../runs/h200-overnight-001/evaluator/C25_COMPONENT_CONTRACT.md).\nIndependent real-weight correctness and graph-versus-graph timing are planned;\nno service gain or full experiment readiness is established.\n\n## Overnight component result\n\n`sampler-component-001` retained an infrastructure failure before fixture execution; `sampler-component-002` passed 108 fixtures, 2,560 graph replays and six negative controls. Thirty paired graph blocks per shape show 24.99–39.73% component gains,45–154µs saved. See the [report](../runs/h200-overnight-001/REPORT.md) and [independent review](../runs/h200-overnight-001/evaluator/C25_COMPONENT_RESULT_REVIEW.md). Memory test `test:3dbcaf13acc4b207a82be5c52aa1f2112d178de2eae0e24636a35a37ef7314fb` is validated only for the stated component scope. Original selection history is unchanged.\n",
+      "hypotheses/C26.md": "# C26 — Conditional SM90 FP32-weight router kernel port\n\nStatus: proposed port inapplicable to the frozen BF16-weight baseline. No kernel implementation, GPU\npilot or serving experiment. Scope: existing H200 DeepSeek/Marlin/EP4 service.\nUpdated 2026-10-21 Asia/Calcutta.\n\n**Claim:** if the installed learned router executes an unoptimized FP32-weight\nGEMM, the proposed Hopper BF16x3 kernel could shorten repeated routing work.\nFP32 output alone does not establish that branch. Local time share is unknown.\n\n**Origin:** [vLLM PR61903](https://github.com/vllm-project/vllm/pull/61903), nominal\nGateLinear/DeepSeek construction, and the\n[H200 continuation](../runs/h200-continuation-001/REPORT.md). Generation IDs\n`h200-continuation-001:H03` → `H03:r2`; follow-up `R3`, immutable ID\n`hypothesis:5682260d4607d05bd0b3aa44274e26077eb8d9329b51091afde251bc37bcc1e5`.\n[Original reviews](../runs/h200-continuation-001/hypotheses/history.json) and\n[follow-up](../runs/h200-continuation-001/eligibility-followup/history.json)\npreserve the score change from 70 to 63 after new evidence. Scores are research\npriorities, not predicted speedups.\n\n**Current conclusion:** the overnight audit establishes all 43 learned-router weights are BF16, and actual installed allocation/loading preserve that dtype. The proposed FP32-weight branch is inactive. The independent reviewer closes this applicability question without spending GPU time; this is not a measured performance rejection.\n\n| Run | Scope / result | Evidence |\n| --- | --- | --- |\n| h200-continuation-001 | Read-only safetensors headers: target layers 6/14 are BF16 384×5120; draft MTP0 is BF16 128×5120. No tensor loading/GPU work. Loaded-path eligibility remains inconclusive. | [Metadata receipt](../runs/h200-continuation-001/router-checkpoint-metadata.json), [analysis](../runs/h200-continuation-001/ELIGIBILITY_CHECKS.md) |\n| h200-overnight-001/source | All 43 router headers and installed allocation/load/dispatch reviewed; FP32-weight mechanism inapplicable, no GPU work. | [Audit and independent review](../runs/h200-overnight-001/evaluator/APPLICABILITY_REVIEW.md) |\n| No serving run | No performance rejection or speedup measured. | [Intervention plan](../runs/h200-continuation-001/INTERVENTIONS.md) |\n\n**Reopen only if:** installed loader/cast evidence shows existing FP32 weights,\nan active eligible learned-router branch and an absent equivalent optimization.\nA residual CPU/source inspection may use at most three engineer-hours. Do not\ncast weights just to create eligibility. Qualify exact native shapes, numerical\nand routing effects, graph behavior and quality before GPU allocation. This\ndoes not reopen [C01](C01.md)'s grouped expert-backend arm.\n\n[Back to index](README.md)\n\n## Overnight installed-source applicability result\n\nThe [complete audit](../runs/h200-overnight-001/developer/APPLICABILITY.md) scans\nall 43 router weight headers (all BF16) and traces actual BF16 allocation,\ncopy-preserving loading and the FP32-weight dispatch predicate. It closes the\nremaining source/config eligibility question: this FP32-weight mechanism is\ninapplicable to the frozen baseline. No GPU run or weight conversion was used.\nIndependent review is recorded with the [overnight run](../runs/h200-overnight-001/README.md);\nthis is an applicability rejection, not a measured router-performance result.\n",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/REPORT.md": "# H200 research continuation: findings and next decisions\n\nUpdated 21 October 2026, Asia/Calcutta. Research and CPU/software checks only;\n**zero new serving/GPU runs and neither remaining full service attempt used.**\n\nThe deeper search produced three plausible, falsifiable mechanisms, but no\ndemonstrated optimization gain. The useful outcome is a narrower allocation:\ncontinue C24's cost/measurement investigation offline, inspect the isolated\nDSpark sampler's exact eligibility, and hold the FP32 router port pending evidence\nthat it applies. Publication novelty is not a selection requirement.\n\n## Current intervention decisions\n\n| Family | Proposed intervention and evidence | Current decision |\n| --- | --- | --- |\n| C24 | Price the target **and subsequent draft graph** after DP synchronization. Installed AV already includes a request-indexed draft-cost term; source analysis shows the draft graph can change with the target budget. An independent synthetic CPU oracle changes the optimal budget from 11 to 3 when invented coupled costs are included. | Continue offline dispatch/measurement design, cap 8 engineer-hours. Preserve the completed instrumentation-inconclusive timing verdict and GPU hold. No real policy error or latency benefit is measured. |\n| C25 | Port only the unsharded DSpark sampler fusion from vLLM PR61869. It retains the bias GEMM and could remove repeated sampling/glue work. The whole PR depends on specialized SM100 execution; the narrow H200 adapter is a separate proposal. | Conditional source/configuration audit, cap 4 engineer-hours. Resolve draft watermark ownership, accessor/dispatch gates and real-weight parity before implementation. Complete kernel/launcher source is now retained; SM90 correctness and materiality remain unknown. |\n| C26 | Port PR61903's SM90 BF16x3 router kernel **if** an eligible FP32-weight branch is active and unoptimized. | Hold implementation/GPU work. Three sampled checkpoint gates are BF16; nominal GateLinear's FP32 output does not establish FP32 weights. Loaded dtype/actual dispatch remain unverified, so this is a cheap adverse applicability finding, not a measured performance rejection. |\n\n[Detailed intervention plans](INTERVENTIONS.md) specify controls, correctness,\nopportunity coverage, expected-effect uncertainty, engineering costs, GPU budgets\nand support/stop/inconclusive rules. [Cheap check receipts](ELIGIBILITY_CHECKS.md)\nseparate actual observations from synthetic examples and nominal source.\n\nC03's valid unfavorable screen remains unchanged: primary ITL +1.8467%, TTFT\np99 +7.8332%, E2E p99 −5.33%; no promotion. C01's external grouped-Humming\npoor-result notice still lacks local raw artifacts; its indexed arm remains\ndistinct and untested. C24's timing coverage/association failures are preserved.\nA new rubric does not reset any of these outcomes.\n\n## What the deeper scan did—and did not cover\n\nThe earlier process used title/catalog rules, ranked searches capped at 35 hits\nper query/repository, bounded recent feeds and selected mechanism packets. It\nwas useful discovery, **not comprehensive semantic review or a complete bulk\narchive**. SGLang had supplemental coverage; DeepInfer was absent from the\noriginal 13-repository catalog.\n\nThis pass scanned **8,908 distinct local PR/issue identities** across fourteen\noverlapping topic groups without a local query-result cap. **1,122 remain\ntitle-only.** It fetched/refreshed **2,202 unique opening records across 17\nrepositories**; these are not all new additions. DeepInfer's all-state endpoint\nwas exhausted at **95 PRs**, while vLLM, SGLang, InferenceX and FlashInfer retain\nunfinished feed cursors. Other recent feeds cover updates since 13 October UTC.\n\nA 40-entry unmatched sample found missing RoPE, quantization, correctness and\nrelease vocabulary; eight leads were explicitly reopened. Expanded patterns\nretain **525 unmatched entries**, with no automatic exclusion. Because that\nsample guided query repair, it is not an independent recall estimate.\n\nCloser acquisition retained **28 selected pages/openings and 26 patches**,\nincluding 14 DeepInfer PRs. The generation packet combines 23 primary/code/paper\nsources and 31 quote-validated claims; the follow-up adds actual cheap-check\nevidence and complete sampler source. Acquisition depth, semantic review and\npilot readiness are separate quantities. Full historical discussions, all\nreviews and every patch remain outside this pass.\n\nSee [filtering audit](FILTERING_AUDIT.md), [topic ledger](discovery/topic-ledger.csv),\n[per-feed receipts](discovery/feed-coverage.json), and the\n[compressed opening snapshot](sources/feed-openings.jsonl.gz) with its\n[count/hash manifest](sources/feed-openings-manifest.json).\n\n## DeepInfer's contribution\n\nThe pinned release supplies confidence-scheduled verification, runtime cost\ncorrection, asynchronous scheduling, shared indexer/attention metadata, fused\npaths, load balancing and bounded replay. Its full serving stack is not released,\nand its released NVIDIA path remains SM100.\n\nThe new PR review materially changes the Hopper picture: #92 contains a broad\nSM90 port with author-reported H20 results, beyond the earlier RFC/helper work.\nIts discussion says it will be maintained outside mainline. It is an expensive\nport/integration lane, not established H200 service support or a drop-in gain.\nThe reported GSM8K demonstration/scoring overlap also prevents treating that\nclaim as our clean held-out quality qualification.\n\nOther useful leads include #54 timing-event/host overhead, #111 queue/output\nwork, #99 single-node Engram compatibility, #107 logical-expert history across\nremaps, and resource/configuration/evaluation correctness fixes. Their relevance\ndepends on matching local paths: large-queue fixtures, extra collectives,\ndifferent weight formats and disabled EPLB cannot simply transfer into the\ncurrent seq64 Marlin/EP4 service. See the sourced\n[DeepInfer review](DEEPINFER.md) and [95-PR disposition ledger](DEEPINFER_DISPOSITIONS.csv).\n\n## How continuation and review now work\n\nThe new `hypothesis.continue` tool freezes the complete family register, linked\ncards, explicit holds, prior results and supplied artifacts with hashes. The\ngenerator and critic receive every indexed family state alongside bounded\ndatabase recall. A new handoff records added/modified/removed inputs and links\nits predecessor. Changed results block publication of an obsolete assessment;\nold proposals and reviews remain intact. Explicit reopening requires new\nevidence and a scope/mechanism delta.\n\nThe rubric is present in both generation and workflow. This run's frozen weights\nare expected baseline value 30, pilot decision value 25, engineering time/fit 20,\nevaluation cost 15 and evidence/history 10; threshold 70. They are prioritization\njudgments, not a probability or speedup estimator. Unknown local benefit is\nallowed at ideation and must be resolved before an expensive attempt.\n\nTwo proposal/critique rounds preserve six proposal instances for three\nmechanisms. The sampler's first draft was structurally rejected for citing an\nunregistered report path; its revision repairs the evidence ID. The raw first\nrun also exposed duplicate parent/revision selection when parents used global\nmemory IDs. The runner now resolves those IDs correctly, and a fresh eligibility\nreview reconsiders one latest revision per mechanism with the new evidence.\nHistorical raw outputs remain unchanged. A fourth idea was not manufactured to\nfill the requested maximum.\n\nThe final review records C24 **accepted for offline test design, 83/100**;\nsampler fusion **deferred, 71/100**; router port **deferred, 63/100**. The router\nwas previously 70/100 before the BF16 evidence. For the sampler, the copied\nproposal's missing-source statement is obsolete: the operator's current card\nand dispositions explicitly correct availability while retaining the raw model\ndeferral and the unresolved watermark/adapter/correctness gates.\n\nUse [the final eligibility review](eligibility-followup/decision.md),\n[current dispositions](dispositions.json), and\n[the latest continuation handoff](handoff-003/continuation.json) for next work.\nThe [workflow documentation](../../docs/CONTINUATION.md) contains CLI examples;\n[system upgrade plan](SYSTEM_UPGRADE_PLAN.md) records completed fixes and the next\nvalidation work.\n\n## What this establishes about AI research\n\nThe process produced source-grounded conditional interventions, incorporated\nunfavorable/inconclusive history, caught a citation error, revised proposals,\nand used a cheap check to reduce willingness to allocate to one lead. **58\nsoftware tests pass**, including stale-result blocking and revision-lineage\nselection. CPU probe outcomes are linked to immutable proposal IDs with explicit\nscope; synthetic sensitivity is not recorded as a service validation.\n\nThis is evidence that the mechanics can support a disciplined research process.\nIt does not establish a performance win, comprehensive retrieval recall, or\nsuperiority to human/keyword/random selection. The next decisive validation is\nwhether the bounded offline work and qualified pilots yield a useful matched\nservice improvement per total time and evaluation cost. A justified stop is\nalso useful if it prevents an expensive inapplicable attempt. The\n[research-validation plan](RESEARCH_VALIDATION.md) specifies the prospective\nequal-budget comparison and preserves those limits.\n",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/dispositions.json": "{\n  \"scope\": \"Research allocation only; no measured optimization value\",\n  \"decisions\": [\n    {\n      \"family_id\": \"C24\",\n      \"hypothesis_id\": \"hypothesis:278baef7c495100debc4f103e3ec5d14355050e52c2595046fb74d25eff65b05\",\n      \"proposal_id\": \"R1\",\n      \"model_assessment\": {\n        \"eligible\": true,\n        \"status\": \"accepted\",\n        \"score\": 83.0,\n        \"reasons\": [],\n        \"policy_id\": \"policy:676c1853767a316c9d4e31d62334c3342ad8cfd40a3eaf515d0fcad770a06993\",\n        \"meaning\": \"Eligible for experiment design only; not scientifically validated or a measured improvement\"\n      },\n      \"operator_disposition\": \"offline_continuation\",\n      \"reason\": \"Coupled draft cost can change synthetic decisions; actual joint-rank dispatch/cost and timing design remain unresolved. Preserve C24 instrumentation-inconclusive and GPU hold.\",\n      \"next_cpu_engineering_hour_cap\": 8,\n      \"gpu_ready\": false,\n      \"service_ready\": false,\n      \"local_ITL_delta\": \"unknown\",\n      \"review\": \"/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/eligibility-followup/history.json\"\n    },\n    {\n      \"family_id\": \"C25\",\n      \"hypothesis_id\": \"hypothesis:00dd9a19b06277117d485b35911490178106782ea69466d69053e140a2024d5f\",\n      \"proposal_id\": \"R2\",\n      \"model_assessment\": {\n        \"eligible\": false,\n        \"status\": \"deferred\",\n        \"score\": 71.0,\n        \"reasons\": [\n          \"Critic: factual support needs inspection\"\n        ],\n        \"policy_id\": \"policy:676c1853767a316c9d4e31d62334c3342ad8cfd40a3eaf515d0fcad770a06993\",\n        \"meaning\": \"Eligible for experiment design only; not scientifically validated or a measured improvement\"\n      },\n      \"operator_disposition\": \"conditional_source_audit\",\n      \"reason\": \"Full sampler/launcher source is now retained, superseding the copied card availability blocker. Effective draft watermark configuration, generic adapter, SM90 correctness and exposed savings remain unresolved. Original model deferral is preserved.\",\n      \"next_cpu_engineering_hour_cap\": 4,\n      \"gpu_ready\": false,\n      \"service_ready\": false,\n      \"local_ITL_delta\": \"unknown\",\n      \"review\": \"/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/eligibility-followup/history.json\"\n    },\n    {\n      \"family_id\": \"C26\",\n      \"hypothesis_id\": \"hypothesis:5682260d4607d05bd0b3aa44274e26077eb8d9329b51091afde251bc37bcc1e5\",\n      \"proposal_id\": \"R3\",\n      \"model_assessment\": {\n        \"eligible\": false,\n        \"status\": \"deferred\",\n        \"score\": 63.0,\n        \"reasons\": [\n          \"baseline_relative_value: The proposed causal path applies only to an active FP32-weight router branch. New checkpoint evidence reports three sampled weights as BF16, while nominal GateLinear requires \\\"self.weight.dtype == torch.float32\\\" for BF16x3 eligibility. This materially weakens applicability without proving loaded dtype. The remaining three-hour loader/cast audit is justified; optimization value remains unresolved.\",\n          \"Priority below this task's threshold; reconsider with evidence or a revised policy\"\n        ],\n        \"policy_id\": \"policy:676c1853767a316c9d4e31d62334c3342ad8cfd40a3eaf515d0fcad770a06993\",\n        \"meaning\": \"Eligible for experiment design only; not scientifically validated or a measured improvement\"\n      },\n      \"operator_disposition\": \"applicability_hold\",\n      \"reason\": \"Sampled BF16 checkpoint gates weaken FP32-weight branch eligibility. Actual loaded dtype and installed dispatch remain unknown; do not cast weights or allocate GPU to create applicability.\",\n      \"next_cpu_engineering_hour_cap\": 3,\n      \"gpu_ready\": false,\n      \"service_ready\": false,\n      \"local_ITL_delta\": \"unknown\",\n      \"review\": \"/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/eligibility-followup/history.json\"\n    }\n  ],\n  \"GPU_hours_used\": 0,\n  \"full_service_attempts_used\": 0,\n  \"full_service_attempts_remaining\": 2,\n  \"source_availability_correction\": \"C25 complete source exists and was inspected; copied raw proposal/review statements remain immutable.\"\n}\n",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/AUTHORIZATION.md": "# Overnight continuation authorization and frozen scope\n\nThe user requested: “keep working overnight [on] top 3 hypothesis priorit[ized\nby] improvement potential in the relevant metrics. Same as previous run keep\nlogging and properly following all protocols around research and documentation.”\nThis authorizes continued qualification and execution when the existing gates\nare satisfied; it supersedes the previous turn's research-only restriction.\nIt does not erase any scientific hold, unfavorable result or correctness gate.\n\nResume from `../h200-continuation-001/handoff-003/continuation.json`. Initial\nallocation order is C24 coupled verification/draft cost, C25 unsharded sampler\nfusion, C26 FP32-weight router eligibility. Their local latency deltas remain\nunknown. Ranking is conditional potential and information value, not a measured\nbenefit prediction. Cheap source stops take precedence over occupying a GPU slot.\n\nThe explicitly invoked [workflow](../../hypotheses/WORKFLOW.md) requires separate\nevaluator design, evaluator implementation and optimization development as in\n[C03's execution brief](../c03-test-plan-001/EXECUTION_BRIEF.md). Assigned roles:\n`overnight_evaluator` designs/reviews; `overnight_tooling` implements evaluator\ntooling; `overnight_developer` audits/builds the candidate; root orchestrates,\nattests resources, launches any qualified work and publishes the record.\n\nKeep the current node, eight H200 GPU identities, pinned container/model,\noriginal profile, serving/client environments and sampler semantics. Use only\nisolated source overlays; never edit old evidence or the original environment.\nPrimary service endpoint remains Mooncake median 0.5× long-output median ITL.\nPreserve positive screening, 2% confirmation lower bound, 3% tail guards,\ncorrectness and fidelity requirements, and the existing independent evaluator.\nNo service effect is inferred from synthetic costs or upstream GPU results.\n\nTwo full service attempts remain. Offline initial caps are C24 8 engineering\nhours, C25 4, C26 3. These are ceilings, not a requirement to spend the hours.\nAny GPU phase first needs a concrete independently reviewed prospective plan,\nsource/config attestation and wall/GPU-hour cap including cold startup/cleanup.\nNo automatic repeat of the inconclusive C24 capture is authorized by that\ncapture's old contract. A qualified changed diagnostic can advance under this\nuser authorization with a new contract. No permission round is required merely\nbecause the prior turn prohibited serving work.\n\nLog actual execution and failures in `journal.jsonl`; `status.json` is the\nmutable progress pointer. Preserve distinct applicability, activation,\ncorrectness, measurement, mechanism, service and SLO conclusions. Stop a scoped\ncandidate when disproved or inapplicable; inadequate evidence remains\ninconclusive. Publish research/evidence on the authorized research branch.\n"
+    }
+  },
+  "inputs": [
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/README.md",
+      "snapshot": "inputs/000-README.md",
+      "sha256": "1c6ce5cee38bb94f7c7737639155ae914652db2af65e2dd8513dfe4ddbfeca51",
+      "bytes": 6620
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C01.md",
+      "snapshot": "inputs/001-C01.md",
+      "sha256": "5d5939fcd3b7e9d7228382e91a79b016ac3f9d7872410d7d2d481f452267fdbc",
+      "bytes": 5867
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C02.md",
+      "snapshot": "inputs/002-C02.md",
+      "sha256": "5faf0c54f3e65d34aa94c72238f430520d15c13883fc4e52e93054b37604043c",
+      "bytes": 2968
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C03.md",
+      "snapshot": "inputs/003-C03.md",
+      "sha256": "c68d342502b9cf683903b15db05e3178271b152833b97aab0e729b857f61c80a",
+      "bytes": 8005
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C04.md",
+      "snapshot": "inputs/004-C04.md",
+      "sha256": "7fd1fae059101c62be1e43737989e8b79eb154314f74fde56440070da896e5b8",
+      "bytes": 3418
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C05.md",
+      "snapshot": "inputs/005-C05.md",
+      "sha256": "c761e21fb09463efdfba1fd7aaa1ed8d56305b0bd0a1fd04c26bd5b00af2f407",
+      "bytes": 3374
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C06.md",
+      "snapshot": "inputs/006-C06.md",
+      "sha256": "c56cd3eb91c98eaa479fce6f5bac70d030fe213819202d1312930949a9ef5a05",
+      "bytes": 3234
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C07.md",
+      "snapshot": "inputs/007-C07.md",
+      "sha256": "45356dedee608c4fa81891bd31ad78f5b958f771e03f2cb614262463f8e9da6b",
+      "bytes": 2758
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C08.md",
+      "snapshot": "inputs/008-C08.md",
+      "sha256": "12dd94524220361c91e17da741aba26bd25875175d9fae70809dedfeb7d3cfe1",
+      "bytes": 4424
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C09.md",
+      "snapshot": "inputs/009-C09.md",
+      "sha256": "f145b92d7827a58d4913b774f573153a6ff2a583c14caeb0e9b4cac2f2d246a2",
+      "bytes": 3888
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C10.md",
+      "snapshot": "inputs/010-C10.md",
+      "sha256": "2b02d259474e764604bc58fda8893ee97e876c826d8bfda5c7c9c2759d9d789f",
+      "bytes": 3516
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C11.md",
+      "snapshot": "inputs/011-C11.md",
+      "sha256": "f88fd8d51287e1f834b8167f846b04416484871ce98e3d7e26fafe363c896396",
+      "bytes": 3264
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C12.md",
+      "snapshot": "inputs/012-C12.md",
+      "sha256": "2f06ffd799bae78fcbfc1bfaa3e741e6ec17d8e8ea64caf591a5cb417d33bd4d",
+      "bytes": 2976
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C13.md",
+      "snapshot": "inputs/013-C13.md",
+      "sha256": "c25151b4338b08ed532d45813baacb3122ef003947dd28f2b0d677a7fd320f01",
+      "bytes": 4562
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C14.md",
+      "snapshot": "inputs/014-C14.md",
+      "sha256": "d7791916574ad6ef0bcd05da4e345a9ef5599a3a1466b706229b25e11fb9fa1b",
+      "bytes": 2963
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C15.md",
+      "snapshot": "inputs/015-C15.md",
+      "sha256": "17159a54996a8facfd6fea9b9b0b7d3f6313eb2950f730fa5bbb2c880a1bfc75",
+      "bytes": 4009
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C16.md",
+      "snapshot": "inputs/016-C16.md",
+      "sha256": "eeb9b224ee002ad99f5cbc11d0637bd3106b22800958721ac4d5098a8b4148ad",
+      "bytes": 2326
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C17.md",
+      "snapshot": "inputs/017-C17.md",
+      "sha256": "44415d516cfb030fcb665e0dbd71a2aef0cf3bc80617bbdc57367eb53e865470",
+      "bytes": 2514
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C18.md",
+      "snapshot": "inputs/018-C18.md",
+      "sha256": "9a2a66b98845b1c7f1c8f3f154246676434665b1ab92e71ff269a01a61baae56",
+      "bytes": 2413
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C19.md",
+      "snapshot": "inputs/019-C19.md",
+      "sha256": "af49f2a47e84d07299f8d6cda96f599d526e39d3dfc2e87858556dfd92b25eaf",
+      "bytes": 5112
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C20.md",
+      "snapshot": "inputs/020-C20.md",
+      "sha256": "634b032a85cf67c1fb53434a6a8da60e57dcffb2a7504322362f2219f10668b9",
+      "bytes": 3047
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C21.md",
+      "snapshot": "inputs/021-C21.md",
+      "sha256": "6b5c27b7906f282921622b3450ba54fb12d858375ecde460492aa3426facb30b",
+      "bytes": 3572
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C22.md",
+      "snapshot": "inputs/022-C22.md",
+      "sha256": "d02602e994b51b13544e15134cf2500adcab8c62cbe31f550477831dc9905612",
+      "bytes": 3487
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C23.md",
+      "snapshot": "inputs/023-C23.md",
+      "sha256": "2e3244c7eadf3cb071ed8a66d9b43b7fcd78b42ebbc83f851f2fee5282e6e73e",
+      "bytes": 2862
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C24.md",
+      "snapshot": "inputs/024-C24.md",
+      "sha256": "b995439acbe590afb47268b582cd74e28020b432016f9ffa329a8e1a49ee60c9",
+      "bytes": 7276
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C25.md",
+      "snapshot": "inputs/025-C25.md",
+      "sha256": "acd24c940665e2a38f690895b8fd90fa962a59ac3b1dab78bb7c6aa3e538a076",
+      "bytes": 6585
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C26.md",
+      "snapshot": "inputs/026-C26.md",
+      "sha256": "9cec890cd2d47ece9a0392d11cc22efb8d7ada4dafbbec0dc7ce5e46ebfca7ee",
+      "bytes": 3362
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D01.md",
+      "snapshot": "inputs/027-D01.md",
+      "sha256": "6c147855f9f1ae8b622baf3ef78afac26cb4a063918afe42a6c942c7453463a9",
+      "bytes": 3626
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D02.md",
+      "snapshot": "inputs/028-D02.md",
+      "sha256": "8cc9f8f5350c39579562b8b8e00713a1c6b716f717c0f9b75753d056e5640d1f",
+      "bytes": 1786
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D03.md",
+      "snapshot": "inputs/029-D03.md",
+      "sha256": "192509a4a576c12851f59630f3aa9ba3ddb320a6240e17d04030e9fc0813f2f5",
+      "bytes": 2494
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D04.md",
+      "snapshot": "inputs/030-D04.md",
+      "sha256": "3d528f8bcc19412f5f6381078a21039f7f60bc4baf3821afacfc9b48d04ac3a8",
+      "bytes": 1745
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D05.md",
+      "snapshot": "inputs/031-D05.md",
+      "sha256": "9cebe62780c261e84fecb133ef5e77757768aebc0d6cba4807fe895e2778e209",
+      "bytes": 2620
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D06.md",
+      "snapshot": "inputs/032-D06.md",
+      "sha256": "666fbd0333fb4bdd8434f7555949c6dff4df8bc329bb3a23e51c93350ae95017",
+      "bytes": 2012
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q01.md",
+      "snapshot": "inputs/033-Q01.md",
+      "sha256": "25b19fc0cdb96f09883c48175ce183f3781b0e822962a6fafcbfb1e0f27a2dab",
+      "bytes": 2169
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q02.md",
+      "snapshot": "inputs/034-Q02.md",
+      "sha256": "0b1acc5c4b7e87653d5daf9253814d820987ecc1a6ba0eea82a8e1e9bbe16854",
+      "bytes": 3620
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q03.md",
+      "snapshot": "inputs/035-Q03.md",
+      "sha256": "272416f04df3b86ede8b1af56350ed971546e610e36ade6a049d2d9e44e4b1a5",
+      "bytes": 2376
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q04.md",
+      "snapshot": "inputs/036-Q04.md",
+      "sha256": "e2e3b19c982396c0b74c31c31ef4e4d59e624c045d252f9426afc920a494e225",
+      "bytes": 2619
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/c03-execution-001/REPORT.md",
+      "snapshot": "inputs/037-REPORT.md",
+      "sha256": "9eba630418375fae0bf074bff1448fc1bf65de9c125870478becc78c577c1234",
+      "bytes": 14676
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/c03-mechanism-review-001/REPORT.md",
+      "snapshot": "inputs/038-REPORT.md",
+      "sha256": "a56921c55070c923876244979d465914e5864b4e271f07f3a346a0b122d16ee1",
+      "bytes": 8488
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C24_SHORT_PROBE_RESULT_REVIEW.md",
+      "snapshot": "inputs/039-C24_SHORT_PROBE_RESULT_REVIEW.md",
+      "sha256": "844f815cee10388636edd36bdec062862a570847129994dac1d74dae574f18d6",
+      "bytes": 1917
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/developer/C24_JOINT_DISPATCH.md",
+      "snapshot": "inputs/040-C24_JOINT_DISPATCH.md",
+      "sha256": "16afe042ffd6dd1fe464d40650176450cf551590f8519ef1c4bd1b888cabc86b",
+      "bytes": 7147
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/av-k5-timing-001/REPORT.md",
+      "snapshot": "inputs/041-REPORT.md",
+      "sha256": "5e8b9c9c70342e2bfb6567f260a43ef6627b50ac196e80ee5dc39f3baf2a0a7d",
+      "bytes": 12527
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_COMPONENT_RESULT_REVIEW.md",
+      "snapshot": "inputs/042-C25_COMPONENT_RESULT_REVIEW.md",
+      "sha256": "c74c83c309de8efebdc9d98f1190a807ea39228ccbbee9da701f1c232693283d",
+      "bytes": 4027
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_NATIVE_001_INFRA_REVIEW.md",
+      "snapshot": "inputs/043-C25_NATIVE_001_INFRA_REVIEW.md",
+      "sha256": "4eed293cf43e3552f3f8d658b07124c405dc20a516560dbdb2e9dfa1c7785b72",
+      "bytes": 3858
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_NATIVE_002_INFRA_REVIEW.md",
+      "snapshot": "inputs/044-C25_NATIVE_002_INFRA_REVIEW.md",
+      "sha256": "b212601da0b34c9ff6ed9208ba52d0126c0cacfbb1b4f303cac3bdd37a6ea66c",
+      "bytes": 4042
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_NATIVE_003_INTERRUPTION_REVIEW.md",
+      "snapshot": "inputs/045-C25_NATIVE_003_INTERRUPTION_REVIEW.md",
+      "sha256": "1da260c171b4e6c6c13476b9c2e78d148fedb5e144c3ba5ac5cccb8242171818",
+      "bytes": 2518
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_LIVE_POOL_RESULT_REVIEW.md",
+      "snapshot": "inputs/046-C25_LIVE_POOL_RESULT_REVIEW.md",
+      "sha256": "e35f9a9ac81ff2a0a2ed130213dbbf32e4417b99d6b8552d3e040d56f58a2391",
+      "bytes": 1839
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_LIVE_GATED_CONTINUATION_CONTRACT.md",
+      "snapshot": "inputs/047-C25_LIVE_GATED_CONTINUATION_CONTRACT.md",
+      "sha256": "24fde19d4a085ec40643fa76fa1eeb206c249135a447083cccead16c905c3500",
+      "bytes": 9881
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_LIVE_GATED_PRELAUNCH_REVIEW.md",
+      "snapshot": "inputs/048-C25_LIVE_GATED_PRELAUNCH_REVIEW.md",
+      "sha256": "9e3b8e77057e3f2c412c4cd84a806d201cb9d39aba8e92d749ac90d208c2ba06",
+      "bytes": 4193
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/live-root/launch-live-pair-001.json",
+      "snapshot": "inputs/049-launch-live-pair-001.json",
+      "sha256": "0df86947b2d8f5684f957732ae40d4f369ca8e0b824435d2f3687330700361d0",
+      "bytes": 62377
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/memory-live-001-plan.json",
+      "snapshot": "inputs/050-memory-live-001-plan.json",
+      "sha256": "78a3b7c8f4a3a489d73bb4e93e688c9eb5b56b9a15ccfb10f95ba3c1b31a17c5",
+      "bytes": 1575
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/developer/APPLICABILITY.md",
+      "snapshot": "inputs/051-APPLICABILITY.md",
+      "sha256": "f852c4b310d4ce8966992bda99bdd1dc6dec94fab5c12e22706d2fc7974dffa2",
+      "bytes": 5986
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/APPLICABILITY_REVIEW.md",
+      "snapshot": "inputs/052-APPLICABILITY_REVIEW.md",
+      "sha256": "4cce5bff7af525f7f199d77f0f436ba71a8269a7e2fe47f51370433e45222fb2",
+      "bytes": 5495
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/meta-critic/STARTUP_INTERRUPTION_AND_NEXT_SCOPE_012.md",
+      "snapshot": "inputs/053-STARTUP_INTERRUPTION_AND_NEXT_SCOPE_012.md",
+      "sha256": "c483d14bfc74aed8c55094083550d0dda6b1f3718c3e93d9b464c62679865416",
+      "bytes": 5273
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/live-root/final-render-preflight.json",
+      "snapshot": "inputs/054-final-render-preflight.json",
+      "sha256": "a982e943cdd080be238546c9cb732789507132047c75393c3a19d93acc07244a",
+      "bytes": 5089
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/live-root/preparation-complete.json",
+      "snapshot": "inputs/055-preparation-complete.json",
+      "sha256": "79714046861972f4d95c82ba5f2c6476fa0d6126c1825903b2f4ee6ccd5c8585",
+      "bytes": 553
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/signal-chronology-003.json",
+      "snapshot": "inputs/056-signal-chronology-003.json",
+      "sha256": "41c81bd8d6c5d7fa951b83e5d60687db2e3f1548a09098a1c6f0b9d6e327be0e",
+      "bytes": 1560
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/cost-current.json",
+      "snapshot": "inputs/057-cost-current.json",
+      "sha256": "d46d9161c530fdef4d50bffcbaae68a19ebf551de50f6d6e78b3af9c87d0df5f",
+      "bytes": 3566
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/integrity-and-idle-after-native-003.json",
+      "snapshot": "inputs/058-integrity-and-idle-after-native-003.json",
+      "sha256": "d4deef4521cdb3e8f141e8b57036b0bd37d025f39c2fd3be2ce982a4a53ac676",
+      "bytes": 4624
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/REPORT.md",
+      "snapshot": "inputs/059-REPORT.md",
+      "sha256": "c24e8ac7468e984c5ab2b32a45294e94c977e4471b15380b77546e3d15c06a9d",
+      "bytes": 9436
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-continuation-001/dispositions.json",
+      "snapshot": "inputs/060-dispositions.json",
+      "sha256": "b1a497a279750c5b585c642c66e0060a74143ae2c2f9c2c1e0ee817e3115b3c2",
+      "bytes": 4110
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/AUTHORIZATION.md",
+      "snapshot": "inputs/061-AUTHORIZATION.md",
+      "sha256": "53243446ce90ca4f40ae8951d1f3efe4d034481430c615b6b60f4890b8fe418f",
+      "bytes": 2910
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/state-after-native-003.json",
+      "snapshot": "inputs/062-state-after-native-003.json",
+      "sha256": "4636e666aaa18f81ab3b5d3b3c0a55b49e42c29ce7ad5c999d6a0317ef58d91b",
+      "bytes": 6729
+    },
+    {
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/brief.json",
+      "snapshot": "inputs/063-brief.json",
+      "sha256": "dae49dde06f2675787d04b068eb099e87501257635a643e4b10438876b66050c",
+      "bytes": 6880
+    }
+  ],
+  "families": [
+    {
+      "family_id": "C01",
+      "title": "[Humming: backend first, then indexed versus grouped](C01.md)",
+      "selection_or_execution_state": "Grouped arm on hold; indexed untested",
+      "reported_result": "Poor grouped result reported on node 219; raw results unavailable here",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C01.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C02",
+      "title": "[Share compatible FlashMLA planning metadata](C02.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C02.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C03",
+      "title": "[Use logical requests rather than target padding for drafting](C03.md)",
+      "selection_or_execution_state": "Screen deferred; no promotion",
+      "reported_result": "ITL +1.85%, TTFT p99 +7.83%, E2E p99 −5.33%; [report](../runs/c03-execution-001/REPORT.md)",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C03.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C04",
+      "title": "[Reduce CPU DP metadata synchronization overhead](C04.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C04.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C05",
+      "title": "[Tune SM90 mHC for actual one-to-eight-row launches](C05.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C05.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C06",
+      "title": "[Repair demonstrated prefix-cache/draft interactions](C06.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C06.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C07",
+      "title": "[Remove repeated scheduler cache work](C07.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C07.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C08",
+      "title": "[Hopper selector integration and length-aware block selection](C08.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C08.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C09",
+      "title": "[Candidate-only long-context decode scoring](C09.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C09.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C10",
+      "title": "[Preserve cache affinity at the final DP rank](C10.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C10.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C11",
+      "title": "[Bound coordinated DP prefill release](C11.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C11.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C12",
+      "title": "[Contiguous prefill MQA epilogue](C12.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C12.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C13",
+      "title": "[Per-token FP8 Humming activation](C13.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C13.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C14",
+      "title": "[Fuse top-k with physical KV-slot mapping](C14.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C14.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C15",
+      "title": "[Shared Engram placement and exposed lookup cost](C15.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C15.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C16",
+      "title": "[Scheduler budget reserved for separate drafts](C16.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C16.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C17",
+      "title": "[Unreachable draft graph buckets](C17.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C17.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C18",
+      "title": "[Bound drafter context if long-context acceptance collapses](C18.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C18.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C19",
+      "title": "[Native MXFP4 SM90 fused expert backend](C19.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C19.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C20",
+      "title": "[DeepEP activation, then triple-buffer dispatch](C20.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C20.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C21",
+      "title": "[SM90 mHC coefficient overlap](C21.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C21.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C22",
+      "title": "[KV offload as a separate capacity configuration](C22.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C22.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C23",
+      "title": "[Matched SGLang control](C23.md)",
+      "selection_or_execution_state": "Proposed; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C23.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C24",
+      "title": "[Adaptive target verification at existing k5](C24.md)",
+      "selection_or_execution_state": "Timing diagnostic inconclusive",
+      "reported_result": "986/986 successes; timing coverage/association gate failed. AV unqualified; [report](../runs/av-k5-timing-001/REPORT.md)",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C24.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C25",
+      "title": "[Isolated unsharded DSpark sampler fusion](C25.md)",
+      "selection_or_execution_state": "Positive component; native campaign incomplete",
+      "reported_result": "Exact parity; 25–40% component gain across eight shapes; service benefit unknown",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C25.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "C26",
+      "title": "[Conditional SM90 FP32-weight router kernel](C26.md)",
+      "selection_or_execution_state": "Inapplicable to frozen baseline",
+      "reported_result": "All43 weights BF16; installed load/dispatch confirms excluded FP32 branch; no GPU run",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C26.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "D01",
+      "title": "[Private Engram exact allocation: inactive](D01.md)",
+      "selection_or_execution_state": "Research hold; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D01.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "D02",
+      "title": "[TP4 Marlin alignment alternative](D02.md)",
+      "selection_or_execution_state": "Research hold; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D02.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "D03",
+      "title": "[Small-head sparse attention alternative](D03.md)",
+      "selection_or_execution_state": "Research hold; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D03.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "D04",
+      "title": "[TP-sharded fused prefill projection](D04.md)",
+      "selection_or_execution_state": "Research hold; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D04.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "D05",
+      "title": "[Blackwell MegaMoE warmup and activation repacking](D05.md)",
+      "selection_or_execution_state": "Research hold; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D05.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "D06",
+      "title": "[B200 FlashMLA pipeline and Engram/mHC fusion](D06.md)",
+      "selection_or_execution_state": "Research hold; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/D06.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "Q01",
+      "title": "[Sampling distribution qualification](Q01.md)",
+      "selection_or_execution_state": "Correctness prerequisite; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q01.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "Q02",
+      "title": "[Index/graph bounds and mHC lifetime qualification](Q02.md)",
+      "selection_or_execution_state": "Correctness prerequisite; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q02.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "Q03",
+      "title": "[API2 liveness and restart identity](Q03.md)",
+      "selection_or_execution_state": "Correctness prerequisite; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q03.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    },
+    {
+      "family_id": "Q04",
+      "title": "[Tool encoding, parser and changed-math quality](Q04.md)",
+      "selection_or_execution_state": "Correctness prerequisite; untested",
+      "reported_result": "No execution linked",
+      "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/Q04.md",
+      "detail": "Full card is frozen in inputs; register labels are not normalized experimental verdicts."
+    }
+  ],
+  "state": {
+    "decisions": [
+      {
+        "family_id": "C03",
+        "action": "hold",
+        "reason": "Valid unfavorable fixed-k5 service screen; changing the rubric alone does not justify a repeat.",
+        "artifacts": [
+          "runs/c03-execution-001/REPORT.md",
+          "runs/c03-mechanism-review-001/REPORT.md"
+        ],
+        "reopen_when": "A distinct mechanism or workload interaction with new component evidence; preserve the old screen."
+      },
+      {
+        "family_id": "C01",
+        "action": "hold",
+        "reason": "External grouped-Humming poor-result notice; raw node219 results absent. Indexed arm is a distinct untested comparator.",
+        "artifacts": [
+          "hypotheses/C01.md"
+        ],
+        "reopen_when": "Obtain original grouped evidence and show active shape/precision compatibility plus materiality; no assumed repeat win."
+      },
+      {
+        "family_id": "C24",
+        "action": "hold",
+        "reason": "Historical timing remains instrumentation-inconclusive after a complete source/trace audit and two clean bounded synthetic probes. Joint DP source reconstruction identifies remote-state and capacity coupling; no AV optimization implemented or measured.",
+        "artifacts": [
+          "runs/h200-overnight-001/evaluator/C24_SHORT_PROBE_RESULT_REVIEW.md",
+          "runs/h200-overnight-001/developer/C24_JOINT_DISPATCH.md",
+          "runs/av-k5-timing-001/REPORT.md"
+        ],
+        "reopen_when": "A named new observable or implementable distinct policy with a bounded prospective plan; no unchanged full recapture or automatic AV-on run."
+      },
+      {
+        "family_id": "C25",
+        "action": "hold",
+        "reason": "Exact positive sampler component. Native campaign closed without candidate measurements after baseline setup/observation failures and unresolved candidate startup SIGTERM. New real-request plan technically accepted but not executed; node ownership clarification pending.",
+        "artifacts": [
+          "runs/h200-overnight-001/evaluator/C25_COMPONENT_RESULT_REVIEW.md",
+          "runs/h200-overnight-001/evaluator/C25_NATIVE_001_INFRA_REVIEW.md",
+          "runs/h200-overnight-001/evaluator/C25_NATIVE_002_INFRA_REVIEW.md",
+          "runs/h200-overnight-001/evaluator/C25_NATIVE_003_INTERRUPTION_REVIEW.md",
+          "runs/h200-overnight-001/evaluator/C25_LIVE_POOL_RESULT_REVIEW.md",
+          "runs/h200-overnight-001/evaluator/C25_LIVE_GATED_CONTINUATION_CONTRACT.md",
+          "runs/h200-overnight-001/evaluator/C25_LIVE_GATED_PRELAUNCH_REVIEW.md",
+          "runs/h200-overnight-001/live-root/launch-live-pair-001.json",
+          "runs/h200-overnight-001/memory-live-001-plan.json"
+        ],
+        "reopen_when": "User clarifies research may continue on the node; record ownership resolution, ensure independent evaluator ready, verify unchanged frozen inputs and idle ownership, then start exact prepared live-pair-001 once. If node is reserved elsewhere, leave GPU work stopped. Do not resume old native controllers or treat silence as approval."
+      },
+      {
+        "family_id": "C26",
+        "action": "hold",
+        "reason": "Complete checkpoint and actual installed allocation/load/dispatch audit establishes BF16 weights in all 43 learned-router tensors. Proposed FP32-weight kernel branch is inapplicable to this frozen baseline; no GPU needed.",
+        "artifacts": [
+          "runs/h200-overnight-001/developer/APPLICABILITY.md",
+          "runs/h200-overnight-001/evaluator/APPLICABILITY_REVIEW.md"
+        ],
+        "reopen_when": "A materially different actual baseline or new eligible mechanism; do not cast weights solely to activate this proposal."
+      }
+    ],
+    "next_actions": [
+      {
+        "family_id": "C25",
+        "action": "Resolve node ownership; exact technical acceptance already prepared. Resume only the reviewed new B→A live plan after fresh idle/input checks, retaining identical26 lifecycle and bounded independent prefix review on both arms. No live allocation exists yet."
+      },
+      {
+        "family_id": "C24",
+        "action": "Park instrumentation work; retain source-derived post-sync capacity-fill concept as unimplemented."
+      },
+      {
+        "family_id": "C26",
+        "action": "Keep proposed FP32-weight port closed for this baseline."
+      }
+    ],
+    "execution_scope": "User-authorized overnight continuation completed C24 probes, C25 component qualification and three incomplete native allocations; C26 inapplicable. Event-pool engineering passed. New live diagnostic prepared and conditionally accepted, not executed; GPU work held for node ownership clarification. No full service attempt consumed.",
+    "hypothesis_links": [
+      {
+        "family_id": "C24",
+        "hypothesis_id": "hypothesis:278baef7c495100debc4f103e3ec5d14355050e52c2595046fb74d25eff65b05",
+        "selection": "accepted",
+        "operator_disposition": "parked_instrumentation_inconclusive"
+      },
+      {
+        "family_id": "C25",
+        "hypothesis_id": "hypothesis:00dd9a19b06277117d485b35911490178106782ea69466d69053e140a2024d5f",
+        "selection": "deferred",
+        "operator_disposition": "positive_component_native_candidate_unmeasured_live_prepared_pending_node_ownership"
+      },
+      {
+        "family_id": "C26",
+        "hypothesis_id": "hypothesis:5682260d4607d05bd0b3aa44274e26077eb8d9329b51091afde251bc37bcc1e5",
+        "selection": "deferred",
+        "operator_disposition": "inapplicable_to_frozen_BF16_baseline"
+      }
+    ],
+    "allocation_pointer": {
+      "active_allocation": null,
+      "last_closed": "native-B-continuation-003",
+      "last_small_engineering": "live-event-pool-001",
+      "node_idle_receipt": "runs/h200-overnight-001/integrity-and-idle-after-native-003.json",
+      "closed_cost_receipt": "runs/h200-overnight-001/cost-current.json",
+      "total_visible_GPU_hours": 6.689683049421387,
+      "total_eight_GPU_node_equivalent_hours": 6.868979491106681,
+      "full_service_attempts_used": 0,
+      "full_service_attempts_remaining": 2,
+      "original_native_campaign_closed": true,
+      "note": "Recheck actual ownership/processes before any resume. This snapshot is not execution authorization."
+    },
+    "conditional_next_design": {
+      "state": "prepared_technically_accepted_pending_node_ownership",
+      "run_id": "live-pair-001",
+      "memory_test_id": "test:87aaf7291b7e9045b28b033d31be362d717bf4a8801e165fa05866d81be13448",
+      "launch": "runs/h200-overnight-001/live-root/launch-live-pair-001.json",
+      "review": "runs/h200-overnight-001/evaluator/C25_LIVE_GATED_PRELAUNCH_REVIEW.md",
+      "resume_instructions": "runs/h200-overnight-001/live-root/README.md",
+      "scope": "actual real-request proposal stage; no unprofiled ITL or service promotion claim",
+      "new_GPU_release": false,
+      "preparation_complete": "runs/h200-overnight-001/live-root/preparation-complete.json"
+    }
+  },
+  "changes": {
+    "added": [
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/cost-current.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_LIVE_GATED_CONTINUATION_CONTRACT.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_LIVE_GATED_PRELAUNCH_REVIEW.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_LIVE_POOL_RESULT_REVIEW.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_NATIVE_002_INFRA_REVIEW.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_NATIVE_003_INTERRUPTION_REVIEW.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/integrity-and-idle-after-native-003.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/live-root/final-render-preflight.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/live-root/launch-live-pair-001.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/live-root/preparation-complete.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/memory-live-001-plan.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/meta-critic/STARTUP_INTERRUPTION_AND_NEXT_SCOPE_012.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/signal-chronology-003.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/state-after-native-003.json"
+    ],
+    "removed": [
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_NATIVE_PRELAUNCH_REVIEW.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/evaluator/C25_NATIVE_REPAIR_002_REVIEW.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/memory-native-002-start.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/meta-critic/COURSE_CORRECTION_001.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/meta-critic/PROSPECTIVE_NEXT_DECISION_007.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/meta-critic/REAL_REQUEST_STAGE_ROI_008.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/launch-native-pair-001-v2.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/native-root/launch-native-pair-002.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/real-request-design-start.json",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/state-native-002-running.json"
+    ],
+    "modified": [
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/C25.md",
+      "/home/ubuntu/AutoResearch-Inference-c03/ideation/hypotheses/README.md"
+    ]
+  },
+  "previous": {
+    "path": "/home/ubuntu/AutoResearch-Inference-c03/ideation/runs/h200-overnight-001/handoff-003/continuation.json",
+    "sha256": "6a853f1be8c612dca3be588b2984ae44d4054154d4ad49d3ef33cd3777262ed8"
+  },
+  "rules": [
+    "Carry every family state; DB recall alone is incomplete.",
+    "A policy change does not erase an unfavorable experiment.",
+    "Held ideas require a specific new-evidence or mechanism/scope reason to reopen.",
+    "Pending experiments stay pending; do not duplicate their runtime work.",
+    "Acceptance is research/test-design eligibility, never a measured speedup or execution approval."
+  ]
+}

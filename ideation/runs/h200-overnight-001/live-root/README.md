@@ -1,0 +1,15 @@
+# Prepared candidate-first live diagnostic
+
+This is a prospective continuation, not a running allocation or a result. The original native campaign is closed. Both candidate containers received SIGTERM during B003 startup before a later monitoring timeout; the initiating command remains unknown. Root requested node-ownership clarification before any further GPU work.
+
+The [new contract](../evaluator/C25_LIVE_GATED_CONTINUATION_CONTRACT.md) specifies B then A on the unchanged eight-H200 profile. Each fresh arm completes native oracle/restoration checks, the same 26-request lifecycle, an independent review of immutable log prefixes, and the fixed real-request workload. The observer and sampler are unchanged. The live reader reports actual proposal-stage spans; it cannot establish unprofiled service ITL or satisfy the inherited service confirmation gate.
+
+The allocation ceiling is 75 minutes / 10 GPU-hours, including a 70-minute work deadline and cleanup reserve. Each arm's post-readiness work has a shared 1,080-second ceiling: up to 300 seconds for lifecycle, 180 for independent review and 600 for live workload/drain/flush. Baseline admission uses observed candidate startup plus the full remaining phase allowance and reserve. Prior C25 cost is bound in the rendered manifest; total prior cost plus the ceiling must remain within 22 GPU-hours. No automatic retry or extension is authorized by this prepared plan.
+
+Root owns launch and monitoring. Keep the independent evaluator available before launch. When the controller writes an arm's `lifecycle-prefix-attestation.json`, the evaluator reviews the complete snapshots and exact cancellation ownership, then atomically writes its accepted JSON under `evaluator/`. Root verifies the notification and copies those exact bytes through a temporary file and atomic rename to the arm's `lifecycle-prefix-review.json`. Silence or timeout is not acceptance. The controller stops if the bound approval does not arrive within its deadline.
+
+`controller_v2.py` and `render_v2.py` are the current prepared root sources. The unexecuted original live controller/renderer remain as design history. `pool-supervision.json` and the separate pool execution receipt record the completed small resource check. `mount-preflight.json` validates the exact observation mount bytes in the pinned image without GPU exposure or model import.
+
+Before resuming, read the latest run status and continuation handoff, resolve node ownership, confirm idle GPUs/containers/ports and unchanged launch inputs, and verify the independent final launch review. Do not resume any old native controller or duplicate a running allocation.
+
+The [exact rendered launch](launch-live-pair-001.json) and [final preflight](final-render-preflight.json) are technically accepted by the [independent prelaunch review](../evaluator/C25_LIVE_GATED_PRELAUNCH_REVIEW.md), conditional on resolved node ownership. No live execution directory has been created. Planned memory test: `test:87aaf7291b7e9045b28b033d31be362d717bf4a8801e165fa05866d81be13448`.

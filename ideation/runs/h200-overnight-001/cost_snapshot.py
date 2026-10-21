@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 now=datetime.datetime.now(datetime.timezone.utc)
 rows=[]
-for path in sorted(list((ROOT/'executions').glob('*/execution.json'))+list((ROOT/'native-executions').glob('*/execution.json'))):
+for path in sorted(list((ROOT/'executions').glob('*/execution.json'))+list((ROOT/'native-executions').glob('*/execution.json'))+list((ROOT/'live-executions').glob('*/execution.json'))):
     value=json.loads(path.read_text());active=value.get('state')=='running'
     wall=(now-datetime.datetime.fromisoformat(value['started_at_utc'])).total_seconds() if active else value['wall_seconds']
     count=value['allocated_gpus'];rows.append({'id':path.parent.name,'receipt':str(path.relative_to(ROOT)),'state':value['state'],'provisional':active,'wall_seconds':wall,'visible_GPU_hours':wall*count/3600,'eight_GPU_exclusive_node_equivalent_hours':wall*8/3600,'full_service_attempts_consumed':value['service_attempts_consumed']})

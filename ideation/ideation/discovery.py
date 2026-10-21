@@ -197,7 +197,7 @@ def _paper_key(task, config):
     return "discovery:paper:" + _key([identity, config["recency_days"]])
 
 
-def refresh(store, config, *, force=False, now=None, github_factory=GitHub, paper_factory=PaperClient):
+def refresh(store, config, *, force=False, now=None, github_factory=GitHub, paper_factory=PaperClient, build_shortlist=True):
     """Incrementally populate the local corpus and return an auditable JSON receipt.
 
     A repeated invocation inside the TTL makes no calls for completed tasks.
@@ -222,6 +222,16 @@ def refresh(store, config, *, force=False, now=None, github_factory=GitHub, pape
         visited += 1
         key = "discovery:github:" + repo + (":recent" if lane == "recent" else "")
         state = store.get_checkpoint(key, {})
+        # A completed window is not an all-history scan. Preserve provenance,
+        # discard only this lane's incompatible cursor, and retain all records.
+        if lane == "archive" and config.get("github_initial_days") is None and state and not state.get("initial_scope", {}).get("all_history", False):
+            store.checkpoint(key + ":previous-scope:" + _key(state), state)
+            state = {}
+            store.checkpoint(key, state)
+        cooldown = store.get_checkpoint("discovery:github_rate", {})
+        if cooldown.get("retry_after") and _time(cooldown["retry_after"]) > moment:
+            receipt["coverage"].append({"repo": repo, "lane": lane, "status": "rate_cooldown", **cooldown})
+            break
         if not _due(state, moment, config, force):
             receipt["coverage"].append({"repo": repo, "lane": lane, "status": "cooldown" if state.get("retry_after") else "fresh", **state})
             continue
@@ -232,7 +242,7 @@ def refresh(store, config, *, force=False, now=None, github_factory=GitHub, pape
                 since = _stamp(moment - dt.timedelta(days=initial_days))
             state.update(in_progress=True, pass_started=_stamp(moment), next_url=None,
                          params={"state": "all", "per_page": 100, "sort": "updated" if since else "created", "direction": "desc" if lane == "recent" else "asc"},
-                         initial_scope=state.get("initial_scope", {"since": since, "all_history": since is None}), pages_in_pass=0)
+                         initial_scope=state.get("initial_scope", {"since": since, "all_history": since is None}), pages_in_pass=0, records_in_pass=0)
             if since:
                 state["params"]["since"] = since
             store.checkpoint(key, state)
@@ -255,17 +265,37 @@ def refresh(store, config, *, force=False, now=None, github_factory=GitHub, pape
                         client.ingest(item)
                         receipt["candidate_ids"].append("github:" + repo + ":" + str(item["number"]))
                 state.update(next_url=next_url, last_fetch=_stamp(moment), pages_in_pass=state["pages_in_pass"] + 1,
-                             rate_remaining=headers.get("X-RateLimit-Remaining") or headers.get("x-ratelimit-remaining"))
+                             records_in_pass=state.get("records_in_pass", 0) + len(items),
+                             rate_remaining=headers.get("X-RateLimit-Remaining") or headers.get("x-ratelimit-remaining"),
+                             rate_reset=headers.get("X-RateLimit-Reset") or headers.get("x-ratelimit-reset"),
+                             rate_limit=headers.get("X-RateLimit-Limit") or headers.get("x-ratelimit-limit"))
                 state.pop("retry_after", None)
                 if not next_url:
                     state.update(in_progress=False, completed_at=_stamp(moment),
                                  watermark=_stamp(_time(state["pass_started"]) - dt.timedelta(days=1)))
                     state["initial_scan_complete"] = True
                 store.checkpoint(key, state)
+                if state.get("rate_remaining") == "0" and state.get("rate_reset"):
+                    store.checkpoint("discovery:github_rate", {"retry_after": _stamp(dt.datetime.fromtimestamp(float(state["rate_reset"]) + 5, dt.timezone.utc)), "reason": "primary_rate_limit"})
+                    break
                 if not state["in_progress"]:
                     break
         except Exception as error:
             state["retry_after"] = _stamp(moment + dt.timedelta(minutes=config["failure_retry_minutes"]))
+            from .github import RateLimited
+            if isinstance(error, RateLimited):
+                wait_until = moment + dt.timedelta(seconds=60)
+                if error.remaining == "0" and error.reset:
+                    wait_until = dt.datetime.fromtimestamp(float(error.reset) + 5, dt.timezone.utc)
+                elif error.retry_after:
+                    try:
+                        wait_until = moment + dt.timedelta(seconds=max(60, float(error.retry_after)))
+                    except ValueError:
+                        pass
+                else:
+                    wait_until = moment + dt.timedelta(minutes=config["failure_retry_minutes"])
+                state["retry_after"] = _stamp(wait_until)
+                store.checkpoint("discovery:github_rate", {"retry_after": state["retry_after"], "reason": "rate_or_permission_response", "http_status": error.code})
             store.checkpoint(key, state)
             receipt["errors"].append({"repo": repo, "lane": lane, **_error(error)})
         finally:
@@ -367,7 +397,7 @@ def refresh(store, config, *, force=False, now=None, github_factory=GitHub, pape
             store.checkpoint(key, {**state, "retry_after": _stamp(moment + dt.timedelta(minutes=config["failure_retry_minutes"]))})
             receipt["errors"].append({"citation_seed": identifier, **_error(error)})
     receipt["candidate_ids"] = list(dict.fromkeys(receipt["candidate_ids"]))
-    receipt["shortlist"] = shortlist(store, config, now=moment)
+    receipt["shortlist"] = shortlist(store, config, now=moment) if build_shortlist else []
     receipt["repository_status"] = [{"repo": repo, **store.get_checkpoint("discovery:github:" + repo, {"status": "not_started"}),
                                       "recent_lane": store.get_checkpoint("discovery:github:" + repo + ":recent", {"status": "not_started" if dual_lane else "disabled"})} for repo in config.get("repositories", [])]
     receipt["scheduled_tasks"] = {"repositories": len(config.get("repositories", [])), "paper_queries": len(tasks)}

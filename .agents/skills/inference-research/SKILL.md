@@ -7,7 +7,7 @@ description: Research inference-serving improvements through literature, source 
 
 ## Objective and scope
 
-Find useful ways to improve measured inference-serving frontiers. Read `research/README.md`, `research/SOURCES.md` and the relevant entries in `research/META.md`. For research execution, also read `research/METHODOLOGY.md` for literature/PR discovery, delegation and the review rubric.
+Find useful ways to improve measured inference-serving frontiers. Read `docs/CHAT_RESEARCH_WORKFLOW.md` for current tools and state locations, then the relevant entries in `research/META.md`. Use `research/METHODOLOGY.md` for investigation techniques; its example rubric is a starting point, not a mandatory fixed policy. For durable CLI execution, read `docs/RESEARCH_FOUNDATION.md`.
 
 The B200 results and Deepseek_serve provide starting evidence. They do not limit research to currently enabled features or the historical source version. Consider new algorithms, online/adaptive serving policies, kernels, scheduling, attention, speculation, KV/cache management, routing, communication, CPU/GPU overlap, feature activation, upstream ports and cross-engine ideas. Choose directions that could matter for the user's target, rather than mechanically covering every category.
 
@@ -17,7 +17,9 @@ A feature being absent, disabled or already implemented upstream is an integrati
 
 Record the user's requested idea count N, scope, available hardware, time budget and research batch ID in `brief.md`. If N is omitted, use five as a disclosed working default. Honor requested breadth and count; do not silently stop at one convenient PR. Generate more leads than N, deduplicate by mechanism, investigate alternatives and select N distinct plausible ideas. Do not fabricate support to fill the quota: if a genuine evidence/access/budget limit prevents N, report the shortfall, attempted directions and lower-confidence leads separately. Novelty means new relative to prior batches when the user requests new ideas; upstream reuse is welcome and must be labeled.
 
-Use `research/runs/<new-id>/`; inspect prior decisions and rejected leads before searching. Revisit an old lead only with a changed premise or new evidence. Preserve earlier batches and the completed TPE study.
+Use the configured external state root's `research/records/<new-id>/` for live dossiers and notes. Inspect prior decisions and rejected leads before searching. Historical `research/runs/` and `ideation/runs/` stay intact. A prior decision on another baseline or objective is evidence, not a permanent blacklist; explain the changed premise when revisiting it.
+
+Freeze the actual target in the task brief: running image/source/model pins, GPU and topology, workload manifest, primary metric and operating region, separate correctness/tail guards, available time and minimum worthwhile gain if the user supplies one. Missing facts remain explicit unknowns. Set `selection.require_novelty` to `false` unless the user asks for novelty; an upstream port that improves this installation is eligible. Adapt rubric criteria and weights to this brief rather than importing a prior campaign's acceptance threshold.
 
 ## Research and synthesis
 
@@ -27,11 +29,17 @@ Use `research/runs/<new-id>/`; inspect prior decisions and rejected leads before
 - Trace the relevant pinned code, or specify a proposed integration path when introducing a capability. Distinguish measured baseline, current upstream and proposed version. Explain what transfers from another model/hardware/workload and what still needs testing.
 - Form cards with `research/HYPOTHESIS_TEMPLATE.md`. Each needs a concrete mechanism, strongest supporting and opposing evidence, implementation/activation surface, expected tradeoffs and cheapest informative experiment. Label confidence and readiness separately.
 
+Use `researchctl run --question '...' --reason --brief /path/to/task.json` for the existing persisted evidence → rubric → proposal → critique sequence. Model calls are bounded separate invocations; the current chat can also inspect and synthesize evidence. Plain chat text is not automatically written into hypothesis memory. For manually authored cards, use the persisted import path documented in `docs/CHAT_RESEARCH_WORKFLOW.md`; do not claim they were saved until the command succeeds. Capture all proposals and verdicts, including rejection and deferral, before reporting a selected subset. A model-produced rubric is editable policy, not external authority.
+
 ## Critique and improve in this run
 
 Apply `research/METHODOLOGY.md`'s rubric to every shortlisted idea. Self-critique is the default; a subagent adversarial pass is optional. No separate critic chat is required. Record whether review was self, delegated or external. Challenge assumptions, inspect contrary sources, revise the hypothesis or replace weak ideas. Carry substantive objections and their resolution into the final cards and `review.md`; do not merely append a disclaimer. Stop iterating when the requested deliverable is useful or the declared budget is reached, reporting unresolved uncertainty.
 
 ## Fast path to evidence
+
+Read `ideation/docs/HYPOTHESIS_ROI.md` when screening value. Begin with available logs, source/dispatch inspection, existing counters, shape histograms and CPU replay. Identify the uncertainty that would change the decision before commissioning a GPU measurement. An activation check answers applicability; it does not establish material service benefit.
+
+Estimate removable **exposed** time with measured units and a matching denominator. For fixed accepted progress, a conditional ITL saving is saved critical-path time per decode cycle divided by useful output tokens from that cycle. If acceptance/progress changes, compare both arms' time per useful token. Account for affected requests/shapes, added overhead, overlap and synchronized ranks; do not sum parallel kernel times as service time. Use low/base/high scenarios only when their inputs have support, otherwise give an unknown and its cheapest measurement. Do not infer TTFT, tail latency, capacity or dollars saved from a component percentage. Stop when a defensible optimistic estimate falls below this task's worthwhile gain; preserve a plausible but unresolved idea as deferred or a bounded diagnostic.
 
 Choose an experiment suited to the change: isolated operation, component/trace replay, or one matched serving point. Preserve the service contract and measurement conditions; allow all candidate implementation/configuration changes necessary to test the idea. Separate a system-benefit comparison from later causal ablations. A coherent multi-change integration is valid; one-knob-at-a-time is not required.
 

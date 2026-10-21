@@ -1,0 +1,11 @@
+[Unit]
+Description=Pull verified AutoResearch read replica from private S3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Example paths for bitlane-b1; adapt these two paths on another node.
+ExecStart=/home/ubuntu/.local/share/autoresearch-foundation/venv/bin/researchctl --state-dir /home/ubuntu/.local/share/inference-autoresearch sync-replica --bucket autoresearch-641134885443-us-east-1 --region us-east-1 --namespace research
+TimeoutStartSec=1800
+Nice=10

@@ -68,8 +68,12 @@ def content_fingerprint(doc):
 
 
 class Store:
-    def __init__(self, path):
+    def __init__(self, path, *, readonly=False):
         self.path = Path(path)
+        if readonly:
+            self.db = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True, timeout=30)
+            self.db.row_factory = sqlite3.Row
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(path), timeout=30)
         self.db.row_factory = sqlite3.Row

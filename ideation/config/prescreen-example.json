@@ -1,0 +1,23 @@
+{
+  "name": "Illustrative sampler prescreen; replace assumptions with pinned evidence",
+  "target": {
+    "benchmark": "agent-75 (illustrative; not a measured run)",
+    "metric": "amortized_time_per_output_token",
+    "direction": "lower",
+    "min_relative_gain": 0.01
+  },
+  "baseline_iteration": {"value": 10, "unit": "ms"},
+  "component_savings": {"low": 45, "high": 83, "unit": "us"},
+  "calls_per_iteration": 1,
+  "exposed_fraction": {"low": 0.5, "high": 1},
+  "progress": {"baseline_tokens": 4, "candidate_tokens": 4},
+  "evidence": [],
+  "assumptions": [
+    "All numerical inputs in this example are illustrative; not recovered service measurements.",
+    "Savings refer to one complete component call, not each speculative substep.",
+    "Assume equal accepted output progress only until correctness and trace checks establish it."
+  ],
+  "counters": ["complete sampler calls per iteration", "accepted output tokens per iteration", "exposed critical-path time"],
+  "tail_guards": [{"name": "p99 ITL and TTFT satisfy task guards", "passed": null}],
+  "next_cheapest_falsifier": "CPU source audit: confirm the changed sampler is active for the pinned backend and count complete calls per iteration. Then use an existing trace to bound critical-path exposure. Only if the screen survives, propose a short explicitly budgeted GPU probe."
+}

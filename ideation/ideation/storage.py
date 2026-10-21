@@ -280,7 +280,7 @@ def _sqlite_backup(source, destination):
 
 
 def snapshot(state_dir, archive_dir, namespace='research', include=None, parent=None,
-             max_total_bytes=MAX_TOTAL, max_file_bytes=2 * 1024 ** 3):
+             max_total_bytes=MAX_TOTAL, max_file_bytes=MAX_TOTAL):
     """Create a local immutable snapshot; never upload or publish HEAD implicitly.
 
     include is an optional list of relative file paths, not globs. Secret/path and

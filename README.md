@@ -6,6 +6,7 @@ A portable research and experiment companion to Bitlane. Discover papers and PRs
 
 | Need | Start here |
 |---|---|
+| Chat skills, full-history download, query expansion, ROI screening and implementation handoff | [Chat research workflow](docs/CHAT_RESEARCH_WORKFLOW.md) |
 | System architecture, controls and honest capability boundaries | [Research foundation](docs/RESEARCH_FOUNDATION.md) |
 | Install on a node; keep Bitlane and research state separate | [Portable setup](docs/PORTABLE_SETUP.md) |
 | Corpus, memory and experiment backups; S3 costs | [Durable storage](ideation/docs/STORAGE.md) |

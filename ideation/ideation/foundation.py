@@ -102,6 +102,14 @@ def _set_lineage(root, namespace, identity, action):
 
 def _snapshot(root, namespace, *, publish=True):
     from .storage import snapshot
+    # Keep operational journaling out of an uninitialized restore destination.
+    # Research snapshots retain a consistent copy, without changing who owns
+    # the active local command journal after restore.
+    if namespace == "research" and (root / "commands.sqlite").exists():
+        from .journal import connect
+        connect(root).close()  # Merge restored provenance before retaining it.
+        from .storage import _sqlite_backup
+        _sqlite_backup(root / "commands.sqlite", root / "research/command-history.sqlite")
     parent = _lineage(root).get(namespace, {}).get("id")
     result = snapshot(_namespace_root(root, namespace), root / "archives", namespace=namespace, parent=parent)
     latest = _read(root / "latest-snapshots.json", {})
@@ -314,6 +322,44 @@ def _run_research(root, args):
 
 def _execute(root, args):
     command = args.command
+    replica = None
+    if args.replica:
+        if command not in {"search", "show", "status"}:
+            raise ValueError("Replica access supports only search, show and status")
+        replica = _read(root / "replicas/research/CURRENT.json")
+        if not replica:
+            raise ValueError("No downloaded research replica; run sync-replica first")
+    if command == "backfill":
+        from . import backfill
+        if args.backfill_command == "start":
+            return backfill.start(root, env_file=args.env_file, publish_every=args.publish_every)
+        if args.backfill_command == "stop":
+            return backfill.stop(root)
+        return backfill.status(root)
+    if command == "history":
+        from .journal import history
+        return history(root, args.limit)
+    if command in {"expand", "prescreen"}:
+        from .controls import expand_query, prescreen
+        if command == "expand":
+            value = expand_query(args.question, _config(root, args), after=args.after, before=args.before)
+        else:
+            value = prescreen(_read(Path(args.record).expanduser()))
+        output = root / "research/records" / (command + "-" + uuid.uuid4().hex)
+        _write(output / "result.json", value)
+        return {"output": str(output), "result": value, "snapshot": _snapshot(root, "research", publish=False)}
+    if command == "hypothesis":
+        from .chat_memory import persist_card, recall_cards
+        if args.hypothesis_command == "recall":
+            return recall_cards(root, query=args.query, limit=args.limit)
+        try:
+            result = persist_card(root, _read(Path(args.record).expanduser()))
+        finally:
+            snapshot = _snapshot(root, "research")
+        return {"record": result, "snapshot": snapshot}
+    if command == "sync-replica":
+        from .replica import sync
+        return sync(root, _transport(args), args.namespace, args.manifest_id)
     if command == "remote":
         if args.remote_command == "show":
             return {"configured": (root / "remote.json").exists(), "remote": _read(root / "remote.json", None), "external_actions": 0}
@@ -359,10 +405,11 @@ def _execute(root, args):
         return plan(_config(root, args))
     if command == "status":
         from .store import Store
-        corpus = root / "research/corpus.sqlite"
+        corpus = Path(replica["path"]) / "corpus.sqlite" if replica else root / "research/corpus.sqlite"
         result = {"state_dir": str(root), "lineage": _lineage(root), "latest_snapshots": _read(root / "latest-snapshots.json", {})}
+        result["replica"] = replica or _read(root / "replicas/research/CURRENT.json")
         if corpus.exists():
-            store = Store(corpus)
+            store = Store(corpus, readonly=bool(replica))
             try:
                 result["research"] = store.stats()
             finally:
@@ -380,9 +427,10 @@ def _execute(root, args):
         return result
     if command in {"refresh", "search", "show", "import-corpus"}:
         from .store import Store
-        if not (root / "research/config.json").exists():
+        source_root = Path(replica["path"]) if replica else root / "research"
+        if not (source_root / "config.json").exists():
             raise ValueError("Run researchctl init first")
-        store = Store(root / "research/corpus.sqlite")
+        store = Store(source_root / "corpus.sqlite", readonly=bool(replica))
         try:
             if command == "refresh":
                 from .discovery import refresh, shortlist
@@ -489,10 +537,29 @@ def parser():
     p = argparse.ArgumentParser(prog="researchctl", description=__doc__)
     p.add_argument("--state-dir", default=os.environ.get("IDEATION_STATE_DIR") or os.environ.get("AUTORESEARCH_STATE_ROOT", str(DEFAULT_STATE)))
     p.add_argument("--env-file", help="Explicit local credential file; never copied into state")
+    p.add_argument("--replica", action="store_true", help="Read downloaded VM replica for search/show/status; writer state untouched")
     commands = p.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="Offline state initialization with resolved config")
     init.add_argument("--config")
     commands.add_parser("status")
+    history = commands.add_parser("history", help="Local command history; no credentials or raw arguments")
+    history.add_argument("--limit", type=int, default=20)
+    expand = commands.add_parser("expand", help="Offline bounded query expansion with taxonomy provenance")
+    expand.add_argument("--question", required=True)
+    expand.add_argument("--config")
+    expand.add_argument("--after")
+    expand.add_argument("--before")
+    prescreen = commands.add_parser("prescreen", help="Offline conditional ROI and cheapest diagnostic")
+    prescreen.add_argument("--record", required=True)
+    hypothesis = commands.add_parser("hypothesis").add_subparsers(dest="hypothesis_command", required=True)
+    hypothesis.add_parser("record").add_argument("--record", required=True)
+    recall = hypothesis.add_parser("recall")
+    recall.add_argument("--query")
+    recall.add_argument("--limit", type=int, default=20)
+    backfill = commands.add_parser("backfill", help="Persistent resumable all-repository opening-record job").add_subparsers(dest="backfill_command", required=True)
+    backfill.add_parser("start").add_argument("--publish-every", type=int, default=300)
+    backfill.add_parser("status")
+    backfill.add_parser("stop")
     def config_options(command):
         command.add_argument("--config")
         command.add_argument("--repo", action="append", help="Override repository list; repeatable")
@@ -524,12 +591,12 @@ def parser():
     show.add_argument("--history", action="store_true")
     imp = commands.add_parser("import-corpus")
     imp.add_argument("--source", required=True)
-    for name in ("snapshot", "push", "pull", "restore"):
+    for name in ("snapshot", "push", "pull", "restore", "sync-replica"):
         command = commands.add_parser(name)
         command.add_argument("--namespace", choices=("research", "experiments/registry"), default="research")
         if name != "snapshot":
             command.add_argument("--manifest-id")
-        if name in {"push", "pull"}:
+        if name in {"push", "pull", "sync-replica"}:
             remote = command.add_mutually_exclusive_group(required=True)
             remote.add_argument("--local-remote")
             remote.add_argument("--bucket")
@@ -582,7 +649,15 @@ def main(argv=None):
             from .providers import load_provider_env
             load_provider_env()
         with _locked(root):
-            value = _execute(root, args)
+            from . import journal
+            entry = journal.start(root, args)
+            try:
+                value = _execute(root, args)
+            except BaseException as error:
+                journal.finish(root, entry, error)
+                raise
+            else:
+                journal.finish(root, entry)
         print(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
     except Exception as error:

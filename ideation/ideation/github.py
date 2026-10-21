@@ -16,7 +16,10 @@ from .store import now
 from .cache import Cache, policy
 
 class RateLimited(RuntimeError):
-    pass
+    def __init__(self, message, *, code=None, reset=None, retry_after=None, remaining=None):
+        super().__init__(message)
+        self.code, self.reset = code, reset
+        self.retry_after, self.remaining = retry_after, remaining
 
 class GitHub:
     def __init__(self, store, repo="vllm-project/vllm"):
@@ -65,7 +68,9 @@ class GitHub:
                 return json.loads(body), hdr
             except urllib.error.HTTPError as e:
                 if e.code in (403, 429):
-                    raise RateLimited("GitHub rate/permission response %s; reset=%s retry-after=%s. Progress retained." % (e.code, e.headers.get("X-RateLimit-Reset"), e.headers.get("Retry-After"))) from e
+                    raise RateLimited("GitHub rate/permission response; progress retained.", code=e.code,
+                                      reset=e.headers.get("X-RateLimit-Reset"), retry_after=e.headers.get("Retry-After"),
+                                      remaining=e.headers.get("X-RateLimit-Remaining")) from e
                 if e.code < 500 or attempt == 3:
                     raise
             except (TimeoutError, urllib.error.URLError):

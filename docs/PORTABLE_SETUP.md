@@ -403,3 +403,7 @@ If artifact retention fails after an experiment event commits, the CLI still
 snapshots the committed journal and attempts configured publication. It returns a
 nonzero result containing the snapshot/publication receipt and sanitized failure
 type. Inspect the existing attempt before retrying; the event was not rolled back.
+
+## Optional ongoing corpus updates
+
+See [chat research workflow](CHAT_RESEARCH_WORKFLOW.md) for the resumable all-history job and the [VM read replica timer](../infra/research-replica/README.md) for periodic S3 pulls. Keep one authoritative corpus writer; use `researchctl --replica search` on read replicas. Run commands refresh due sources, while local `search` stays offline.

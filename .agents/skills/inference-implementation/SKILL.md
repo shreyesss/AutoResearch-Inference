@@ -16,3 +16,7 @@ Prefer the pinned Mooncake and agent-75/AIPerf workloads already used by the tar
 Define control/treatment, request identities/seeds, token-length/cohort coverage, load mode, cache preparation, resource basis, primary metric, separate quality/tail guards and support/reject/inconclusive criteria before execution. A component attempt can motivate a native or service attempt but cannot validate it. Keep new attempts in the experiment registry via `researchctl experiment create/transition/get`; accepted/planned requires explicit ROI and an evaluation plan. Use a new ID for retries or changed baseline/scope and link the predecessor.
 
 Collect source/build/image pins, actual invocation, raw observations and artifact hashes. Record `running` only when execution starts. Record measured outcomes with their original scope, and retain rejected/inconclusive/error results as well as wins. Finish with the decision, evidence level, unresolved uncertainty and next cheapest useful action; do not report a prediction as achieved TTFT/TPOT/ITL/cost improvement.
+
+## Refined evidence-to-experiment tools
+
+Use `docs/RESEARCH_TO_IMPLEMENTATION.md` for typed claims, `hypothesis propose/show`, hypothesis-linked `screen`, `eval-plan`, attributed `decide`, source-change alerts and MCP. Prefer these contracts for new work; legacy cards remain readable. A selection verdict from the older model workflow is not an executable evaluation-plan approval. The plan tool checks reproducibility and evaluator coverage; scientific applicability and execution authorization remain separate.

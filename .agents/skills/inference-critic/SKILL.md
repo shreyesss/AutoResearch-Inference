@@ -24,3 +24,7 @@ Recommend the cheapest informative experiment and what result would change the d
 A review verdict does not authorize GPU work or prove improvement. Follow the user's current execution scope. See `research/THIRD_PARTY.md` for attribution.
 
 Keep every earlier card and verdict in durable memory. If review is performed in chat, use the documented import/record path and verify persistence; writing a Markdown summary alone does not update the hypothesis ledger. Preserve `error`, `inconclusive` and `invalidated` as distinct experiment outcomes, and preserve component/native/service scope.
+
+## Refined evidence-to-experiment tools
+
+Use `docs/RESEARCH_TO_IMPLEMENTATION.md` for typed claims, `hypothesis propose/show`, hypothesis-linked `screen`, `eval-plan`, attributed `decide`, source-change alerts and MCP. Prefer these contracts for new work; legacy cards remain readable. A selection verdict from the older model workflow is not an executable evaluation-plan approval. The plan tool checks reproducibility and evaluator coverage; scientific applicability and execution authorization remain separate.

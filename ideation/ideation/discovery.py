@@ -194,7 +194,8 @@ def _error(error):
 def _paper_key(task, config):
     # Stable family identity lets a query finish paging across refresh epochs.
     identity = {k: v for k, v in task.items() if k != "query"} if task.get("family") else task
-    return "discovery:paper:" + _key([identity, config["recency_days"]])
+    return "discovery:paper:" + _key([identity, config["recency_days"], config.get("query_version", 1),
+                                    _key(config.get("families", [])) if task.get("family") else None])
 
 
 def refresh(store, config, *, force=False, now=None, github_factory=GitHub, paper_factory=PaperClient, build_shortlist=True):

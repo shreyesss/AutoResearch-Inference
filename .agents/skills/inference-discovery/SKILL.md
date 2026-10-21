@@ -18,3 +18,7 @@ An all-history opening-record download includes bodies and basic metadata. It do
 Use arXiv, OpenAlex and Hugging Face discovery, then available lawful open full text and author/project code. Explicitly distinguish metadata-only, abstract, full text and inspected implementation. A citation edge to an unresolved paper is not evidence that the paper was read. Do not spend Serper budget for local searches or known-URL fetches, and do not use a model's recollection as a fetched source.
 
 Before reporting S3/VM synchronization, inspect the publication receipt and destination state. Code Git history, S3 snapshot publication and a VM's restored database are different operations. Preserve one authoritative writer per lineage. Never reset local lineage to a newly observed remote head or replace a VM's unpublished work to make synchronization appear successful. See `ideation/docs/STORAGE.md` for recovery mechanics.
+
+## Refined evidence-to-experiment tools
+
+Use `docs/RESEARCH_TO_IMPLEMENTATION.md` for typed claims, `hypothesis propose/show`, hypothesis-linked `screen`, `eval-plan`, attributed `decide`, source-change alerts and MCP. Prefer these contracts for new work; legacy cards remain readable. A selection verdict from the older model workflow is not an executable evaluation-plan approval. The plan tool checks reproducibility and evaluator coverage; scientific applicability and execution authorization remain separate.

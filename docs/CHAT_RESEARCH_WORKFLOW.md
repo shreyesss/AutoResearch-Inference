@@ -196,3 +196,8 @@ Replica synchronization restores a verified version into a separate directory an
 ## Honest capability boundary
 
 The system provides persistent retrieval, evidence/proposal records, conditional screening, append-only experiment tracking and portable snapshots. Chat reasoning or optional bounded model calls supply research judgment. It does not establish research quality from source count, estimate exact service gains from titles, reproduce every paper, continuously reason without invocation, execute GPU experiments from a research request, or turn a component result into a serving win. Those distinctions remain visible in records and final reports.
+
+
+## Refined evidence-to-experiment interface
+
+Use [Research to implementation](RESEARCH_TO_IMPLEMENTATION.md) for typed source claims, hypothesis-linked screens, checked evaluation plans, decisions, source-change review and the optional MCP server. The host agent retains scientific judgment. The journal now retains normalized, credential-redacted queries with config/code provenance; provider billing remains unknown.

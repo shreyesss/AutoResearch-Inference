@@ -52,7 +52,7 @@ The existing hypothesis ledger retains its historical test records for compatibi
 ```bash
 git clone https://github.com/shreyesss/AutoResearch-Inference.git
 cd AutoResearch-Inference
-# Import the foundation bundle first if the branch is not yet published; see portable setup.
+# Use main for current code; the S3 bundle is a recovery fallback.
 git checkout infra/research-foundation
 scripts/bootstrap-node.sh --storage --agents
 source "$HOME/.local/share/autoresearch/venv/bin/activate"

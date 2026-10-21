@@ -3,6 +3,11 @@ import datetime as dt
 import json
 import sqlite3
 import uuid
+import hashlib
+import os
+import re
+import subprocess
+from pathlib import Path
 
 
 def connect(root):
@@ -23,11 +28,35 @@ def connect(root):
 
 def start(root, args):
     identifier = uuid.uuid4().hex
-    # File contents, raw query text, environment and arbitrary argument values
-    # are deliberately absent; query/run details live in explicit run records.
+    # Keep normalized, redacted query text and explicit controls for replay.
+    # File contents, environment and arbitrary argument values stay absent.
     allowed = ('command', 'backfill_command', 'hypothesis_command', 'experiment_command', 'namespace',
                'after', 'before', 'limit', 'offline', 'reason', 'deep_count', 'recent_days', 'repo')
     fields = {k: getattr(args, k) for k in allowed if hasattr(args, k)}
+    def redacted(value):
+        value = ' '.join(value.split())
+        value = re.sub(r'(?i)((?:api[_-]?key|access[_-]?token|token|secret|authorization)\s*[=:]\s*)[^\s&]+', r'\1[REDACTED]', value)
+        for key, secret in os.environ.items():
+            if secret and len(secret) > 8 and any(word in key.upper() for word in ('TOKEN', 'SECRET', 'API_KEY')):
+                value = value.replace(secret, '[REDACTED]')
+        return value
+    for key in ('query_text', 'question', 'query'):
+        value = getattr(args, key, None)
+        if isinstance(value, str):
+            fields[key] = redacted(value)
+        elif isinstance(value, list):
+            fields[key] = [redacted(v) for v in value]
+    config = root / 'research/config.json'
+    if config.exists():
+        fields['config_sha256'] = hashlib.sha256(config.read_bytes()).hexdigest()
+    try:
+        process = subprocess.run(['git', '-C', str(Path(__file__).resolve().parents[2]), 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=2)
+        fields['code_revision'] = process.stdout.strip() if process.returncode == 0 else None
+        status = subprocess.run(['git', '-C', str(Path(__file__).resolve().parents[2]), 'status', '--porcelain'], capture_output=True, text=True, timeout=2)
+        fields['code_worktree_dirty'] = bool(status.stdout) if status.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        fields['code_revision'] = None
+    fields['accounting'] = {'provider_billed_usd': None, 'meaning': 'Unknown billing; inspect bounded provider receipts. Not a zero-spend assertion.'}
     with connect(root) as db:
         db.execute('INSERT INTO commands VALUES(?,?,?,?,?,?,?)', (identifier, dt.datetime.now(dt.timezone.utc).isoformat(), None, args.command, json.dumps(fields), 'started', None))
     db.close()

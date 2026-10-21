@@ -18,9 +18,9 @@ Code is replaceable from Git. Corpus, API cache, experiment state, and raw evide
 are separate durable state. Bitlane remains its own serving component; installing
 research tooling must not start GPU services or change a serving image.
 
-## Current delivery: Git bundle until GitHub push is authenticated
+## Code delivery: Git, with an S3 recovery bundle
 
-The foundation branch is committed locally but GitHub push credentials are unavailable. The approved private S3 bucket therefore carries a thin Git bundle plus a manifest under `autoresearch/code/`. Fetch the manifest and its named bundle using your AWS profile or the B200 instance role. Verify its SHA-256 before Git import; `base_commit` identifies the prerequisite already available in the public repository.
+Use the GitHub `main` branch for current code. The approved private S3 bucket also carries an earlier recovery Git bundle plus a manifest under `autoresearch/code/`; its commit may lag Git main. Fetch the manifest and its named bundle using your AWS profile or the B200 instance role. Verify its SHA-256 before Git import; `base_commit` identifies the prerequisite already available in the public repository.
 
 ```bash
 GIT_LFS_SKIP_SMUDGE=1 git clone --no-checkout https://github.com/shreyesss/AutoResearch-Inference.git
@@ -34,7 +34,7 @@ GIT_LFS_SKIP_SMUDGE=1 git checkout infra/research-foundation
 scripts/bootstrap-node.sh --storage --agents
 ```
 
-Once GitHub publishing is available, normal clone/check-out replaces the bundle step. The bundle is code history; the corpus and experiment databases are restored separately. Do not restore into an initialized/nonempty research directory.
+Normal Git clone/pull is the primary code delivery path. The bundle is code history; the corpus and experiment databases are restored separately. Do not restore into an initialized/nonempty research directory.
 
 ## Bootstrap a node
 

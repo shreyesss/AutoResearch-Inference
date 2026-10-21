@@ -290,7 +290,7 @@ def _run_research(root, args):
               "offline": args.offline, "GPU_experiments": 0}
     try:
         _write(out / "config.json", config)
-        if not args.offline:
+        if not args.offline and args.command != "investigate":
             result["refresh"] = discovery.refresh(store, config)
             _write(out / "refresh.json", result["refresh"])
         candidates = discovery.shortlist(store, config)
@@ -305,6 +305,9 @@ def _run_research(root, args):
                 max_http_calls=0 if args.offline else args.max_http_calls,
                 max_fulltexts=args.deep_count, max_repositories=args.max_repositories,
                 reason=args.reason, brief=brief, model=args.model, timeout=args.timeout)
+            if args.reason:
+                from .research_flow import retain_reasoned_packet
+                result["typed_evidence"] = retain_reasoned_packet(root, result["dossier"]["evidence"]["packet"], out / "dossier/hypotheses")
         else:
             result["status"] = "no_selected_sources"
         _write(out / "run.json", result)
@@ -315,7 +318,7 @@ def _run_research(root, args):
     finally:
         store.db.commit()
         store.db.close()
-        result["snapshot"] = _snapshot(root, "research", publish=not args.offline)
+        result["snapshot"] = _snapshot(root, "research", publish=not args.offline and not args.local_only)
         _write(out / "snapshot-receipt.json", result["snapshot"])
     return result
 
@@ -324,11 +327,53 @@ def _execute(root, args):
     command = args.command
     replica = None
     if args.replica:
-        if command not in {"search", "show", "status"}:
+        if command not in {"search", "pr-search", "show", "status"} or command == "show" and args.claims:
             raise ValueError("Replica access supports only search, show and status")
         replica = _read(root / "replicas/research/CURRENT.json")
         if not replica:
             raise ValueError("No downloaded research replica; run sync-replica first")
+    if command in {"doctor", "costs"}:
+        if command == "costs":
+            return {"supported": False, "reason": "Reconciled provider billing is not implemented; logical calls are not costs. Unknown spend is not zero.", "default_model_calls": 0, "default_gpu_calls": 0}
+        import importlib.util
+        result = {"state_dir": str(root), "provider_credentials_present": {key: bool(os.environ.get(key)) for key in ("GITHUB_TOKEN", "OPENALEX_API_KEY", "SERPER_API_KEY")},
+                  "mcp_installed": importlib.util.find_spec("mcp") is not None, "network_checked": False, "serving_checked": False}
+        path = root / "research/corpus.sqlite"
+        if path.exists():
+            db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+            try:
+                result["corpus"] = {"quick_check": db.execute("PRAGMA quick_check").fetchone()[0], "documents": db.execute("SELECT count(*) FROM documents").fetchone()[0]}
+            finally:
+                db.close()
+        else:
+            result["corpus"] = {"initialized": False}
+        return result
+    flow_hypothesis = command == "hypothesis" and args.hypothesis_command in {"propose", "show"}
+    if command in {"claim", "screen", "eval-plan", "decide", "changes", "link-evidence"} or flow_hypothesis:
+        from .research_flow import ResearchFlow
+        flow = ResearchFlow(root)
+        mutation = command not in {"changes"} and not (command == "claim" and args.claim_command == "show") and not (flow_hypothesis and args.hypothesis_command == "show")
+        try:
+            record = _read(Path(args.record).expanduser()) if getattr(args, "record", None) else None
+            if command == "claim":
+                result = flow.claim(record) if args.claim_command == "record" else {"id": args.id, **flow.node(args.id, "claim")}
+            elif command == "link-evidence":
+                result = flow.link(args.id, args.claim_id, args.relation, args.rationale)
+            elif flow_hypothesis:
+                result = flow.propose(record) if args.hypothesis_command == "propose" else flow.dossier(args.id)
+            elif command == "screen":
+                result = flow.screen(args.id, record)
+            elif command == "eval-plan":
+                result = flow.eval_plan(args.id, record)
+            elif command == "decide":
+                result = flow.decide(args.id, record)
+            else:
+                result = flow.changes(args.cursor, args.limit)
+        finally:
+            flow.close()
+            if mutation:
+                snapshot = _snapshot(root, "research", publish=not args.local_only)
+        return {"record": result, "snapshot": snapshot} if mutation else result
     if command == "backfill":
         from . import backfill
         if args.backfill_command == "start":
@@ -355,7 +400,7 @@ def _execute(root, args):
         try:
             result = persist_card(root, _read(Path(args.record).expanduser()))
         finally:
-            snapshot = _snapshot(root, "research")
+            snapshot = _snapshot(root, "research", publish=not args.local_only)
         return {"record": result, "snapshot": snapshot}
     if command == "sync-replica":
         from .replica import sync
@@ -425,7 +470,7 @@ def _execute(root, args):
             finally:
                 registry.close()
         return result
-    if command in {"refresh", "search", "show", "import-corpus"}:
+    if command in {"refresh", "search", "pr-search", "show", "import-corpus"}:
         from .store import Store
         source_root = Path(replica["path"]) if replica else root / "research"
         if not (source_root / "config.json").exists():
@@ -448,25 +493,34 @@ def _execute(root, args):
                 finally:
                     store.db.commit()
                     _write(output / "receipt.json", result)
-                    receipt = _snapshot(root, "research")
+                    receipt = _snapshot(root, "research", publish=not args.local_only)
                 result["snapshot"] = receipt
                 result["output"] = str(output)
                 return result
-            if command == "search":
-                return store.search(args.query_text, after=args.after, before=args.before, limit=args.limit)
+            if command in {"search", "pr-search"}:
+                return store.search(args.query_text, after=args.after, before=args.before, limit=args.limit, offset=args.offset,
+                                    date_field=args.date_field, kind="pr" if command == "pr-search" else args.kind,
+                                    id_prefix="github:" + args.repo + ":" if args.repo else None)
             if command == "show":
                 result = store.get(args.id)
                 if result is None:
                     raise KeyError("Source does not exist")
                 if args.history:
                     return {"current": result, "revisions": store.revisions(args.id)}
+                if args.claims:
+                    from .research_flow import ResearchFlow
+                    flow = ResearchFlow(root)
+                    try:
+                        return {"source": result, "claims": flow.source_claims(args.id)}
+                    finally:
+                        flow.close()
                 return result
             result = _import_corpus(args.source, store)
             result["snapshot"] = _snapshot(root, "research")
             return result
         finally:
             store.db.close()
-    if command == "run":
+    if command in {"run", "investigate"}:
         return _run_research(root, args)
     if command == "snapshot":
         return _snapshot(root, args.namespace)
@@ -538,10 +592,30 @@ def parser():
     p.add_argument("--state-dir", default=os.environ.get("IDEATION_STATE_DIR") or os.environ.get("AUTORESEARCH_STATE_ROOT", str(DEFAULT_STATE)))
     p.add_argument("--env-file", help="Explicit local credential file; never copied into state")
     p.add_argument("--replica", action="store_true", help="Read downloaded VM replica for search/show/status; writer state untouched")
+    p.add_argument("--local-only", action="store_true", help="New evidence/plan mutations snapshot locally; explicit later snapshot publishes")
     commands = p.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="Offline state initialization with resolved config")
     init.add_argument("--config")
     commands.add_parser("status")
+    commands.add_parser("doctor", help="Local DB/credential-presence checks; does not spend API credits")
+    commands.add_parser("costs", help="Report billing-ledger availability; unknown cost is not zero")
+    claim = commands.add_parser("claim").add_subparsers(dest="claim_command", required=True)
+    claim.add_parser("record").add_argument("--record", required=True)
+    claim.add_parser("show").add_argument("id")
+    for name in ("screen", "eval-plan", "decide"):
+        step = commands.add_parser(name)
+        step.add_argument("id", help="Persistent hypothesis ID")
+        step.add_argument("--record", required=True)
+        if name == "screen":
+            step.add_argument("--mode", choices=("no-gpu",), default="no-gpu")
+    link = commands.add_parser("link-evidence")
+    link.add_argument("id")
+    link.add_argument("--claim-id", required=True)
+    link.add_argument("--relation", choices=("supports", "refutes", "background"), required=True)
+    link.add_argument("--rationale", required=True)
+    changes = commands.add_parser("changes")
+    changes.add_argument("--cursor", type=int, default=0)
+    changes.add_argument("--limit", type=int, default=100)
     history = commands.add_parser("history", help="Local command history; no credentials or raw arguments")
     history.add_argument("--limit", type=int, default=20)
     expand = commands.add_parser("expand", help="Offline bounded query expansion with taxonomy provenance")
@@ -553,6 +627,8 @@ def parser():
     prescreen.add_argument("--record", required=True)
     hypothesis = commands.add_parser("hypothesis").add_subparsers(dest="hypothesis_command", required=True)
     hypothesis.add_parser("record").add_argument("--record", required=True)
+    hypothesis.add_parser("propose").add_argument("--record", required=True)
+    hypothesis.add_parser("show").add_argument("id")
     recall = hypothesis.add_parser("recall")
     recall.add_argument("--query")
     recall.add_argument("--limit", type=int, default=20)
@@ -569,7 +645,7 @@ def parser():
     refresh = commands.add_parser("refresh", help="Bounded API refresh and local durable snapshot")
     config_options(refresh)
     refresh.add_argument("--force", action="store_true")
-    run = commands.add_parser("run", help="Refresh, shortlist, read selected primary sources, snapshot")
+    run = commands.add_parser("run", aliases=["investigate"], help="Refresh and investigate; investigate alias reads selected sources without refreshing other feeds")
     config_options(run)
     run.add_argument("--question", required=True)
     run.add_argument("--source-id", action="append")
@@ -581,14 +657,19 @@ def parser():
     run.add_argument("--timeout", type=int, default=300)
     run.add_argument("--max-http-calls", type=int, default=12)
     run.add_argument("--max-repositories", type=int, default=2)
-    search = commands.add_parser("search")
+    search = commands.add_parser("search", aliases=["pr-search"])
     search.add_argument("query_text")
     search.add_argument("--after")
     search.add_argument("--before")
     search.add_argument("--limit", type=int, default=20)
+    search.add_argument("--offset", type=int, default=0)
+    search.add_argument("--date-field", choices=("created_at", "updated_at", "merged_at", "fetched_at"), default="updated_at")
+    search.add_argument("--kind")
+    search.add_argument("--repo")
     show = commands.add_parser("show")
     show.add_argument("id")
     show.add_argument("--history", action="store_true")
+    show.add_argument("--claims", action="store_true")
     imp = commands.add_parser("import-corpus")
     imp.add_argument("--source", required=True)
     for name in ("snapshot", "push", "pull", "restore", "sync-replica"):
@@ -639,25 +720,32 @@ def parser():
     return p
 
 
-def main(argv=None):
+def invoke(argv=None):
+    """Shared locked API for CLI and MCP; no stdout or exception text logging."""
     args = parser().parse_args(argv)
     root = Path(args.state_dir).expanduser().resolve()
+    if args.env_file:
+        os.environ["IDEATION_ENV_FILE"] = str(Path(args.env_file).expanduser().resolve())
+    if args.env_file or args.command in {"refresh", "run", "investigate", "doctor"}:
+        from .providers import load_provider_env
+        load_provider_env()
+    with _locked(root):
+        from . import journal
+        entry = journal.start(root, args)
+        try:
+            value = _execute(root, args)
+        except BaseException as error:
+            journal.finish(root, entry, error)
+            raise
+        else:
+            journal.finish(root, entry)
+    return value
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
     try:
-        if args.env_file:
-            os.environ["IDEATION_ENV_FILE"] = str(Path(args.env_file).expanduser().resolve())
-        if args.env_file or args.command in {"refresh", "run"}:
-            from .providers import load_provider_env
-            load_provider_env()
-        with _locked(root):
-            from . import journal
-            entry = journal.start(root, args)
-            try:
-                value = _execute(root, args)
-            except BaseException as error:
-                journal.finish(root, entry, error)
-                raise
-            else:
-                journal.finish(root, entry)
+        value = invoke(argv)
         print(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
     except Exception as error:

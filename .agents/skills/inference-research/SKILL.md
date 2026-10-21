@@ -52,3 +52,7 @@ Write sources, mechanism notes, N hypothesis cards, critique/revisions and a con
 The current human-in-the-loop stage ends at experiment selection. Do not build, patch serving code or launch GPUs unless the user has authorized that stage. Existing authorization continues to apply. Recommend process improvements to the meta coordinator, which maintains `research/META.md`; do not rewrite project-wide policy as an incidental research action.
 
 Adapted research principles: `research/THIRD_PARTY.md`.
+
+## Refined evidence-to-experiment tools
+
+Use `docs/RESEARCH_TO_IMPLEMENTATION.md` for typed claims, `hypothesis propose/show`, hypothesis-linked `screen`, `eval-plan`, attributed `decide`, source-change alerts and MCP. Prefer these contracts for new work; legacy cards remain readable. A selection verdict from the older model workflow is not an executable evaluation-plan approval. The plan tool checks reproducibility and evaluator coverage; scientific applicability and execution authorization remain separate.

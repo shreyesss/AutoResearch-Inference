@@ -166,7 +166,9 @@ class Store:
                 d[k] = json.loads(d[k])
         return d
 
-    def search(self, query="", match="any", after=None, before=None, date_field="updated_at", kind=None, state=None, tags=None, limit=20, sort="relevance", id_prefix=None):
+    def search(self, query="", match="any", after=None, before=None, date_field="updated_at", kind=None, state=None, tags=None, limit=20, sort="relevance", id_prefix=None, offset=0):
+        if type(offset) is not int or offset < 0:
+            raise ValueError("offset must be a nonnegative integer")
         if date_field not in {"created_at", "updated_at", "merged_at", "fetched_at"}:
             raise ValueError("Invalid date field")
         where, args = [], []
@@ -193,8 +195,8 @@ class Store:
             where.append("EXISTS(SELECT 1 FROM json_each(d.tags) WHERE value=?)")
             args.append(tag.lower())
         order = "d." + date_field + " DESC" if sort == "newest" else "rank,d.updated_at DESC"
-        sql = "SELECT d.*," + rank + " FROM documents d" + join + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY " + order + " LIMIT ?"
-        args.append(min(max(int(limit), 1), 500))
+        sql = "SELECT d.*," + rank + " FROM documents d" + join + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY " + order + ",d.id LIMIT ? OFFSET ?"
+        args.extend([min(max(int(limit), 1), 500), offset])
         return [self.decode(r) for r in self.db.execute(sql, args)]
 
     def graph(self, node, limit=100):

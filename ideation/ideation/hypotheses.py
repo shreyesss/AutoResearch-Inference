@@ -316,7 +316,7 @@ class HypothesisTools:
                           "", "**Cheap test:** " + card["experiment"]["treatment"], "", "**Reject if:** " + card["experiment"]["rejects_if"], ""]
             (out / "decision.md").write_text("\n".join(lines))
         except Exception as e:
-            manifest.update(status="failed", error=str(e), finished_at=now())
+            manifest.update(status="failed", error_type=type(e).__name__, finished_at=now())
             raise
         finally:
             write_json(out / "manifest.json", manifest)

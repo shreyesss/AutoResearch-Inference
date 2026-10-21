@@ -12,6 +12,7 @@ python_bin=""
 research_extras=0
 agents=0
 storage=0
+mcp=0
 dry_run=0
 
 usage() {
@@ -23,6 +24,7 @@ Usage: scripts/bootstrap-node.sh [options]
   --research-extras      Install optional web-research dependencies
   --agents              Install pinned DiscoveryRSI agent dependency
   --storage             Install optional S3 client dependency
+  --mcp                 Install optional stdio research MCP server
   --bitlane-repo URL     Explicit canonical Bitlane Git URL; never guessed
   --bitlane-dir DIR      Separate Bitlane checkout (default: sibling bitlane)
   --bitlane-ref REF      Optional branch/tag/commit for a NEW checkout
@@ -51,6 +53,7 @@ while (($#)); do
     --research-extras) research_extras=1; shift;;
     --agents) agents=1; shift;;
     --storage) storage=1; shift;;
+    --mcp) mcp=1; shift;;
     --dry-run) dry_run=1; shift;;
     --help|-h) usage; exit 0;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2;;
@@ -139,6 +142,7 @@ extras=""
 if ((research_extras)); then extras="web-research"; fi
 if ((agents)); then extras="${extras:+$extras,}agents"; fi
 if ((storage)); then extras="${extras:+$extras,}storage"; fi
+if ((mcp)); then extras="${extras:+$extras,}mcp"; fi
 if [[ -n "$extras" ]]; then package="${package}[$extras]"; fi
 "$venv_root/bin/python" -m pip install --disable-pip-version-check -e "$package"
 

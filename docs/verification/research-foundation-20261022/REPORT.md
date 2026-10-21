@@ -76,6 +76,8 @@ The same first snapshot was also restored on `bitlane-b1` under `/home/ubuntu/.l
 
 Small experiment evidence was subsequently retained and published: six event references resolve to five unique JSON/Markdown artifacts (13,133 bytes), with unchanged original event receipts. [Artifact retention](experiment-artifact-retention.json).
 
+The final committed installation was then restored on B200 at `/home/ubuntu/AutoResearch-Inference-foundation`, with live state at `/home/ubuntu/.local/share/inference-autoresearch`. It recovered **7,318 source records, 98 hypothesis records and all three experiment outcomes**. C25 evidence resolves to Linux-local paths and verifies against the original SHA-256 hashes. [Final node verification](b200-final-verification.json).
+
 ## Tests and boundaries
 
 The research suite covers migration, revisions, independent recent/archive cursors, caching, budget limits, source identity, fulltext/code evidence selection, experiment scopes, immutable events, SQLite WAL capture, corrupted snapshots, unsafe paths, stale publication and clean restores. **143 research tests pass** at this checkpoint. See [latest test output](research-tests.txt).
@@ -90,8 +92,8 @@ Final local source count after the live read/reasoning run: **7,318 records**, i
 
 Planning example: **6.45 GB retained + 10,000 PUT + 100,000 GET/HEAD per month ≈ $0.24/month**; 50 GB with the same requests ≈ $1.24/month. Rates: $0.023/GB-month, $0.005/1,000 PUT and $0.0004/1,000 GET/HEAD. [AWS S3 pricing](https://aws.amazon.com/s3/pricing/).
 
-Actual initial corpus storage is much smaller. Immutable history grows with unique changed chunks; no garbage collector or hard dollar cap is installed. Internet/cross-region egress, taxes, additional traces and model reasoning are excluded. Bucket storage is not a promise of free model/API usage.
+At the recorded final check, 219 current S3 objects occupied **72,392,344 bytes**, about **$0.001665/month for storage alone** at the stated rate. The bucket is verified nonpublic, encrypted and versioned. [Cloud inspection](cloud-status.json). Actual initial corpus storage is much smaller than the planning example. Immutable history grows with unique changed chunks; no garbage collector or hard dollar cap is installed. Internet/cross-region egress, taxes, additional traces and model reasoning are excluded. Bucket storage is not a promise of free model/API usage.
 
 ## Source publication status
 
-Both workstation and B200 checkout failed GitHub `push --dry-run`: no HTTPS push credentials are configured. No branch on GitHub was overwritten. The final delivery records the local commit and durable code bundle separately; a pushed GitHub branch must not be claimed until authentication is available.
+Both workstation and B200 checkout failed GitHub `push --dry-run`: no HTTPS push credentials are configured. No branch on GitHub was overwritten. Implementation commit `471326ee7a78fb248d97522ed374cfe17da40e06` was published as a 142,481-byte Git bundle to the private bucket and checksum-verified while installing the branch on B200. [Initial code release](code-release.json). The S3 `autoresearch/code/LATEST.json` manifest identifies the latest bundle; later documentation-only delivery commits can advance that pointer. A pushed GitHub branch must not be claimed until authentication is available.

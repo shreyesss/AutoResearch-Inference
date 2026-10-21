@@ -36,3 +36,9 @@ Verification: **200 research tests passed**, including a snapshot/restore of the
 - No GPU benchmark or serving change was performed. Provider billing totals are unsupported, not asserted zero. This demonstration made no LLM call.
 
 The [implementation guide](../../RESEARCH_TO_IMPLEMENTATION.md) describes operating commands and remaining boundaries. Git/VM delivery receipts are recorded separately after publication.
+
+## Delivery verified
+
+Implementation commit `9a56325d25c83ac0fbfc35e21560db54d10c7a16` was pushed by normal fast-forward to GitHub main and checked out on `bitlane-b1` at `/home/ubuntu/AutoResearch-Inference-foundation`. The VM installed the MCP entry point and passed the offline complete-flow demo. S3 snapshot `1b0d73fb3a3c0bdd4a3557b66723fde0501f2fe4f1a816245e5076f38ae58750` published and restored into the VM read replica. Read-only inspection found the real hypothesis, two linked claims and all three typed screening/plan/decision records; SQLite quick_check was `ok`. The recurring replica timer remains active. See [delivery receipt](delivery.json).
+
+This receipt documents the implementation commit; a subsequent documentation-only commit records these checks. The historical S3 code bundle can lag main; Git main is the current code source.

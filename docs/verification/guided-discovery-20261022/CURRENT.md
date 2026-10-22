@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint18](CHECKPOINT_18.md) adds adversarial reviews of rounds51–53, exact duplicate correction, trace applicability, and the verified live-readonly WAL repair. Canonical import is queued; new S3 coverage remains unverified. [Checkpoint17](CHECKPOINT_17.md) preserves the preceding delivery.
+Latest update: [Checkpoint19](CHECKPOINT_19.md) adds reviewed rounds54–57, the source-backed M01 arithmetic correction, and search-surface clarification. The guided loop continues; canonical publication remains pending. [Checkpoint18](CHECKPOINT_18.md) preserves the preceding WAL repair and reviews.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

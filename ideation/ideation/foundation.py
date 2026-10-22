@@ -880,7 +880,7 @@ def parser():
     search.add_argument("--limit", type=int, default=20)
     search.add_argument("--offset", type=int, default=0)
     search.add_argument("--date-field", choices=("created_at", "updated_at", "merged_at", "fetched_at"), default="updated_at")
-    search.add_argument("--kind")
+    search.add_argument("--kind", help="Stored source kind, e.g. pr, issue, paper, report or code; GitHub pull requests use pr, not pull_request")
     search.add_argument("--repo")
     show = commands.add_parser("show")
     show.add_argument("id")

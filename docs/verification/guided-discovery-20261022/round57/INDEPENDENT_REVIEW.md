@@ -1,0 +1,11 @@
+# Independent root review: indexer layout premise
+
+Agree with zero-new source screen. All31 frozen artifacts match the manifest. Root independently read the actual pinned writer, dense API view construction, sparse page accessor and dense scale/payload producer code. No native or GPU execution was performed; the author's integer probe was not independently rerun.
+
+The writer uses payload offset token*TOKEN_STRIDE and places scales after block_size*TOKEN_STRIDE. Dense attention.hpp reconstructs a payload view with token stride kv_head_dim and scale view at block_kv*kv_head_dim, preserving page stride. Sparse resolve_kv_block reconstructs the same two planes. Thus the nominal68/132 allocation width is not the native payload-reader stride. A supposed conversion from interleaved rows to separated planes would duplicate existing representation.
+
+The dense producer's issue_paged_split uses tma_gather4 for groups of four scale pages, handles remainder pages, and computes which payload pages are assigned to the scale producer. This directly refutes the proposed absence of batched scale loading and shared producer work. It does not prove optimal scheduling or active use on the current service. Sparse path remains separately gated; dependency capability must not be conflated with target activation.
+
+The address probe is a transcription of selected source equations over declared alignment/full/unique-block cases. Its requested-sector sets cannot establish DRAM transactions, cache-line efficiency, TMA behavior, generated lane mapping or latency. Source agreement resolves the two stated premises without those performance inferences. Tail/invalid/repeated blocks and runtime dispatch remain outside the diagnostic. Do not turn minimal address-sector coverage under the modeled case into a claim of globally optimal traffic.
+
+No paper search was necessary once the exact missing-work premises were refuted. This is an appropriate adaptive stop for these two components, not a claim that recent layout literature has no useful ideas. AT03/MP17/LC and prior P50 proposals remain distinct; their exposure or correctness gates are not resolved here. No new card, status, GPU authorization or benchmark requirement follows.

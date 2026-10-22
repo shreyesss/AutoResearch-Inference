@@ -31,7 +31,7 @@ def main():
     q.add_argument("--after")
     q.add_argument("--before")
     q.add_argument("--date-field", default="updated_at", choices=["created_at", "updated_at", "merged_at", "fetched_at"])
-    q.add_argument("--kind")
+    q.add_argument("--kind", help="Stored source kind, e.g. pr, issue, paper, report or code; GitHub pull requests use pr, not pull_request")
     q.add_argument("--state")
     q.add_argument("--tag", action="append", dest="tags")
     q.add_argument("--match", choices=["all", "any"], default="any")

@@ -1,0 +1,9 @@
+# Independent tool-surface review after round55
+
+**Pass for the inspected narrow diff.** Three Python changes only alter argparse help or the MCP tool's function docstring. Normalizing exactly those surfaces yields equal ASTs against recorded HEAD for foundation.py, cli.py and mcp_server.py. No query parser, provider behavior, filter semantics, network gate, error sanitization, selection or retention behavior was changed.
+
+The warning matches actual implementation. GitHub ingestion emits `kind=pr`; the stored kind filter is exact and does not normalize `pull_request`. Compact recall strip/casefolds one input string and tests a literal substring in serialized card/review/source fields. Full recall similarly uses a lowercased substring of the card. Neither interprets a multiword query as semantic OR. Separate mechanism queries and paginated inventory are appropriate recovery after an empty compound query; `search --match all` is a different term/quoted-phrase interface.
+
+“Literal phrase” is adequate user wording here, with one technical limit: it is a substring match, not linguistic phrase normalization or semantic retrieval, and it can match serialized fields. The skill already avoids treating absence as novelty. This change teaches callers how to use existing behavior; it does not enforce kind validation or prove improved recall/yield on held-out questions. The MCP docstring intentionally changes the agent-visible description, which is the desired surface effect.
+
+I inspected the added seven skill lines and underlying recall/ingestion/search sources. No code or skill edits, provider requests or tests were performed by this reviewer. Root's reported361 tests/29 subtests/bootstrap/validator are not claimed as independently rerun. The unrelated accepted-diagnostics documentation diff was outside the AST comparison; its M-only extent statement was separately reviewed in review/round56-agent-extent.

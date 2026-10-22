@@ -1,0 +1,57 @@
+diff --git a/.agents/skills/inference-discovery/SKILL.md b/.agents/skills/inference-discovery/SKILL.md
+index 4f242dd..cfea387 100644
+--- a/.agents/skills/inference-discovery/SKILL.md
++++ b/.agents/skills/inference-discovery/SKILL.md
+@@ -22,6 +22,13 @@ reopening conditions, with exact source matches first. Open `hypothesis show`
+ for decisive records. A shared source can support a different useful component;
+ it does not automatically make the new proposal a duplicate.
+ 
++Recall `--query` matches a literal phrase; it is not semantic search or the
++term-based `search --match all` interface. A zero result for `overlap synchronization`
++does not mean both mechanisms are absent. Try each mechanism separately or inspect
++the paginated compact inventory. For GitHub filtering use `pr-search` or
++`search --kind pr`; `pull_request` is not the stored kind and can silently exclude
++every PR. Correct the filter before treating an empty result as evidence.
++
+ In the dossier, read `linked_research` for later refinements and priority limits
+ before treating an old accepted investigation as active implementation work.
+ Use `--include-artifacts` only when the omitted evidence pointers are needed.
+diff --git a/ideation/ideation/cli.py b/ideation/ideation/cli.py
+index 9080ca2..6874940 100644
+--- a/ideation/ideation/cli.py
++++ b/ideation/ideation/cli.py
+@@ -31,7 +31,7 @@ def main():
+     q.add_argument("--after")
+     q.add_argument("--before")
+     q.add_argument("--date-field", default="updated_at", choices=["created_at", "updated_at", "merged_at", "fetched_at"])
+-    q.add_argument("--kind")
++    q.add_argument("--kind", help="Stored source kind, e.g. pr, issue, paper, report or code; GitHub pull requests use pr, not pull_request")
+     q.add_argument("--state")
+     q.add_argument("--tag", action="append", dest="tags")
+     q.add_argument("--match", choices=["all", "any"], default="any")
+diff --git a/ideation/ideation/foundation.py b/ideation/ideation/foundation.py
+index 14bb290..382e3b8 100644
+--- a/ideation/ideation/foundation.py
++++ b/ideation/ideation/foundation.py
+@@ -880,7 +880,7 @@ def parser():
+     search.add_argument("--limit", type=int, default=20)
+     search.add_argument("--offset", type=int, default=0)
+     search.add_argument("--date-field", choices=("created_at", "updated_at", "merged_at", "fetched_at"), default="updated_at")
+-    search.add_argument("--kind")
++    search.add_argument("--kind", help="Stored source kind, e.g. pr, issue, paper, report or code; GitHub pull requests use pr, not pull_request")
+     search.add_argument("--repo")
+     show = commands.add_parser("show")
+     show.add_argument("id")
+diff --git a/ideation/ideation/mcp_server.py b/ideation/ideation/mcp_server.py
+index 4300cfb..faadafa 100644
+--- a/ideation/ideation/mcp_server.py
++++ b/ideation/ideation/mcp_server.py
+@@ -60,7 +60,7 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
+     def search_local(query: str, after: str | None = None, before: str | None = None,
+                      repo: str | None = None, kind: str | None = None, limit: int = 20, offset: int = 0,
+                      date_field: str = "updated_at", match: str = "any") -> dict[str, object]:
+-        """Search retained papers/PRs/issues, not online. Choose created_at, updated_at, merged_at or fetched_at; >=after and <before. match=all requires each term/quoted phrase; any uses OR. Inspect coverage before treating absence as evidence."""
++        """Search retained papers/PRs/issues, not online. Choose created_at, updated_at, merged_at or fetched_at; >=after and <before. match=all requires each term/quoted phrase; any uses OR. Stored kind examples: pr, issue, paper, report, code. GitHub pull requests use kind=pr, not pull_request. Inspect coverage and filters before treating absence as evidence."""
+         if date_field not in ("created_at", "updated_at", "merged_at", "fetched_at"):
+             raise ToolError("Choose created_at, updated_at, merged_at or fetched_at")
+         if match not in ("any", "all"):

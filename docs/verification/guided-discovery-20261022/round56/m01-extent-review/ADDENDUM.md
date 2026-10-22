@@ -1,0 +1,11 @@
+# M-only tactic extent invariant — independent source and algebra check
+
+For a fixed physical expert row count n and legal positive block M divisible by16, write n=q*M+r, 0<=r<M. The source schedules q full chunks plus one nonempty tail if r>0. Their descriptor token extents sum to q*M+16*ceil(r/16)=16*ceil(n/16). Zero rows schedule no tasks. This is a symbolic identity, not a CPU/GPU benchmark.
+
+Applicability is supported separately for both routed linear phases: scheduler get_next_task uses the same num_total_m_blocks and create_task for Linear1 and Linear2; create_task reads the finalized stored per-expert receive count and calculates min(remaining,M). For enabled shared experts, shared_mainloop independently uses the common num_tokens and same chunk/tail calculation for SharedLinear1 and SharedLinear2. Shared and routed n are different quantities. The shared/routed instruction descriptors both pass through the unconditional per-task dynamic-N update in the common MMA path; the helper explicitly stores N/8 in the descriptor.
+
+The precise invariant is the sum of aligned token extents **per expert and per output-N cluster/K iteration**, with fixed other tactic dimensions, routing/quantization and compatible kernel path. Changing M alone does not reduce that padded extent. This does not assert equal number of issued instructions: a larger M gives fewer tasks/instructions of a larger N extent. It does not assert equal cycles, traffic, occupancy or contention, and cannot be generalized to changing BLOCK_N, BLOCK_K, precision, alternate kernels or routing counts without a new calculation.
+
+M also affects existing schedule policy: decode-shaped M<=64 changes L1/L2 task interleaving depending on ring reuse; shared L2 early placement depends on ceil(num_tokens/M)*shared-cluster count. Fixed TMA extents, task claims, weight reuse, resource usage and ring lifetime remain possible reasons for different elapsed time even when this arithmetic extent is invariant. These must not be relabeled as padded tensor-core FLOPs saved.
+
+Thus the bound falsifies one simplistic M01 benefit model, not M01 itself. No frozen hypothesis/card/status or author report was altered; no executable arithmetic fixture, GPU/native call or target timing was run.

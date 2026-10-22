@@ -22,6 +22,13 @@ reopening conditions, with exact source matches first. Open `hypothesis show`
 for decisive records. A shared source can support a different useful component;
 it does not automatically make the new proposal a duplicate.
 
+Recall `--query` matches a literal phrase; it is not semantic search or the
+term-based `search --match all` interface. A zero result for `overlap synchronization`
+does not mean both mechanisms are absent. Try each mechanism separately or inspect
+the paginated compact inventory. For GitHub filtering use `pr-search` or
+`search --kind pr`; `pull_request` is not the stored kind and can silently exclude
+every PR. Correct the filter before treating an empty result as evidence.
+
 In the dossier, read `linked_research` for later refinements and priority limits
 before treating an old accepted investigation as active implementation work.
 Use `--include-artifacts` only when the omitted evidence pointers are needed.

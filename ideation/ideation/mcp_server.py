@@ -60,7 +60,7 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
     def search_local(query: str, after: str | None = None, before: str | None = None,
                      repo: str | None = None, kind: str | None = None, limit: int = 20, offset: int = 0,
                      date_field: str = "updated_at", match: str = "any") -> dict[str, object]:
-        """Search retained papers/PRs/issues, not online. Choose created_at, updated_at, merged_at or fetched_at; >=after and <before. match=all requires each term/quoted phrase; any uses OR. Inspect coverage before treating absence as evidence."""
+        """Search retained papers/PRs/issues, not online. Choose created_at, updated_at, merged_at or fetched_at; >=after and <before. match=all requires each term/quoted phrase; any uses OR. Stored kind examples: pr, issue, paper, report, code. GitHub pull requests use kind=pr, not pull_request. Inspect coverage and filters before treating absence as evidence."""
         if date_field not in ("created_at", "updated_at", "merged_at", "fetched_at"):
             raise ToolError("Choose created_at, updated_at, merged_at or fetched_at")
         if match not in ("any", "all"):

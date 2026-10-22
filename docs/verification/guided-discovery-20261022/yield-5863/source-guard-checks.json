@@ -1,0 +1,97 @@
+{
+  "scope": "Exact extracted early-return control only; no tensor allocation, logits computation, Triton kernel, native library or stream execution. Attribute trap in negative prompt case only proves exit from early-return; it does not run downstream scoring.",
+  "sampler_cases": [
+    {
+      "flags": [
+        false,
+        false
+      ],
+      "observed": "same input object returned"
+    },
+    {
+      "flags": [
+        false,
+        true
+      ],
+      "observed": "allocator reached"
+    }
+  ],
+  "prompt_cases": [
+    {
+      "uses_prompt_logprobs": [
+        false,
+        false
+      ],
+      "observed": "empty; no logits callback"
+    },
+    {
+      "uses_prompt_logprobs": [
+        false,
+        true
+      ],
+      "observed": "past first early-return"
+    }
+  ],
+  "fixed_id_empty_case": "empty; no logits callback",
+  "source_methods": [
+    {
+      "path": "sampler.py",
+      "class": "Sampler",
+      "method": "apply_sampling_params",
+      "line": 226,
+      "end_line": 276,
+      "sha256": "21cdcc9efd426339ad227b2c0df54b56a7a7317ad0366057f849e61466c80fa7"
+    },
+    {
+      "path": "prompt_logprob.py",
+      "class": "PromptLogprobsWorker",
+      "method": "compute_prompt_logprobs",
+      "line": 120,
+      "end_line": 226,
+      "sha256": "c10e8eac4470a07c48e5bf914fd8388ad35347bf2d3dd6ce1e47fbf6112547db"
+    },
+    {
+      "path": "prompt_logprob.py",
+      "class": "PromptLogprobsWorker",
+      "method": "compute_prompt_token_id_logprobs",
+      "line": 69,
+      "end_line": 118,
+      "sha256": "4867c58d2e41570bc44c9da6b1dacd85d23a25cbc9b521011a9d9960e27d83d5"
+    }
+  ],
+  "rejection_sample_host_calls": [
+    "_compute_cumulative_log_p_kernel[num_reqs,]",
+    "_compute_local_logits_stats_kernel[num_logits, vocab_num_blocks]",
+    "_compute_local_residual_mass_kernel[num_logits, vocab_num_blocks]",
+    "_insert_resampled_kernel[num_reqs,]",
+    "_rejection_kernel[num_reqs,]",
+    "_resample_kernel[num_reqs, resample_num_blocks]",
+    "contexts.contiguous",
+    "contexts.stride",
+    "draft_local_max.stride",
+    "draft_local_sumexp.stride",
+    "draft_logits.size",
+    "draft_logits.stride",
+    "draft_sampled.new_empty",
+    "local_residual_mass.stride",
+    "min",
+    "resampled_local_argmax.stride",
+    "resampled_local_max.stride",
+    "sampled.new_empty",
+    "sampled.stride",
+    "target_local_argmax.stride",
+    "target_local_max.stride",
+    "target_local_sumexp.stride",
+    "target_logits.new_empty",
+    "target_logits.stride",
+    "triton.cdiv",
+    "triton.next_power_of_2",
+    "watermarking.view",
+    "watermarking_skip_mask.contiguous",
+    "watermarking_skip_mask.is_contiguous",
+    "watermarking_skip_mask.view"
+  ],
+  "no_library_GEMM_or_workspace_call_in_this_host_wrapper": true,
+  "transitive_native_safety": "not established",
+  "new_hypotheses": 0
+}

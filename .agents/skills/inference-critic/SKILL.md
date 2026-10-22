@@ -43,6 +43,8 @@ When invoked inside the research loop, revise cards and record substantive chang
 
 Recommend the cheapest informative experiment and what result would change the decision. An isolated kernel improvement does not establish an end-to-end frontier point. Keep service quality, workload and hardware comparability explicit; allow necessary implementation and feature changes. Use causal ablations when attribution matters rather than blocking a useful integrated system comparison.
 
+For multi-arm experiments, separate each arm’s comparison from the family-level decision. If either B or C improving over A supports the proposal, B beating C rejects only C’s advantage over B; it does not reject the whole proposal. Check that null, support and rejection branches match the actual baseline, objective and guards, including ties or inconclusive uncertainty. Preserve the original decision rule and record corrections explicitly.
+
 A review verdict does not authorize GPU work or prove improvement. Follow the user's current execution scope. See `research/THIRD_PARTY.md` for attribution.
 
 Keep every earlier card and verdict in durable memory. If review is performed in chat, use the documented import/record path and verify persistence; writing a Markdown summary alone does not update the hypothesis ledger. Preserve `error`, `inconclusive` and `invalidated` as distinct experiment outcomes, and preserve component/native/service scope.

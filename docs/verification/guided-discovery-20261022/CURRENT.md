@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint 23](CHECKPOINT_23.md) adds the independently reviewed layered-prefill direction, concrete continuation-buffer constraints, a next-action priority table, isolated RM61 persistence checks and pinned-code identity reuse. [Checkpoint 22](CHECKPOINT_22.md) contains request migration, numerical-admission literature and CF59 prompt-logprob gates. Canonical retention and S3 publication require their own completion receipts.
+Latest update: [Checkpoint 24](CHECKPOINT_24.md) adds the reviewed compressed-KV cache-hint experiment, an arm-specific adjudication correction, measured search yield and completed canonical CF59/RM61 retention. [Checkpoint 23](CHECKPOINT_23.md) covers layered-prefill continuation and its buffer-lifetime constraints. No measured inference improvement or current-import S3 coverage is claimed.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

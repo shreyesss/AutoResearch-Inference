@@ -23,6 +23,12 @@ Freeze the actual target in the task brief: running image/source/model pins, GPU
 
 ## Research and synthesis
 
+When sources only partly fit or a proposal combines methods, read
+`references/synthesis.md`. Decompose each paper into components and dependencies
+before rejecting or adopting it. Reuse an applicable inference policy without its
+optional trainer when justified; do not discard dependencies needed for correctness.
+Explain the compatibility of combined parts and the remaining target delta.
+
 - Combine evidence-led investigation with opportunity-led literature and source research. A profile is useful evidence, not a prerequisite for proposing a new mechanism.
 - Follow the discovery procedure in `research/METHODOLOGY.md`. Search and read papers, relevant references/citing work, upstream diffs/reviews and implementations in other serving engines. Verify crucial claims in primary sources; log searches, findings, counterevidence and access limits.
 - Use native subagents for separable research directions when available and permitted. This workflow requests delegation for broad multi-idea batches; use a few bounded assignments matched to the requested scope. Give each the target, baseline facts, assigned question, output contract and execution limits. Have agents write separate notes; synthesize and deduplicate centrally. Do not prescribe the conclusion. If delegation is unavailable, do these passes sequentially and say so.
@@ -39,9 +45,20 @@ For each candidate, answer the transfer chain: **source mechanism → code/dispa
 
 Separate scientific usefulness from readiness. An absent checkpoint or unknown timing blocks qualification, but an explicit compatibility/CPU diagnostic may remain worthwhile. Arithmetic ROI is conditional evidence: task-specific assumptions and missing inputs stay visible. Do not force every idea through an identical quantitative threshold or invent inputs to satisfy a screen. Conversely, a large estimated gain never compensates for an inactive path or incorrect output.
 
+An explicit user waiver of a separate pre-implementation ROI campaign takes
+precedence. Preserve it in the task brief; do not recreate that gate through an
+extra profiler, simulator or mandatory baseline campaign. Correctness/control
+measurements can belong inside the matched comparison. Attached plans are examples
+unless the current request authorizes their execution.
+
 ## Critique and improve in this run
 
 Apply `research/METHODOLOGY.md`'s rubric to every shortlisted idea. Self-critique is the default; a subagent adversarial pass is optional. No separate critic chat is required. Record whether review was self, delegated or external. Challenge assumptions, inspect contrary sources, revise the hypothesis or replace weak ideas. Carry substantive objections and their resolution into the final cards and `review.md`; do not merely append a disclaimer. Stop iterating when the requested deliverable is useful or the declared budget is reached, reporting unresolved uncertainty.
+
+Adapt that rubric to the current task and define observable pass/fail reasons.
+Retain `decision_gap → tool receipt → evidence → decision_change → next_action`
+for consequential calls. Judge useful revisions and avoided wrong experiments;
+neither a high self-score nor more retrieved sources proves better hypotheses.
 
 ## Fast path to evidence
 

@@ -33,6 +33,36 @@ CPU diagnostics do not require inventing an image digest, CUDA version, GPU timi
 
 Both paths still require a grounded supporting claim and a recorded no-GPU screen. Recording `screen` with missing target provenance intentionally preserves `insufficient_evidence` and null target gain; it can accompany a diagnostic plan. It cannot support qualification. Simulation and agent-estimate inputs also cannot clear a qualification plan, even when their conditional numerical gain is positive. Target-trace/reproduced-measurement labels are provenance assertions, not an automated audit of their scientific validity. Here `purpose=qualification` means planning a controlled target comparison capable of qualifying a change; it never means the experiment has passed. A target-evidence-backed plan may reach review with null numeric ROI (for example, TTFT cannot be predicted by iteration arithmetic). The gate does not demand a guessed percentage before designing that trial.
 
+### Explicit task waiver
+
+The paragraph above describes the default recorded screening policy. If the user
+explicitly waives a separate pre-implementation ROI campaign, freeze that instruction
+in the new hypothesis brief rather than manufacturing a screen or silently changing
+an earlier record:
+
+```json
+{
+  "selection": {
+    "require_novelty": false,
+    "require_roi_screen": false,
+    "roi_screen_waiver": {
+      "authority": "user",
+      "reason": "Measure the native control inside the matched comparison; no separate materiality campaign",
+      "instruction_reference": "Actual task message or retained instruction artifact"
+    }
+  }
+}
+```
+
+With this explicit policy, a complete diagnostic or qualification **plan** may reach
+review without a screening record or known numerical ROI. Existing contrary evidence
+must still be reviewed; the waiver does not turn a negative result into a win. Source
+grounding, baseline/command/workload pins, correctness, evaluator coverage and all
+other plan checks remain in force. The response retains the waiver and continues to
+report `execution_authorized=false` and `scientific_validity=unverified`. The tool
+records the asserted user instruction; it cannot authenticate that assertion. A
+paper's recommendation or agent preference is not a user waiver.
+
 `ready_for_review` checks completeness and consistency. It **does not** certify that inputs exist, commands are safe or correct, the source claim is true, the experiment discriminates alternatives, or the hypothesis is valuable. The response includes `scientific_validity=unverified` and concrete review questions. The separate reviewer examines those questions. No plan tool runs its command, and `execution_authorized` remains false.
 
 ## Minimal CPU plan shape

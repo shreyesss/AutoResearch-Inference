@@ -1,0 +1,14 @@
+{
+  "invocation": "single python process: invoke([--state-dir, STATE, init]); invoke([--state-dir, STATE, --defer-snapshot, paper-search, scientific hypothesis generation, --provider, arxiv, --after, 2026-01-01, --before, 2026-10-23, --limit, 6])",
+  "error_type": "ImportError",
+  "traceback": "foundation.py:803 invoke -> foundation.py:360 _execute -> paper_search.py:6 from .evidence import ResearchTools -> ImportError: cannot import name ResearchTools from ideation.evidence (unknown location)",
+  "cause": "Unconfirmed; not reproduced or diagnosed",
+  "impact": "No source results from this first process; fallback separate CLI launched",
+  "secrets_printed": false,
+  "followup": {
+    "reproduced": true,
+    "cause": "From repository root, outer ideation directory was a namespace package and historical ideation/evidence artifact folder shadowed inner ideation/ideation/evidence.py. Not init stubbing.",
+    "fix": "Source-checkout package bridge selects inner code directory; installed wheel unchanged.",
+    "regression_test": "ideation/tests/test_checkout_import.py; fresh interpreter with PYTHONPATH removed, init then ResearchTools import, CPU only"
+  }
+}

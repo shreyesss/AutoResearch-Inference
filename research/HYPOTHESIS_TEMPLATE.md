@@ -22,6 +22,12 @@ For **[model, hardware/topology, workload, operating range]**, changing **[imple
 
 Files/functions, settings/features and intended change; dependencies and build implications. Include an unchanged-parent control. An activation, upstream reuse or combined integration is valid. Explain the simplest implementation and any alternatives. Separate system-benefit claims from causal attribution that needs ablations.
 
+For partial reuse or cross-source synthesis, name selected and omitted components,
+their exact source evidence, required dependencies and the compatibility argument.
+Explain why omitting a trainer or another component preserves the selected method's
+semantics; do not inherit the full paper's speedup. Distinguish current-baseline work
+from the residual change. See the research skill's `references/synthesis.md`.
+
 ## Cheapest falsification
 
 Exact check, microbenchmark or targeted profile; inputs/shapes/topology, correctness oracle, metric and result that would reject the mechanism. Include a concrete command when source/tooling supports it; mark unverified commands as proposed. Estimate setup and execution cost separately, with basis or unknown.
@@ -38,3 +44,8 @@ Exact check, microbenchmark or targeted profile; inputs/shapes/topology, correct
 ## Critique, revision and human decision
 
 Label review as self/delegated/external. Record the strongest objection, source checks, revisions and unresolved issues. Link review and preserve the prior claim or summarize the revision. Human experiment selection remains distinct from a review recommendation.
+
+Use task-derived criteria with observable reasons. Preserve explicit scope overrides
+and ROI waivers. For consequential commands, retain the decision gap, receipt,
+observed evidence/failure, resulting revision or disposition, and next useful action.
+A self-score is not experimental evidence; unresolved disagreements stay visible.

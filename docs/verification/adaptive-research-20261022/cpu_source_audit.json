@@ -1,0 +1,133 @@
+{
+  "scope": "static_source_and_workload_metadata_only",
+  "environment": {
+    "python": "3.12.15",
+    "machine": "arm64"
+  },
+  "source_commit": "c4557869393db4d75c483d92edd02a5125500883",
+  "source_sha256": "ae2adbbe51f6b26d6a6816832ce87aa70378c99cf4307daf664f8afeba83308d",
+  "probe_sha256": "602de5684c167e29fe8e16153aae4645f2767d3cafabcaf044bac89bb425e094",
+  "projection_calls": [
+    {
+      "line": 1689,
+      "call": "self.wkv(self._batch.wkv_input(self, hash_ids.shape[0]))",
+      "direct_names": [
+        "hash_ids",
+        "self"
+      ]
+    },
+    {
+      "line": 1691,
+      "call": "self.wkv(self.embed(hash_ids).flatten(-2))",
+      "direct_names": [
+        "hash_ids",
+        "self"
+      ]
+    }
+  ],
+  "batch_staging_executes_wkv": false,
+  "existing_prefetch_executes_wkv": false,
+  "direct_projection_inputs_depend_on_hidden_states": false,
+  "workloads": [
+    {
+      "name": "median",
+      "sha256": "52802e6c3d00062527fbb968b44928f5d5b71349be5b99a2b2d2759855086f0e",
+      "requests": 4004,
+      "input_mean": 8594.392857142857,
+      "input_max": 119533,
+      "output_mean": 178.0034965034965,
+      "output_max": 2000,
+      "output_tokens": 712726,
+      "long_output_cohorts": {
+        "256": {
+          "requests": 1310,
+          "output_tokens": 619156,
+          "request_fraction": 0.3271728271728272,
+          "output_token_fraction": 0.8687153267875733
+        },
+        "512": {
+          "requests": 383,
+          "output_tokens": 261051,
+          "request_fraction": 0.09565434565434565,
+          "output_token_fraction": 0.36627118976998174
+        },
+        "1024": {
+          "requests": 22,
+          "output_tokens": 31873,
+          "request_fraction": 0.005494505494505495,
+          "output_token_fraction": 0.04471985026503874
+        }
+      },
+      "time_span_in_trace_units": 598471.0
+    },
+    {
+      "name": "burst",
+      "sha256": "6892a59dc5b7ab5d661826c9a937fbbd44ed0f259719bca491bc9b67bb0d9566",
+      "requests": 4220,
+      "input_mean": 8470.521327014218,
+      "input_max": 125546,
+      "output_mean": 180.8372037914692,
+      "output_max": 2000,
+      "output_tokens": 763133,
+      "long_output_cohorts": {
+        "256": {
+          "requests": 1396,
+          "output_tokens": 652155,
+          "request_fraction": 0.33080568720379144,
+          "output_token_fraction": 0.8545758078866986
+        },
+        "512": {
+          "requests": 390,
+          "output_tokens": 263462,
+          "request_fraction": 0.0924170616113744,
+          "output_token_fraction": 0.34523733084534414
+        },
+        "1024": {
+          "requests": 21,
+          "output_tokens": 32866,
+          "request_fraction": 0.004976303317535545,
+          "output_token_fraction": 0.04306719798514807
+        }
+      },
+      "time_span_in_trace_units": 598475.0
+    },
+    {
+      "name": "cache-heavy",
+      "sha256": "6fec019f57d0bc7cae2bde1a5136338071b10670c9f8009b56f96af87e7ee9ea",
+      "requests": 4053,
+      "input_mean": 8204.762891685172,
+      "input_max": 124824,
+      "output_mean": 187.76980014803848,
+      "output_max": 2000,
+      "output_tokens": 761031,
+      "long_output_cohorts": {
+        "256": {
+          "requests": 1377,
+          "output_tokens": 665203,
+          "request_fraction": 0.33974833456698744,
+          "output_token_fraction": 0.8740813449123623
+        },
+        "512": {
+          "requests": 409,
+          "output_tokens": 291756,
+          "request_fraction": 0.10091290402171231,
+          "output_token_fraction": 0.38336940282327525
+        },
+        "1024": {
+          "requests": 37,
+          "output_tokens": 56182,
+          "request_fraction": 0.009129040217123118,
+          "output_token_fraction": 0.07382353675474455
+        }
+      },
+      "time_span_in_trace_units": 595423.0
+    }
+  ],
+  "limitations": [
+    "Direct AST dependencies are not a proof that the GEMM backend is stream-safe or pure.",
+    "The inspected research-fork commit is not linked to the installed image digest.",
+    "Input/output lengths are planned trace metadata, not measured completions, cache misses or iteration shapes.",
+    "No device timing, target quality, overlap, hardware availability or service improvement is measured."
+  ],
+  "gpu_calls": 0
+}

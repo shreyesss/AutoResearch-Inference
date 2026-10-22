@@ -40,6 +40,22 @@ def estimate_contract(value):
         raise ValueError('Prediction bounds reversed')
 
 
+def roi_policy(selection):
+    """Preserve an explicit task waiver; this is an attributed instruction, not approval."""
+    required = selection.get('require_roi_screen', True)
+    if not isinstance(required, bool):
+        raise ValueError('require_roi_screen must be a boolean')
+    if required:
+        return {'required': True}
+    waiver = selection.get('roi_screen_waiver')
+    if not isinstance(waiver, dict) or waiver.get('authority') != 'user':
+        raise ValueError('Optional ROI screen requires an attributed user waiver')
+    for key in ('reason', 'instruction_reference'):
+        text(waiver.get(key), 'roi_screen_waiver.' + key)
+    return {'required': False, 'waiver': clean(waiver),
+            'meaning': 'Recorded task instruction; does not verify authority, scientific merit or execution permission'}
+
+
 class ResearchFlow:
     def __init__(self, root):
         self.root = Path(root)
@@ -168,6 +184,7 @@ class ResearchFlow:
         selection.setdefault('require_novelty', False)
         if not isinstance(selection['require_novelty'], bool):
             raise ValueError('Novelty requirement must be a boolean')
+        roi_policy(selection)
         identity = self.memory.register('research:' + record['run_id'], card, brief, selection, sources)
         for link in links:
             self.link(identity, **link)
@@ -241,11 +258,13 @@ class ResearchFlow:
         if not any(r['relation'] == 'supports' for r in links):
             result['blocking_gaps'].append('No grounded supporting claim linked to hypothesis')
         screens = self.records(hypothesis_id, 'screening')
-        if not screens:
+        policy = roi_policy(hypothesis['brief'].get('selection', {}))
+        result['roi_screen_policy'] = policy
+        if policy['required'] and not screens:
             result['blocking_gaps'].append('No hypothesis-linked no-GPU screening record')
-        elif manifest.get('purpose') != 'diagnostic' and (screens[-1]['status'] == 'insufficient_evidence' or screens[-1]['result'].get('decision') in {'defer', 'reject'}):
+        elif policy['required'] and manifest.get('purpose') != 'diagnostic' and (screens[-1]['status'] == 'insufficient_evidence' or screens[-1]['result'].get('decision') in {'defer', 'reject'}):
             result['blocking_gaps'].append('Unresolved/negative screen permits a diagnostic plan, not qualification')
-        if screens and manifest.get('purpose') == 'qualification':
+        if policy['required'] and screens and manifest.get('purpose') == 'qualification':
             origin = screens[-1].get('input', {}).get('provenance', {}).get('measurement_origin')
             if origin not in ('target_trace', 'reproduced_measurement'):
                 result['blocking_gaps'].append('Simulation/agent-estimate ROI permits diagnosis; qualification needs target trace or reproduced measurement inputs')

@@ -13,6 +13,19 @@ For each idea assess mechanism, evidence, activation/integration, correctness/se
 
 Apply the user's current objective and selection policy. Scientific novelty is not a constraint unless requested. Distinctness avoids redundant experiments; it does not require an unpublished mechanism. A prior rejection can be reconsidered for a different baseline, objective or new evidence. Do not silently inherit the old campaign's minimum gain, source count, sample size or scoring weights.
 
+Review component selection before rejecting an entire paper: can a useful policy,
+representation or evaluator transfer independently of its trainer or other optional
+parts? Verify required dependencies and cross-source interfaces; selective reuse
+must not silently remove correctness or learned-model requirements. See
+`../inference-research/references/synthesis.md`. Honor task-specific ROI waivers and
+mandatory comparisons; assess usefulness separately from execution readiness.
+
+Use criterion-level evidence and concrete errors when judging a revision. Compare
+outputs under the same task/evidence if evaluating a skill change; freeze criteria
+first, retain both outputs and distinguish self-review from separate review. A
+small model-judged case set is a regression check, not scientific validation or
+proof of improved serving performance. Do not tune repeatedly to an opened test.
+
 Audit every numerical ROI input: measured/inferred/unknown, units, frequency, affected workload fraction, exposed critical-path time, useful output progress and treatment overhead. Component timing cannot establish client-visible speedup, and fixed-load latency cannot establish cost savings. Identify the cheapest CPU/source/trace check first. Recommend a small GPU diagnostic only when it resolves a named remaining uncertainty; unknown ROI is not automatic scientific rejection. Selection scores are priorities, not probabilities or experimental validation.
 
 Write `review.md` with evidence checked, strongest support, strongest objection, cheapest resolution and advance/revise/defer/reject. Explain each verdict. Defer costly or inaccessible but plausible work without calling it disproven. Rank opportunities using explicit tradeoffs rather than ungrounded precision scores.

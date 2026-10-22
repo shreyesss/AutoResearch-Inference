@@ -1,0 +1,26 @@
+{
+  "id": "H02",
+  "held_out": true,
+  "label": "Invalid lossless claim and scope-preserving adaptation",
+  "evidence_type": "synthetic engineering fixtures; no real paper performance claim",
+  "task": "Reduce KV memory for our long-context inference; exact greedy-token equivalence is mandatory. Frozen model weights. Find useful pieces to adapt and design CPU-first tests. Do not relax correctness or launch GPUs.",
+  "evidence": [
+    {
+      "id": "H02-E1",
+      "text": "Fixture method CACHE-Q stores keys in four-bit blocks, fits per-head clipping thresholds on calibration data, and keeps a small residual window in FP16. It reports unchanged aggregate answer accuracy on one dataset. No exact-token comparison or worst-case attention error bound is supplied."
+    },
+    {
+      "id": "H02-E2",
+      "text": "Its independent page manager packs live cache pages without quantization, preserves original bytes, and updates an indirection table. The implementation requires no in-flight readers during page relocation. The paper evaluates quantization plus compaction jointly, claiming 35% memory savings; no isolated compaction number exists."
+    },
+    {
+      "id": "H02-E3",
+      "text": "Our runtime already has paged KV allocation. A saved allocator trace contains allocated page IDs, live token counts, free-list events and graph pointer reuse, but not KV tensor values. Graph replays and concurrent reads are active. A prior proposal for the same four-bit quantization was rejected for exact-equivalence requirements."
+    },
+    {
+      "id": "H02-E4",
+      "text": "The existing token-equality evaluator detects divergent outputs for its test prompts. Its success on a finite prompt set is not a proof for all inputs. Allocator replay checks ownership and byte-preserving moves but does not simulate attention numerics."
+    }
+  ],
+  "request": "Propose at most one adapted experiment worth considering, or reject all. Explain whether prior rejection should reopen, identify what can be proved/tested on CPU, and delimit later measurement and correctness requirements."
+}

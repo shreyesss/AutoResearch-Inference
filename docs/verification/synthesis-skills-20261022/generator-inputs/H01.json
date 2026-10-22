@@ -1,0 +1,26 @@
+{
+  "id": "H01",
+  "held_out": true,
+  "label": "Partial policy transfer with a training component",
+  "evidence_type": "synthetic engineering fixtures; no real paper performance claim",
+  "task": "Improve repeat-prefix serving under bursts without updating neural weights. Current router uses session affinity and overload spill. Useful existing methods welcome. Focus on CPU-only hypothesis and design, not new implementation. No fixed minimum ROI and no GPU work.",
+  "evidence": [
+    {
+      "id": "H01-E1",
+      "text": "Fixture method SCHEDULE-A has two pieces: a learned future-length predictor trained from request traces, and a queue scoring policy selecting minimum estimated waiting-cost per admitted token. The policy accepts any duration estimate. Reported +22% goodput used independent GPUs, fixed sequence lengths and its trained predictor; no predictor ablation was reported."
+    },
+    {
+      "id": "H01-E2",
+      "text": "Our two destinations are independent four-GPU engines. Inside each engine, four DP ranks participate in coupled EP execution. Only request arrival, prompt token count, cache-hit prefix length and current queue occupancy are retained. Completion-length labels and rank-resolved timing are absent. Session-to-engine routes are recorded."
+    },
+    {
+      "id": "H01-E3",
+      "text": "Current router chooses engine by session hash except when queue occupancy exceeds a configured threshold. A prior idea already proposed cache-aware prefix placement, but it was deferred for absent eviction traces. New data now includes queue occupancy and per-request hit-prefix counts; it still lacks cache eviction history."
+    },
+    {
+      "id": "H01-E4",
+      "text": "Existing replay preserves arrivals and sessions and reports end-to-end TTFT/TPOT. Offline replay can replay routing decisions but cannot accurately simulate unmeasured GPU service times or cache-eviction effects."
+    }
+  ],
+  "request": "Produce up to two useful hypotheses, identifying reusable versus unavailable method components and what each new fact changes. Give a cheapest falsifier and a matched evaluation design with honest metrics. Zero hypotheses is permitted if explained."
+}

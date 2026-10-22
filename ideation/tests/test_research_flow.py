@@ -336,3 +336,32 @@ def test_cpu_probe_accepts_retained_script_hash_without_invented_git_commit(flow
     assert any('retained probe-code input' in gap for gap in result['blocking_gaps'])
     del manifest['probe']['sha256']
     assert any('Pin probe code' in gap for gap in flow.eval_plan(hypothesis, manifest)['blocking_gaps'])
+
+
+def test_explicit_user_roi_waiver_allows_plan_review_not_execution(flow):
+    claim = flow.claim(FIXTURE['claim'])
+    record = copy.deepcopy(FIXTURE['proposal'])
+    record['brief']['selection'] = {'require_roi_screen': False, 'roi_screen_waiver': {
+        'authority': 'user', 'reason': 'Measure control inside the matched comparison; no prior materiality campaign',
+        'instruction_reference': 'fixture explicit task instruction'}}
+    record['claim_links'] = [{'claim_id': claim['id'], 'relation': 'supports', 'rationale': 'Mechanism evidence only'}]
+    hypothesis = flow.propose(record)['id']
+    manifest = ready_manifest(flow, hypothesis)
+    manifest['purpose'] = 'qualification'
+    result = flow.eval_plan(hypothesis, manifest)
+    assert result['readiness'] == 'ready_for_review'
+    assert result['execution_authorized'] is False and result['scientific_validity'] == 'unverified'
+    assert result['roi_screen_policy']['required'] is False
+    # Missing ROI is permitted; factual/experimental requirements remain enforced.
+    del manifest['correctness']['oracle']
+    assert flow.eval_plan(hypothesis, manifest)['readiness'] == 'blocked'
+
+
+def test_roi_waiver_requires_attribution_and_does_not_change_old_baseline(flow):
+    record = copy.deepcopy(FIXTURE['proposal'])
+    record['brief']['selection'] = {'require_roi_screen': False}
+    with pytest.raises(ValueError, match='user waiver'):
+        flow.propose(record)
+    record['brief']['selection']['require_roi_screen'] = 'false'
+    with pytest.raises(ValueError, match='boolean'):
+        flow.propose(record)

@@ -144,7 +144,11 @@ researchctl hypothesis show HYPOTHESIS_ID
 
 Records retain exact source revisions, quotations, support/refutation, baseline and attributed decisions. Quote matching proves text presence, not entailment. Legacy `hypothesis record` remains supported for history; prefer typed `propose` for new work. Plain chat text is not persisted automatically.
 
+For synthesis, the research skill explains [component-level reuse](../.agents/skills/inference-research/references/synthesis.md): preserve a useful policy while omitting optional training only when its dependencies permit it; test cross-source compatibility rather than adding headline gains. Optional `card.synthesis` / `card.alternatives` fields and decision `review` / `tool_use` fields persist through the existing commands. They retain reasoning, not automatic semantic certification. Judge tool calls by a named uncertainty resolved and the decision changed; errors, cached repetition and unanswered questions remain explicit.
+
 Adapt the rubric to the task. Separate applicability, materiality, diagnostic value and service qualification. A component result cannot be converted directly into ITL/TTFT/tail/capacity/dollars. For a conditional estimate, use sourced exposed critical-path savings, calls, relevant workload fraction, added overhead and useful progress in both arms. Unknown inputs remain unknown; an inexpensive CPU/source/trace diagnostic may still be valuable. See [ROI guidance](../ideation/docs/HYPOTHESIS_ROI.md).
+
+An explicit user waiver can make the pre-implementation ROI screen optional in a new frozen brief; [evaluation gating](EVALUATION_GATING.md#explicit-task-waiver) gives the exact contract. This permits planning with unknown benefit and preserves correctness/evaluator requirements. It never authorizes GPU execution or converts an untested idea into a measured improvement.
 
 Reuse actual Mooncake/agent-75 manifests where their stimulus and observables cover the mechanism. Add a probe only for a documented gap. An installed evaluator name does not prove coverage. A checked plan is not execution authorization or a measured win. Execution is tracked separately in `researchctl experiment`, with immutable attempt scope and explicit outcomes; research commands do not launch Bitlane.
 

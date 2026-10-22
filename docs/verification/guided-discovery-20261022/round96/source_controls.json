@@ -1,0 +1,54 @@
+{
+  "scope": "Source/stdlib controls only: no runtime import, GEMM or timing.",
+  "producer_store_hook_source_lines": [
+    205,
+    239
+  ],
+  "bf16_input_boundary": {
+    "reference": "0",
+    "incorrect_unrounded": "1/2",
+    "scope": "Exact dyadic scalar negative control, not observed activation or native GEMM parity."
+  },
+  "schedule_cases": [
+    {
+      "name": "move_delays_main_insert",
+      "Q": 0,
+      "C": 1,
+      "K": 1,
+      "J": 0,
+      "I": 10,
+      "Kf": 1,
+      "current": 11,
+      "fused": 12,
+      "delta": 1
+    },
+    {
+      "name": "move_hidden_by_query",
+      "Q": 10,
+      "C": 1,
+      "K": 1,
+      "J": 1,
+      "I": 1,
+      "Kf": 1,
+      "current": 12,
+      "fused": 11,
+      "delta": -1
+    },
+    {
+      "name": "slower_fused_scalar_work",
+      "Q": 1,
+      "C": 1,
+      "K": 1,
+      "J": 1,
+      "I": 1,
+      "Kf": 4,
+      "current": 3,
+      "fused": 6,
+      "delta": 3
+    }
+  ],
+  "schedule_scope": "Two-stage source dependency model only; no contention/cache/launch time modeled. K includes current GEMM only; J includes remaining K-store and index-Q work. Fused arm retains K-store.",
+  "per_valid_row_projection_MACs": 65536,
+  "per_program_logical_weight_operands_bytes": 131072,
+  "scope_weight_bytes": "Operand enumeration, not measured HBM. Inter-CTA L2 and batched baseline reuse unknown."
+}

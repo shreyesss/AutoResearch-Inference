@@ -1,0 +1,107 @@
+{
+  "paired": {
+    "opportunity_range_omitted_rows": {
+      "min": 8,
+      "max": 9,
+      "population": "four verification observations"
+    },
+    "per_observation_ranges": [
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "assumptions": [
+      "Stipulated integer mapping 0 <= accepted <= admitted <= scheduled <= 5.",
+      "Counts describe the supplied synthetic population and potential work omission, not measured executions of the proposed shortcut.",
+      "Added flag-work duration, exposed critical-path savings, and service timing are unknown.",
+      "Every observation is verified eligible."
+    ],
+    "reasoning": "Accepted=scheduled=5 forces admitted=5 in the first two observations, so each omits four rows. Accepted=2 permits admitted=2 (one row) or 3..5 (zero). Accepted=1 can never omit a row. Endpoints are attained with admitted [5,5,3,1] and [5,5,2,1].",
+    "strongest_support": "At least eight omitted rows are forced without an admitted-count counter.",
+    "strongest_objection": "Row opportunity does not reveal exposed cost or flag overhead; net service benefit could be absent or negative.",
+    "next_action": "Retain the tight bound from existing inputs; the CPU enumeration has verified it. Do not request an admitted counter merely to reconfirm the two forced full-admission events. Stop within the supplied evidence scope and defer performance promotion.",
+    "decision_changing_evidence": "Existing admitted detail could settle only the remaining one-row uncertainty, if that mattered to a future decision. A future authorized exposed-cost and overhead comparison is needed for service value.",
+    "verdict": "advance opportunity reasoning; defer performance promotion",
+    "latency_claim_supported": false,
+    "promotion_claim_supported": false
+  },
+  "summary": {
+    "opportunity_range_omitted_rows": {
+      "min": 12,
+      "max": 34,
+      "population": "ten verification observations"
+    },
+    "assumptions": [
+      "Stipulated integer mapping 0 <= accepted <= admitted <= scheduled <= 5.",
+      "Counts describe the supplied synthetic population and potential work omission, not measured executions of the proposed shortcut.",
+      "Added flag-work duration, exposed critical-path savings, and service timing are unknown.",
+      "All ten observations are eligible, each scheduled count is five, and total accepted drafts is 43 for precisely this population."
+    ],
+    "reasoning": "If k observations accept five, total accepted is at most 5k+4(10-k)=40+k; therefore k>=3, forcing at least 12 omitted rows. This minimum is attained by accepted [5,5,5,4,4,4,4,4,4,4], with admitted=5 throughout. For the upper bound, each positive accepted count contributes at most accepted-1; 43 accepted drafts require at least ceil(43/5)=9 positive observations, hence at most 43-9=34 rows. This is attained by eight accepted counts of five, one of three, and one of zero, with admitted=accepted.",
+    "strongest_support": "The aggregate alone forces at least three fully accepted five-draft observations and a positive lower opportunity bound.",
+    "strongest_objection": "The acceptance total does not identify the histogram or admitted counts; it cannot justify treating 43/50 as full-block frequency or latency gain.",
+    "next_action": "Use the tight [12,34] range, already checked by finite CPU dynamic programming. No new histogram or counter is needed to establish positive opportunity. Stop after recording uncertainty; defer service promotion.",
+    "decision_changing_evidence": "Retained per-observation data could narrow the range if a future exposed-cost decision depends on it; unavailable data is not authorization to collect more.",
+    "verdict": "advance bounded opportunity reasoning; defer performance promotion",
+    "latency_claim_supported": false,
+    "promotion_claim_supported": false
+  },
+  "mixed_modes": {
+    "opportunity_range_omitted_rows": {
+      "min": 0,
+      "max": 9,
+      "population": "four observations, eligibility unknown"
+    },
+    "assumptions": [
+      "Stipulated integer mapping 0 <= accepted <= admitted <= scheduled <= 5.",
+      "Counts describe the supplied synthetic population and potential work omission, not measured executions of the proposed shortcut.",
+      "Added flag-work duration, exposed critical-path savings, and service timing are unknown.",
+      "The count mapping remains valid in every mode, but only the eligible native nongreedy full-probability branch can omit rows. No eligible fraction is assumed."
+    ],
+    "reasoning": "The first two observations force admitted=5, but all observations could be ineligible, giving zero. If all are eligible and admitted=[5,5,2,1], nine rows are possible. Thus [0,9] is tight. The endpoints do not imply every intermediate integer is attainable.",
+    "strongest_support": "There is a nine-row conditional ceiling and two forced full-admission events.",
+    "strongest_objection": "Full admission does not establish eligible-mode execution; synthetic acceptance or other modes may explain all records.",
+    "next_action": "Record [0,9] and defer activation/value claims. Mode provenance would be the cheapest discriminator if already retained, but the fixture provides none and disallows new collection. Do not request an admitted counter first or treat an engine label as per-observation path evidence.",
+    "decision_changing_evidence": "Verified eligible-path attribution of either five-accepted observation would establish at least four omitted rows. Proven ineligibility of all observations gives zero. Unresolved mode keeps the lower bound at zero.",
+    "verdict": "defer pending eligibility evidence; not disproven",
+    "latency_claim_supported": false,
+    "promotion_claim_supported": false
+  },
+  "latency": {
+    "opportunity_range_omitted_rows": {
+      "min": 4,
+      "max": 4,
+      "population": "one complete eligible observation"
+    },
+    "logical_bytes_per_omitted_row": 517120,
+    "logical_bytes_omitted": 2068480,
+    "assumptions": [
+      "Stipulated integer mapping 0 <= accepted <= admitted <= scheduled <= 5.",
+      "Counts describe the supplied synthetic population and potential work omission, not measured executions of the proposed shortcut.",
+      "Added flag-work duration, exposed critical-path savings, and service timing are unknown.",
+      "The observation is eligible and accepted=admitted=scheduled=5.",
+      "The provided bytes-per-row value describes logical work only."
+    ],
+    "reasoning": "The shortcut omits 5-1=4 rows, corresponding to 4*517120=2068480 logical bytes. No kernel duration, physical memory-traffic measurement, usable bandwidth, exposure, service baseline, or overhead duration is provided.",
+    "strongest_support": "Mechanism activation and logical work reduction are exact for this one synthetic observation.",
+    "strongest_objection": "Logical bytes are not elapsed time or necessarily avoided device traffic; overlap, implementation effects, and added flag work can erase or reverse a time benefit.",
+    "next_action": "Retain the exact four-row and logical-byte result; explicitly leave numerical ITL change unknown and defer promotion. No new timing collection is authorized. A future authorized component comparison would need matched correctness and net exposed savings; service promotion additionally needs matched service evidence under a frozen objective.",
+    "decision_changing_evidence": "Positive exposed savings after all overhead would support further evaluation, not certify ITL. Nonpositive net savings would reject a speedup claim for that condition. Missing timing remains inconclusive.",
+    "verdict": "defer performance promotion; reject the current numerical ITL inference",
+    "latency_claim_supported": false,
+    "promotion_claim_supported": false
+  }
+}

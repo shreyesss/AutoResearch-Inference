@@ -1,0 +1,68 @@
+{
+  "scope": "Static exact-text interface checks and conditional integer payload arithmetic, not native format/quality/performance validation",
+  "checks": {
+    "swa_width_528_in_v41": true,
+    "compressed_fp4_independent_width_288": true,
+    "original_fp4_api_rejected": true,
+    "only_mixed_fp8_original_fp4_extra_instantiated": true,
+    "writer_documents_528": true,
+    "reader_scale_offset_depends_on_format": true,
+    "per_layer_width_passed_to_spec": true,
+    "combined_stride_alignment_must_change": true
+  },
+  "source_observations": 8,
+  "model": {
+    "target_layers": 40,
+    "swa_window": 128,
+    "index_topk": 512,
+    "pure_swa_target_layers": [
+      0,
+      1
+    ]
+  },
+  "per_affected_layer_per_query_payload": [
+    {
+      "swa_entries": 128,
+      "compressed_entries": 512,
+      "baseline_logical_record_bytes": 215040,
+      "proposed_logical_record_bytes": 184320,
+      "saved_logical_bytes": 30720,
+      "fraction": 0.14285714285714285
+    },
+    {
+      "swa_entries": 128,
+      "compressed_entries": 0,
+      "baseline_logical_record_bytes": 67584,
+      "proposed_logical_record_bytes": 36864,
+      "saved_logical_bytes": 30720,
+      "fraction": 0.45454545454545453
+    },
+    {
+      "swa_entries": 64,
+      "compressed_entries": 512,
+      "baseline_logical_record_bytes": 181248,
+      "proposed_logical_record_bytes": 165888,
+      "saved_logical_bytes": 15360,
+      "fraction": 0.0847457627118644
+    },
+    {
+      "swa_entries": 0,
+      "compressed_entries": 512,
+      "baseline_logical_record_bytes": 147456,
+      "proposed_logical_record_bytes": 147456,
+      "saved_logical_bytes": 0,
+      "fraction": 0.0
+    }
+  ],
+  "alignment_example": {
+    "baseline_record_lcm": 3168,
+    "both_fp4_record_lcm": 288,
+    "warning": "Not physical allocator savings; group pages/padding/replay must be recomputed from actual specs"
+  },
+  "limitations": [
+    "No model tensors or native imports.",
+    "No quality calibration, cache bytes actually allocated, bandwidth, or timing measured.",
+    "Input counts conditional; invalid slots, sharing, cache hits, and page padding excluded.",
+    "Unchanged attention arithmetic/count except changed quantized values and decode representation."
+  ]
+}

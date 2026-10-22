@@ -1,0 +1,111 @@
+{
+  "record": {
+    "id": "screening:6fc3a18a49aaa83a91b4124f8b402f9217565bae4a05868953469a689cb3bba4",
+    "tier": 1,
+    "mode": "no_gpu",
+    "method_version": "exposed-time-v1",
+    "input": {
+      "provenance": {
+        "baseline_id": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+        "workload_id": "Saved Mooncake/agent-p75 planned comparison; no current SWA exposure/quality profile",
+        "hardware": "Planned Flash1017 B200 TP1/DP4/EP4 c455 and FlashMLA5dce; actual backend unverified",
+        "input_source_ids": [
+          "fulltext:2610.18642v1",
+          "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/models/deepseek_v41/attention.py",
+          "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/models/deepseek_v41/nvidia/flash_mla_mega_attn.py",
+          "code:vllm-project/FlashMLA:5dceadbd9eabc9acfc547ef18ec8f7b14b980682:csrc/api/fused_norm_rope_attn_rope_cast_fwd.cpp",
+          "code:vllm-project/FlashMLA:5dceadbd9eabc9acfc547ef18ec8f7b14b980682:csrc/cuda_kernels/sm100/prefill/sparse/fused_norm_rope_attn_rope_cast_fwd/core_attn/kernel.cuh",
+          "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/models/deepseek_v41/common/ops/cache_utils.py",
+          "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/v1/core/kv_cache_planning.py",
+          "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/v1/kv_cache_interface.py",
+          "github:sgl-project/sglang:37138",
+          "github:flashinfer-ai/flashinfer:6001"
+        ],
+        "measurement_origin": "agent_estimate"
+      },
+      "inputs": {
+        "target": {
+          "benchmark": "Mooncake and agent-p75",
+          "metric": "long_output_itl",
+          "direction": "lower"
+        },
+        "next_cheapest_falsifier": {
+          "execution_kind": "cpu",
+          "question": "Does a declared selected-layer SWA288 policy produce coherent per-layer specs and actual padded allocation savings without changing compressed/draft formats?",
+          "method": "Read retained planner/spec/writer/reader paths and construct an explicit source-derived configuration plan, no model/native imports. Separate allocation from logical traffic.",
+          "budget_wall_minutes": 20,
+          "stop": "Keep deferred if format ownership/layout unresolved; reject capacity rationale if padding erases it. Quality budget/model calibration remain future gates; do not infer ROI from record bytes."
+        }
+      }
+    },
+    "result": {
+      "version": 1,
+      "kind": "conditional_prescreen",
+      "validated": false,
+      "target": {
+        "benchmark": "Mooncake and agent-p75",
+        "metric": "long_output_itl",
+        "direction": "lower"
+      },
+      "decision": "advance_diagnostic",
+      "reason": "Run the stated cheapest falsifier to test assumptions and applicability; no service improvement or deployment qualification is established.",
+      "estimates": {},
+      "target_relative_gain": null,
+      "unknowns": [
+        "baseline iteration duration",
+        "component savings range",
+        "component calls per complete iteration (not speculative rollout length)",
+        "critical-path exposed fraction after overlap",
+        "accepted output tokens per iteration: baseline_tokens",
+        "accepted output tokens per iteration: candidate_tokens",
+        "mapping iteration/time-per-token estimate to target metric long_output_itl"
+      ],
+      "input": {
+        "target": {
+          "benchmark": "Mooncake and agent-p75",
+          "metric": "long_output_itl",
+          "direction": "lower"
+        },
+        "next_cheapest_falsifier": {
+          "execution_kind": "cpu",
+          "question": "Does a declared selected-layer SWA288 policy produce coherent per-layer specs and actual padded allocation savings without changing compressed/draft formats?",
+          "method": "Read retained planner/spec/writer/reader paths and construct an explicit source-derived configuration plan, no model/native imports. Separate allocation from logical traffic.",
+          "budget_wall_minutes": 20,
+          "stop": "Keep deferred if format ownership/layout unresolved; reject capacity rationale if padding erases it. Quality budget/model calibration remain future gates; do not infer ROI from record bytes."
+        }
+      },
+      "evidence": [],
+      "assumptions": [],
+      "counters": [],
+      "next_cheapest_falsifier": {
+        "execution_kind": "cpu",
+        "question": "Does a declared selected-layer SWA288 policy produce coherent per-layer specs and actual padded allocation savings without changing compressed/draft formats?",
+        "method": "Read retained planner/spec/writer/reader paths and construct an explicit source-derived configuration plan, no model/native imports. Separate allocation from logical traffic.",
+        "budget_wall_minutes": 20,
+        "stop": "Keep deferred if format ownership/layout unresolved; reject capacity rationale if padding erases it. Quality budget/model calibration remain future gates; do not infer ROI from record bytes."
+      },
+      "formula": "candidate_iteration_us = baseline_iteration_us - saved_component_us * calls_per_iteration * exposed_fraction; amortized_time_per_token = iteration_us / accepted_output_tokens_per_iteration",
+      "limitations": [
+        "Bounds are supplied assumptions, not confidence intervals or independent validation.",
+        "Accepted progress includes all emitted output tokens per complete iteration; rollout length alone is insufficient.",
+        "Streaming gaps, queues, TTFT, tail latency, throughput and E2E require workload-specific measurement; a component speedup is not a service speedup.",
+        "Use CPU source-path, shape and correctness checks before a bounded GPU probe where those checks can falsify the mechanism."
+      ]
+    },
+    "status": "conditional_estimate",
+    "gpu_calls": 0,
+    "model_calls": 0,
+    "hypothesis_id": "hypothesis:e86671eb6fd6ca5a83ea84b5580f95c11f361174cc68d069676c264268bb9a54"
+  },
+  "snapshot": {
+    "namespace": "research",
+    "deferred": true,
+    "published": false,
+    "local_state_retained": true,
+    "snapshot_required": true,
+    "at": "2026-10-22T10:19:59.804775+00:00",
+    "command": "screen",
+    "next_action": "researchctl snapshot --namespace research",
+    "meaning": "Local source records, receipts and journal retained; no new recovery snapshot or S3 backup yet"
+  }
+}

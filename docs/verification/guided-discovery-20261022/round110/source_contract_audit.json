@@ -1,0 +1,67 @@
+{
+  "scope": "AST/source structure only. Assertions detect pinned contract changes; no Triton/model/native execution, arithmetic equivalence, GPU ordering or performance validated.",
+  "host_launch_order": [
+    {
+      "line": 1131,
+      "call": "_compute_local_logits_stats_kernel[num_logits, vocab_num_blocks](target_local_argmax, target_local_argmax.stride(0), target_local_max, target_local_max.stride(0), target_local_sumexp, target_local_sumexp.stride(0), draft_local_max, draft_local_max.stride(0), draft_local_sumexp, draft_local_sumexp.stride(0), target_logits, target_logits.stride(0), draft_logits, draft_logits_stride_0, draft_logits_stride_1, expanded_idx_mapping, expanded_local_pos, temperature, vocab_size, num_logits, BLOCK_SIZE=VOCAB_BLOCK_SIZE, HAS_DRAFT_LOGITS=has_draft_logits)"
+    },
+    {
+      "line": 1167,
+      "call": "_compute_cumulative_log_p_kernel[num_reqs,](cumulative_log_p, target_logits, target_logits.stride(0), target_local_max, target_local_max.stride(0), target_local_sumexp, target_local_sumexp.stride(0), draft_sampled, draft_logits, draft_logits_stride_0, draft_logits_stride_1, draft_local_max, draft_local_max.stride(0), draft_local_sumexp, draft_local_sumexp.stride(0), cu_num_logits, idx_mapping, temperature, vocab_num_blocks, PADDED_VOCAB_NUM_BLOCKS=padded_vocab_num_blocks, HAS_DRAFT_LOGITS=has_draft_logits, num_warps=1)"
+    },
+    {
+      "line": 1200,
+      "call": "_compute_local_residual_mass_kernel[num_logits, vocab_num_blocks](local_residual_mass, local_residual_mass.stride(0), cumulative_log_p, target_logits, target_logits.stride(0), target_local_max, target_local_max.stride(0), target_local_sumexp, target_local_sumexp.stride(0), draft_logits, draft_logits_stride_0, draft_logits_stride_1, draft_local_max, draft_local_max.stride(0), draft_local_sumexp, draft_local_sumexp.stride(0), draft_sampled, expanded_idx_mapping, expanded_local_pos, temperature, vocab_size, num_logits, vocab_num_blocks, BLOCK_SIZE=VOCAB_BLOCK_SIZE, PADDED_VOCAB_NUM_BLOCKS=padded_vocab_num_blocks)"
+    },
+    {
+      "line": 1241,
+      "call": "_rejection_kernel[num_reqs,](sampled, sampled.stride(0), num_sampled, target_rejected_logsumexp, draft_rejected_logsumexp, target_logits, target_logits.stride(0), target_local_argmax, target_local_argmax.stride(0), target_local_max, target_local_max.stride(0), target_local_sumexp, target_local_sumexp.stride(0), draft_sampled, draft_logits, draft_logits_stride_0, draft_logits_stride_1, draft_local_max, draft_local_max.stride(0), draft_local_sumexp, draft_local_sumexp.stride(0), cu_num_logits, idx_mapping, temperature, seed, pos, synthetic_conditional_rates, cumulative_log_p, local_residual_mass, local_residual_mass.stride(0) if local_residual_mass is not None else 0, vocab_num_blocks, PADDED_VOCAB_NUM_BLOCKS=padded_vocab_num_blocks, HAS_DRAFT_LOGITS=has_draft_logits, SYNTHETIC_MODE=synthetic_conditional_rates is not None, USE_BLOCK_VERIFICATION=use_block_verification, num_warps=1)"
+    },
+    {
+      "line": 1292,
+      "call": "_resample_kernel[num_reqs, resample_num_blocks](resampled_local_argmax, resampled_local_argmax.stride(0), resampled_local_max, resampled_local_max.stride(0), target_logits, target_logits.stride(0), target_rejected_logsumexp, draft_logits, draft_logits_stride_0, draft_logits_stride_1, draft_rejected_logsumexp, num_sampled, cu_num_logits, expanded_idx_mapping, draft_sampled, temperature, seed, pos, cumulative_log_p, contexts, contexts_stride, watermarking_bytes, watermarking_skip_mask_bytes, watermark_key_0, watermark_key_1, vocab_size, BLOCK_SIZE=RESAMPLE_BLOCK_SIZE, HAS_DRAFT_LOGITS=has_draft_logits, USE_FP64=use_fp64, USE_BLOCK_VERIFICATION=use_block_verification, CONTEXT_WIDTH=context_width, WATERMARK=watermark, DEDUPLICATE_CONTEXTS=watermarking_skip_mask is not None)"
+    },
+    {
+      "line": 1329,
+      "call": "_insert_resampled_kernel[num_reqs,](sampled, sampled.stride(0), num_sampled, resampled_local_argmax, resampled_local_argmax.stride(0), resampled_local_max, resampled_local_max.stride(0), resample_num_blocks, cu_num_logits, expanded_idx_mapping, temperature, PADDED_RESAMPLE_NUM_BLOCKS=padded_resample_num_blocks)"
+    }
+  ],
+  "residual_allocation": {
+    "line": 1197,
+    "assignment": "local_residual_mass = target_logits.new_empty(num_logits, vocab_num_blocks, dtype=torch.float32)"
+  },
+  "required_change": "Move this same conditional allocation before the cumulative launch to expose its unused first-row cell as metadata. No extra allocation is required at source level.",
+  "residual_first_row_returns_before_all_stores": true,
+  "local_residual_pointer_direct_load_functions": [
+    {
+      "function": "_compute_global_residual_mass",
+      "calls": [
+        {
+          "line": 72,
+          "call": "tl.load(local_residual_mass_ptr + logit_idx * local_residual_mass_stride + blocks, mask=mask, other=0.0)"
+        }
+      ]
+    }
+  ],
+  "lookahead_mass_read_is_next_row_not_first": true,
+  "cumulative_greedy_return_precedes_existing_loop": true,
+  "proposed_false_store_must_precede_that_return": true,
+  "expanded_position_writer": {
+    "line": 692,
+    "source": "@triton.jit\ndef _expand_idx_mapping_kernel(idx_mapping_ptr, expanded_idx_mapping_ptr, expanded_local_pos_ptr, cu_num_logits_ptr, BLOCK_SIZE: tl.constexpr):\n    req_idx = tl.program_id(0)\n    start_idx = tl.load(cu_num_logits_ptr + req_idx)\n    end_idx = tl.load(cu_num_logits_ptr + req_idx + 1)\n    num_tokens = end_idx - start_idx\n    block = tl.arange(0, BLOCK_SIZE)\n    mask = block < num_tokens\n    req_state_idx = tl.load(idx_mapping_ptr + req_idx)\n    tl.store(expanded_idx_mapping_ptr + start_idx + block, req_state_idx, mask=mask)\n    tl.store(expanded_local_pos_ptr + start_idx + block, block, mask=mask)"
+  },
+  "AV_reallocate_then_expand": [
+    {
+      "line": 1450,
+      "call": "adaptive_verification.reallocate_drafts(req_ids, idx_mapping)"
+    },
+    {
+      "line": 1454,
+      "call": "expand_idx_mapping(idx_mapping, total_num_logits, cu_num_logits, self.decode_query_len)"
+    }
+  ],
+  "resample_does_not_consume_local_mass": true,
+  "seed_helper_source": "@triton.jit\ndef spec_step_seed(seed, step):\n    \"\"\"Mix a speculative step into the high bits of a request seed.\"\"\"\n    return seed ^ tl.cast(step, tl.int64) << 32",
+  "uniform_helper_source": "@triton.jit\ndef tl_rand32(seed, offset, includes_zero: tl.constexpr):\n    u = tl.rand(seed, offset)\n    if not includes_zero:\n        u = tl.maximum(u, _TL_RAND_MIN)\n    return u",
+  "source_does_not_certify_compiled_exp_or_RNG_equivalence": true
+}

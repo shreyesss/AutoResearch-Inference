@@ -1,0 +1,13 @@
+# SP109 isolated typed workflow
+
+The actual production interfaces imported the exact retained source export, recorded11 exact source claims, proposed SP109 on the original d464 planned baseline, ran a no-GPU screen, documented the already-executed source/arithmetic diagnostic, and recorded an independently reasoned **deferred** decision.
+
+Hypothesis: `hypothesis:e86671eb6fd6ca5a83ea84b5580f95c11f361174cc68d069676c264268bb9a54`.
+
+The screen returned `advance_diagnostic` with null target-relative gain and no timing estimates. Its next gate is a bounded physical-spec/layout and policy-ownership plan. The eval-plan returned `ready_for_review`, `scientific_validity=unverified`, `execution_authorized=false`; this is retrospective documentation of the author's source text checks and conditional logical-byte arithmetic, not preregistration, native qualification or permission to execute. The flow did not rerun that diagnostic. A script's original JSON receipt output is disclosed; no serving/model state is mutated by that source diagnostic.
+
+The card keeps missing quality budget explicit. It separates declared new-codec correctness from downstream FP8-relative task quality, rejects neither merely because target outputs can differ, and makes no original-target losslessness claim. No numerical ROI or allowable degradation was invented. Calibration forward/backward remains prohibited in this CPU-only work. Fixed compressed/indexer policies do not freeze changed downstream contents/selections/routes/confidence. Static format ownership must cover target/draft pages, prefix reuse/transfer and speculative cache commits.
+
+Final isolated state contains exactly one deferred hypothesis,11 claim links and3 research records (screen, eval-plan, decision); the original author report/card and independent review remain unchanged. Related EC79/QH45/round83 distinctions are in the card; no prior ledger was copied. Source import uses the normal production corpus import after exact frozen export staging, preserving all27documents/28revisions and source edges. No network, model/GPU, native build, new diagnostic execution, canonical mutation or cloud publication occurred. Default snapshot/relocated restoration belongs to the later combined109–112 retention packet and is not yet claimed here.
+
+Tool usefulness: the no-GPU screen leaves ROI null while recording the specific next falsifier; the diagnostic plan checks pinned inputs and scope without manufacturing performance evidence. It does not evaluate the adequacy of a future quality budget or native codec. The manual deferred decision preserves those scientific gates. No failed production invocation occurred in this flow.

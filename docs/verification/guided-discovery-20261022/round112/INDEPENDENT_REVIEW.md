@@ -1,0 +1,24 @@
+# Independent review — round112 TokenRouter component screen
+
+**Verdict: no blocking correction. Retain zero new hypotheses and the conditional scheduling component.** Author packet `0747581d3418f165c1b0775ecadfe62340ad2b83dda1bb910546791d74aeb98d` remains unchanged.
+
+## Checks actually performed
+
+Verified all32 frozen artifact hashes, all five source quotations, and both scheduler copies against the separate retained c455 checkout. Read the report/components, TokenRouter §4.2/§4.3 and AppendixD.1 with its handoff-overhead explanation, relevant pinned scheduling/resume/async-output branches, and all five selected PR opening bodies. Checked query receipts: completed zero-result first query, completed12-result second query. This was source/integrity review, not donor reproduction, runtime testing or exhaustive literature recall. No network, GPU, native/model imports, builds or canonical mutations.
+
+## Scientific findings
+
+1. **Component separation is valid.** TokenRouter's token-routing semantics and its threshold for requests already destined to the same model are separable. The paper explicitly makes a request pending while a peer runs, preserves its serving state, then resumes it. Therefore the older abstract-level cross-model objection did not settle the scheduling idea. The report correctly reopens it without counting another paper identity.
+2. **The direct overhead denominator is absent from ordinary native running requests.** `Scheduler.schedule` retains RUNNING requests and schedules that loop before the waiting queue. `AsyncScheduler` updates the same request's speculative placeholders and cached frontier. Nothing inspected shows per-output-token frontend resubmission or redoing initial prefix matching. This does not imply native scheduling is free, nor that native DSpark's internal target/draft work cannot have overhead. DSpark's existence alone is not the paper's independent-subserver peer-return stream.
+3. **Existing cadence is a comparator, not an algorithm-equivalence claim.** The source has local step cadence, DP throttle and capacity escape. It defers prefill only under its exact conditions, including an active non-prefill request. Source presence does not establish runtime activation or tuned values. The report preserves those limits and does not let an upstream revert override the inspected fork.
+4. **Streaming scope is correctly bounded.** The scheduler's resumable input session preserves state and strips stale in-flight speculative work at a materialized frontier. That supports limited lifecycle reuse, not a complete multi-model adapter. HTTP output streaming in an agent workload does not establish this input-streaming path is exercised.
+5. **The M=1 boundary is a logical discriminator only.** With a stable ready set and no arrivals/departures, the threshold cannot aggregate an irregular peer-return stream; a threshold above the entire ready set stalls unless another release rule exists. This is not a prediction for open arrivals, prefill mixing, DSpark progress or EP/DP coupling. The report explicitly leaves external-arrival batching as an existing policy-family question.
+6. **PR evidence is not overstated.** SGLang29898's opening body describes an unbounded all-rank delay and a timeout repair;28104 describes a separate local trigger with a5s safety backup. These do not prove either behavior in c455. vLLM44558 reports load-dependent cadence tradeoffs in an older different deployment;45882 gives a plugin-interface revert reason, not target performance invalidation.42500 addresses repeated input-chunk validation, not ordinary output-token validation. No PR diff, tests or latest head was independently inspected, and the report says so.
+
+## Additive locator precision
+
+The shorthand `H01` and `R4` collides across historical cards. `prior-comparison.json` retains exact relevant identities from the existing153-card inventory: B200-R7b-PREFILL-ADMIT-1 (`c4e6048...`, `60c092...`), group prefill admission/deadline H01 (`4f3e8a...`, `4be854...`), and coordinated release R4 (`41df36...`, `a77ac3...`). These are family comparators with their own baselines and histories, not identical implementations or newly selected states. This clarification needs no edit to the frozen author packet.
+
+## Admission and reopening
+
+No service qualification or new diagnostic selection follows from this review. Reopen a concrete existing scheduling arm if actual ready/admission/launch traces expose costly arrivals that existing tuned cadence does not handle, and a bounded policy can satisfy the same TTFT/ITL/liveness constraints. The standard workload plus attribution counters is an appropriate future evaluator; the paper's large cross-model throughput headline is not a target estimate. No additional synthetic case count or generic paper search is needed to support this zero-card disposition.

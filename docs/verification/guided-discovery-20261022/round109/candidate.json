@@ -1,0 +1,52 @@
+{
+  "local_id": "SP109-01",
+  "status": "deferred",
+  "typed_hypothesis_created": false,
+  "baseline": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+  "statement": "Test a frozen, per-target-layer SWA precision policy choosing existing528B MXFP8 or a new288B NVFP4 record, with compressed cache, weights, window and selection policy unchanged initially.",
+  "mechanism": "Reduce SWA record traffic and possibly allocated cache bytes; pay changed quantization/dequantization and mixed-layout costs. No native FP4 attention compute acceleration assumed.",
+  "proposed_change": "Extend exact pinned SWA writer/original-cache reader/spec ABI; reuse existing NVFP4 prefill gather; profile static layer sensitivity separately before freezing a workload policy. Do not change the draft model or turn off AV.",
+  "correctness_contract": "Target activations change; original target distribution is not guaranteed. Structural codec/cache correctness is separate from downstream quality budget and service evaluation. No universal bitwise rejection and no lossless claim.",
+  "selection_rationale": "Concrete absent target operation with reusable codecs and a recent static allocation component; sizeable conditional record-byte fraction but unknown exposed time. Retain future experiment pending quality/physical-layout gates, not accepted implementation.",
+  "paper_transfer": "MultiAlloc static layer allocation only. Original gradient profile requires future model forward/backward, no weight updates. Forward-only ablation is an explicit alternative adaptation, not equivalent paper method. No token-preservation component or donor speed transfer.",
+  "prior_comparison": {
+    "EC79": "Expert output transport, distinct target boundary.",
+    "round83": "Existing compressed NVFP4/default resolution and shared-KV quality caveats reused.",
+    "QH45": "Draft head precision, different probability/quality contract.",
+    "SGLang37138": "Known all-pool FP4 family on old target; not novelty claim, negative throughput evidence."
+  },
+  "counterevidence": [
+    "Pinned original cache API rejects FP4; codec/spec and scale/TMA assumptions need real changes.",
+    "Shared K=V means both logits and values change; recent window may be sensitive.",
+    "Existing288B prefill gathers use Triton while FP8 may use CuteDSL.",
+    "Physical padding/grouping can erase capacity savings.",
+    "Old V4/H20 all-pool donor reports slower decode.",
+    "Paper calibration/surrogate cannot certify held-out quality; no actual tensor or timing exposure here."
+  ],
+  "cpu_diagnostic": {
+    "artifact": "format-audit.json",
+    "outcome": "inconclusive for candidate performance/quality; source incompatibility and logical geometry confirmed",
+    "scope": "8 source text observations, not runtime tests"
+  },
+  "future_evaluation": [
+    "Define quality budget before promotion; held-out request-disjoint task metrics and rollout, fixed stop/output policy.",
+    "Validate actual mixed spec/group/padding and codec/cache graphs first.",
+    "Existing mixed baseline vs fixed SWA subset vs calibrated static subset at matched physical budget, optional all-SWA control.",
+    "Paired standard workloads plus attention/insert/gather diagnostics; actual AV/DSpark behavior and changed acceptance tracked."
+  ],
+  "roi": {
+    "numeric_service_prediction": null,
+    "conditional_record_fraction_at128SWA512compressed": 0.14285714285714285,
+    "warning": "Not physical capacity, HBM traffic or latency; all other work remains."
+  },
+  "rubric": {
+    "mechanism": "source supported",
+    "target_delta": "absent, multi-component ABI extension",
+    "primary_evidence": "recent paper fulltext plus pinned source; four PR bodies only",
+    "workload_exposure": "SWA reached in target attention, actual selected backend and time unknown",
+    "counterevidence": "explicit and potentially decisive",
+    "cheapest_falsifier": "source ABI audit completed; physical spec/layout and quality gates remain",
+    "implementation_readiness": "deferred, below narrow source-only equivalence patches",
+    "promotion": "not qualified"
+  }
+}

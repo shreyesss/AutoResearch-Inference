@@ -1,0 +1,150 @@
+{
+  "source_inventory": "round109-cache-precision/prior-inventory.json",
+  "source_sha256": "295991dd326c22e79e265c22dcbee88979e4718eb97cbccbd814d09d6c1b3b17",
+  "scope": "Historical153 inventory, read-only; local labels collide; exact IDs identify intended scheduling families",
+  "hypotheses": [
+    {
+      "id": "hypothesis:c4e6048e9f836720f23ea8eab8c8ce66d8f532d77e4fb42e75b534c98d4fc19a",
+      "local_id": "B200-R7b-PREFILL-ADMIT-1",
+      "status": "proposed",
+      "baseline": "baseline:0b72634bd203d436836eb7303221d2d7127a84910b6d4a4ccdbdc3ee803aab49",
+      "statement": "First inspect the effective scheduler commit and runtime settings to establish whether adaptive prefill admission already exists. If absent, test a scheduler-local prefill budget that decreases when active decodes approach their measured i\u2026",
+      "mechanism": "Limit admitted prefill work during decode pressure to reduce long mixed iterations, while releasing the cap when pressure falls or a prefill wait bound is reached.",
+      "reasons": [],
+      "rationale": "",
+      "reopen_when": "",
+      "decision_id": null,
+      "omitted_reasons": 0,
+      "matched_fields": [],
+      "matched_source_ids": [],
+      "omitted_matched_source_ids": 0,
+      "source_count": 4,
+      "refuting_claim_count": 0,
+      "refuting_claim_ids": [],
+      "omitted_refuting_claims": 0,
+      "truncated_fields": [
+        "statement"
+      ]
+    },
+    {
+      "id": "hypothesis:a77ac3c0c25553c99bea65e3f0c265b0dcf00b2fcf3187cef1e252b383a95895",
+      "local_id": "R4",
+      "status": "proposed",
+      "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+      "statement": "Test coordinated prefill release only if measured mixed-step interference survives tuning the existing scheduler and static prefill interval. PR #61834 supplies a concrete per-step coordination protocol, but its reported interactivity gain\u2026",
+      "mechanism": "Source proposal: coordinate prefill FIRE/HOLD decisions and protect subsequent decode steps. Transfer inference: concentrating required prefills can reduce repeated lockstep decode interruption, but deferred chunks and an added CPU collective can erase the benefit.",
+      "reasons": [],
+      "rationale": "",
+      "reopen_when": "",
+      "decision_id": null,
+      "omitted_reasons": 0,
+      "matched_fields": [],
+      "matched_source_ids": [],
+      "omitted_matched_source_ids": 0,
+      "source_count": 2,
+      "refuting_claim_count": 0,
+      "refuting_claim_ids": [],
+      "omitted_refuting_claims": 0,
+      "truncated_fields": [
+        "statement"
+      ]
+    },
+    {
+      "id": "hypothesis:60c092dce5cb28eec640ec26cf51b69b80dabd4666094baf8b005bad34f75ac9",
+      "local_id": "B200-R7b-PREFILL-ADMIT-1",
+      "status": "deferred",
+      "baseline": "baseline:0b72634bd203d436836eb7303221d2d7127a84910b6d4a4ccdbdc3ee803aab49",
+      "statement": "First inspect the effective scheduler commit and runtime settings to establish whether adaptive prefill admission already exists. If absent, test a scheduler-local prefill budget that decreases when active decodes approach their measured i\u2026",
+      "mechanism": "Limit admitted prefill work during decode pressure to reduce long mixed iterations, while releasing the cap when pressure falls or a prefill wait bound is reached.",
+      "reasons": [
+        "required_improvement: The scheduler inspection gate and trace question give a credible testable path. Whether an adaptive admission policy is absent, or prefill interferes with decode on this deploym\u2026",
+        "Priority below this task's threshold; reconsider with evidence or a revised policy"
+      ],
+      "rationale": "",
+      "reopen_when": "",
+      "decision_id": null,
+      "omitted_reasons": 0,
+      "matched_fields": [],
+      "matched_source_ids": [],
+      "omitted_matched_source_ids": 0,
+      "source_count": 4,
+      "refuting_claim_count": 0,
+      "refuting_claim_ids": [],
+      "omitted_refuting_claims": 0,
+      "truncated_fields": [
+        "reasons",
+        "statement"
+      ]
+    },
+    {
+      "id": "hypothesis:4f3e8a772095b5a21f178fca2d6634d70597f91af8297ce195e8f0db220b9174",
+      "local_id": "H01",
+      "status": "proposed",
+      "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+      "statement": "Coordinate prefill admission within an active expert-parallel collective group",
+      "mechanism": "Proposed, untested adaptation: ranks that must enter the same MoE collective agree on an iteration-level prefill limit based on the slowest predicted participating rank. Each rank retains local request ownership. The group is resolved from the active backend and process groups; independent replicas decide separately.",
+      "reasons": [],
+      "rationale": "",
+      "reopen_when": "",
+      "decision_id": null,
+      "omitted_reasons": 0,
+      "matched_fields": [],
+      "matched_source_ids": [],
+      "omitted_matched_source_ids": 0,
+      "source_count": 7,
+      "refuting_claim_count": 0,
+      "refuting_claim_ids": [],
+      "omitted_refuting_claims": 0,
+      "truncated_fields": []
+    },
+    {
+      "id": "hypothesis:4be8549fc4f8565cbe2c6ff52c1002e19529cdebbeb7a2a1d3f1f2b465df9810",
+      "local_id": "H01",
+      "status": "proposed",
+      "baseline": "baseline:72833aeec14aa4f4b530ba582e9d80ca0b8a8602d0b61cffd70ef86a3d88c35b",
+      "statement": "Coordinate prefill chunks across expert-parallel ranks using decode deadlines",
+      "mechanism": "At each scheduling step, choose a graph-compatible prefill chunk using the earliest active decode deadline and a predicted iteration cost based on the slowest participating rank. Coordinate the choice across the expert-parallel group so one rank's prefill does not delay another rank's decode collective. This is an unt\u2026",
+      "reasons": [],
+      "rationale": "",
+      "reopen_when": "",
+      "decision_id": null,
+      "omitted_reasons": 0,
+      "matched_fields": [],
+      "matched_source_ids": [],
+      "omitted_matched_source_ids": 0,
+      "source_count": 5,
+      "refuting_claim_count": 0,
+      "refuting_claim_ids": [],
+      "omitted_refuting_claims": 0,
+      "truncated_fields": [
+        "mechanism"
+      ]
+    },
+    {
+      "id": "hypothesis:41df36bb4be53fef5cb6e5e98527dfdea3af1fe8535f5992a197b65ba82bd2df",
+      "local_id": "R4",
+      "status": "deferred",
+      "baseline": "baseline:a3999271836d4037cecb1a6e668cb350e874fd9597ea94780306ed3aaa048029",
+      "statement": "Test coordinated prefill release only if measured mixed-step interference survives tuning the existing scheduler and static prefill interval. PR #61834 supplies a concrete per-step coordination protocol, but its reported interactivity gain\u2026",
+      "mechanism": "Source proposal: coordinate prefill FIRE/HOLD decisions and protect subsequent decode steps. Transfer inference: concentrating required prefills can reduce repeated lockstep decode interruption, but deferred chunks and an added CPU collective can erase the benefit.",
+      "reasons": [
+        "h200_applicability_and_correctness_required: The host protocol is plausibly adaptable to fixed DP4/EP4, but installed scheduler compatibility and the proposed overdue mechanism are unverified. The so\u2026"
+      ],
+      "rationale": "",
+      "reopen_when": "",
+      "decision_id": null,
+      "omitted_reasons": 0,
+      "matched_fields": [],
+      "matched_source_ids": [],
+      "omitted_matched_source_ids": 0,
+      "source_count": 2,
+      "refuting_claim_count": 0,
+      "refuting_claim_ids": [],
+      "omitted_refuting_claims": 0,
+      "truncated_fields": [
+        "reasons",
+        "statement"
+      ]
+    }
+  ]
+}

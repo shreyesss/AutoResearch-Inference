@@ -1,0 +1,137 @@
+{
+  "run_id": "guided-round109-static-target-swa-precision-v1",
+  "card": {
+    "baseline": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+    "author_type": "agent",
+    "target_profile_version": "Flash1017-c455-planned-two-EP4-v1",
+    "id": "SP109",
+    "statement": "Test a frozen, per-target-layer SWA precision policy choosing existing528B MXFP8 or a new288B NVFP4 record, with compressed cache, weights, window and selection policy unchanged initially.",
+    "mechanism": "Reduce SWA record traffic and possibly allocated cache bytes; pay changed quantization/dequantization and mixed-layout costs. No native FP4 attention compute acceleration assumed.",
+    "proposed_change": "Extend exact pinned SWA writer/original-cache reader/spec ABI; reuse existing NVFP4 prefill gather; profile static layer sensitivity separately before freezing a workload policy. Do not change the draft model or turn off AV. Use explicit immutable target-layer policy and cache-format identity; do not apply a global flag to draft pages. Unchanged compressed/indexer policies do not freeze downstream latent contents, selections, routes or draft confidence.",
+    "prediction": null,
+    "roi": null,
+    "eligibility": [
+      "Planned Flash1017 c455 SM100 Mega format; actual live backend/format remains unattested",
+      "Original target SWA528B versus proposed selected-layer288B NVFP4, not enabling existing compressed NVFP4",
+      "Codec and reader/specification contract must cover original/extra roles, pure-SWA layers, both CTA scale paths, prefill gather and speculative slots",
+      "Static policy fixed for cache allocation/reuse/transfer identity; compressed format and neural weights unchanged, not all downstream tensor values",
+      "No model/GPU calibration now; future quality budget must be defined before promotion, no tolerance invented"
+    ],
+    "risks": [
+      "Pinned original cache API rejects FP4; codec/spec and scale/TMA assumptions need real changes.",
+      "Shared K=V means both logits and values change; recent window may be sensitive.",
+      "Existing288B prefill gathers use Triton while FP8 may use CuteDSL.",
+      "Physical padding/grouping can erase capacity savings.",
+      "Old V4/H20 all-pool donor reports slower decode.",
+      "Paper calibration/surrogate cannot certify held-out quality; no actual tensor or timing exposure here.",
+      "Target distribution can change; neither original-target losslessness nor downstream quality follows from smaller records",
+      "Per-layer shared K/V latent and joint multilayer errors need actual-graph quality evaluation; layer gradient scores are surrogates",
+      "Cross-policy prefix/transfer reuse, draft page contamination or mismatched format/scale dispatch would be structural bugs",
+      "New cache precision can affect indexer choices, routed experts, confidence and actual AV progress even with fixed policy"
+    ],
+    "prior_comparison": {
+      "EC79": "Expert output transport, distinct target boundary.",
+      "round83": "Existing compressed NVFP4/default resolution and shared-KV quality caveats reused.",
+      "QH45": "Draft head precision, different probability/quality contract.",
+      "SGLang37138": "Known all-pool FP4 family on old target; not novelty claim, negative throughput evidence."
+    },
+    "correctness_contract": "Target activations change; original target distribution is not guaranteed. Structural codec/cache correctness is separate from downstream quality budget and service evaluation. No universal bitwise rejection and no lossless claim. Codec reference correctness relative to declared new representation is separate from original-FP8 target quality. No universal bitwise rule, no lossless-original-target label. Existing standard workloads do not alone qualify coding/reasoning quality.",
+    "falsification_test": "Next source-only gate: explicit static policy mapped into per-layer cache specs, aligned pages/group stride, indexer/compressed/draft ownership and prefix/replay identity. If padding erases capacity savings reject that configuration capacity rationale; traffic and ITL remain independent unmeasured hypotheses. No calibration or native execution now.",
+    "evaluation": {
+      "completed": "Eight source anchors and conditional logical-record arithmetic, plus independent source/quality-contract review; no actual allocation, quality or speed measurement.",
+      "next": "Bounded retained-source physical-spec plan with native baseline control and a transparent fixed subset. Stop if required format ownership is unresolved; no more integer payload examples as quality evidence.",
+      "future_arms": [
+        "Define quality budget before promotion; held-out request-disjoint task metrics and rollout, fixed stop/output policy.",
+        "Validate actual mixed spec/group/padding and codec/cache graphs first.",
+        "Existing mixed baseline vs fixed SWA subset vs calibrated static subset at matched physical budget, optional all-SWA control.",
+        "Paired standard workloads plus attention/insert/gather diagnostics; actual AV/DSpark behavior and changed acceptance tracked."
+      ],
+      "quality": "Missing task-specific acceptable degradation budget; hold out policy selection from task/rollout evaluation, preserve ordinary stop/output policy and record completed tokens, routes, confidence and acceptance. Calibration forward/backward cannot run now.",
+      "service": "Existing paired Mooncake/agent-p75 long-output ITL/goodput remains primary. Separately measure SWA insert/gather/decode and allocated bytes. Capacity gain with slower decode is not primary-objective improvement."
+    },
+    "selection_scope": "Deferred quality-gated representation research; no implementation or service acceptance",
+    "qualification": "Source-supported missing target format extension; numerical ROI and quality tolerance unknown"
+  },
+  "brief": {
+    "baseline": {
+      "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+      "hardware": {
+        "gpu_count": 8,
+        "gpu_type": "B200",
+        "topology": "planned two four-GPU EP groups; live topology unverified"
+      },
+      "model": {
+        "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+      },
+      "notes": "Planned source profile only; image, loaded dependency, graph distribution and timing unknown.",
+      "parallelism": {
+        "dp": 4,
+        "ep": 4,
+        "tp": 1
+      }
+    },
+    "objective": "Reduce long-output ITL with separate TTFT/p95/p99 tail guards on Mooncake and agent75; no GPU execution.",
+    "selection": {
+      "require_novelty": false,
+      "require_roi_screen": true
+    }
+  },
+  "claim_links": [
+    {
+      "claim_id": "claim:1fa7eea284f861bd658366688973b80f23e7c08eb3b3ba2eaf6daad6146d2e98",
+      "relation": "supports",
+      "rationale": "Supports selective static offline layer-policy reuse only; omitted token preservation and unknown target quality/physical cost prevent transfer of paper gains."
+    },
+    {
+      "claim_id": "claim:ccecdbfafb8bf91b0a59683bc0bd7f808bdfcd194701e85a3176c15392404d42",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:93654da386ba1f00bf9bad9db3a91a15c717b128790a848e04ca0e5b7534f54c",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:b27cd640edfe4cc59c27051bfe8a1a3829e2eadd4ce675e1169bc19d3588bdb6",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:fab5a2a2cf7f2f78dd67215981fada33864ce008d9d7d6f6a923e16708f5505f",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:c09190ef9279297e39e4a41f18731e8e47de376a6c4233e01613f30e3537de1f",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:8ef5c960a26937f5453889c7a9433af9101f8eba030d2228d03c7f00281de62e",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:ae107d64564059fa0921cd1104bcf9d713b9756a86d9b982acb86dd07e0e5a30",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:ec3f18d863c964cad54c56a5ebf495de691539d3f07291a108c913c6d7064c58",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:dab1c40f51bdef2be0858761d29e04d9e37cf31e7371554483d49bf39d6d29ce",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    },
+    {
+      "claim_id": "claim:cad6bf88ea73b227e251a302f514203f19878eb8fdede8fa4eb6d8dc1d8c8ccf",
+      "relation": "background",
+      "rationale": "Exact source or paper boundary evidence; no target codec/quality, physical allocation or speed proof."
+    }
+  ]
+}

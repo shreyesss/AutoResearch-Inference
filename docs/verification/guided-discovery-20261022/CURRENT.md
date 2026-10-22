@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint 24](CHECKPOINT_24.md) adds the reviewed compressed-KV cache-hint experiment, an arm-specific adjudication correction, measured search yield and completed canonical CF59/RM61 retention. [Checkpoint 23](CHECKPOINT_23.md) covers layered-prefill continuation and its buffer-lifetime constraints. No measured inference improvement or current-import S3 coverage is claimed.
+Latest update: [Checkpoint 25](CHECKPOINT_25.md) adds a narrow sampling-metadata experiment, an independently checked correction to a paper-transfer falsifier, and PJ01 capture integration guidance. [Checkpoint 24](CHECKPOINT_24.md) covers compressed-KV cache policy and completed canonical CF59/RM61 retention. No measured inference improvement or new-packet S3 coverage is claimed.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

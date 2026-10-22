@@ -1,0 +1,67 @@
+{
+  "kind": "Static pinned-source AST observations",
+  "observations": [
+    {
+      "name": "Capture marks context slots PAD before graph capture",
+      "passed": true,
+      "source_expression": [
+        "self._context_slot_mappings.fill_(PAD_SLOT_ID)",
+        "self.query_cudagraph_manager.capture(self._generate_draft, self.input_buffers, self.block_tables, self.attn_groups, self.kv_cache_config, self.max_model_len, causal=self._group_causal, prepare_forward=self._prepare_graph_forward, progress_bar_desc=f'Capturing {self._speculator_name.lower()} CUDA graphs')"
+      ]
+    },
+    {
+      "name": "Captured preparation invokes context projection without dummy override",
+      "passed": true,
+      "source_expression": "self._precompute_context_kv(0, num_context)"
+    },
+    {
+      "name": "Only explicit dummy_run selects None at this helper",
+      "passed": true,
+      "source_expression": "if dummy_run:\n    context_slots: torch.Tensor | list[torch.Tensor | None] | None = None\nelif self._layer_group_idx is not None:\n    context_slots = [self._context_slot_mappings[gidx][start:end] for gidx in self._layer_group_idx]\nelse:\n    context_slots = self._context_slot_mappings[0][start:end]"
+    },
+    {
+      "name": "DFlash closure orders prepare before query forward",
+      "passed": true,
+      "source_expression": "def forward(cg_mode: CUDAGraphMode) -> None:\n    prepare_forward(num_reqs, attn_metadata)\n    forward_fn(num_reqs, num_tokens, attn_metadata, slot_mappings, num_tokens_across_dp, cg_mode)"
+    },
+    {
+      "name": "Base capture requests warmup and capture closures",
+      "passed": true,
+      "source_expression": [
+        "create_forward_fn(desc, warmup=True)",
+        "create_forward_fn(desc, warmup=False)"
+      ]
+    },
+    {
+      "name": "Base invokes closure in NONE mode for warmup and inside graph capture",
+      "passed": true,
+      "source_expression": [
+        {
+          "line": 470,
+          "call": "forward_fn(CUDAGraphMode.NONE)"
+        },
+        {
+          "line": 505,
+          "call": "forward_fn(CUDAGraphMode.NONE)"
+        }
+      ]
+    },
+    {
+      "name": "Full replay replays graph rather than invoking Python preparation",
+      "passed": true,
+      "source_expression": "def run_fullgraph(self, desc: BatchExecutionDescriptor):\n    \"\"\"Replay a captured FULL cudagraph.\"\"\"\n    assert desc.cg_mode == CUDAGraphMode.FULL, f'Expected FULL mode, got {desc.cg_mode}'\n    assert desc in self.graphs, f'No cudagraph for {desc}'\n    get_offloader().sync_prev_onload()\n    self.graphs[desc].replay()"
+    },
+    {
+      "name": "Target wrapper delegates allocation to external backend with out=None",
+      "passed": true,
+      "source_expression": "mm_mxfp8_(A, B, A_scale, B_scale, out=None, out_dtype=out_dtype, backend=backend, use_8x4_sf_layout=use_8x4_sf_layout)"
+    }
+  ],
+  "count": 8,
+  "limitations": [
+    "No extracted method execution, native imports, device allocation, graph capture or numerical check.",
+    "Source ordering does not attest loaded external FlashInfer version, workspace sufficiency or actual chosen backend.",
+    "The callback factory warmup flag is not an execution permission or proof of device synchronization."
+  ],
+  "forbidden_modules_loaded": []
+}

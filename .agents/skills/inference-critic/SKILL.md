@@ -71,6 +71,13 @@ an existing unconditional refresh boundary when it can remove a speculative
 cross-invocation cache contract. Preserve the earlier fixture and verdict; record
 which premise changed and what the revised check actually exercises.
 
+For a shape/bucket diagnostic, follow the runner's mode-selection call site before
+generalizing a fixture: adaptive/variable-length and uniform execution can select
+different capacities from the same list. Check whether rank synchronization changes
+the final choice. If the selected mode or effective configuration is unknown,
+compare the plausible source branches and keep the exposure conclusion conditional;
+do not label a convenient default fixture as the deployment's behavior.
+
 For implementations with automatic fallbacks, distinguish constructor/engine labels
 from the path actually executed. Record native, reference, retry and full-fallback
 calls with their own denominators; a successful mixed-path test cannot certify the

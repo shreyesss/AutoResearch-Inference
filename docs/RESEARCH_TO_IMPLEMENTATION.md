@@ -30,7 +30,7 @@ flowchart TD
 
 - **Evidence claims are separate records.** An exact excerpt must occur in a retained source revision. Its stored-text offsets, source hash and attribution survive subsequent source edits. A numeric author result also needs its original baseline, conditions, units and supporting excerpt. Quote matching checks provenance, not whether the interpretation is scientifically correct.
 - **Hypotheses state a mechanism and a falsifier.** A target forecast is optional. If provided, it needs explicit bounds, units, method, workload, baseline, assumptions and uncertainty. A paper's speedup does not automatically become our expected speedup.
-- **Screening is attached to the hypothesis.** Missing target timing/provenance returns `insufficient_evidence`. The existing exposed-time calculation uses accepted output progress, calls and overlap. It cannot infer tail ITL, TTFT or E2E from component arithmetic.
+- **Screening is attached to the hypothesis.** Missing provenance defers with `insufficient_evidence`. With explicit provenance and a bounded cheapest falsifier, unknown timings can advance a diagnostic while the predicted gain remains null. The exposed-time calculation uses accepted output progress, calls and overlap. It cannot infer tail ITL, TTFT or E2E from component arithmetic.
 - **Plans distinguish diagnosis from qualification.** An unresolved screen can motivate a tightly bounded diagnostic. It cannot qualify a serving improvement. A review-ready plan needs exact source/image/model/workload pins, baseline consistency, correctness checks, paired runs, separate profiling, metric definitions, tail guards and budgets.
 - **Decisions remain attributable and revisitable.** Accepted means selected, not experimentally validated. Rejections and deferrals need reasons and reopening conditions. Supporting and refuting claims, source changes and independent experiment outcomes appear in the cold-start dossier.
 - **Research runs remain bounded.** Query/taxonomy versions change paper discovery cursor identity. The command journal records redacted normalized queries, config hash, code commit and dirty-worktree status. It reports unknown provider billing as unknown.
@@ -58,6 +58,42 @@ researchctl changes --cursor 0 --limit 100
 ```
 
 `search` supports `--repo`, `--kind`, `--offset`, and `--date-field`; timestamps are inclusive `after`, exclusive `before`. `investigate` deepens selected sources without a general feed refresh. `run` includes configured discovery refresh. Neither enables model reasoning unless `--reason --brief ...` is supplied. Successful optional model evidence packets are also retained as typed claims; only exact source/excerpt matches become typed hypothesis links. Legacy selection remains distinct from the new evaluation-plan gate.
+
+### Screening when timing is unknown
+
+The CLI `--record` file, or MCP `screen`'s `inputs` argument, is the **whole
+record** below. The nested `inputs` object carries the calculation/diagnostic
+inputs. Replace the illustrative IDs with the hypothesis's frozen baseline and
+retained source IDs; `input_source_ids` are checked against the corpus.
+
+```json
+{
+  "provenance": {
+    "baseline_id": "baseline:FROM_HYPOTHESIS_DOSSIER",
+    "workload_id": "saved-workload-manifest-with-live-exposure-unknown",
+    "hardware": "planned B200 layout; live deployment not attested",
+    "input_source_ids": ["SOURCE_ID_FROM_RETAINED_CORPUS"],
+    "measurement_origin": "agent_estimate"
+  },
+  "inputs": {
+    "target": {"benchmark": "Mooncake+agent75", "metric": "long_output_itl", "direction": "lower"},
+    "next_cheapest_falsifier": {
+      "execution_kind": "cpu",
+      "question": "Do saved capture artifacts exercise the proposed code path?",
+      "method": "Inspect pinned dispatch guards and existing artifacts without probing a node.",
+      "budget_wall_minutes": 2,
+      "stop": "Leave exposure unknown if no actual capture artifacts exist."
+    }
+  }
+}
+```
+
+Omit unknown durations instead of inventing positive savings. The screen does
+not copy a falsifier from the card or evaluation plan: name the next bounded
+check explicitly. `advance_diagnostic` permits planning that investigation; it
+is separate from the hypothesis decision, execution permission and measured
+improvement. The current tool checks that a falsifier is supplied; the host
+must judge whether its method, budget and stopping rule are informative.
 
 Use global `--local-only` for local snapshots without automatic publication on these research mutations. `changes` returns a cursor; save it after consuming the page. Source-change alerts request review, not automatic retraction or acceptance.
 

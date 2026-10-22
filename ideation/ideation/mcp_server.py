@@ -210,7 +210,18 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
 
     @server.tool(structured_output=True)
     def screen(hypothesis_id: str, inputs: dict) -> dict[str, object]:
-        """No-GPU conditional screen with provenance and input timings; missing target evidence returns insufficient_evidence."""
+        """Persist a conditional no-GPU screen; no experiment runs.
+
+        The inputs argument is the complete record: provenance plus nested inputs.
+        provenance needs baseline_id, workload_id, hardware, input_source_ids and
+        measurement_origin (target_trace/reproduced_measurement/simulation/agent_estimate).
+        Nested inputs needs target.benchmark/metric and next_cheapest_falsifier
+        to advance a diagnostic. Name its bounded observation and stopping rule;
+        the card's falsifier is not copied automatically. Unknown timing may stay
+        omitted: it can advance diagnosis with null gain, never qualify service.
+        Missing provenance defers; failed guards or inadequate supplied bounds
+        can reject. Diagnostic readiness is not execution authorization.
+        """
         return record(['screen', hypothesis_id], inputs)
 
     @server.tool(structured_output=True)

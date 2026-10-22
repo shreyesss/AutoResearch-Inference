@@ -1,3 +1,7 @@
+# Latest research checkpoint — 8
+
+[Checkpoint8](CHECKPOINT_8.md) supersedes the earlier scientific yield: 33 reviewed cards, 2 accepted bounded CPU investigations, 23 deferred, 7 rejected, 1 duplicate; no implementation/service qualification. Native tokenizer alternatives are refinements of S01. Round15 independent canonical readback completed. Later queued imports/publication remain unverified at this checkpoint; no new S3 or VM recovery claim.
+
 # Current persistence summary — checkpoint 7
 
 As of 22 October 2026, 02:28 UTC. This section supersedes the earlier checkpoint table below.

@@ -61,3 +61,13 @@ nested forward contexts and entry points that skip ordinary execution. Prefer
 an existing unconditional refresh boundary when it can remove a speculative
 cross-invocation cache contract. Preserve the earlier fixture and verdict; record
 which premise changed and what the revised check actually exercises.
+
+For implementations with automatic fallbacks, distinguish constructor/engine labels
+from the path actually executed. Record native, reference, retry and full-fallback
+calls with their own denominators; a successful mixed-path test cannot certify the
+unexercised native path. Compare an incremental/cache/fusion proposal with the
+simpler available full-operation baseline. Condition conclusions on the workload
+that selects each path, including serialized inputs and output requirements; warm
+prior state and a shared-prefix workload do not establish a usable session cache.
+These checks should change the scope or next experiment, not force an acceptance
+quota or turn a finite compatibility result into a service-performance claim.

@@ -1,0 +1,72 @@
+{
+  "hypothesis_id": "hypothesis:ad1fb886045bbfd8c17b1fbc2746dbf3a79089b61e4977a50825c8e75482000e",
+  "baseline_id": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+  "claims": 6,
+  "screen": {
+    "version": 1,
+    "kind": "conditional_prescreen",
+    "validated": false,
+    "target": {
+      "benchmark": "Mooncake+agent75",
+      "metric": "long_output_itl",
+      "direction": "lower"
+    },
+    "decision": "advance_diagnostic",
+    "reason": "Run the stated cheapest falsifier to test assumptions and applicability; no service improvement or deployment qualification is established.",
+    "estimates": {},
+    "target_relative_gain": null,
+    "unknowns": [
+      "baseline iteration duration",
+      "component savings range",
+      "component calls per complete iteration (not speculative rollout length)",
+      "critical-path exposed fraction after overlap",
+      "accepted output tokens per iteration: baseline_tokens",
+      "accepted output tokens per iteration: candidate_tokens",
+      "mapping iteration/time-per-token estimate to target metric long_output_itl"
+    ],
+    "input": {
+      "target": {
+        "benchmark": "Mooncake+agent75",
+        "metric": "long_output_itl",
+        "direction": "lower"
+      },
+      "unknowns": [
+        "No target iteration duration, eligible critical-path time, row histogram or progress available."
+      ],
+      "next_cheapest_falsifier": {
+        "execution_kind": "cpu",
+        "question": "Do retained source/capture artifacts establish that standard-workload frames reach already-MegaMHC shapes rather than small FULL overlap?",
+        "method": "Inspect pinned guard matrix and any existing workload/capture artifacts; no node/GPU probe. If no retained actual frames, explicitly leave exposure unknown.",
+        "budget_wall_minutes": 2,
+        "stop": "Stop on source drift or absence of retained runtime artifacts; do not substitute synthetic guard cases for observed frequency."
+      }
+    },
+    "evidence": [],
+    "assumptions": [],
+    "counters": [],
+    "next_cheapest_falsifier": {
+      "execution_kind": "cpu",
+      "question": "Do retained source/capture artifacts establish that standard-workload frames reach already-MegaMHC shapes rather than small FULL overlap?",
+      "method": "Inspect pinned guard matrix and any existing workload/capture artifacts; no node/GPU probe. If no retained actual frames, explicitly leave exposure unknown.",
+      "budget_wall_minutes": 2,
+      "stop": "Stop on source drift or absence of retained runtime artifacts; do not substitute synthetic guard cases for observed frequency."
+    },
+    "formula": "candidate_iteration_us = baseline_iteration_us - saved_component_us * calls_per_iteration * exposed_fraction; amortized_time_per_token = iteration_us / accepted_output_tokens_per_iteration",
+    "limitations": [
+      "Bounds are supplied assumptions, not confidence intervals or independent validation.",
+      "Accepted progress includes all emitted output tokens per complete iteration; rollout length alone is insufficient.",
+      "Streaming gaps, queues, TTFT, tail latency, throughput and E2E require workload-specific measurement; a component speedup is not a service speedup.",
+      "Use CPU source-path, shape and correctness checks before a bounded GPU probe where those checks can falsify the mechanism."
+    ]
+  },
+  "eval_plan_readiness": "ready_for_review",
+  "eval_plan_gaps": [],
+  "execution_authorized": false,
+  "decision": "deferred",
+  "canonical_writes": 0,
+  "provider_calls_in_typed_flow": 0,
+  "gpu_calls": 0,
+  "scope": "Actual CLI commands against isolated round19 state only; source documents inserted by Store.put before exact-quote claims.",
+  "latest_screen_id": "screening:997f69b7149165a9eb3621fd7d1ab88446a3416d8267a670c6bfa7b38ad8bf55",
+  "initial_screen_receipt_preserved": "screen-stdout.json"
+}

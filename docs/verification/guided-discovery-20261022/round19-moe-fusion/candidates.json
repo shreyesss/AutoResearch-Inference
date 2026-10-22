@@ -1,0 +1,107 @@
+[
+  {
+    "id": "MF19-01",
+    "statement": "On already-MegaMHC FFN boundaries, write the existing rounded-BF16-derived MXFP8 activations and scale layouts directly into MegaMoE symmetric input, leaving the router and small FULL-graph overlap policy unchanged.",
+    "classification": "upstream_component_port",
+    "status": "deferred",
+    "scientific_validity": "unverified",
+    "priority": "low_until_eligible_exposure_established",
+    "prediction": null,
+    "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+    "mechanism": "Fuse the activation quantization/stores into the producer, avoiding the subsequent BF16 input read by prepare_megamoe. Preserve its routing-only packing launch in the initial arm.",
+    "proposed_change": "Selectively rebase PR57977 FFN MegaMhcFp8Out/MegaMoEInputs integration from18aac398; no attention backend/WO-A changes or routing-direct-buffer arm initially. Supported MXFP8/no-ubatching/current-stream paths only; actual producer success controls staged flag. Pass exact shared_block_m and full scale backing storage; unchanged fallback elsewhere.",
+    "prior_relation": "Compared to M01 tile selection, RD01 weight locality, EG01 host-table MXFP8 staging, N03 SM allocation, existing WO-A and PDL. Different activation producer boundary; no scientific novelty claim. Full brief recall retained, not exhaustive historical absence proof.",
+    "code_surface": [
+      "vllm/models/deepseek_v41/nvidia/ops/mega_mhc.py",
+      "vllm/models/deepseek_v41/nvidia/ops/mhc.py",
+      "vllm/models/deepseek_v41/nvidia/model.py",
+      "vllm/models/deepseek_v4/nvidia/model.py",
+      "vllm/model_executor/layers/fused_moe/deep_gemm_mega_moe.py",
+      "vllm/model_executor/layers/fused_moe/prepare_megamoe.py"
+    ],
+    "evidence": [
+      {
+        "artifact": "sources/c455__models__deepseek_v41__nvidia__ops__mega_mhc.py",
+        "quote": "y_bf16=y_bf16,",
+        "relation": "supports_baseline_only_bf16_output",
+        "source_id": "c455:mega_mhc.py",
+        "sha256": "4b4af8b71c20d929303b15bf770eeff25a875046f08dc698ca8c47bb51b4fb9c"
+      },
+      {
+        "artifact": "sources/c455__model_executor__layers__fused_moe__deep_gemm_mega_moe.py",
+        "quote": "prepare_megamoe_inputs(\n                hidden_states,",
+        "relation": "supports_current_activation_staging",
+        "source_id": "c455:deep_gemm_mega_moe.py",
+        "sha256": "86484f4694349fc8355651c42605044ae48aabcb195c6a0e6ed1917ec195b512"
+      },
+      {
+        "artifact": "sources/dg__deep_gemm__include__deep_gemm__epilogue__sm100_mega_mhc.cuh",
+        "quote": "return __float22bfloat162_rn(__fmul2_rn(__fmul2_rn(__bfloat1622float2(input), {scale, scale}), __bfloat1622float2(weight)));",
+        "relation": "supports_bf16_rounding_boundary",
+        "source_id": "DeepGEMM:a7a927:epilogue/sm100_mega_mhc.cuh",
+        "sha256": "5bfb051b4d5d3705b00919a7100d9f11fc6466be5b436930b721d5dc051d2813"
+      },
+      {
+        "artifact": "sources/donor__vllm__model_executor__layers__fused_moe__deep_gemm_mega_moe.py",
+        "quote": "None if hidden_states_staged else hidden_states,",
+        "relation": "supports_selective_staging_bypass",
+        "source_id": "vllm:57977:18aac398:deep_gemm_mega_moe.py",
+        "sha256": "f40133dc28a61dedc1f785fce04db4a56589ecd2ec91324754ffbd7623ac605a"
+      },
+      {
+        "artifact": "sources/c455__models__deepseek_v41__nvidia__model.py",
+        "quote": "# Use overlap only in FULL graphs; eager warmup initializes Mega mHC.",
+        "relation": "challenges_small_graph_exposure",
+        "source_id": "c455:model.py",
+        "sha256": "f78f7e8595ce26a6890dd23a8440f9968a1e9f29e8bd13155f19da04fbb31569"
+      },
+      {
+        "artifact": "sources/donor__vllm__models__deepseek_v41__nvidia__ops__mhc.py",
+        "quote": "return residual, *pre_outputs, aux, None",
+        "relation": "supports_no_false_staged_flag_on_overlap",
+        "source_id": "vllm:57977:18aac398:mhc.py",
+        "sha256": "6f496660e77354763116f112ea8cbe43da886cdd8166d15e07d0f53f31596224"
+      }
+    ],
+    "counterevidence": [
+      "FULL graph capture of1\u201316 localrows can use overlap implementation and receive zero benefit; eager warmup is misleading exposure evidence.",
+      "Donor bundle GPUbusy improvement~10% atC1 gave~1.2%TPOT; no isolated FFN/ourtarget reproduction.",
+      "Initial arm retains BF16 store/router and routing-only prepare launch; no total-quantization or whole-launch deletion claim.",
+      "Additional mHC registers/instructions can offset saved activation read.",
+      "Current buffer cache has no ubatch/layer key; concurrent writer safety not proved.",
+      "DeepGEMM scale helper consistency is CPU formula evidence only; no compiledFP8,normalization,packing parity or runtime attestation."
+    ],
+    "roi_estimate": {
+      "numeric_gain": null,
+      "optimistic_removed_logical_read_bytes_per_eligible_boundary": "10240 * local_rows for H5120",
+      "bound": "End-to-end saving cannot exceed exposed eligible activation-staging time; new producer cost must be subtracted. No measured exposure/time here.",
+      "small_full_graph_overlap_gain": "0 for unchanged branch"
+    },
+    "evaluation": {
+      "now": "Source and CPU guards only; zero runtime patches/GPU.",
+      "correctness_later": "Baseline/fused BF16+FP8+both scale layouts, padding,physicalrouting,EPLB,repeat/shapechange parity; original overlap fallback unchanged.",
+      "ablations_later": [
+        "baseline",
+        "FFN activation-only fusion",
+        "optional separately attributed routing direct-output arm"
+      ],
+      "service_later": "Unchanged Mooncake+agent75 pairedrepeats, frozen long-outputITL primary with TTFT/tail/E2E/failure guards; record actual eligible shapedtime.",
+      "new_evaluator_reason": "No new service workload justified; operator differential harness is correctness instrumentation only."
+    },
+    "reopen_when": "Exact runtime/graph bucket exposure and safe symmetric-buffer lifecycle established; future authorized component parity and complete-boundary timing then unchanged service workloads.",
+    "readiness": "source_supported_component; service_unqualified",
+    "cpu_evidence": [
+      {
+        "artifact": "dispatch_contract.json",
+        "outcome": "inconclusive_for_service;30 exact-source conditional guard cases",
+        "scope": "CPU AST expression evaluation with explicit supported-platform stubs, no live workload histogram"
+      },
+      {
+        "artifact": "../review/round19/scale_contract.json",
+        "outcome": "inconclusive_for_service",
+        "scope": "Independent parent CPU formula consistency only; allfiniteBF16amax + sharedscale rowmapping, notGPU"
+      }
+    ],
+    "report": "REPORT.md"
+  }
+]

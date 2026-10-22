@@ -290,11 +290,13 @@ class HypothesisMemory:
         requested = set(source_ids or [])
         if any(not isinstance(s, str) or not s.strip() for s in requested):
             raise ValueError('Source IDs must be nonempty strings')
-        linked = {}
+        linked, refuting = {}, {}
         tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if {'hypothesis_claims', 'evidence_claims'} <= tables:
-            for row in self.db.execute('SELECT hc.hypothesis_id,c.source_id FROM hypothesis_claims hc JOIN evidence_claims c ON c.id=hc.claim_id'):
+            for row in self.db.execute('SELECT hc.hypothesis_id,c.source_id,hc.claim_id,hc.relation FROM hypothesis_claims hc JOIN evidence_claims c ON c.id=hc.claim_id'):
                 linked.setdefault(row[0], set()).add(row[1])
+                if row[3] == 'refutes':
+                    refuting.setdefault(row[0], set()).add(row[2])
         matches, scanned = [], 0
         needle = (query or '').strip().casefold()
         for row in self.db.execute('SELECT h.*,n.data FROM hypotheses h JOIN nodes n ON n.id=h.id'):
@@ -319,6 +321,7 @@ class HypothesisMemory:
                     return value[:cap - 1] + '…'
                 return value
             reasons = assessment.get('reasons') or []
+            objections = sorted(refuting.get(row['id'], set()))
             entry = {'id': row['id'], 'local_id': row['local_id'], 'status': review.get('status', 'proposed'),
                      'baseline': row['baseline'],
                      'statement': short(card.get('statement', card.get('title')), 'statement', 240),
@@ -330,7 +333,9 @@ class HypothesisMemory:
                      'omitted_reasons': max(0, len(reasons) - 2),
                      'matched_fields': matched, 'matched_source_ids': exact[:10],
                      'omitted_matched_source_ids': max(0, len(exact) - 10),
-                     'source_count': len(sources), 'truncated_fields': sorted(set(truncated))}
+                     'source_count': len(sources), 'refuting_claim_count': len(objections),
+                     'refuting_claim_ids': objections[:3], 'omitted_refuting_claims': max(0, len(objections) - 3),
+                     'truncated_fields': sorted(set(truncated))}
             matches.append((bool(exact), row['created_at'], row['id'], entry))
         matches.sort(key=lambda x: x[:3], reverse=True)
         page = [x[3] for x in matches[offset:offset + limit]]
@@ -341,7 +346,7 @@ class HypothesisMemory:
                 'next_offset': following if following < len(matches) else None,
                 'omitted_matches': len(matches) - len(page),
                 'method': 'literal_card_disposition_or_exact_source; exact_source_first_then_newest',
-                'meaning': 'Selection status only. Open hypothesis show for complete reasons, baseline, source revisions and scoped test outcomes. No semantic deduplication or scientific qualification.'}
+                'meaning': 'Selection status only. Refuting claims are scoped objections, not a rejection verdict; this compact view does not check newer source revisions. Open hypothesis show for complete reasons, claim rationales, baseline, source revisions and scoped test outcomes. No semantic deduplication or scientific qualification.'}
 
     def recall(self, brief, limit=12, max_chars=24000):
         """Budgeted lexical recall, not an embedding search or a relevance guarantee.

@@ -89,6 +89,40 @@ def test_compact_recall_includes_later_evidence_and_typed_reopening_condition(fl
     assert flow.db.total_changes == before
 
 
+def test_compact_recall_exposes_new_refutation_without_changing_selection(flow):
+    claim, identity = proposal(flow)
+    original = flow.memory.get(identity)
+    before = flow.memory.recall_index(source_ids=[FIXTURE['source']['id']])
+    assert before['hypotheses'][0]['refuting_claim_count'] == 0
+    flow.link(identity, claim['id'], 'refutes', 'Only the coarse benefit premise is challenged')
+    # Different rationales for one claim are not independent evidence counts.
+    flow.link(identity, claim['id'], 'refutes', 'Another scoped objection from the same claim')
+    after = flow.memory.recall_index(source_ids=[FIXTURE['source']['id']])
+    entry = after['hypotheses'][0]
+    assert entry['refuting_claim_count'] == 1 and entry['refuting_claim_ids'] == [claim['id']]
+    assert entry['omitted_refuting_claims'] == 0
+    assert before['inventory_hash'] != after['inventory_hash']
+    assert before['hypotheses'][0]['source_count'] == entry['source_count']
+    assert before['hypotheses'][0]['status'] == entry['status']
+    updated = flow.memory.get(identity)
+    assert {k: v for k, v in updated.items() if k != 'events'} == {
+        k: v for k, v in original.items() if k != 'events'}
+    assert updated['events'][:len(original['events'])] == original['events']
+    appended = updated['events'][len(original['events']):]
+    assert len(appended) == 2 and all(e['type'] == 'evidence_linked' for e in appended)
+    for i in range(3):
+        record = copy.deepcopy(FIXTURE['claim'])
+        record['claim_text'] = f'Separate fixture interpretation {i}; not new independent source'
+        other = flow.claim(record)
+        flow.link(identity, other['id'], 'refutes', 'Scoped fixture interpretation')
+    page = flow.memory.recall_index(source_ids=[FIXTURE['source']['id']])
+    bounded = page['hypotheses'][0]
+    assert bounded['refuting_claim_count'] == 4
+    assert len(bounded['refuting_claim_ids']) == 3 and bounded['omitted_refuting_claims'] == 1
+    assert len(set(bounded['refuting_claim_ids'])) == 3
+    assert 'claim rationales' in page['meaning']
+
+
 def test_dossier_exposes_linked_refinement_without_hiding_artifact_omissions(flow):
     _, identity = proposal(flow)
     artifacts = [{'path': f'research/records/test/{i}.json', 'sha256': str(i) * 64,

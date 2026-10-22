@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint20](CHECKPOINT_20.md) adds reviewed round58, tested local-search diagnostics, and completed ingestion repair for two missing predecessor reports. The guided loop and larger sequential retention work continue; no fresh cloud coverage is claimed for that repair. [Checkpoint19](CHECKPOINT_19.md) preserves reviewed rounds54–57 and the M01 arithmetic correction.
+Latest update: [Checkpoint 21](CHECKPOINT_21.md) adds the independently audited CF59 context-overlap candidate, recent low-bit component screens, compact recall of later objections, and verified canonical retention. CF59 remains deferred; no GPU experiments or measured serving wins. [Checkpoint 20](CHECKPOINT_20.md) preserves round58, search diagnostics and the predecessor-report ingestion repair.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

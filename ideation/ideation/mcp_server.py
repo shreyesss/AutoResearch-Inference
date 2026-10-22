@@ -210,7 +210,7 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
     @server.tool(structured_output=True)
     def recall_hypotheses(query: str | None = None, limit: int = 20, offset: int = 0,
                           source_ids: list[str] | None = None, compact: bool = True) -> dict[str, object]:
-        """Recall before drafting: compact latest selections, literal card/reason matches OR exact source IDs, source hits first. Inspect total_matches/next_offset and paginate; restart if inventory_hash changes between pages (no snapshot isolation). No match is not novelty proof. Open hypothesis_show for full reasons, baseline and scoped outcomes. compact=False retains legacy full-card output (no pagination/source filter)."""
+        """Recall before drafting: compact latest selections, literal card/reason matches OR exact source IDs, source hits first. Inspect total_matches/next_offset and paginate; restart if inventory_hash changes between pages (no snapshot isolation). Refuting claim counts/IDs flag scoped objections; open hypothesis_show for rationales, source freshness, baseline and outcomes. An objection is not a rejection verdict; no match is not novelty proof. compact=False retains legacy full-card output (no pagination/source filter)."""
         if not 1 <= limit <= 100:
             raise ToolError('limit must be 1..100')
         args = ['hypothesis', 'recall', '--limit', str(limit)]

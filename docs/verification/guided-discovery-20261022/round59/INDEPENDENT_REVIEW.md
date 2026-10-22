@@ -1,0 +1,39 @@
+# Round59 independent source review — two separate components
+
+Source scope: exact c455 target and retained #61869 donor head9a1541d118524bffb13f66d87481def3d3428556 selected patches/new graph file. No GPU, backend import, serving change, performance fixture or canonical modification. Source hashes and bounded prior-card recall are retained. This review has not independently read BIMScript; paper claims remain author-scoped.
+
+## Verdict
+
+Retain selective context-projection overlap as a deferred, source-grounded scheduling component. The whole post-forward graph is a separate, more constrained integration arm. Neither is service-qualified. Do not reject both because the donor also contains previously reviewed Markov sampling fusion; do not treat bundled donor results as isolated evidence.
+
+The canonical literal scan of card/node records found #61869/post-forward mentions in historical H02/R2 cards. Their proposed changes explicitly exclude post-forward graph capture and preserve only the narrow Markov sampler fusion. PJ01 removes discarded output columns; round48 shares input activation quantization; TR01 trims qualifying context rows. These all differ from moving unchanged projection before sampling finishes. A01 schedules Engram WKV, using a different dependency and model path. Compare mechanisms rather than PR number. The literal inventory is not an exhaustive semantic equivalence proof; original identities and baselines remain unchanged.
+
+## Context work can be separated, with specific boundaries
+
+Target nvidia/dspark.py165–195 computes every layer’s projection+KV norm from the same main_x, then _insert_context_kv uses layer slots and positions. combine_hidden_states derives main_x from target features. The donor splits projection+normalization from insertion, copies normalized results into a persistent per-layer buffer, and forks target feature processing after LM head on a side stream. The rejection result is not an input to these projections. It is an input to subsequent context/query mappings: those operations and cache publication must remain after the rejection-dependent preparation. Native DSpark inherits the base no-op prepare_context_anchor hook; generic donor anchor comments do not establish another native DSpark kernel or saving. Wrong-path target rows can be projected harmlessly only if invalid rows remain masked at later insertion; no early mutation of live request/KV state is justified.
+
+main_proj is ReplicatedLinear; fused_wqa_wkv is MergedColumnParallelLinear(disable_tp=True). On the planned TP1 profile this narrow projection work introduces no evident TP/EP collective. That does not authorize moving draft DP coordination or changing EP collective order. TP>1/CP/PP or backend-specific hidden communication need separate admission. Keep original subsequent propose/DP-sync semantics and all-rank graph-mode decisions.
+
+The new buffer is [three layers, min(6*max_num_reqs,max_num_tokens),512] with hidden-state dtype; assuming BF16 this is 3072 bytes per allocated context row. This is a capacity formula, not measured allocation or latency. Projection output copies, buffer lifetime and memory pressure are added. Input-quantization scratch and external GEMM workspaces must not alias rejection/main-stream resources. Existing WorkspaceManager isolates ubatch/lane and explicitly requires stream-qualified persistent keys when overlapping uses are possible. Donor selects the draft lane but that alone does not prove every external backend is concurrency-safe. Initialize resources before capture/lock; preserve row extents, graph padding, lanes, fallback and reload lifetimes.
+
+## Preserve the existing output release boundary
+
+Pinned model_runner.py2201 starts AsyncOutput before postprocess_sampled and propose, deliberately permitting D2H to overlap that later work. async_utils.py waits for the main stream at that point, retains tensor references and enqueues copies. Donor post_forward() instead performs rejection, postprocess, draft input preparation and the side-stream join before returning to that AsyncOutput call. Hence whole-region replay moves the release boundary even if its total duration improves. A lean overlap arm can fork before rejection and join after the existing early AsyncOutput point, before projected KV is consumed. Preserve copy-buffer ownership; a short GPU interval alone does not establish streamed ITL improvement.
+
+## Target FULL is insufficient to prove projected-buffer reuse
+
+Donor post-forward eligibility tests target FULL static hidden output. DFlash _prepare_graph_forward consumes projected KV in the FULL draft path. The shown non-FULL draft branch instead invokes _precompute_context_kv without projected= and recomputes the original projection. Thus a target-FULL/draft-non-FULL combination can duplicate the early work; this is a conditional source-control counterexample, not observed runtime activation. Admission must bind both modes, or an explicit eager consumer must use the precomputed output with correct row boundaries. Retain unsupported fallback without hidden duplication. No assumption that target FULL implies draft FULL is established by the selected donor checks.
+
+## Whole-region CUDA graph is a separate gated arm
+
+The donor needs specialized model-state opt-in and rejects adaptive verification, custom rejection sampling, watermarking, PP/CP, batch-sharded sampling, LoRA, connectors and fast-prefill. Each eligible step needs target FULL static output, uniform full-depth decode, no grammar/structured output or logit processing/logprobs, and bounded logits rows. It copies rotating/per-step tensors into owned buffers, keys selected pointer/shape/stride/dtype inputs, waits for prior output-copy reads before static-output replay, warms and captures while serving, and uses a private graph pool. These are concrete safeguards, not runtime proofs. Persistent inputs omitted from the key still require immutable lifetime or invalidation; cross-rank capture/replay agreement and late allocation/profile headroom remain gates. Do not disable adaptive verification or change the frozen target profile merely to make this arm run.
+
+## Measurement and overlap limits
+
+Pinned dummy StepTiming ends target-forward timing, then brackets a dummy propose with supplied counts. It does not time the live rejection/postprocess/AsyncOutput region. Those saved curves cannot establish this candidate’s removable control gap. The useful next existing artifact is an attested live event timeline identifying target/head completion, rejection, context projection/quant/norm, output-copy release, draft graph mode, insertion and committed progress, on the exact profile. Missing evidence leaves priority conditional; no new toy timing is useful.
+
+Even with an independent stream, possible saved critical time is bounded by the overlap of context work and genuinely independent sampling/preparation, minus extra copies, launch/fence/resource contention and any later release. This is a structural bound, not a numerical forecast. PJ01/round48 can shorten the very work being hidden; savings are not additive. Whole-region graph and overlap need separate controls, then a combined arm only if both remain justified. Preserve proposal/cache correctness and acceptance/progress alongside primary long-output ITL and tail guards.
+
+## Read limitations
+
+Read the full retained post-forward graph file and the selected DSpark/DFlash/runner/model-state patches; target call chain and prior cards were inspected directly. An initial broad prior-node display included inherited briefs and truncated output; the final comparison uses bounded card fields. Initial guessed attention paths did not exist; corrected attention.py was read and hashed. No source missingness or truncated display is used as evidence of absence.

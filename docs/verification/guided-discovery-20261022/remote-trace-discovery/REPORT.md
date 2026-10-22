@@ -1,0 +1,15 @@
+# Existing S3 evidence lookup — no compatible exposure recovered
+
+Question: can existing remote artifacts resolve context-projection or other decode exposure without a GPU run? This is an evidence recovery check, not a new hypothesis or benchmark.
+
+The first credential-default attempt failed locally with NoCredentialsError. The configured sofia-ssm AWS profile succeeded; no key or secret was printed. Read-only ListObjectsV2 enumerated the two b200-bench-results root prefixes, deepseek-v4.1-flash/ and results/. The initial four-page limit on the first prefix was visibly incomplete, so a second bounded continuation used StartAfter its last key and exhausted the remaining six pages. Total11 content-list pages,9481 object records; the four root/prefix discovery listings are separate. Each request is recorded, but paginated listing is not a bucket-wide frozen snapshot and concurrent changes could affect coverage.
+
+Latest listed modification was2026-10-20T15:23:07Z. No listed key contained nsys, nsight, .pt.trace, trace.json, profile.json, c025 or c455 under the explicit filename check. This does not prove no trace exists under another filename, embedded in a log/archive, another bucket or an older object version. JIT cache metadata and names containing profile are not runtime profiler evidence.
+
+Selected the latest small manifest.json by object modification time per host prefix plus the legacy results/b200 prefix:8 objects,20,106 bytes downloaded, each with IfMatch on its listed ETag. Stored raw bytes by SHA256 with source key, retrieval time and size. This selection is not every manifest, and modification time is not necessarily execution time.
+
+None contains c4557869393db4d75c483d92edd02a5125500883, exact Flash1017 revision1bae0e1088993b9b82de08f59de5be5a34e42170 or fused_wqa_wkv. Older manifests explicitly identify ac9126/2cba9e/image3d176; some later AIPerf manifests leave selected_image blank and bind only tokenizer revision. The H200 manifest has one-second external telemetry configuration, which is not a per-operation critical-path trace. Benchmark harness git_revision is not automatically the serving vLLM commit, and tokenizer_revision is not automatically the model checkpoint.
+
+Result: no compatible existing context-projection exposure record recovered from this bounded metadata plus eight-body inspection. Keep PJ01/CF59 timing inputs unknown. Historical throughput and device telemetry cannot establish the named operation's exposed time. Do not infer absence everywhere or repeat downloads without a new artifact lead.
+
+The autoresearch bucket root was listed only to confirm access; its archives were not downloaded or restored. Existing publication/lineage was untouched. No model, container, GPU, experiment launch, remote write or canonical mutation occurred. Requests:15 successful listings and8 object GETs; two initial credential failures occurred before signed requests. Raw benchmark manifests remain outside Git; delivery can use this report and hashes.

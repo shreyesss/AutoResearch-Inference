@@ -37,6 +37,10 @@ relaxes filters nor proves upstream coverage; separate calls can see new imports
 In the dossier, read `linked_research` for later refinements and priority limits
 before treating an old accepted investigation as active implementation work.
 Use `--include-artifacts` only when the omitted evidence pointers are needed.
+Compact recall exposes `refuting_claim_count` and up to three claim IDs. Open the
+dossier for their scoped rationales; an objection can narrow a benefit estimate
+without rejecting the idea. A zero count does not certify correctness or source
+freshness, and multiple claims from one source are not independent corroboration.
 
 Prior-card recall does not cover every standalone preflight or rejected-lead
 report. Before counting an intervention as new to the campaign, also search

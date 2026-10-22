@@ -12,7 +12,7 @@ Read [Checkpoint15](CHECKPOINT_15.md) for the latest science, tool changes, yiel
 - [Sampling-boundary audit](round39/REPORT.md) and [residual shortcut falsifier](round42/REPORT.md)
 - [Paper-free pinned-code investigation repair](code-only-investigate/REPORT.md)
 - [Explicit OA PDF reading and coverage](oa-fulltext/REPORT.md)
-- [Provisional separate DSpark draft-head precision lead](round45/REPORT.md)
+- [Separate DSpark draft-head precision lead](round45/REPORT.md), [independent review and typed-workflow status](round45/REVIEW_STATUS.md)
 - [Expert sparsity screen](round43/REPORT.md) and [KV placement screen](round44/REPORT.md)
 
 No measured inference improvement or GPU execution has been claimed in this discovery campaign.

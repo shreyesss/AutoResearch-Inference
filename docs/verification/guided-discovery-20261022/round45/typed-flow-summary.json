@@ -1,0 +1,61 @@
+{
+  "hypothesis_id": "hypothesis:4d38f92df2b2ade451a5487906d4354f000aab08cd0afbddd8aec508015be82e",
+  "canonical": false,
+  "screen": {
+    "version": 1,
+    "kind": "conditional_prescreen",
+    "validated": false,
+    "target": {
+      "benchmark": "Mooncake+agent75",
+      "metric": "long_output_itl",
+      "direction": "lower"
+    },
+    "decision": "advance_diagnostic",
+    "reason": "Run the stated cheapest falsifier to test assumptions and applicability; no service improvement or deployment qualification is established.",
+    "estimates": {},
+    "target_relative_gain": null,
+    "unknowns": [
+      "baseline iteration duration",
+      "component savings range",
+      "component calls per complete iteration (not speculative rollout length)",
+      "critical-path exposed fraction after overlap",
+      "accepted output tokens per iteration: baseline_tokens",
+      "accepted output tokens per iteration: candidate_tokens",
+      "mapping iteration/time-per-token estimate to target metric long_output_itl"
+    ],
+    "input": {
+      "target": {
+        "benchmark": "Mooncake+agent75",
+        "metric": "long_output_itl",
+        "direction": "lower"
+      },
+      "next_cheapest_falsifier": {
+        "execution_kind": "cpu",
+        "question": "Does eligible native DSpark use a genuinely quantized separate head and preserve the actual proposal cache?",
+        "method": "Read pinned loader, backend dispatch and sampled/cached logits dataflow; replay source/rational diagnostic without tensor imports.",
+        "budget_wall_minutes": 10,
+        "stop": "Remain deferred if native backend, timing, progress and capacity exposure are unknown; reject shared target mutation or stale q."
+      }
+    },
+    "evidence": [],
+    "assumptions": [],
+    "counters": [],
+    "next_cheapest_falsifier": {
+      "execution_kind": "cpu",
+      "question": "Does eligible native DSpark use a genuinely quantized separate head and preserve the actual proposal cache?",
+      "method": "Read pinned loader, backend dispatch and sampled/cached logits dataflow; replay source/rational diagnostic without tensor imports.",
+      "budget_wall_minutes": 10,
+      "stop": "Remain deferred if native backend, timing, progress and capacity exposure are unknown; reject shared target mutation or stale q."
+    },
+    "formula": "candidate_iteration_us = baseline_iteration_us - saved_component_us * calls_per_iteration * exposed_fraction; amortized_time_per_token = iteration_us / accepted_output_tokens_per_iteration",
+    "limitations": [
+      "Bounds are supplied assumptions, not confidence intervals or independent validation.",
+      "Accepted progress includes all emitted output tokens per complete iteration; rollout length alone is insufficient.",
+      "Streaming gaps, queues, TTFT, tail latency, throughput and E2E require workload-specific measurement; a component speedup is not a service speedup.",
+      "Use CPU source-path, shape and correctness checks before a bounded GPU probe where those checks can falsify the mechanism."
+    ]
+  },
+  "plan_readiness": "ready_for_review",
+  "decision": "deferred",
+  "GPU_calls": 0
+}

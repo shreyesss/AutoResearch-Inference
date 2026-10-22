@@ -57,6 +57,25 @@ def test_source_show_selects_exact_revision(tmp_path):
         invoke(['--state-dir', str(tmp_path), 'show', 'paper:test', '--revision-hash', 'absent'])
 
 
+def test_missing_source_and_revision_report_local_absence(tmp_path, capsys):
+    from ideation.foundation import main
+    invoke(['--state-dir', str(tmp_path), 'init'])
+    store = Store(tmp_path / 'research/corpus.sqlite')
+    store.put({'id': 'paper:present', 'source': 'test', 'kind': 'paper',
+               'title': 'Present', 'url': 'https://example.org', 'body': 'Evidence'})
+    store.db.commit(); store.db.close()
+    cases = [(['show', 'paper:missing'], 'source_not_retained'),
+             (['show', 'paper:present', '--revision-hash', 'missing'], 'source_revision_not_retained')]
+    with patch('urllib.request.urlopen', side_effect=AssertionError('Local lookup must not fetch')):
+        for command, code in cases:
+            assert main(['--state-dir', str(tmp_path), *command]) == 1
+            failure = json.loads(capsys.readouterr().err)
+            assert failure['error_code'] == code
+            assert 'No provider request was made' in failure['message']
+    history = invoke(['--state-dir', str(tmp_path), 'history'])['commands']
+    assert sum(r['command'] == 'show' and r['outcome'] == 'failed' for r in history) == 2
+
+
 def test_local_match_all_recipe_executes_as_conjunction(tmp_path):
     invoke(['--state-dir', str(tmp_path), 'init'])
     store=Store(tmp_path/'research/corpus.sqlite')

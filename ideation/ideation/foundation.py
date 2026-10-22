@@ -78,6 +78,19 @@ class StateNotInitializedError(ValueError):
     """Safe actionable error; contains no provider URL or credential values."""
 
 
+class SourceLookupError(KeyError):
+    """Local absence, distinct from provider failure; messages contain no inputs."""
+
+    def __init__(self, *, revision=False):
+        self.error_code = "source_revision_not_retained" if revision else "source_not_retained"
+        self.safe_message = (
+            "This source revision is not retained locally. Inspect show ID --history for available revisions; do not substitute the current revision silently. No provider request was made."
+            if revision else
+            "This source is not retained in the selected local corpus. Check the source ID and corpus coverage; use explicit online discovery or repository refresh if needed. Local absence does not prove upstream absence. No provider request was made."
+        )
+        super().__init__(self.safe_message)
+
+
 def _config(root, args):
     from .discovery import load_config, validate
     path = Path(args.config).expanduser() if getattr(args, "config", None) else root / "research/config.json"
@@ -555,12 +568,12 @@ def _execute(root, args):
             if command == "show":
                 result = store.get(args.id)
                 if result is None:
-                    raise KeyError("Source does not exist")
+                    raise SourceLookupError()
                 if args.revision_hash:
                     revisions = store.revisions(args.id)
                     result = next((r for r in revisions if r["content_hash"] == args.revision_hash), None)
                     if result is None:
-                        raise KeyError("Source revision does not exist")
+                        raise SourceLookupError(revision=True)
                 if args.history:
                     history = {"current": store.get(args.id), "revisions": store.revisions(args.id)}
                     if args.revision_hash:
@@ -828,6 +841,8 @@ def main(argv=None):
                    "message": "Operation failed. State and existing snapshots were retained; check configuration, input records, credentials, or local lineage."}
         if isinstance(error, StateNotInitializedError):
             failure.update(error_code="state_not_initialized", message="Initialize this state directory with researchctl --state-dir PATH init, then retry. No provider request was made by this operation.")
+        if isinstance(error, SourceLookupError):
+            failure.update(error_code=error.error_code, message=error.safe_message)
         if isinstance(error, PublicationError):
             failure.update(message="Local snapshot retained, but configured remote publication failed. Resolve credentials/connectivity or reconcile lineage before retrying; remote HEAD was not adopted.",
                            snapshot=error.receipt, publication_error_type=error.cause_type)

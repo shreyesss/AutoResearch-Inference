@@ -141,3 +141,14 @@ def test_mcp_uninitialized_state_recovery_hint(tmp_path):
             assert result.is_error
             assert 'researchctl --state-dir PATH init' in str(result.content)
     asyncio.run(check())
+
+
+def test_mcp_missing_source_is_local_absence(tmp_path):
+    invoke(['--state-dir', str(tmp_path), 'init'])
+    async def check():
+        async with Client(create_server(tmp_path, allow_network=True)) as client:
+            result = await client.call_tool('source_show', {'source_id': 'paper:missing'})
+            assert result.is_error
+            assert 'source_not_retained' in str(result.content)
+            assert 'Local absence does not prove upstream absence' in str(result.content)
+    asyncio.run(check())

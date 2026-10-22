@@ -1,6 +1,8 @@
 # Guided research: current delivery
 
-Read [Checkpoint16](CHECKPOINT_16.md) for the latest science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
+Latest update: [Checkpoint17](CHECKPOINT_17.md) adds the reviewed sparse-MQA components, optional writer timeout and completed canonical local retention; new S3 coverage remains unverified. The Checkpoint16 link below is retained as the preceding historical checkpoint.
+
+Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 
 - [WP38 paired FP4 weight packets](round38/REPORT.md)
 - [OP36 output-projection quantized handoff](round36/REPORT.md)
@@ -17,5 +19,6 @@ Read [Checkpoint16](CHECKPOINT_16.md) for the latest science, tool changes, yiel
 - [Router comparator audit](round46/REPORT.md), [indexer geometry adaptation](round47/REPORT.md), [shared context quantization](round48/REPORT.md), and [draft vocabulary restriction](round49/REPORT.md)
 - [Actionable query-plan errors](query-plan-errors/REPORT.md)
 - [Draft vocabulary independent review and adapter corrections](round49/REVIEW_STATUS.md)
+- [Accepted CPU diagnostics: actual current priorities](ACCEPTED_DIAGNOSTICS_REAUDIT.md)
 
 No measured inference improvement or GPU execution has been claimed in this discovery campaign.

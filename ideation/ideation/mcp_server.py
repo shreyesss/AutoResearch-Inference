@@ -9,10 +9,11 @@ from pathlib import Path
 import tempfile
 
 
-def create_server(state_dir, *, allow_network=False, publish=False, defer_snapshot=False):
+def create_server(state_dir, *, allow_network=False, publish=False, defer_snapshot=False, lock_timeout=None):
     from mcp.server import MCPServer
     from mcp.server.mcpserver.exceptions import ToolError
-    from .foundation import invoke, StateNotInitializedError, SourceLookupError
+    from .foundation import invoke, StateNotInitializedError, SourceLookupError, WriterBusyError, validate_lock_timeout
+    lock_timeout = validate_lock_timeout(lock_timeout)
     from .query_plan import QueryPlanRowError
     root = str(Path(state_dir).expanduser().resolve())
     server = MCPServer('Inference Research', version='1.0', instructions=(
@@ -26,9 +27,13 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
     def call(args):
         try:
             options = [] if publish else ['--local-only']
+            if lock_timeout is not None:
+                options += ['--lock-timeout', str(lock_timeout)]
             if defer_snapshot and args[0] not in ('refresh', 'plan', 'snapshot'):
                 options.append('--defer-snapshot')
             return invoke(['--state-dir', root] + options + args)
+        except WriterBusyError as error:
+            raise ToolError(error.error_code + ': ' + error.safe_message) from None
         except StateNotInitializedError:
             raise ToolError('Research state is not initialized. Run researchctl --state-dir PATH init for this server state directory, then retry. No provider request was made.') from None
         except SourceLookupError as error:
@@ -267,14 +272,15 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
 
 
 def main():
-    from .foundation import DEFAULT_STATE
+    from .foundation import DEFAULT_STATE, _parse_lock_timeout
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--lock-timeout', type=_parse_lock_timeout, help='Maximum writer wait seconds per call; default indefinite, zero tries once')
     p.add_argument('--state-dir', default=str(DEFAULT_STATE))
     p.add_argument('--allow-network', action='store_true')
     p.add_argument('--publish', action='store_true')
     p.add_argument('--defer-snapshot', action='store_true', help='Persist locally per research call; use checkpoint for recovery snapshot/publication')
     a = p.parse_args()
-    create_server(a.state_dir, allow_network=a.allow_network, publish=a.publish, defer_snapshot=a.defer_snapshot).run(transport='stdio')
+    create_server(a.state_dir, allow_network=a.allow_network, publish=a.publish, defer_snapshot=a.defer_snapshot, lock_timeout=a.lock_timeout).run(transport='stdio')
 
 
 if __name__ == '__main__':

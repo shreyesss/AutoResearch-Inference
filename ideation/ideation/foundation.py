@@ -3,6 +3,9 @@ import argparse
 import contextlib
 import datetime as dt
 import fcntl
+import errno
+import math
+import time
 import hashlib
 import gzip
 import json
@@ -56,11 +59,62 @@ def _read(path, default=None):
     return json.loads(path.read_text()) if path.exists() else default
 
 
+class WriterBusyError(RuntimeError):
+    """Static acquisition failure; the command and journal have not started."""
+    error_code = "writer_busy"
+    safe_message = ("The research writer is busy. Retry later or increase --lock-timeout. "
+                    "This attempt did not start a journal entry or execute the command.")
+
+    def __init__(self):
+        super().__init__(self.safe_message)
+
+
+def validate_lock_timeout(value):
+    """None keeps blocking acquisition; error text never includes submitted input."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ValueError
+        seconds = float(value)
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("lock timeout must be finite nonnegative seconds") from None
+    return seconds
+
+
+def _parse_lock_timeout(value):
+    try:
+        return validate_lock_timeout(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("lock timeout must be finite nonnegative seconds") from None
+
+
 @contextlib.contextmanager
-def _locked(root):
+def _locked(root, timeout=None):
+    timeout = validate_lock_timeout(timeout)
     root.mkdir(parents=True, exist_ok=True)
     with (root / ".writer.lock").open("a+b") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+        if timeout is None:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+        else:
+            started = time.monotonic()
+            attempted = False
+            while True:
+                if attempted and time.monotonic() - started >= timeout:
+                    raise WriterBusyError()
+                attempted = True
+                try:
+                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as error:
+                    if error.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                        raise
+                    remaining = timeout - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise WriterBusyError() from None
+                    time.sleep(min(0.05, remaining))
         try:
             yield
         finally:
@@ -730,6 +784,7 @@ def _execute(root, args):
 
 def parser():
     p = argparse.ArgumentParser(prog="researchctl", description=__doc__)
+    p.add_argument("--lock-timeout", type=_parse_lock_timeout, help="Maximum seconds waiting for writer lock; default waits indefinitely. Zero tries once; does not limit command runtime.")
     p.add_argument("--state-dir", default=os.environ.get("IDEATION_STATE_DIR") or os.environ.get("AUTORESEARCH_STATE_ROOT", str(DEFAULT_STATE)))
     p.add_argument("--env-file", help="Explicit local credential file; never copied into state")
     p.add_argument("--replica", action="store_true", help="Read downloaded VM replica for search/show/status; writer state untouched")
@@ -894,7 +949,7 @@ def invoke(argv=None):
     if args.env_file or args.command in {"refresh", "run", "investigate", "doctor", "paper-search"}:
         from .providers import load_provider_env
         load_provider_env()
-    with _locked(root):
+    with _locked(root, timeout=args.lock_timeout):
         from . import journal
         entry = journal.start(root, args)
         try:
@@ -921,6 +976,8 @@ def main(argv=None):
         # Provider exception URLs can carry API keys. Never print their text.
         failure = {"error_type": type(error).__name__, "command": args.command,
                    "message": "Operation failed. State and existing snapshots were retained; check configuration, input records, credentials, or local lineage."}
+        if isinstance(error, WriterBusyError):
+            failure.update(error_code=error.error_code, message=error.safe_message)
         if isinstance(error, StateNotInitializedError):
             failure.update(error_code="state_not_initialized", message="Initialize this state directory with researchctl --state-dir PATH init, then retry. No provider request was made by this operation.")
         if isinstance(error, UnsupportedDeferSnapshotError):

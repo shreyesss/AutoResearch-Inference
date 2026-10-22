@@ -279,3 +279,10 @@ explicit total/omitted counts. Use CLI `--include-artifacts` or MCP
 `include_artifacts=true` for all references. Projection does not alter original
 nodes, decisions, evidence bytes or qualification; artifact lists are retained
 pointers and do not imply that source scripts have been rerun after restoration.
+
+### Bound a busy writer wait
+
+`researchctl --lock-timeout 2 --state-dir PATH --local-only --defer-snapshot search 'KV cache'`
+limits time waiting to acquire the writer lock. Omit the option to retain the default indefinite wait; `0` tries once. Once acquired, command runtime is not limited. A busy attempt returns static `writer_busy` without starting the command or journal, so retry later or increase the budget. It does not bypass a publisher or permit concurrent state mutation. Lock directory/file creation can still occur before acquisition; this is not a promise of zero filesystem operations.
+
+The MCP server accepts the same optional startup `--lock-timeout SECONDS` (or `create_server(..., lock_timeout=...)`); all its calls share that configured wait budget. Existing servers and queued jobs retain their original behavior. Invalid/nonfinite/negative budgets are rejected without echoing their submitted value. This improves responsiveness under contention, not publication throughput.

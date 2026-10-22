@@ -1,0 +1,84 @@
+[
+  {
+    "baseline": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+    "status": "deferred",
+    "implementation_qualified": false,
+    "service_validated": false,
+    "exposure": "Unknown; indexer_sparse_logits defaults false. Do not enable it merely for these components.",
+    "cpu_result": "inconclusive_for_device_and_service; host policy/source diagnostic scoped in host_policy_probe.json",
+    "future_authorization": "No GPU/runtime work authorized in this investigation.",
+    "benchmark_mapping": "Mooncake+agent75 remain paired service tests; first-consumer/metadata/cache diagnostic justified only after exposure established.",
+    "local_id": "P50-01",
+    "statement": "On an already-enabled native paged sparse indexer, allow logits local setup to overlap the final metadata tail using an explicit producer release and consumer PDL launch while preserving its existing dependency wait.",
+    "mechanism": "Target a7 metadata lacks earlyrelease and DeepJIT default/launch disables PDL. Native consumer already waits before globalheaderread. Add paged-onlyrelease+launchoverride; preserve metadata visibility and all arithmetic.",
+    "first_useful_consumer": "First paged sparse logits call for each newly built schedule; later schedule-reuse calls are not credited producer overlap.",
+    "counterevidence": [
+      "Sparseflagdefaultfalse",
+      "Source comments short-context disadvantage",
+      "No runtime pair/prologue/tail exposure",
+      "Overlap opportunistic/resource-limited",
+      "Donor nativebaseline differs"
+    ],
+    "sources": [
+      "code:deepseek-ai/DeepJIT:3732a3b9a0a2e5126396908a362ba5abdf043b2f:include/deep_jit/backend/cuda/options.hpp",
+      "code:deepseek-ai/DeepJIT:3732a3b9a0a2e5126396908a362ba5abdf043b2f:include/deep_jit/runtime/runtime.hpp",
+      "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/config/attention.py",
+      "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/v1/attention/backends/mla/sparse_indexer.py",
+      "code:vllm-project/DeepGEMM:a7a927731b109fdfec770df7c2a5be5d7e2216b5:deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh",
+      "code:vllm-project/DeepGEMM:a7a927731b109fdfec770df7c2a5be5d7e2216b5:deep_gemm/include/deep_gemm/scheduler/sm100_sparse_mqa_logits_metadata.cuh",
+      "code:vllm-project/DeepGEMM:a7a927731b109fdfec770df7c2a5be5d7e2216b5:csrc/jit_kernels/impls/sm100_sparse_mqa_logits.hpp",
+      "code:yyihuang/flashinfer:a266eeb1a390e4f78448fe903b47ac1d1ed7d47c:csrc/experimental/deepgemm_sparse_mqa/generated/cake_deepgemm_sparse_mqa_04dfc611d72bc4f90ca1_kernel.cu",
+      "code:yyihuang/flashinfer:a266eeb1a390e4f78448fe903b47ac1d1ed7d47c:csrc/experimental/deepgemm_sparse_mqa/generated/cake_deepgemm_sparse_mqa_916b54ba03cd20e2eccd_kernel.cu",
+      "code:yyihuang/flashinfer:a266eeb1a390e4f78448fe903b47ac1d1ed7d47c:csrc/experimental/deepgemm_sparse_mqa/generated/cake_deepgemm_sparse_mqa_916b54ba03cd20e2eccd_binding.cu"
+    ],
+    "gain_estimate": null,
+    "fastest_next_step": "Inspect existing effective flag/capture/launch records; if none exist remain deferred. CPU source gates cannot estimate exposed time.",
+    "compared_with": [
+      "hypothesis:185cf468760287104e8c8e3fd2096ee8ad007bed47874163b5ac164b18b4bc80",
+      "hypothesis:ad1fb886045bbfd8c17b1fbc2746dbf3a79089b61e4977a50825c8e75482000e",
+      "hypothesis:e55f4a69afe89612afcd89e50288a79416be4e509b4a9c366249d42831971ad9"
+    ],
+    "novelty_constraint": false,
+    "scope_note": "Independent patch components; same donor citation is not ancestry or combined measured gain."
+  },
+  {
+    "baseline": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+    "status": "deferred",
+    "implementation_qualified": false,
+    "service_validated": false,
+    "exposure": "Unknown; indexer_sparse_logits defaults false. Do not enable it merely for these components.",
+    "cpu_result": "inconclusive_for_device_and_service; host policy/source diagnostic scoped in host_policy_probe.json",
+    "future_authorization": "No GPU/runtime work authorized in this investigation.",
+    "benchmark_mapping": "Mooncake+agent75 remain paired service tests; first-consumer/metadata/cache diagnostic justified only after exposure established.",
+    "local_id": "P50-02",
+    "statement": "Compare a fixed evict-first L2 policy for native paged sparse indexer key-data gathers against the original policy, preserving copied bytes and scale loads.",
+    "mechanism": "Donor changes only cache-hint form of cp.async.cg key-data loads. Native target mainpagedloop has no such hint. Initial experiment must fixpolicy perarm rather than add donor GPU.item to the hot path.",
+    "first_useful_consumer": "Native paged sparse KV-data copy warps; hint can affect later consumer/query cache reuse and unrelated data.",
+    "counterevidence": [
+      "Sparseflagdefaultfalse",
+      "No target cache/reuse counters",
+      "Meancontext is notselectedworking-set or reuse-distance",
+      "Donor policy construction-time stale aftervector updates",
+      "Any servicewin unknown"
+    ],
+    "sources": [
+      "code:callgideon/vllm:c4557869393db4d75c483d92edd02a5125500883:vllm/config/attention.py",
+      "code:yyihuang/flashinfer:a266eeb1a390e4f78448fe903b47ac1d1ed7d47c:flashinfer/experimental/deepgemm_sparse_mqa/sparse_mqa.py",
+      "code:vllm-project/DeepGEMM:a7a927731b109fdfec770df7c2a5be5d7e2216b5:deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh",
+      "code:vllm-project/DeepGEMM:a7a927731b109fdfec770df7c2a5be5d7e2216b5:deep_gemm/include/deep_gemm/scheduler/sm100_sparse_mqa_logits_metadata.cuh",
+      "code:vllm-project/DeepGEMM:a7a927731b109fdfec770df7c2a5be5d7e2216b5:csrc/jit_kernels/impls/sm100_sparse_mqa_logits.hpp",
+      "code:yyihuang/flashinfer:a266eeb1a390e4f78448fe903b47ac1d1ed7d47c:csrc/experimental/deepgemm_sparse_mqa/generated/cake_deepgemm_sparse_mqa_04dfc611d72bc4f90ca1_kernel.cu",
+      "code:yyihuang/flashinfer:a266eeb1a390e4f78448fe903b47ac1d1ed7d47c:csrc/experimental/deepgemm_sparse_mqa/generated/cake_deepgemm_sparse_mqa_916b54ba03cd20e2eccd_kernel.cu",
+      "code:yyihuang/flashinfer:a266eeb1a390e4f78448fe903b47ac1d1ed7d47c:csrc/experimental/deepgemm_sparse_mqa/generated/cake_deepgemm_sparse_mqa_916b54ba03cd20e2eccd_binding.cu"
+    ],
+    "gain_estimate": null,
+    "fastest_next_step": "Read existing launch/cachetrace exposure; no target GPU data here. Later fixedhint component A/B before devising policy.",
+    "compared_with": [
+      "hypothesis:185cf468760287104e8c8e3fd2096ee8ad007bed47874163b5ac164b18b4bc80",
+      "hypothesis:ad1fb886045bbfd8c17b1fbc2746dbf3a79089b61e4977a50825c8e75482000e",
+      "hypothesis:e55f4a69afe89612afcd89e50288a79416be4e509b4a9c366249d42831971ad9"
+    ],
+    "novelty_constraint": false,
+    "scope_note": "Independent patch components; same donor citation is not ancestry or combined measured gain."
+  }
+]

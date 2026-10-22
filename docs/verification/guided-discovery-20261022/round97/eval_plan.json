@@ -1,0 +1,78 @@
+{
+  "execution_kind": "cpu",
+  "purpose": "diagnostic",
+  "scope": "component",
+  "recorded_after_execution": true,
+  "preregistered": false,
+  "baseline": {
+    "id": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+    "git_sha": "c4557869393db4d75c483d92edd02a5125500883"
+  },
+  "probe": {
+    "sha256": "f579c266eaa25b476cfc42a93bad563612ea5a1979ce594bfd873b83397a9534",
+    "description": "Retrospective symbolic lane/grouping and destination-bijection diagnostic already executed by author; not native FP32 Sinkhorn. Future replay only on isolated copied text, never overwrite frozen author outputs.",
+    "environment": "Python stdlib, no torch/native/GPU/model/network; source files are references only",
+    "read_only": true,
+    "command_argv": [
+      "python3",
+      "lane_contract.py"
+    ],
+    "inputs": [
+      {
+        "id": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round97-sinkhorn-layout/lane_contract.py",
+        "role": "Probe or pinned source reference, not imported/executed native code",
+        "sha256": "f579c266eaa25b476cfc42a93bad563612ea5a1979ce594bfd873b83397a9534"
+      },
+      {
+        "id": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round97-sinkhorn-layout/sources/target-epilogue.cuh",
+        "role": "Probe or pinned source reference, not imported/executed native code",
+        "sha256": "5bfb051b4d5d3705b00919a7100d9f11fc6466be5b436930b721d5dc051d2813"
+      },
+      {
+        "id": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round97-sinkhorn-layout/sources/target-math.cuh",
+        "role": "Probe or pinned source reference, not imported/executed native code",
+        "sha256": "576e9db1a1889087f77b3f74d74d011bf452f16c0e5c030bdd661e961c074ddc"
+      },
+      {
+        "id": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round97-sinkhorn-layout/sources/head-two-lane.cu",
+        "role": "Probe or pinned source reference, not imported/executed native code",
+        "sha256": "79b0f951479fa7749bf9595f6cf948ad163956e8c36a38fdc5514e13dffaf8b4"
+      }
+    ]
+  },
+  "diagnostic": {
+    "question": "Does the proposed source-derived register mapping cover all16 outputs and retain pair grouping modulo finite commutation?",
+    "mechanism": "Two local rows per parity class with four column pair exchanges; no total-shuffle-count reduction established",
+    "target_code_path": "deep_gemm/include/deep_gemm/epilogue/sm100_mega_mhc.cuh:run_mix_task",
+    "target_path_status": "proposed",
+    "observable": "Symbolic reduction trees/destination coverage and one positive binary32 wrong-reassociation counterexample",
+    "supports_if": "All16 destinations and symbolic pairings match under stated finite assumptions; supports source grouping only",
+    "refutes_if": "A missing/duplicate destination or changed reduction grouping appears",
+    "inconclusive_if": "Grouping passes but actual inverse transport, compiler arithmetic, exceptional values,registers,dispatch exposure or speed remain unknown",
+    "limitations": "No target FP32 exp/reciprocal/FMA/compiler/masks/synchronization execution; no native parity, instruction count or serving qualification Evidence revision: two exact source claims support mechanism applicability only; the original all-background plan and blocked receipt are preserved."
+  },
+  "evaluation": {
+    "existing": [
+      {
+        "name": "Mooncake",
+        "coverage": "insufficient",
+        "reason": "Service metrics cannot certify lane/register transport and coefficient arithmetic; retained for later service comparison"
+      },
+      {
+        "name": "agent-p75",
+        "coverage": "insufficient",
+        "reason": "Same native coefficient/layout question not identified by endpoint latency; workload remains unchanged"
+      }
+    ]
+  },
+  "budget": {
+    "gpu_minutes": 0,
+    "wall_minutes": 1,
+    "max_attempts": 1
+  },
+  "stop_rules": [
+    "No fresh fixture run during this retention; already executed result is retrospectively recorded",
+    "If later replay is needed use an isolated copy and stop on source hash drift or nonstdlib/native import",
+    "Passing symbolic grouping never qualifies native/service performance; next design gate is explicit output transport/resource plan"
+  ]
+}

@@ -1,0 +1,9 @@
+# SL97 isolated typed flow
+
+Created `hypothesis:c9c3ae4e5f87f0002b6c9dd4ac76f9d2e8f2af48e97cc4082204f28e7be11a43` through actual production claim/propose/screen/eval-plan/decide tools. Status remains **deferred** on the exact d464 planned baseline. Nine grounded source claims; no fabricated ROI, implementation, GPU or native result.
+
+The screen advances a bounded source diagnostic with target-relative gain null. The initial retrospective CPU plan was blocked because every source link was background. Preserving that receipt, two additional links now support only applicability of the concrete layout mechanism (target scalar reductions and donor two-local-row storage). The revised plan is ready_for_review, not execution or service qualification. Source facts do not support a total-shuffle-count reduction: both use four per normalization stage; donor initialization and inverse transport add work. The pending useful falsifier is explicit output ownership/transport and live-register design, followed by exposure evidence; no new symbolic trial was run.
+
+V1 stopped before state initialization: author assemble.py exported in-transaction records and closed without commit. Frozen JSON contains16 documents/17 revisions while mutable DB retained2 documents. V2 reconstructs the frozen export in an isolated Store, validates original fingerprints and all quotes, then uses production source import. No author packet was rewritten. V1 log and script remain intact.
+
+This is a bounded typed-flow review packet, not a canonical retention authorization or a new recovery snapshot. The mutable isolated state is excluded from this manifest; source export, exact input records, receipts, final dossier and code are included. Full default snapshot/relocated restoration can follow the reviewed retention plan. No canonical mutation, cloud request or serving change occurred.

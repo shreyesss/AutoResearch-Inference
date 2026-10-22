@@ -1,0 +1,7 @@
+# Additive review clarification: shuffle count and output ownership
+
+The original author packet remains frozen. Independent review found that the current four-by-four normalization stage uses two row XOR operations and two column XOR operations: four warp shuffle instructions in source. The donor performs four column XOR operations per stage, also four, plus eight initial gather shuffles; the target has two initial row-max shuffles. Therefore no reduction in total shuffle instruction count follows from this transfer. Any benefit must instead come from the changed dependency chain, instruction-level parallelism or compiler scheduling, balanced against replicated eight-value per-lane work and registers. Statements in the original report about source-level shuffle reduction or fewer shuffle operations are not established and are superseded by this clarification.
+
+Preserving the original sixteen output-owner lanes through an inverse mapping requires actual register transport; it is not free. Keeping the donor two-owner scalar/vector stores is a separate ownership choice that needs destination coverage and synchronization validation. Neither store choice has been implemented or timed.
+
+SL97 remains a source-supported deferred component, with no new formal hypothesis and no demonstrated service benefit. Exact target arithmetic, twenty iterations, epsilon and callback/output contracts remain mandatory.

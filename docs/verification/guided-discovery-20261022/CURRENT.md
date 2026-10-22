@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint30](CHECKPOINT_30.md) refines context/sampling overlap, expert-return quality evaluation and sparse shared-prefix reuse. Start with the [current candidate map](CANDIDATE_MAP_30.md) for source-supported opportunities and their decisive unknowns. The synthesis skill now distinguishes draft numerical changes from target-law changes. No measured inference improvement or blanket S3 coverage is claimed. The discovery loop remains active.
+Latest update: [Checkpoint31](CHECKPOINT_31.md) corrects conditional cache-format assumptions, audits a recent prefetch PR, and selectively retains an offline round-count evaluator from a training paper. Start with the [current candidate map](CANDIDATE_MAP_30.md) for source-supported opportunities and their decisive unknowns. The native block/AV estimator remains unqualified; new residual-scan and evaluation-contract investigations are active. No measured inference improvement or blanket S3 coverage is claimed.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

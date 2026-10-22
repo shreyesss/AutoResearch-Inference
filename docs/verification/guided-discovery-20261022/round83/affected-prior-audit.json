@@ -1,0 +1,82 @@
+[
+  {
+    "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round13-lossless-cache/REPORT.md",
+    "sha256": "a53fd261a8600b490d5e52e1b40ee06084d92a6d06d2df9d59bf2cce460216e4",
+    "passages": [
+      {
+        "line": 94,
+        "text": "E4M3 values plus 16 UE8M0 scales: **528 bytes**. NVFP4 compressed-cache rows are a"
+      },
+      {
+        "line": 95,
+        "text": "separate optional 288-byte branch, while SWA can remain 528. The indexer has its"
+      },
+      {
+        "line": 96,
+        "text": "own format; it must not be treated as another 528-byte cache."
+      },
+      {
+        "line": 117,
+        "text": "For a hypothetical 528-byte object under that public accounting, 264 words have"
+      },
+      {
+        "line": 131,
+        "text": "528-byte records. Preserve byte equality for every sample. Stop if total bytes do"
+      }
+    ],
+    "additive_correction": "The 528B arithmetic remains a conditional FP8/SWA calculation. NVFP4 compressed rows are not necessarily an optional disabled branch: Mega plus generic fp8 selects them. Any future census must label record role and resolved dtype.",
+    "original_modified": false
+  },
+  {
+    "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round37-selected-kv/REPORT.md",
+    "sha256": "32fba69ca30bd8bffdc697fe9a06885fde58d37bdfe1c98cb0f436abaa24be1a",
+    "passages": [
+      {
+        "line": 9,
+        "text": "Pinned `nvidia/flash_mla_mega_attn.py:_forward_decode_mega` directly passes quantized paged SWA and compressed caches, physical slot indices and lengths to `fused_norm_rope_attn_rope_cast_decode`. Records are528B FP8 (512 value bytes +16 inline scale bytes), or288B for the optional compressed FP4 cache. This planned lane uses native FP8 KV; optional formats do not establish actual configuration."
+      },
+      {
+        "line": 51,
+        "text": "- **FlashInfer5022**, retained body: removes unused GLM NoPE RoPE reservation from656\u2192528B rows. Our native record is already528B and its format differs. Its masked-slot-zero/NaN warning is useful correctness evidence, not a new byte saving here."
+      }
+    ],
+    "additive_correction": "The planned generic FP8 label does not establish all-FP8 compressed rows. Under default eligible Mega, compressed rows are 288B and SWA rows 528B. The direct quantized sparse reader and incompatible GLM reservation conclusion remain; do not reuse 528B as universal baseline.",
+    "original_modified": false
+  },
+  {
+    "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round47-kv-selection/REPORT.md",
+    "sha256": "bbd61b9b266b3fa8d24f8ca20c509bd1f6457776738eb0358c48c958c7933aba",
+    "passages": [
+      {
+        "line": 60,
+        "text": "- `deepseek_v41/attention.py:101\u2013109`: indexer key format is68bytes for MXFP4 or132bytes for FP8; this is not the528byte attention KV cache."
+      }
+    ],
+    "additive_correction": "Indexer 68/132B remains distinct, but attention KV may be 528B SWA and 288B compressed. The indexer bound/selection scope does not change.",
+    "original_modified": false
+  },
+  {
+    "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round61-request-movement/REPORT.md",
+    "sha256": "7e23a02048da3489bbac88bbbfd5e02e9988882e811ad89491424778ab076869",
+    "passages": [
+      {
+        "line": 31,
+        "text": "[Primary fulltext](https://arxiv.org/html/2610.22172), selected migration model and activation reconstruction sections. Its transfer-saving argument replaces conventional per-layer K and V of width H with layer input activations of width H, then recomputes K/V. That `2H \u2192 H` premise is not the target's compressed latent cache representation. The retained config has H=5120; a BF16 hidden row alone is 10,240 bytes, while one SM100 FP8 latent-cache record is 528 bytes. This is a **representation counterexample, not a total request-transfer byte model**: source sharing, compression ratios, SWA, indexer and draft groups all change total state size. Historical layer inputs would also need storage or reconstruction."
+      }
+    ],
+    "additive_correction": "The 528B example is explicitly one FP8 record, not total transfer accounting. Conditional 288B compressed rows strengthen the rejection of a naive conventional 2H-to-H byte argument; no migration benefit is inferred.",
+    "original_modified": false
+  },
+  {
+    "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round82-cross-request-reuse/REPORT.md",
+    "sha256": "aeedaeda26024d24d519c64dfb891f057be553902a9b515753d822ce18895c14",
+    "passages": [
+      {
+        "line": 46,
+        "text": "The target consumes packed quantized records, explicit positions, an attention sink, Q/output RoPE, and output quantization in its fused reader. The planned profile says FP8 KV; source also supports a conditional NVFP4 compressed format. Neither can be replaced by the donor's dense separate-K/V path by changing a pointer or CLI flag. Contiguous physical allocation still leaves **sparse selected positions** to gather; it does not turn Top512 into a dense original-prefix contraction."
+      }
+    ],
+    "additive_correction": "The format is selected by backend plus resolved cache dtype, not generic fp8 alone. Sparse support/typed physical ownership and dense-reader mismatch remain unchanged.",
+    "original_modified": false
+  }
+]

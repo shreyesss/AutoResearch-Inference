@@ -1,0 +1,82 @@
+{
+  "scope": "Extracted forward control only; helper/kernel arithmetic and constructors are not executed.",
+  "cases": [
+    {
+      "source": "target",
+      "fp4": false,
+      "source_sha256": "dc53401b99aa1510c2f7832336c82ecce5b41d7030f6215311f1d0c1cd42dffc",
+      "events": [],
+      "error": {
+        "type": "ValueError",
+        "message": "too many values to unpack (expected 2)"
+      }
+    },
+    {
+      "source": "donor",
+      "fp4": false,
+      "source_sha256": "748089b213515c0feacef1df43efd94243d792cc2c868ac530fbc82d1c2c4234",
+      "events": [
+        {
+          "operation": "mqa_logits_mx_inputs",
+          "q_dtype": "fp8",
+          "input_weights_dtype": "f32",
+          "q_scale_is_none": true
+        },
+        {
+          "operation": "cache_view",
+          "head_dim": 128,
+          "fp4": false
+        },
+        {
+          "operation": "sparse_decode_stub",
+          "q_dtype": "fp8",
+          "q_shape": [
+            3,
+            1,
+            32,
+            128
+          ],
+          "sf_dtype": "i32",
+          "weights_dtype": "bf16"
+        }
+      ],
+      "error": null
+    },
+    {
+      "source": "donor",
+      "fp4": true,
+      "source_sha256": "748089b213515c0feacef1df43efd94243d792cc2c868ac530fbc82d1c2c4234",
+      "events": [
+        {
+          "operation": "cache_view",
+          "head_dim": 128,
+          "fp4": true
+        },
+        {
+          "operation": "sparse_decode_stub",
+          "q_dtype": "i8",
+          "q_shape": [
+            3,
+            1,
+            32,
+            64
+          ],
+          "sf_dtype": "i32",
+          "weights_dtype": "bf16"
+        }
+      ],
+      "error": null
+    }
+  ],
+  "passed": true,
+  "native_calls": 0,
+  "GPU_calls": 0,
+  "unsupported": [
+    "prefill",
+    "profiling reservation",
+    "zero-row and AV metadata construction",
+    "compiled numerical equality",
+    "capture lifetime",
+    "timing"
+  ]
+}

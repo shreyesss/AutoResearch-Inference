@@ -1,6 +1,8 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint40](CHECKPOINT_40.md) retains conditional resident-replica selection, adds an allocator falsifier and null physical-saving controls to SP109, and clarifies isolated-workspace initialization. No GPU execution or measured win.
+Latest update: [Checkpoint41](CHECKPOINT_41.md) adds workload and comparator falsifiers for sparse scoring/host lookup, and the FP8-default SP109 allocation control with mandatory format correction. No new qualification or measured win.
+
+Previous update: [Checkpoint40](CHECKPOINT_40.md) retains conditional resident-replica selection, adds an allocator falsifier and null physical-saving controls to SP109, and clarifies isolated-workspace initialization. No GPU execution or measured win.
 
 Previous update: [Checkpoint39](CHECKPOINT_39.md) retains SP109 as a new deferred target-SWA precision proposal, closes FV86 flag ownership at source level, corrects historical timing scope, and reopens TokenRouter at component level without a duplicate hypothesis. No GPU execution or measured win.
 

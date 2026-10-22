@@ -1,0 +1,9 @@
+# Independent round119 review — read with mandatory format correction
+
+Verified30 original artifacts,16 source files against the pinned archive and7 exact quotes. Independently replayed the unchanged extracted scalar planner/helpers in a separate directory: all four scenarios and three manual controls match the frozen JSON. No native imports, device queries, model, full config finalization or allocator execution. The facades remain a limitation.
+
+FP8-default width132 produces8 groups and136,224 common bytes/block in the declared B128 scenario. Two mixed-width subsets construct empty groups; the even-layer subset omits three draft SWA specs. Three complete manual partitions preserving the FP8 baseline groups save zero common-stride bytes. This extends the explicitly MXFP4-conditional114 control; it does not refute all possible allocation layouts or logical read-traffic savings. Runtime flags, resident memory and request capacity remain unknown. SP109 is still deferred.
+
+Root found and required correction of the original report's FP32-scale description. The mandatory additive round119-format-correction packet verifies three exact writer/helper source files and four quotes: on SM100 MX_SCALE=true, the four-byte slot packs four repeated UE8M0 exponent bytes; the alternate branch stores an FP32 scale. Block value and scale planes are separate. Width/page calculations were unaffected. All30 original hashes remain intact; any delivery must keep the correction adjacent to the original report.
+
+The source-default helper does not establish live flag state. No further metadata sweeps are warranted for this narrow question; useful next work is an actual valid lower-cost allocation design, runtime metadata when authorized, or a distinct computation-reduction hypothesis. No new card, promotion or measured service benefit.

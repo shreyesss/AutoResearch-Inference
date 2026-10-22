@@ -59,6 +59,15 @@ Translate the objective into mechanism-level questions. For each selected query 
 
 Use `expand --question TEXT --plan PLAN.json` to retain an agent-authored plan with observations from previous searches. The tool validates bounds/dates and warns about repeated identities. Without a plan it returns lexical suggestions only. A taxonomy is a source of vocabulary, not the relevance boundary. See the plan example in the workflow doc.
 
+When dates constrain a search, pass `--after`/`--before` to `expand` or put
+structured `after`/`before` fields on its query rows; dates written only in
+`must_keep` prose do not filter the generated recipes. Execute the returned
+recipe's query/provider/date fields, or record any deliberate change. Prior
+observations should carry the dates actually searched so repeat detection compares
+the same requests. If the search receipt is correct but its earlier plan omitted
+dates, retain an additive plan correction; do not refetch papers merely to repair
+that provenance.
+
 After a bounded query, inspect actual titles/abstracts and errors before choosing another action:
 
 - **Empty:** distinguish provider failure, date restrictions and overconstrained wording. Relax a permitted constraint explicitly. Do not silently widen a required date interval.

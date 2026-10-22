@@ -4,6 +4,8 @@ Latest update: [Checkpoint37](CHECKPOINT_37.md) refines the two deferred directi
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 
+Subsequent focused skill update: [structured search dates](date-plan-guidance/REPORT.md) fixes a plan/execution provenance mismatch observed in round105. Existing compiler replay and the research suite pass; no behavioral search-quality gain is claimed.
+
 - [WP38 paired FP4 weight packets](round38/REPORT.md)
 - [OP36 output-projection quantized handoff](round36/REPORT.md)
 - [Existing direct-decode priority audit](priority/DIRECT_DECODE_PRIORITY.md)

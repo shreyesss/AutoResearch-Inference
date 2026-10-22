@@ -16,5 +16,6 @@ Read [Checkpoint16](CHECKPOINT_16.md) for the latest science, tool changes, yiel
 - [Expert sparsity screen](round43/REPORT.md) and [KV placement screen](round44/REPORT.md)
 - [Router comparator audit](round46/REPORT.md), [indexer geometry adaptation](round47/REPORT.md), [shared context quantization](round48/REPORT.md), and [draft vocabulary restriction](round49/REPORT.md)
 - [Actionable query-plan errors](query-plan-errors/REPORT.md)
+- [Draft vocabulary independent review and adapter corrections](round49/REVIEW_STATUS.md)
 
 No measured inference improvement or GPU execution has been claimed in this discovery campaign.

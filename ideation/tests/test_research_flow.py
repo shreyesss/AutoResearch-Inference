@@ -320,3 +320,19 @@ def test_target_evidence_without_numeric_roi_can_design_qualification_trial(flow
     result = flow.eval_plan(hypothesis, manifest)
     assert result['readiness'] == 'ready_for_review'
     assert result['scientific_validity'] == 'unverified'
+
+
+def test_cpu_probe_accepts_retained_script_hash_without_invented_git_commit(flow):
+    _, hypothesis = proposal(flow)
+    flow.screen(hypothesis, {})
+    manifest = cpu_manifest(flow, hypothesis)
+    del manifest['probe']['git_sha']
+    manifest['probe']['sha256'] = 'c' * 64
+    manifest['probe']['inputs'].append({'id': 'probe.py', 'role': 'exact probe code', 'sha256': 'c' * 64})
+    assert flow.eval_plan(hypothesis, manifest)['readiness'] == 'ready_for_review'
+    manifest['probe']['inputs'].pop()
+    result = flow.eval_plan(hypothesis, manifest)
+    assert result['readiness'] == 'blocked'
+    assert any('retained probe-code input' in gap for gap in result['blocking_gaps'])
+    del manifest['probe']['sha256']
+    assert any('Pin probe code' in gap for gap in flow.eval_plan(hypothesis, manifest)['blocking_gaps'])

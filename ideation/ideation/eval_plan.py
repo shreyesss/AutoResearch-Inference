@@ -170,7 +170,13 @@ def _qualify_cpu_diagnostic(manifest, hypothesis):
             gaps.append('Plan conflicts with pinned hypothesis ' + prefix)
 
     compare_supplied(supplied, pinned, 'baseline')
-    exact_hash('probe.git_sha', 40)
+    probe = manifest['probe']
+    if probe.get('git_sha') is None and probe.get('sha256') is None:
+        gaps.append('Pin probe code with probe.git_sha or probe.sha256')
+    if probe.get('git_sha') is not None:
+        exact_hash('probe.git_sha', 40)
+    if probe.get('sha256') is not None:
+        exact_hash('probe.sha256', 64)
     for path in ('probe.description', 'probe.environment', 'probe.read_only',
                  'diagnostic.question', 'diagnostic.mechanism', 'diagnostic.target_code_path',
                  'diagnostic.observable', 'diagnostic.supports_if', 'diagnostic.refutes_if',
@@ -188,6 +194,8 @@ def _qualify_cpu_diagnostic(manifest, hypothesis):
         for item in inputs:
             if not isinstance(item, dict) or not all(isinstance(item.get(k), str) and item[k].strip() for k in ('id', 'role')) or not re.fullmatch(r'[0-9a-f]{64}', str(item.get('sha256', ''))):
                 gaps.append('Each probe input needs id, role and exact sha256')
+    if probe.get('sha256') is not None and (not isinstance(inputs, list) or not any(isinstance(item, dict) and item.get('sha256') == probe['sha256'] for item in inputs)):
+        gaps.append('probe.sha256 must identify a retained probe-code input')
     status = required('diagnostic.target_path_status', allow_unknown=True)
     if status not in ('observed', 'configured', 'unknown', 'proposed'):
         gaps.append('target_path_status must distinguish observed/configured/unknown/proposed applicability')

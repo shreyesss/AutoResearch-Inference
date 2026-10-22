@@ -25,7 +25,9 @@ These are questions, not a required linear workflow. Conflicting sources may sen
 | Path | Required evidence identity | Permitted conclusion |
 | --- | --- | --- |
 | Default `execution_kind=serving` | Exact implementation/container/model/workload pins, controlled design, correctness, evaluator coverage, explicit budgets | Plan ready for human/agent review; never validated benefit |
-| `execution_kind=cpu`, `purpose=diagnostic` | Immutable hypothesis baseline ID, probe code revision, hashed inspected inputs, command/environment, observable and decision branches, evaluator rationale, zero GPU budget | Bounded applicability or input-to-ROI investigation ready for review |
+| `execution_kind=cpu`, `purpose=diagnostic` | Immutable hypothesis baseline ID, probe code revision or retained script hash, hashed inspected inputs, command/environment, observable and decision branches, evaluator rationale, zero GPU budget | Bounded applicability or input-to-ROI investigation ready for review |
+
+Probe code can be pinned with `probe.git_sha` (40 hex), or `probe.sha256` (64 hex) for an ad hoc script whose exact bytes are retained among `probe.inputs`. The SHA256 must match an input hash; a script merely sitting beside a Git checkout must not borrow that checkout's commit as its provenance.
 
 CPU diagnostics do not require inventing an image digest, CUDA version, GPU timing, candidate patch or minimum percentage gain. Their baseline may remain partly unknown; `diagnostic.target_path_status` explicitly distinguishes `observed`, `configured`, `unknown` and `proposed`. Supplied known baseline fields cannot contradict the frozen hypothesis.
 

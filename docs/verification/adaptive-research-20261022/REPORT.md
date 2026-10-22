@@ -31,13 +31,16 @@ earlier runs are not evidence of current availability.
 
 ## Verification actually run
 
-` .venv/bin/python -m pytest ideation/tests -q `: **239 passed in 5.49s**.
+` .venv/bin/python -m pytest ideation/tests -q `: **240 passed in 5.51s**.
 
 `scripts/bootstrap-node.sh --dry-run`: passed; no installation or service changes.
 
 `git diff --check`: passed. Four modified skills validated with the skill-creator
 validator. Independent implementation review found the missing-plan fallback bug;
-it was corrected and covered by a real CLI regression test.
+it was corrected and covered by a real CLI regression test. The live field test also
+exposed that a retained ad hoc CPU probe has no honest Git SHA: plans now accept
+an exact script SHA256 tied to a declared retained input instead of borrowing an
+unrelated checkout revision.
 
 Tests cover contracts, routing, caching and persistence. They do not prove paper
 recall, scientific usefulness or GPU performance. No paid LLM pipeline was invoked

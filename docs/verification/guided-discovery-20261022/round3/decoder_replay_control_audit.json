@@ -1,0 +1,83 @@
+{
+  "scope": "Execute pinned DecoderReplayLayers control flow with CPU callbacks only.\nNo torch import, tensors, CUDA graph or vLLM model execution. Tests actual\nwrapper source branching; callbacks record entry rather than execute layers.\n",
+  "source": "/Users/shreyas/.local/share/autoresearch-reviews/pinned-vllm-c455786/vllm/models/deepseek_v41/decoder_replay_layers.py",
+  "sha256": "2fedc0a656a57cde7bc6780904e17484e2a4b9ac7aa7429ea392b1762908d1a8",
+  "cases": [
+    {
+      "case": "plain",
+      "events": [
+        [
+          "run_layers_entry",
+          "20..39",
+          "outer"
+        ]
+      ],
+      "outer_context_restored": true
+    },
+    {
+      "case": "eager_replay",
+      "events": [
+        [
+          "write_full_source20",
+          "outer"
+        ],
+        [
+          "run_layers_entry",
+          "20..39",
+          "nested-replay"
+        ]
+      ],
+      "outer_context_restored": true
+    },
+    {
+      "case": "piecewise_replay_graph",
+      "events": [
+        [
+          "write_full_source20",
+          "outer"
+        ],
+        [
+          "run_graph_entry",
+          "20..39",
+          "nested-replay"
+        ]
+      ],
+      "outer_context_restored": true
+    },
+    {
+      "case": "piecewise_small",
+      "events": [
+        [
+          "run_layers_entry",
+          "20..39",
+          "outer"
+        ]
+      ],
+      "outer_context_restored": true
+    },
+    {
+      "case": "piecewise_capture_no_live_replaybatch",
+      "events": [
+        [
+          "write_full_source20",
+          "outer"
+        ],
+        [
+          "run_layers_entry",
+          "20..39",
+          "outer"
+        ]
+      ],
+      "outer_context_restored": true
+    }
+  ],
+  "meaning": "Actual wrapper branches always enter its whole run_layers callback or whole replay-graph callback; they do not select a consumer-only suffix. The20..39 labels are callback expectations independently established from model.py range source, not execution of actual model layers.",
+  "not_tested": [
+    "gather insertion",
+    "CUDA ordering or replay",
+    "metadata mutation",
+    "model writers",
+    "allocator",
+    "runtime trace exposure"
+  ]
+}

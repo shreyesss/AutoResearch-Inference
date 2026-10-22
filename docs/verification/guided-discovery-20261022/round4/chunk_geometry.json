@@ -1,0 +1,457 @@
+{
+  "scope": "exact Python planner with CPU integer vectors; gather equations transcribed; noGPU",
+  "source_commit": "c4557869393db4d75c483d92edd02a5125500883",
+  "source_sha256": "56594499e686d287e4fbfd2586591f91cfbee9ad62976040e166d022373a3167",
+  "method_sha256": "d3289e5061b42509ce791b7d4feb472900977cdb1b18b373c2391cd03b4ad1ec",
+  "stub_operations": [
+    "integer vector subtraction/addition",
+    "clamp",
+    "floor division",
+    "zeros_like",
+    "Scalar.item"
+  ],
+  "inputs": [
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/adaptive-discovery-20261022/workloads/median.jsonl",
+      "sha256": "52802e6c3d00062527fbb968b44928f5d5b71349be5b99a2b2d2759855086f0e"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/adaptive-discovery-20261022/workloads/burst.jsonl",
+      "sha256": "6892a59dc5b7ab5d661826c9a937fbbd44ed0f259719bca491bc9b67bb0d9566"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/adaptive-discovery-20261022/workloads/cache-heavy.jsonl",
+      "sha256": "6fec019f57d0bc7cae2bde1a5136338071b10670c9f8009b56f96af87e7ee9ea"
+    }
+  ],
+  "examples": {
+    "agent8192_ordinary": {
+      "seq": [
+        8192
+      ],
+      "original_query": [
+        8192
+      ],
+      "kept_query": [
+        8192
+      ],
+      "source_replay_start": [
+        0
+      ],
+      "consumer_replay_start": [
+        0
+      ],
+      "source_exact_swa_gather": [
+        8192
+      ],
+      "consumer_exact_swa_gather": [
+        8192
+      ],
+      "source_plan": [
+        [
+          0,
+          1,
+          8192,
+          16384
+        ]
+      ],
+      "consumer_plan": [
+        [
+          0,
+          1,
+          8192,
+          16384
+        ]
+      ],
+      "single_chunk": true,
+      "combined_buffer_MiB": 16.0
+    },
+    "agent8192_trimmed": {
+      "seq": [
+        8192
+      ],
+      "original_query": [
+        8192
+      ],
+      "kept_query": [
+        128
+      ],
+      "source_replay_start": [
+        0
+      ],
+      "consumer_replay_start": [
+        8064
+      ],
+      "source_exact_swa_gather": [
+        255
+      ],
+      "consumer_exact_swa_gather": [
+        128
+      ],
+      "source_plan": [
+        [
+          0,
+          1,
+          8192,
+          8447
+        ]
+      ],
+      "consumer_plan": [
+        [
+          0,
+          1,
+          8192,
+          8447
+        ]
+      ],
+      "single_chunk": true,
+      "combined_buffer_MiB": 8.2490234375
+    },
+    "agent8192_incremental64": {
+      "seq": [
+        8192
+      ],
+      "original_query": [
+        64
+      ],
+      "kept_query": [
+        64
+      ],
+      "source_replay_start": [
+        8000
+      ],
+      "consumer_replay_start": [
+        8000
+      ],
+      "source_exact_swa_gather": [
+        191
+      ],
+      "consumer_exact_swa_gather": [
+        191
+      ],
+      "source_plan": [
+        [
+          0,
+          1,
+          8192,
+          8383
+        ]
+      ],
+      "consumer_plan": [
+        [
+          0,
+          1,
+          8192,
+          8383
+        ]
+      ],
+      "single_chunk": true,
+      "combined_buffer_MiB": 8.1865234375
+    },
+    "mixed_lengths_trimmed": {
+      "seq": [
+        8192,
+        65536
+      ],
+      "original_query": [
+        8192,
+        4096
+      ],
+      "kept_query": [
+        128,
+        128
+      ],
+      "source_replay_start": [
+        0,
+        61440
+      ],
+      "consumer_replay_start": [
+        8064,
+        65408
+      ],
+      "source_exact_swa_gather": [
+        255,
+        255
+      ],
+      "consumer_exact_swa_gather": [
+        128,
+        128
+      ],
+      "source_plan": [
+        [
+          0,
+          2,
+          65536,
+          65791
+        ]
+      ],
+      "consumer_plan": [
+        [
+          0,
+          2,
+          65536,
+          65791
+        ]
+      ],
+      "single_chunk": true,
+      "combined_buffer_MiB": 128.498046875
+    },
+    "mixed_keep_and_trim": {
+      "seq": [
+        8192,
+        16384
+      ],
+      "original_query": [
+        128,
+        8192
+      ],
+      "kept_query": [
+        128,
+        128
+      ],
+      "source_replay_start": [
+        8000,
+        0
+      ],
+      "consumer_replay_start": [
+        8000,
+        16256
+      ],
+      "source_exact_swa_gather": [
+        192,
+        255
+      ],
+      "consumer_exact_swa_gather": [
+        192,
+        128
+      ],
+      "source_plan": [
+        [
+          0,
+          2,
+          16384,
+          16639
+        ]
+      ],
+      "consumer_plan": [
+        [
+          0,
+          2,
+          16384,
+          16639
+        ]
+      ],
+      "single_chunk": true,
+      "combined_buffer_MiB": 32.498046875
+    }
+  },
+  "workload_scenarios": {
+    "median": {
+      "requests": 4004,
+      "singleton_scenario_checks": 16016,
+      "plan_mismatches": 0,
+      "different_actual_swa_lengths": 8008,
+      "all_singleton_scenarios_single_chunk": true,
+      "max_combined_MiB_in_scenarios": 124.85546875
+    },
+    "burst": {
+      "requests": 4220,
+      "singleton_scenario_checks": 16880,
+      "plan_mismatches": 0,
+      "different_actual_swa_lengths": 8440,
+      "all_singleton_scenarios_single_chunk": true,
+      "max_combined_MiB_in_scenarios": 130.7275390625
+    },
+    "cache-heavy": {
+      "requests": 4053,
+      "singleton_scenario_checks": 16212,
+      "plan_mismatches": 0,
+      "different_actual_swa_lengths": 8106,
+      "all_singleton_scenarios_single_chunk": true,
+      "max_combined_MiB_in_scenarios": 130.0224609375
+    }
+  },
+  "capacity_scenarios": [
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 1,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 8.2490234375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 4,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 32.99609375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 16,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 131.984375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 64,
+      "admissible": true,
+      "chunks": 4,
+      "single_chunk": false,
+      "combined_MiB_all_chunks": 527.9375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 256,
+      "admissible": false,
+      "reason": "Total query tokens exceed assumed max_num_batched_tokens."
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 1,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 8.2490234375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 4,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 32.99609375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 16,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 131.984375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 64,
+      "admissible": true,
+      "chunks": 3,
+      "single_chunk": false,
+      "combined_MiB_all_chunks": 527.9375
+    },
+    {
+      "max_model_assumption": 32768,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 256,
+      "admissible": false,
+      "reason": "Total query tokens exceed assumed max_num_batched_tokens."
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 1,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 8.2490234375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 4,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 32.99609375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 16,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 131.984375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 64,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 527.9375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 8192,
+      "prefill_requests_assumption": 256,
+      "admissible": false,
+      "reason": "Total query tokens exceed assumed max_num_batched_tokens."
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 1,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 8.2490234375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 4,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 32.99609375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 16,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 131.984375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 64,
+      "admissible": true,
+      "chunks": 1,
+      "single_chunk": true,
+      "combined_MiB_all_chunks": 527.9375
+    },
+    {
+      "max_model_assumption": 131072,
+      "max_tokens_assumption": 16384,
+      "prefill_requests_assumption": 256,
+      "admissible": false,
+      "reason": "Total query tokens exceed assumed max_num_batched_tokens."
+    }
+  ],
+  "finding": "Replay-start difference changes exact SWA tail length, but does not enter chunk planner; same seq/query/config gives same prefixoffset/width/chunks.",
+  "limitations": [
+    "No actual scheduler traces or live flags were read.",
+    "max_model131072/max_tokens8192 defaults here are explicit scenario assumptions, not attested launch config.",
+    "No GPU metadata/gather kernels executed.",
+    "Source20 special and consumer metadata must have equal seq/query/request ordering/config in actual dispatch.",
+    "Single-chunk regimes exist; multi-chunk and memory-budget failures must fall back.",
+    "No numerical attention equality, stream ordering or timing proof."
+  ]
+}

@@ -1,0 +1,112 @@
+[
+  {
+    "target_commit": "c4557869393db4d75c483d92edd02a5125500883",
+    "target_verified_live": false,
+    "gpu_execution": false,
+    "intervention_id": "AT01",
+    "statement": "Certified partial-head screening before full score calculation in consumer prefill indexer",
+    "mechanism": "Conservative upper bounds from retained heads; exact current-query seed threshold; full original score for survivors.",
+    "proposed_change": "Adapt signed-head certificate to MXFP4 block scales and BF16 reference arithmetic inside existing visible candidate domain; exclude candidate producer.",
+    "support_sources": [
+      {
+        "url": "https://arxiv.org/html/2610.13990v1",
+        "quote": "Lower-bounding omitted negative contributions",
+        "path": "sources/2610.13990v1.html"
+      },
+      {
+        "url": "https://github.com/llm-sys/dosa-sglang/tree/582a8a151d5b14bd3b9d79e932a6390638d11e5a",
+        "quote": "FEW_PREFILL_MIN_KEYS = 131072",
+        "path": "sources/dosa__python__sglang__srt__layers__attention__dsa__dosa.py"
+      }
+    ],
+    "counterevidence": [
+      "Author certified path starts 131072 keys/Top2048 and FP8; target consumer visible compressed positions <=16384 and Top512/MXFP4.",
+      "128K V3.2 author service case regresses; no target benefit forecast.",
+      "Real arithmetic bounds do not guarantee rounded BF16 reference ranking.",
+      "Producer tokenTopK and candidate-blockTopK are distinct outputs."
+    ],
+    "pin_check": "Target computes all heads within sparse candidate domain; no certified head screening found. Branch depends on indexer_sparse_logits runtime flag.",
+    "prior_comparison": "Different from generic TopK, mapping fusion and length-aware bounds: skips some head score work before full score exists.",
+    "status": "advance_cpu_contract_diagnostic_only",
+    "cpu_check": {
+      "path": "cpu_contracts.json",
+      "result": "1000 exact-integer signed-head trials pass; per-block scale counterexample recorded",
+      "review": "../review/round3/DOSA_REVIEW.md",
+      "limitation": "No numerical target envelope or target survivor/latency evidence"
+    },
+    "eval_plan": "Numerical/tie/NaN/recovery proof then existing Mooncake and agent-75 by compressed context buckets; supplement only if existing eligible exposure absent."
+  },
+  {
+    "target_commit": "c4557869393db4d75c483d92edd02a5125500883",
+    "target_verified_live": false,
+    "gpu_execution": false,
+    "intervention_id": "AT02",
+    "statement": "Group prefill queries by selected KV page overlap without altering token support",
+    "mechanism": "Reuse KV loads across a bounded query group; original token masks, query identity and causal mapping retained.",
+    "proposed_change": "First audit actual target heads, token-page affinity and existing CTA grouping; only then consider grouped loads across identical typed KV address spaces.",
+    "support_sources": [
+      {
+        "url": "https://arxiv.org/html/2610.11201v1",
+        "quote": "Original IDs carry support, causal positions, and output addresses",
+        "path": "sources/2610.11201v1.html"
+      }
+    ],
+    "counterevidence": [
+      "Paper H200/GQA128/Top16page128 differs from target MLA512/Top512tokens/SWA+compressed.",
+      "Paper grouping regresses8K and never beats bestnative/originalchoice on eight B300 captures.",
+      "Whole kernel gains include arithmetic changes.",
+      "No author implementation repository positively identified."
+    ],
+    "pin_check": "Target prefill gathers compressed and SWA regions then sparse attention; exact selected support must be preserved across representation changes.",
+    "prior_comparison": "Execution query grouping is distinct from prior physical TopK slot mapping fusion.",
+    "status": "defer_target_eligibility",
+    "cpu_check": {
+      "path": "cpu_contracts.json",
+      "result": "Token-to-page widening counterexample rejects naive support expansion"
+    },
+    "eval_plan": "Saved selected-index traces and CPU overlap count first; future identical-support differential kernel tests followed by existing benchmark A/B. No bespoke eval justified now."
+  },
+  {
+    "intervention_id": "AT03",
+    "target_commit": "c4557869393db4d75c483d92edd02a5125500883",
+    "target_verified_live": false,
+    "gpu_execution": false,
+    "statement": "Reuse source20 compressed KV BF16 materialization within an eligible prefill forward",
+    "mechanism": "Shared compressed KV is unchanged across its consumer layers; eliminate repeated dequantize/gather while rewriting each layer own SWA tail.",
+    "proposed_change": "Source20 prefill unconditionally gathers compressed prefix on EVERY invocation into a stable combined buffer; consumers21\u201339 reuse within verified single-chunk group and rewrite SWA tails. No across-call memoization, epoch/version oracle, or Python captured filled flag. Ineligible schedule/geometry retains original per-layer gather.",
+    "support_sources": [
+      {
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/nvidia/flashmla.py",
+        "quote": "consumers share that cache and its block table.",
+        "path": "vllm/models/deepseek_v41/nvidia/flashmla.py:126"
+      },
+      {
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/attention.py",
+        "quote": "return source.kv_cache",
+        "path": "vllm/models/deepseek_v41/attention.py:1230"
+      },
+      {
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/workspace.py",
+        "quote": "Manages shared scratch and keyed persistent resources",
+        "path": "vllm/v1/worker/workspace.py:51"
+      }
+    ],
+    "counterevidence": [
+      "Initial generation/epoch fixture relied on oracle inputs; superseded.",
+      "Mid-group source mutation defeats reuse; source-write exclusivity must be proved.",
+      "Source20 special SWA metadata may change chunk geometry.",
+      "No measured gather cost or target performance.",
+      "Persistent combined buffer capacity and per-lane/stream allocation can worsen HBM pressure.",
+      "Prefill optimization does not imply frozen decode ITL gain."
+    ],
+    "pin_check": "Sources2/8/14/20; source20 shared by layers20\u201339. Both FlashMLA and Mega prefill gather each consumer; exact live branch unverified.",
+    "prior_comparison": "Prior corpus contains direct candidate gather and slot mapping fusion, not same-forward cross-layer reuse of materialized compressed KV; no claim of global novelty.",
+    "status": "advance_cpu_lifetime_and_memory_diagnostic_only",
+    "cpu_check": {
+      "executed": "source_entry_lifetime.py/json:239 symbolic reference comparisons; actual wrapper control paths independently executed in review/round3/decoder_replay_control_audit.py/json with mocked layer/CUDA bodies. Original83-check fixture superseded.",
+      "next": "Verify source20 gather dominates every eligible consumer read on actual selected graph/backend; compare special source20 and consumer chunk geometry; complete read-only/source-write ordering and memory gate."
+    },
+    "eval_plan": "Original vsreuse gathered bytes and per-layer attention differential first; then existing Mooncake/agent75 TTFT/E2E/ITL tails, goodput, gather time/count, HBM and preemptions. No bespoke evaluator yet justified.",
+    "revision": "2; supersedes revision1 memoization/epoch design"
+  }
+]

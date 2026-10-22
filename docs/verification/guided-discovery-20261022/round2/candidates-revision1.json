@@ -1,0 +1,41 @@
+[
+  {
+    "id": "RUNTIME-R2-03-revision1",
+    "statement": "Audit context-preserving omission of unused DSpark query work on all-rank unfinished prefill",
+    "status": "advance_cpu_dependency_diagnostic_only",
+    "mechanism": "Retain prompt-context KV/anchor and any live confidence/state updates; omit only query outputs and computation with no later consumer.",
+    "proposed_change": "No runtime patch. First prove live-out semantics on strictly nonfinal chunks across every DEP rank, including idle ranks. Whole query skip is obstructed by adaptive confidence dependencies.",
+    "support": [
+      {
+        "url": "https://arxiv.org/html/2609.40247v1",
+        "source_path": "sources/2609.40247.html",
+        "section": "9.3"
+      }
+    ],
+    "counterevidence": [
+      "Original aggregate-all-proposals-consumed assertion was too broad: scheduler and V2 input preparation discard unfinished-prefill proposal IDs.",
+      "FULL query graph includes required context KV/anchor work; skipping entire replay is incorrect.",
+      "Adaptive confidence double buffer exposes prior nonfinal-prefill confidence to future decode budgeting under ordinary sequential lifecycle.",
+      "Learned confidence uses parent Markov embeddings; first four draws of a five-token chain remain necessary to compute all confidence outputs.",
+      "Query KV writes and EPLB/watermark/callback/RNG side effects require independent liveness proof.",
+      "No measured eligible-step frequency or exposed cost; long-output ITL may scarcely benefit."
+    ],
+    "pincheck": [
+      "v1/core/sched/scheduler.py:2651",
+      "v1/core/sched/async_scheduler.py:34",
+      "v1/worker/gpu/input_batch.py:441",
+      "v1/worker/gpu/spec_decode/dflash/speculator.py:192",
+      "v1/worker/gpu/spec_decode/dflash/speculator.py:681",
+      "v1/worker/gpu/spec_decode/dspark/speculator.py:155",
+      "v1/worker/gpu/spec_decode/adaptive_verification.py:256"
+    ],
+    "priorcomparison": "Distinct work elimination from C025 faster sampler. C025 modest five-step component gain is opposing materiality evidence; do not transfer its microseconds to this hardware/frequency/terminal-step candidate.",
+    "CPUcheck": {
+      "artifact": "cpu-confidence-lifecycle.json",
+      "outcome": "Supports ignored-token-output premise but refutes treating all head outputs as unused; model illustrates buffer lifecycle, not actual vLLM execution.",
+      "next": "Field/side-effect liveness proof and symbolically verify complete context slot coverage. Preserve learned confidence chain; independently assess whether only final sampler step can be omitted."
+    },
+    "evalplan": "See R2-03-REVISION.md. Existing agent-p75/Mooncake plus chunk-boundary correctness tests. No new serving workload justified absent exposure gap. Whole skip must pass confidence/cache/RNG parity; any policy change requires explicit separate arm. All GPU tests remain future.",
+    "revises": "RUNTIME-R2-03"
+  }
+]

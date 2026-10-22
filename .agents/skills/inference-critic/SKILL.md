@@ -50,3 +50,14 @@ Read `docs/EVALUATION_GATING.md` when a proposal has unknown ROI or lacks a live
 Separate the current-baseline gap, mechanism activation, workload exposure, and service-value evidence. A favorable arithmetic bound or complete manifest cannot supply any of them. If a source or CPU check can settle the next question, use the `execution_kind=cpu`, `purpose=diagnostic` plan: pin its inputs, declare the observation and support/refute/inconclusive branches, and use zero GPU minutes. Missing serving pins need not block this check. Its result cannot certify service gain.
 
 For any shortlist, state the strongest competing explanation, the cheapest observation that changes ranking, and which existing evaluator can supply it. Prefer revising an existing hypothesis with new evidence over relabeling the same idea. Stop retrieval when another query is unlikely to change the decision within the task budget; retain unresolved assumptions and a reopening condition.
+
+When reviewing a CPU model of a proposed optimization, identify its supplied
+oracles: generation counters, exact candidate membership, source-write events,
+runtime dispatch or timing inputs. Locate how the pinned implementation would
+produce each one. Passing a model that receives the right invalidation events
+does not prove those events exist or fire in the real runner. Unequal example
+strings are illustrations, not executed invalidation tests. Check graph replay,
+nested forward contexts and entry points that skip ordinary execution. Prefer
+an existing unconditional refresh boundary when it can remove a speculative
+cross-invocation cache contract. Preserve the earlier fixture and verdict; record
+which premise changed and what the revised check actually exercises.

@@ -25,6 +25,16 @@ After a bounded query, inspect actual titles/abstracts and errors before choosin
 
 The loop may branch, revisit and stop early. Record why another query is worth its budget. Stop when the requested decision is supported, the remaining uncertainty needs unavailable deployment evidence, or the user budget is reached. Do not fabricate coverage or support to fill an idea quota.
 
+When source inspection reveals a new operation to remove, search the retained PR
+corpus again using that operation's vocabulary across relevant engines. An
+earlier model-name or paper-topic search does not cover this new question. For
+example, `compressed prefill reuse` found a donor implementation after an
+attention-paper search exposed repeated materialization. Inspect that donor's
+actual diff, dependencies, tests and workload before transferring it. Finding
+the same mechanism elsewhere improves implementation evidence; it is neither a
+new hypothesis to count twice nor a reason to reject useful work for lacking
+novelty.
+
 ## Select tools accurately
 
 - `paper-search` is online arXiv/OpenAlex/HF discovery, with cached requests and publication/submission dates. `after` is inclusive; `before` is exclusive. Results are bounded, not exhaustive.

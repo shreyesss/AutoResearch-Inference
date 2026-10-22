@@ -1,0 +1,146 @@
+[
+  {
+    "id": "RUNTIME-R2-01",
+    "statement": "Eliminate repeated target-to-DSpark DP metadata agreement",
+    "status": "rejected_existing_implementation",
+    "mechanism": "Reuse uniform draft execution agreement derived from target DPSyncState instead of a second Worker collective.",
+    "proposed_change": "None: pinned Model Runner V2 already implements this.",
+    "support": [
+      {
+        "url": "https://arxiv.org/html/2609.40247v1",
+        "source_path": "sources/2609.40247.html",
+        "section": "9.2",
+        "quote": "However, Workers still wait for coordination before submitting GPU work."
+      }
+    ],
+    "counterevidence": [
+      "DSparkSpeculator inherits DFlashSpeculator. DFlash constructs target-derived batch_sync and dispatches with dp_sync_state=batch_sync.",
+      "dispatch_cg_and_sync_dp returns through reuse branch before sync_cudagraph_and_dp_padding.",
+      "Legacy runner contains repeated collectives; inspecting it alone would create a false-positive improvement.",
+      "config/vllm.py:3071\u20133074 explicitly lists DSpark as unsupported under V1; source path resolution is decisive."
+    ],
+    "pincheck": [
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py#L39",
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py#L543",
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/dp_utils.py#L293"
+    ],
+    "priorcomparison": "Old H200 Gloo algorithm proposal changes exchange implementation; this repeated-agreement idea is covered by pinned source itself.",
+    "CPUcheck": {
+      "artifact": "cpu-ast-audit.json",
+      "outcome": "refutes missing-code premise for target-derived V2 dispatch; does not prove which runner live image selects"
+    },
+    "evalplan": "No new service experiment. If runtime differs from this pin, resolve loader/commit before reopening."
+  },
+  {
+    "id": "RUNTIME-R2-02",
+    "statement": "Precompute the first target DP execution plan in EngineCore before Worker dispatch",
+    "status": "deferred_applicability_and_exposed_cost",
+    "mechanism": "Move necessary cross-rank metadata agreement earlier so host work or prior GPU work may overlap it; preserve single agreement and exact target/draft shape rules.",
+    "proposed_change": "Potential typed immutable pre-dispatch plan carrying graph eligibility, actual request/width counts, eager/ubatch and idle-rank semantics, validated by Worker with safe all-rank fallback.",
+    "support": [
+      {
+        "url": "https://arxiv.org/html/2609.40247v1",
+        "source_path": "sources/2609.40247.html",
+        "section": "9.2",
+        "quote": "EngineCore then prepares the coordinated execution plan before Worker dispatch"
+      }
+    ],
+    "counterevidence": [
+      "Pinned V2 already reuses target agreement for DSpark; only first target agreement remains a candidate.",
+      "Moving a necessary collective earlier may simply move the wait, provide no overlap, or worsen scheduling latency.",
+      "Target graph eligibility depends on Worker gathered request state, PCP transformed tokens, LoRA state, encoder inputs, and graph manager; scheduler token counts alone are insufficient.",
+      "Paper intervention is Qwen hybrid/P-D on XPU; aggregated Flash1017 CED/CSA2/Engram plus MegaMoE does not inherit those semantics or gains.",
+      "Paper result is mean of two maximum observed paired gains at C32/C128, not a generic mean effect."
+    ],
+    "pincheck": [
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/model_runner.py#L1765",
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/model_runner.py#L1797",
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/dp_utils.py#L42"
+    ],
+    "priorcomparison": "Distinct from old recursive-exchange CPU SUM algorithm and coordinated prefill cadence; scope is dependency timing. Not yet qualified.",
+    "CPUcheck": {
+      "outcome": "inconclusive: source establishes Worker agreement but no actual gap or complete EngineCore-computable contract",
+      "next": "Build static field-provenance map for six reduced fields plus graph-manager state; reject if any untransportable Worker-only input is required. Pure CPU event-order simulation must model all-rank epoch changes, idle/mixed ranks, aborts and restart before any patch."
+    },
+    "evalplan": "Future only after authorization: use same agent-p75 and Mooncake workloads, same DP4/EP4 layout, paired baseline and preplan at same graph padding. Count first-target and draft collectives independently; record rank arrival skew, last-arrival-to-agreement, dispatch delay, exposed overlap, complete round time/commits, TTFT/ITL tails. Reuse existing benchmarks, add trace instrumentation only. Stop if cost merely shifts or tail guards fail. No ROI percentage can be inferred now."
+  },
+  {
+    "id": "RUNTIME-R2-03",
+    "statement": "Prune unused prefill-side MTP expansion",
+    "status": "rejected_direct_application",
+    "mechanism": "Keep required prefix state preparation while removing predictions not consumed by disaggregated decode.",
+    "proposed_change": "None for current aggregated deployment.",
+    "support": [
+      {
+        "url": "https://arxiv.org/html/2609.40247v1",
+        "source_path": "sources/2609.40247.html",
+        "section": "9.3"
+      }
+    ],
+    "counterevidence": [
+      "Our target is aggregated DSpark parallel block drafting with verification consumers, not Qwen P/D multi-forward MTP.",
+      "Removing real proposals without a liveness/consumer audit changes work being evaluated."
+    ],
+    "pincheck": [
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py#L2"
+    ],
+    "priorcomparison": "Do not repackage C025 sampler improvements as dead speculation elimination.",
+    "CPUcheck": {
+      "outcome": "premise mismatch"
+    },
+    "evalplan": "Revisit only if actual P/D prefill deployment and unused output/state graph are evidenced."
+  },
+  {
+    "id": "RUNTIME-R2-04",
+    "statement": "Replace host control plane with Blink persistent GPU and SmartNIC serving",
+    "status": "deferred_architecture_change",
+    "mechanism": "Persistent device scheduler and DPU request path remove host from steady-state control.",
+    "proposed_change": "No direct port.",
+    "support": [
+      {
+        "url": "https://arxiv.org/html/2604.07609v1",
+        "source_path": "sources/2604.07609.html",
+        "section": "4"
+      }
+    ],
+    "counterevidence": [
+      "Requires compatible SmartNIC, full runtime/kernel scheduling and distributed model support; no Flash1017 CED/CSA2/Engram/DSpark port evidence.",
+      "Paper headline gains are different model/hardware/CPU contention regime."
+    ],
+    "pincheck": [
+      "No runtime replacement attempted"
+    ],
+    "priorcomparison": "Beyond generic asynchronous scheduling but effort and compatibility unresolved.",
+    "CPUcheck": {
+      "outcome": "no bounded deployment-compatible intervention established"
+    },
+    "evalplan": "Do not benchmark a substituted smaller model as proof for Flash1017."
+  },
+  {
+    "id": "RUNTIME-R2-05",
+    "statement": "Use smaller prefix-homogeneous batches for better decode KV locality",
+    "status": "deferred_sparse_attention_transfer",
+    "mechanism": "Feather trades batch size against shared KV locality rather than maximizing admitted batch size.",
+    "proposed_change": "Consider narrow deterministic batch-selection ablation only after actual shared-selected-KV overlap is known; no RL training adopted.",
+    "support": [
+      {
+        "url": "https://arxiv.org/html/2605.06046v1",
+        "source_path": "sources/2605.06046.html",
+        "section": "3-4"
+      }
+    ],
+    "counterevidence": [
+      "Dense attention premise does not prove shared compressed sparse top-k indices for Flash1017 queries; shared prompt tokens alone are insufficient.",
+      "Withholding ready requests may decrease MoE utilization and increase ITL/queueing; request grouping across EP ranks can alter idle-work balance.",
+      "No selected-index traces or reference adapted kernel support are present."
+    ],
+    "pincheck": [
+      "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/nvidia/flashmla.py#L195"
+    ],
+    "priorcomparison": "Batch formation is distinct from prior replica routing/cache admission, but not ready to promote.",
+    "CPUcheck": {
+      "outcome": "inconclusive actual shared index overlap"
+    },
+    "evalplan": "Existing eight-prefix agent-p75 is useful but must compare matched offered load and all-request latency. Need selected physical-KV overlap evidence before service intervention; no new workload required yet."
+  }
+]

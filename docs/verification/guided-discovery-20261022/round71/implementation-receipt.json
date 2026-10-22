@@ -1,0 +1,116 @@
+{
+  "created_at": "2026-10-22T06:43:06.908637+00:00",
+  "status": "Implemented; independent review pending final receipt",
+  "upstream_pin": "ai-dynamo/aiperf@794f8bb75f8582f22e412d7e650fc71ca2a3d21a (v0.13.0)",
+  "changed_files": [
+    {
+      "path": "src/inference_autoresearch/benchmark/aiperf.py",
+      "sha256": "deeb527ea82785de384989a890c7e4c9bb3f20a2d0cd9206dc213cacc4f5ce4a"
+    },
+    {
+      "path": "tests/benchmark/test_aiperf_itl.py",
+      "sha256": "4daafff7bbe9aadf24f81a666a336c72bebe0fc5ccc5f425e7843e0b56a0e5e3"
+    }
+  ],
+  "additional_exact_source_count": 7,
+  "sources": [
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round71-evaluator-granularity/sources/src__aiperf__endpoints__openai_chat.py",
+      "source_id": "code:ai-dynamo/aiperf:794f8bb75f8582f22e412d7e650fc71ca2a3d21a:src/aiperf/endpoints/openai_chat.py",
+      "sha256": "61b913f6c7836169816998b89eb758f72710048b30a8993b33528cf4b9d9e147"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round71-evaluator-granularity/sources/src__aiperf__records__inference_result_parser.py",
+      "source_id": "code:ai-dynamo/aiperf:794f8bb75f8582f22e412d7e650fc71ca2a3d21a:src/aiperf/records/inference_result_parser.py",
+      "sha256": "02c6c232f97a9167ccf9362c4668e9d47b503e7103188fe96c2b11790a45bcea"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round71-evaluator-granularity/sources/src__aiperf__common__models__usage_models.py",
+      "source_id": "code:ai-dynamo/aiperf:794f8bb75f8582f22e412d7e650fc71ca2a3d21a:src/aiperf/common/models/usage_models.py",
+      "sha256": "c010b6788262c0b226e481ac17865923f392199f146c52471af200ab05fd3dd5"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round71-evaluator-granularity/sources/src__aiperf__exporters__metrics_json_exporter.py",
+      "source_id": "code:ai-dynamo/aiperf:794f8bb75f8582f22e412d7e650fc71ca2a3d21a:src/aiperf/exporters/metrics_json_exporter.py",
+      "sha256": "47ebe72b91c0c352e120abf2e1ca312a9ed67af42e4e76ffdddc6b75ffabbabb"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round71-evaluator-granularity/sources/src__aiperf__common__models__export_models.py",
+      "source_id": "code:ai-dynamo/aiperf:794f8bb75f8582f22e412d7e650fc71ca2a3d21a:src/aiperf/common/models/export_models.py",
+      "sha256": "8d4cca5e779995aa4ce29bd8551105a90199a471ff8ebe298e40e1e329c472fc"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round71-evaluator-granularity/sources/src__aiperf__config__config.py",
+      "source_id": "code:ai-dynamo/aiperf:794f8bb75f8582f22e412d7e650fc71ca2a3d21a:src/aiperf/config/config.py",
+      "sha256": "529e6861d052832d58a1553b83971724d21688dc53d8b98682c2132cec9db007"
+    },
+    {
+      "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round71-evaluator-granularity/sources/src__aiperf__config__endpoint.py",
+      "source_id": "code:ai-dynamo/aiperf:794f8bb75f8582f22e412d7e650fc71ca2a3d21a:src/aiperf/config/endpoint.py",
+      "sha256": "53d9cb534a31f2759416c1eeae10362fcf37f2dd56fa0973728e9cc15641f837"
+    }
+  ],
+  "retrieval_receipts": [
+    {
+      "receipt": "investigate-chat-parser.json",
+      "run_id": "20261022T063642-f467a9ca",
+      "http_cache_misses": 2,
+      "errors": [],
+      "reads": 2
+    },
+    {
+      "receipt": "investigate-usage.json",
+      "run_id": "20261022T063748-8a24f0af",
+      "http_cache_misses": 1,
+      "errors": [],
+      "reads": 1
+    },
+    {
+      "receipt": "investigate-config-export.json",
+      "run_id": "20261022T063951-9224146b",
+      "http_cache_misses": 2,
+      "errors": [],
+      "reads": 2
+    },
+    {
+      "receipt": "investigate-config-fields.json",
+      "run_id": "20261022T064008-d2f920e2",
+      "http_cache_misses": 2,
+      "errors": [],
+      "reads": 2
+    }
+  ],
+  "contract": [
+    "The summary input_config.endpoint.per_chunk_usage Boolean is authoritative when exported. Without it, adapter wire continuous_usage_stats provides bounded compatibility evidence; absent/null wire options preserve legacy semantics.",
+    "The raw writer preserves SSE packets, not parsed TokenCounts. Supported OpenAI chat SSE content/reasoning/tool-text data plus nonempty usage identifies the first eligible completion count, following the pinned parser selection rule.",
+    "Valid first count subtracts from completion. Missing count, absent content-bearing usage, or upstream numeric out-of-range conditions use completion minus one. Reported ITL is never used to infer a denominator.",
+    "Malformed or unsupported opted-in raw evidence is ineligible; this is not a general multi-vendor AIPerf parser. Explicit unsupported endpoint/token-count mode is ineligible.",
+    "Consistent integer server counts are required; reasoning greater than completion is rejected because upstream output clamping breaks completion equals OSL. Exported OSL is checked when present.",
+    "Normalized rows expose first_content_chunk_tokens, itl_decode_tokens and itl_validation_source. No ICL gate, benchmark objective change, native/model imports or GPU execution."
+  ],
+  "fail_before": {
+    "receipt": "adapter-test-before.txt",
+    "command": ".venv/bin/python -m pytest tests/benchmark/test_aiperf_itl.py -q",
+    "result": "1 failed: valid bundled-first-chunk fixture incorrectly produced measurement_failed/token_counting_mismatch"
+  },
+  "final_focused": {
+    "receipt": "adapter-regression-final.txt",
+    "command": ".venv/bin/python -m pytest tests/benchmark/test_aiperf_itl.py tests/benchmark/test_aiperf.py -q -k 'not offline and not build_argv and not prepared_mixed and not recorded_trace and not saved_real'",
+    "result": "...................               [100%]\n19 passed, 7 deselected, 39 subtests passed in 0.06s"
+  },
+  "broader_attempt": {
+    "receipt": "adapter-regression.txt",
+    "command": ".venv/bin/python -m pytest tests/benchmark/test_aiperf.py tests/benchmark/test_aiperf_itl.py -q -k 'not offline_aiperf_preflight and not offline_cache'",
+    "result": "4 failed due to missing .venv/bin/aiperf executable; 15 passed, 1 saved-hardware-export skip, 2 preflight deselected, 19 subtests passed. No executable installed or run."
+  },
+  "diff_check": "git diff --check passed",
+  "limits": [
+    "No native AIPerf execution or live exported-run attestation. Fixtures exercise actual adapter normalization with frozen-workload verification mocked.",
+    "Existing objective remains request-average ITL/TPOT validation, not per-token timestamp reconstruction or an ICL tail guarantee.",
+    "Historical frozen result files are unchanged; corrected code has not rerun old benchmarks."
+  ],
+  "operational_notes": [
+    "First local source-copy attempt used attribute access on Store.get dictionary and failed before writes; corrected to dictionary fields.",
+    "One usage-copy attempt preceded completion of investigate and found no document; retried only after successful retrieval receipt."
+  ]
+}

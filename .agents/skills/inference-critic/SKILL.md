@@ -28,6 +28,14 @@ proof of improved serving performance. Do not tune repeatedly to an opened test.
 
 Audit every numerical ROI input: measured/inferred/unknown, units, frequency, affected workload fraction, exposed critical-path time, useful output progress and treatment overhead. Component timing cannot establish client-visible speedup, and fixed-load latency cannot establish cost savings. Identify the cheapest CPU/source/trace check first. Recommend a small GPU diagnostic only when it resolves a named remaining uncertainty; unknown ROI is not automatic scientific rejection. Selection scores are priorities, not probabilities or experimental validation.
 
+Trace consequential evaluation metrics through the pinned evaluator and export
+adapter: formula, units, opt-in flags, token-count convention, sample population
+and missing-value behavior. A percentile of request-average ITL does not certify
+individual streaming-gap tails; multi-token chunks also separate client delivery
+from internal token progress. Keep the frozen objective unchanged. Add a diagnostic
+only when it tests the claimed mechanism, and explicitly design any new promotion
+guard. Never infer a missing denominator from the metric being validated.
+
 Before using a reported loss or parity result to reject an idea, identify its
 treatment, control, metric, measured boundary and hardware/workload. Check the
 actual table values and direction when a summary determines the verdict. A losing

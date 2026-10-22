@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint 25](CHECKPOINT_25.md) adds a narrow sampling-metadata experiment, an independently checked correction to a paper-transfer falsifier, and PJ01 capture integration guidance. [Checkpoint 24](CHECKPOINT_24.md) covers compressed-KV cache policy and completed canonical CF59/RM61 retention. No measured inference improvement or new-packet S3 coverage is claimed.
+Latest update: [Checkpoint26](CHECKPOINT_26.md) adds the selective AV metadata-copy experiment, recent-paper/source rejections, a verified CPU fix for AIPerf first-chunk ITL validation and an updated shortlist. [Checkpoint25](CHECKPOINT_25.md) covers static sampling metadata, the corrected paper-transfer falsifier and PJ01 capture guidance. No measured inference improvement or new-packet S3 coverage is claimed.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

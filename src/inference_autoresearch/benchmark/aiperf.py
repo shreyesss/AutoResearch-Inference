@@ -58,6 +58,119 @@ def _metric(row: dict[str, Any] | None, key: str) -> float | int | None:
     return value if isinstance(value, (int, float)) and math.isfinite(value) else None
 
 
+def _itl_denominator(native: dict[str, Any], completion: float | int,
+                     summary: dict[str, Any]) -> tuple[float | int, int | None, str]:
+    """Validate the pinned chat/server-count ITL contract from raw evidence.
+
+    AIPerf 0.13.0 (794f8bb) gates first-chunk counting on per_chunk_usage.
+    The exported input_config.endpoint flag is authoritative when present.
+    Otherwise this adapter's wire continuous_usage_stats option is the bounded
+    compatibility evidence; older exports without either retain the legacy
+    completion-minus-one rule. This is not a parser for arbitrary endpoints.
+    RawRecordInfo contains SSE packets, not ParsedResponseRecord.token_counts.
+    Follow ChatEndpoint and first_content_chunk_completion_tokens: the first
+    parsed response with BOTH content and nonempty usage supplies the count.
+    Missing/invalid numeric counts use upstream's documented fallback; malformed
+    or unsupported opted-in evidence raises, rather than guessing from ITL.
+    """
+    legacy = completion - 1
+    config = summary.get("input_config")
+    if config is not None and not isinstance(config, dict):
+        raise ValueError("Malformed exported input config")
+    endpoint = config.get("endpoint", {}) if config is not None else {}
+    if not isinstance(endpoint, dict):
+        raise ValueError("Malformed exported endpoint config")
+    if ("use_server_token_count" in endpoint and endpoint["use_server_token_count"] is not True
+            or "type" in endpoint and endpoint["type"] != "chat"
+            or "streaming" in endpoint and endpoint["streaming"] is not True):
+        raise ValueError("Unsupported token counting endpoint")
+    if "per_chunk_usage" in endpoint:
+        enabled = endpoint["per_chunk_usage"]
+        if not isinstance(enabled, bool):
+            raise ValueError("Malformed per-chunk usage opt-in")
+    else:
+        options = (native.get("payload") or {}).get("stream_options")
+        # A null/absent wire option is legacy evidence; present scalar/list
+        # values are malformed, including falsy values such as [] or false.
+        if options is None:
+            options = {}
+        if not isinstance(options, dict):
+            raise ValueError("Unsupported stream options")
+        enabled = options.get("continuous_usage_stats", False)
+        if not isinstance(enabled, bool):
+            raise ValueError("Malformed wire per-chunk usage opt-in")
+    if not enabled:
+        return legacy, None, "legacy_per_chunk_usage_not_requested"
+    responses = native.get("responses")
+    if not isinstance(responses, list) or not responses:
+        raise ValueError("Missing raw streaming responses")
+    for response in responses:
+        if not isinstance(response, dict) or not isinstance(response.get("packets"), list):
+            raise ValueError("Unsupported raw response; expected SSE packets")
+        values = []
+        for packet in response["packets"]:
+            if not isinstance(packet, dict):
+                raise ValueError("Malformed SSE packet")
+            if packet.get("name") == "data" and packet.get("value"):
+                if not isinstance(packet["value"], str):
+                    raise ValueError("Malformed SSE data")
+                values.append(packet["value"])
+        text = "\n".join(values)
+        if text in ("", "[DONE]"):
+            continue
+        body = json.loads(text)
+        if not isinstance(body, dict):
+            raise ValueError("Malformed chat response")
+        kind = body.get("object")
+        if kind not in ("chat.completion", "chat.completion.chunk"):
+            raise ValueError("Unsupported chat response object")
+        choices = body.get("choices") or []
+        if not isinstance(choices, list):
+            raise ValueError("Malformed chat choices")
+        if not choices:
+            continue  # Final usage-only chunk does not establish first content.
+        if not isinstance(choices[0], dict):
+            raise ValueError("Malformed chat choice")
+        data = choices[0].get("delta" if kind == "chat.completion.chunk" else "message") or {}
+        if not isinstance(data, dict):
+            raise ValueError("Malformed chat content")
+        content = data.get("content")
+        reasoning = data.get("reasoning_content") or data.get("reasoning")
+        if any(value is not None and not isinstance(value, str) for value in (content, reasoning)):
+            raise ValueError("Unsupported non-text chat content")
+        has_content = bool(reasoning or content)
+        if not has_content:
+            calls = data.get("tool_calls") or []
+            if not isinstance(calls, list):
+                raise ValueError("Malformed tool calls")
+            for call in calls:
+                function = call.get("function", {}) if isinstance(call, dict) else None
+                if not isinstance(function, dict):
+                    raise ValueError("Malformed tool call")
+                parts = [function.get("name", ""), function.get("arguments", "")]
+                if any(not isinstance(part, str) for part in parts):
+                    raise ValueError("Malformed tool-call text")
+                has_content = has_content or any(parts)
+        usage = body.get("usage")
+        if not has_content or not usage:
+            continue
+        if not isinstance(usage, dict):
+            raise ValueError("Malformed usage")
+        if "completion_tokens" not in usage and any(key in usage for key in (
+                "output_tokens", "candidatesTokenCount", "outputTokens", "generated_token_count",
+                "usageMetadata", "meta", "tokens")):
+            raise ValueError("Unsupported vendor usage envelope")
+        count = usage.get("completion_tokens")
+        if count is None:
+            return legacy, None, "legacy_first_content_usage_missing_count"
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ValueError("Unsupported completion token count")
+        if count <= 0 or completion - count < 1:
+            return legacy, count, "legacy_first_content_count_out_of_range"
+        return completion - count, count, "raw_first_content_chunk_usage"
+    return legacy, None, "legacy_no_content_chunk_usage"
+
+
 def _percentile(values: list[float], q: float) -> float | None:
     if not values:
         return None
@@ -313,14 +426,36 @@ def normalize_exports(scenario: ScenarioManifest | dict[str, Any], artifact_dir:
                           and all(payload.get(key) == value for key, value in expected_extra.items()))
             output_ok = completion == output_cap
         valid_numbers = all(value is not None for value in (ttft, latency, prompt, completion))
+        # OSL equals completion only for consistent server counts. Upstream
+        # clamps (completion - reasoning) at zero; reasoning > completion
+        # would otherwise make OSL differ from this adapter's denominator.
+        counts_consistent = all(
+            not isinstance(value, bool) and isinstance(value, (int, float))
+            and value >= 0 and float(value).is_integer()
+            for value in (prompt, completion)
+        ) and (reasoning is None or (
+            not isinstance(reasoning, bool) and reasoning >= 0
+            and float(reasoning).is_integer() and reasoning <= completion))
+        osl = _metric(metric, "output_sequence_length")
+        if not counts_consistent or (osl is not None and osl != completion):
+            reasons.add("token_counting_mismatch")
         if not payload_ok:
             reasons.add("input_mismatch")
         if not valid_numbers:
             reasons.add("missing_required_metric")
         if not output_ok:
             reasons.add("wrong_output_length")
-        if valid_numbers and completion > 1:
-            if tpot is None or abs(tpot - (latency - ttft) / (completion - 1)) > 1e-4:
+        if valid_numbers and counts_consistent and completion > 1:
+            try:
+                denominator, first_chunk, counting = _itl_denominator(native, completion, summary)
+                base.update({"itl_decode_tokens": denominator,
+                             "first_content_chunk_tokens": first_chunk,
+                             "itl_validation_source": counting})
+            except (ValueError, TypeError):
+                denominator = None
+                base["itl_validation_source"] = "unsupported_raw_chunk_evidence"
+                reasons.add("token_counting_mismatch")
+            if denominator is not None and (tpot is None or abs(tpot - (latency - ttft) / denominator) > 1e-4):
                 reasons.add("token_counting_mismatch")
         if not payload_ok or not valid_numbers or not output_ok:
             base["terminal_state"] = "failed"

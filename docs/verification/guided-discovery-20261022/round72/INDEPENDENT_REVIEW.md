@@ -1,0 +1,7 @@
+# Independent root review: round72
+
+Agree with zero-new, source-blocked refinement of N03. Inspected donor dispatcher1198–1229, reducer admission guards, actual primary-worker calls1344–1353 and dedicated-only final reset/barrier1355–1377. A recycled compute/intra/send CTA implies a producer-bearing invocation and negative red_id. Queue/large/static branches exclude it; the remaining65..511 interval cannot satisfy the <=8 recycling predicate. This supports an unreachable current handoff, not a claim that every donor operator or paper artifact lacks an adaptive implementation.
+
+Inspected target dispatch cleanup625–693 and epilogue/combine1376–1455: cleanup owns generation/counter reset and rank/grid barriers; combine scratch, per-warp barriers and task stride belong to epilogue warps. The existing epilogue-to-combine transition is real. A new dispatch-to-combine transfer requires exactly-once task assignment and resource/barrier contracts; calling the loop is not a demonstrated safe change.
+
+The author correctly distinguishes its hand-transcribed branch model and string assertions from native execution. I checked the interval argument directly; I did not count these as more runtime tests or rerun/alter frozen author artifacts. All28 manifest artifact hashes verified. No performance, native, GPU, canonical or cloud operation. A blocked direct port does not refute a later explicit compatible protocol.

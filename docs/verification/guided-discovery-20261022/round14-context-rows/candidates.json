@@ -1,0 +1,127 @@
+[
+  {
+    "id": "TR01",
+    "statement": "Conditionally adapt upstream#60320 to omit DSpark context-projection rows outside every native draft window, starting with eligible eager tails while preserving captured graph prefix and all cache-reuse contracts.",
+    "mechanism": "Three native draft layers use pure SW128. Current precompute projects every current target row before slot insertion, although query attention reads only trailing context. Select per-request bounded tails, including rejection/max-length margin, without altering query forward or attention support.",
+    "status": "deferred",
+    "priority": "low until eligibility and target-objective exposure established",
+    "selection_scope": "CPU/source reachability diagnostic complete; implementation deferred; no service qualification",
+    "proposed_change": "For exact eligible no-reallocation spans, gather only per-request retained context rows intersecting eager region; leave FULL captured prefix, original hidden combination, metadata initialization, query/confidence/RNG/collectives unchanged. Initial deployment path should be no-draft-scheduled pure-prefill batches; broaden only with exact device-span and rejection-bound contracts.",
+    "support": [
+      {
+        "source_path": "sources/vllm__v1__attention__backends__mla__sparse_swa.py",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/attention/backends/mla/sparse_swa.py",
+        "source_sha256": "56594499e686d287e4fbfd2586591f91cfbee9ad62976040e166d022373a3167",
+        "quote": "start_pos = tl.maximum(prefix_len - window_size, 0)",
+        "claim": "Native DSpark uses a block-anchored noncausal context window;128 preceding rows, not causal127."
+      },
+      {
+        "source_path": "sources/vllm__models__deepseek_v41__nvidia__dspark.py",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/nvidia/dspark.py",
+        "source_sha256": "5934ce7fb1df4d308c0e11f8c4235f07f083e6dc7dc4edea83bd885b30f05d02",
+        "quote": "qr_kv, _ = attn.fused_wqa_wkv(main_x)",
+        "claim": "Native context projection runs over the provided full current hidden span before slot-based insertion."
+      },
+      {
+        "source_path": "sources/vllm__v1__kv_cache_interface.py",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/kv_cache_interface.py",
+        "source_sha256": "4a0448ca1bf2cfc13300fe5a2f1370c0438659af94f32d770a56b36e33e0ae12",
+        "quote": "return not self.bounded_replay",
+        "claim": "SlidingWindowMLASpec remains prefix-cacheable unless bounded replay is enabled; global prefix caching alone does not determine safety."
+      },
+      {
+        "source_path": "sources/pr60320-body.md",
+        "url": "https://github.com/vllm-project/vllm/pull/60320",
+        "source_sha256": "ac72f3a9f17f5367899d502f8cb930b0faba3845ffde7edd52b4a755f05674a9",
+        "quote": "Each 95% bootstrap interval includes zero",
+        "claim": "Exact donor does not establish significant end-to-end TTFT gains in its reported GB200 regime."
+      },
+      {
+        "source_path": "sources/pr60320-vllm__v1__worker__gpu__spec_decode__dflash__speculator.py",
+        "url": "https://github.com/Juntian777/vllm/blob/69a504902ad6296f46567d8d9d4a2abf0a085470/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py",
+        "source_sha256": "103e93ad30fab9d4bb109b12f8bfaa90885b70e584def8d1893d5a7166447f47",
+        "quote": "and not (caching and any(s.prefix_cacheable for s in specs))",
+        "claim": "Donor excludes future prefix-cache consumers; do not disable existing prefix caching merely to activate trim."
+      }
+    ],
+    "pins": {
+      "vllm": "c4557869393db4d75c483d92edd02a5125500883",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017@1bae0e1088993b9b82de08f59de5be5a34e42170",
+      "donor60320": "69a504902ad6296f46567d8d9d4a2abf0a085470"
+    },
+    "eligibility": [
+      "All draft KV groups have finite sliding windows and no compressed/full-attention consumer; exact model config shows layers40,41,42 compress_ratio0 and window128.",
+      "Prefix caching is already off OR every actual draft group is not prefix-cacheable (bounded replay); otherwise fallback, never silently disable caching.",
+      "No KV connector/transfer consumer and no context-anchor override that can read dropped hidden rows.",
+      "No dummy/profiling/capture mutation. CP1 only for initial adapter.",
+      "CPU request spans must equal actual device spans; adaptive GPU reallocation falls back. Initial no-draft-scheduled pure-prefill route avoids this mismatch.",
+      "For generic W+Q bound require absolute scheduled end E<=max_model_len, rejection R<=Q, monotonic continuation and finite windows. Unknown bounds fall back. Pure prefill hasR0.",
+      "Apply threshold based on actual saved eager rows; donor2048 is an author heuristic, not a target-qualified optimum."
+    ],
+    "row_bound": "Let A=E\u2212R, Q=5 for native anchor DSpark, M=max model length, W=max draft window128. Native prefix=min(A+Q,M)\u2212Q. Required left edge=max(prefix\u2212W,0). If E<=M and R<=Q, R+max(0,A+Q\u2212M)<=Q; retaining W+Q=133 rows from actual scheduled end is conservative. Do not use W+R alone near clamp or causal127.",
+    "graph_mapping": "Global FULL captured prefix[0,G) remains unchanged. For request original span[s,e), eligible eager retained rows are[max(G,s,e\u2212(W+Q)),e). Process each ragged request separately; global last133 loses other requests. No compaction of captured prefix or original query_start_loc.",
+    "prior_comparison": [
+      {
+        "id": "hypothesis:f5836985004cdae101771b82988058329daca79464a067c9d33eac05925869c7",
+        "reason": "PJ01 removes discarded projection COLUMNS; TR01 removes unused input ROWS. Same cost denominator, test factorial controls not additive gains."
+      },
+      {
+        "id": "hypothesis:61bf4139c462a5dd161f32e0143cb065d2785f1231b8cde38e93c0585425ff85",
+        "reason": "R2-03 skips query work and encounters confidence dependencies; TR01 preserves query and required context."
+      },
+      {
+        "mechanism": "Existing target decoder SWA bounded replay",
+        "reason": "Reexecutes missing target hidden/cache state for prefix reuse; row trimming is draft context work elimination and depends on correct future-reuse gates."
+      }
+    ],
+    "counterevidence": [
+      "Exact upstream donor already exists: useful port, not original algorithm. Missing from current local corpus; found by PR61261 crosslink.",
+      "Donor predates current FULL graph context staging; cannot compact hidden_states globally without breaking captured prefix/anchor expectations.",
+      "Donor includes main_proj/combine savings; initial scope leaves main_proj unchanged and thus cannot inherit donor component saving.",
+      "Global prefix caching enabled with any cacheable draft group makes proposed path ineligible. Live bounded-replay/group eligibility not attested.",
+      "Adaptive verification CPU upper-bound spans can differ from device query_start_loc; CPU indices can cross request boundaries.",
+      "Donor GB200 context2.57\u2192~0.2ms but TTFT differences0.3\u20131.3% with every95%CI includingzero; it is weak positive component evidence, not service qualification.",
+      "Decode batches below donor2048drop threshold unchanged. Frozen objective long-outputITL has weak direct headroom; benefits to mixed-load interference remain unmeasured."
+    ],
+    "cpu_check": {
+      "artifacts": [
+        "context_row_bounds.py",
+        "context_row_bounds.json"
+      ],
+      "command": "python3 context_row_bounds.py",
+      "verdict": "inconclusive",
+      "scope": "6720 extracted source-window arithmetic cases,24 ragged graph intersections,12 monotonic chunk steps and7 explicit negative examples. No actual token/prefix/cache scheduler, tensors, numerical equality, Triton, GPU or timing."
+    },
+    "roi": {
+      "prediction": null,
+      "target_metric": "long-output ITL/goodput with separate TTFT/E2E/tail guards",
+      "interpretation": "Structural row reduction only. Unknown eligible fraction, projected-row distribution, gather cost and exposed stage share. No measured standalone long-output decode saving; lower priority than qualified decode-path interventions.",
+      "composition": "Factorial baseline/row-only/column-only/both on exact eligibility; do not sum nominal71.43%column arithmetic and row ratios."
+    },
+    "eval_plan": {
+      "status": "needs_evidence",
+      "remaining_CPU": [
+        "Read existing immutable deployment manifest for bounded replay, actual draft KV group cacheability, connectors and adaptive config; no node/GPU probes.",
+        "Audit source-selected rejection bound and exact per-request span contract; fail closed outside proven no-draft-scheduled pure-prefill route.",
+        "Design adapter against current graph lifecycle preserving prefix and complete metadata initialization; rejected/PAD rows must not leave stale consumed entries."
+      ],
+      "future_authorized": [
+        "Actual per-layer KV parity on retained/read positions, repeated chunks, mixed ragged batches, rejection, max-length boundary, FULL/eager split and prefix-cache resume.",
+        "Check both future requests and current attention; final target output alone cannot detect draft-quality degradation.",
+        "Reuse Mooncake and agent-p75 for paired end-to-end metrics, with eligible-prefill count/row distribution and component gather/projection timing. Add only boundary correctness fixtures and attribution probes, not a new service evaluator.",
+        "Use real rejection and matched cache settings; donor synthetic acceptance/max_tokens1 does not cover frozen long-output objective."
+      ],
+      "stop": [
+        "Any future prefix-cache/transfer/anchor consumer needs dropped state.",
+        "No safely eligible workload fraction or savings smaller than gather overhead.",
+        "Target ITL/goodput improvement absent despite component speedup."
+      ]
+    },
+    "source_defaults": {
+      "enable_prefix_caching": true,
+      "swa_bounded_replay": true,
+      "scope": "Pinned source defaults only; effective live group eligibility unverified",
+      "source": "sources/vllm__config__cache.py"
+    }
+  }
+]

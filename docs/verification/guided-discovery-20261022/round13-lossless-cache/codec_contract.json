@@ -1,0 +1,34 @@
+{
+  "scope": "CPU integer representation checks, NOT execution of SplitZip's GPU codec.\n\nExercises the published bit decomposition over every 16-bit word and executes\nonly the donor's actual compressed_bytes property with size-only objects.\nSynthetic byte distributions are not target KV samples.\n",
+  "source_sha256": "e28fe3263e8906b26d59789cbc5bccf14edc8391b0dae986aafaf34adb2d392c",
+  "donor_commit": "42c743118a29db3270ae6a921a4a4eecb20cad04",
+  "bit_pattern_roundtrips": 65536,
+  "failures": 0,
+  "payload_formula": "ceil(N/2) + N + 7*M, N=int16 words; excludes construction scratch, codebook ownership and serving integration",
+  "hypothetical_528_byte_row": {
+    "N": 264,
+    "dense_bytes": 396,
+    "maximum_escapes_for_strict_size_reduction": 18,
+    "payload_at_18": 522,
+    "payload_at_19": 529
+  },
+  "synthetic_cases": [
+    {
+      "synthetic_pattern": "zero_bytes",
+      "raw_bytes": 528,
+      "word_count": 264,
+      "escapes": 0,
+      "donor_payload_bytes": 396,
+      "meaning": "Donor size accounting on constructed bytes; not target compression ratio"
+    },
+    {
+      "synthetic_pattern": "uniform_pairs",
+      "raw_bytes": 528,
+      "word_count": 264,
+      "escapes": 224,
+      "donor_payload_bytes": 1964,
+      "meaning": "Donor size accounting on constructed bytes; not target compression ratio"
+    }
+  ],
+  "conclusion": "No blanket byte-exactness veto; no target compressibility evidence. Public codec has whole-buffer decoding, BF16-facing API and dynamic escape extraction."
+}

@@ -23,6 +23,15 @@ After a bounded query, inspect actual titles/abstracts and errors before choosin
 - **Redundant:** inspect independent authors/implementations or counterevidence; mirrors and a paper's own README are not independent corroboration.
 - **Decision resolved:** stop with source-backed disposition or a bounded diagnostic. More papers are not inherently better evidence.
 
+When results expose ambiguous vocabulary (for example GPU kernels versus
+statistical or operating-system kernels), inspect each Boolean branch. Add a
+domain anchor to the ambiguous branch, or outside the OR when it belongs to all
+branches. Preserve deliberate cross-domain exploration as a separate, explained
+query. Compare mechanism-relevant results and useful next actions under the same
+criteria; fewer off-topic hits or an empty result alone does not establish better
+recall, target compatibility or a better hypothesis. `expand` records semantic
+constraints but does not prove that every branch expresses them.
+
 The loop may branch, revisit and stop early. Record why another query is worth its budget. Stop when the requested decision is supported, the remaining uncertainty needs unavailable deployment evidence, or the user budget is reached. Do not fabricate coverage or support to fill an idea quota.
 
 When source inspection reveals a new operation to remove, search the retained PR

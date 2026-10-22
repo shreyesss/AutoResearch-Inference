@@ -3,15 +3,19 @@
 | Cohort | Canonical memory | S3 publication | VM restore |
 |---|---|---|---|
 | Rounds1–4 | Imported; independent readback completed | Verified through manifest `3bf6db32a1a516433190ae8966cfb5ceda475539792b682b1128c40443f33489` | Not checked |
-| Round5 RD01/RD02 | Imported; both deferred;43 artifact hashes independently verified | Not claimed | Not checked |
-| Round6/7 refinements | Appended to existing AT03/RD01;12 claims,2 CPU results;49 artifact hashes checked | Not claimed | Not checked |
-| Round8 literature | Imported;8 exact revisions/search entries and6 artifact hashes independently checked | Not claimed | Not checked |
-| Round9 Engram | Imported; both deferred;9 original paper-revision references and54 artifact hashes checked | Not claimed | Not checked |
+| Round5 RD01/RD02 | Imported; both deferred;43 artifact hashes independently verified | Database + selected files published in `e05b413…`; raw-artifact completeness under audit | Not checked |
+| Round6/7 refinements | Appended to existing AT03/RD01;12 claims,2 CPU results;49 artifact hashes checked | Database + selected files published in `e05b413…`; raw-artifact completeness under audit | Not checked |
+| Round8 literature | Imported;8 exact revisions/search entries and6 artifact hashes independently checked | Database + selected files published in `e05b413…`; raw-artifact completeness under audit | Not checked |
+| Round9 Engram | Imported; both deferred;9 original paper-revision references and54 artifact hashes checked | Database + selected files published in `e05b413…`; raw-artifact completeness under audit | Not checked |
 | Round10 exposure | Frozen report retained externally and copied to Git | Not claimed | Not checked |
-| Round11 EG01 refinement | Appended to same EG01;6 claims,2 inconclusive CPU records;12 artifact hashes and deferred status independently checked | Not claimed | Not checked |
-| Round12 projection | Frozen PJ01 card and independent review; canonical import not yet prepared | Not claimed | Not checked |
+| Round11 EG01 refinement | Appended to same EG01;6 claims,2 inconclusive CPU records;12 artifact hashes and deferred status independently checked | Database + selected files published in `e05b413…`; raw-artifact completeness under audit | Not checked |
+| Round12 projection | Imported; PJ01 deferred;51 artifact hashes and24 paper revision references independently checked | Not claimed | Not checked |
+| Round13 lossless cache | Imported; two rejected/one deferred;39 artifact hashes and17 paper revision references independently checked | Not claimed | Not checked |
+| Round14 context rows | Imported; TR01 deferred;50 artifact hashes and6 paper revision references independently checked | Not claimed | Not checked |
 
-The downloader remains live. After its scheduled publication released the shared writer lock, rounds5–9 imports completed. Independent read-only checks are in [canonical-checkpoint56789-readback.json](canonical-checkpoint56789-readback.json). Its intervening published manifest `a069c259f76fbb365b9876b4c17ba902c141a03837df2bb75c5aa4e24d947b8a` predates these imports; do not infer cloud coverage for them. No process was restarted and no newer remote lineage was overwritten. The history below records earlier checkpoints; this table supersedes their pending notes for rounds1–4.
+The downloader remains live. Snapshot `e05b413d4ff55f30bbe532094151622e32733ad698f696aecfa3739a1b607acc` published successfully and contains the database state plus selected files for rounds5–9/11. Default archive selection excludes some raw source/replay artifacts; publication alone does not establish complete replay portability. The audit is recorded in checkpoint5. Rounds12–14 imported after that snapshot and passed [independent readback](canonical-round12-14-readback.json); publication for those later writes remains unclaimed. Query-domain corpus import/publication is running. No process was restarted, no remote lineage overwritten and no VM restoration checked.
+
+The history below records earlier checkpoints; this table and paragraph supersede their pending notes.
 
 # Checkpoint history
 

@@ -1,0 +1,111 @@
+{
+  "interventions": [
+    {
+      "id": "LC01",
+      "statement": "Use D-Quant-style fixed-size entropy records to reduce the resident current FP8 cache without changing values.",
+      "mechanism": "Variable entropy codes packed per token with drift to enforce a fixed byte budget.",
+      "proposed_change": "Replace native main-cache row encoding and attention decoding with donor fixed-container representation.",
+      "status": "rejected_as_scoped",
+      "reason": "Drift changes quantized symbols and donor preprocessing requantizes/rotates values; exact-current-byte condition is false.",
+      "selective_reuse": "Entropy coding alone is lossless, but removing drift needs a separately designed overflow/fallback layout and sparse reader; not an implemented variant.",
+      "support": [
+        {
+          "source_id": "fulltext:2609.19880",
+          "url": "https://arxiv.org/html/2609.19880v1",
+          "locator": "4.2\u20134.5",
+          "quote": "a small fraction of values drift"
+        }
+      ],
+      "cpu_falsifier": "Source-level assignment rule disproves exact-preservation premise; no GPU experiment needed.",
+      "reopen_if": "Task explicitly admits changed quantization with numerical/quality evaluation, or a concrete exact overflow-aware reader is independently specified.",
+      "target": {
+        "model": "DeepSeek-V4.1-Flash-1017",
+        "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "layout": "two TP1/DP4/EP4 groups; planned notliveattested"
+      },
+      "prior_comparison": "Representation change distinct from prior cache admission/eviction and AT03 materialization reuse; cannot count those existing benefits again.",
+      "evaluation": "Existing agent75/Mooncake service suite plus byte/logit correctness and actual memory/codec exposure diagnostics; restore/PDevent evaluation only if that newpath is explicitly introduced.",
+      "roi": "Unknown; no target timing or observed capacity pressure; paper results are not forecasts.",
+      "canonical_imported": false
+    },
+    {
+      "id": "LC02",
+      "statement": "Apply AlignPred to reduce resident Flash-1017 KV memory without changing cache values.",
+      "mechanism": "Aligned predictive residual coding and reconstruction.",
+      "proposed_change": "Insert donor encode/decode around native current-cache residency.",
+      "status": "rejected_as_scoped",
+      "reason": "Lossless entropy coding follows an error-bounded quantizer; published integration is persistent restore into native cache, not smaller resident pages.",
+      "selective_reuse": "Persistent-storage restore pipeline can be studied separately if that deployment path is introduced; agent75/Mooncake traffic names alone do not establish it.",
+      "support": [
+        {
+          "source_id": "fulltext:2610.17970",
+          "url": "https://arxiv.org/html/2610.17970v1",
+          "locator": "3.4, D.1",
+          "quote": "Residuals are quantized on an error-bounded lattice"
+        }
+      ],
+      "cpu_falsifier": "Source reconstruction budget and restore-native layout disprove direct exact-resident interpretation.",
+      "reopen_if": "An actual persistent KV store and explicit reconstruction-error policy become part of the deployment objective.",
+      "target": {
+        "model": "DeepSeek-V4.1-Flash-1017",
+        "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "layout": "two TP1/DP4/EP4 groups; planned notliveattested"
+      },
+      "prior_comparison": "Representation change distinct from prior cache admission/eviction and AT03 materialization reuse; cannot count those existing benefits again.",
+      "evaluation": "Existing agent75/Mooncake service suite plus byte/logit correctness and actual memory/codec exposure diagnostics; restore/PDevent evaluation only if that newpath is explicitly introduced.",
+      "roi": "Unknown; no target timing or observed capacity pressure; paper results are not forecasts.",
+      "canonical_imported": false
+    },
+    {
+      "id": "LC03",
+      "statement": "Adapt the released SplitZip codec to resident packed E4M3 KV rows while preserving exact bytes and reducing capacity or read cost.",
+      "mechanism": "Fixed-code frequent exponent stream plus exact sparse escapes.",
+      "proposed_change": "Add a packed-byte adapter, changed allocation/row metadata, and selected-token decoder before or inside target sparse attention.",
+      "status": "deferred",
+      "reason": "Target bytes/access exposure unavailable; paper E4M3 variant expands in its measured workload; public BF16 whole-buffer API has dynamic escape allocations and no released native sparse resident integration.",
+      "selective_reuse": "Integer split-and-escape operations can preserve arbitrary16bitwords. Do not reject exactness merely because pairedFP8 bytes are reinterpreted; compressibility remains data-dependent.",
+      "support": [
+        {
+          "source_id": "fulltext:2605.01708v3",
+          "url": "https://arxiv.org/html/2605.01708v3",
+          "locator": "Appendix C Table9 E4M3 ratio0.933, E5M2Top16 1.136",
+          "quote": "E4M3 Top-8 expands the payload"
+        },
+        {
+          "repo": "Intelligent-Microsystems-Lab/SplitZip",
+          "commit": "42c743118a29db3270ae6a921a4a4eecb20cad04",
+          "path": "codec_gpu.py",
+          "locator": "compressed_bytes446; encode504\u2013559; decode561\u2013599",
+          "quote": "return out.view(torch.bfloat16)"
+        }
+      ],
+      "cpu_falsifier": "codec_contract.json: 65536 integer roundtrips plus extracted real payload property, synthetic528B cases396B/1964B. This tests arithmetic accounting, not actual codec or target values.",
+      "reopen_if": "Existing archived target cache bytes demonstrate net compression including scales/offsets/escapes; source design provides bounded sparse access and actually smaller allocated pages without exposed codec cost erasing benefit.",
+      "target": {
+        "model": "DeepSeek-V4.1-Flash-1017",
+        "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "layout": "two TP1/DP4/EP4 groups; planned notliveattested"
+      },
+      "prior_comparison": "Representation change distinct from prior cache admission/eviction and AT03 materialization reuse; cannot count those existing benefits again.",
+      "evaluation": "Existing agent75/Mooncake service suite plus byte/logit correctness and actual memory/codec exposure diagnostics; restore/PDevent evaluation only if that newpath is explicitly introduced.",
+      "roi": "Unknown; no target timing or observed capacity pressure; paper results are not forecasts.",
+      "canonical_imported": false
+    }
+  ],
+  "yield": {
+    "initial_queries": 2,
+    "citation_lookup_queries": 1,
+    "source_records_screened": 17,
+    "fulltext_mechanisms_examined": 3,
+    "concrete_interventions_formulated": 3,
+    "rejected_as_scoped": 2,
+    "deferred": 1,
+    "implementation_qualified": 0,
+    "service_qualified": 0,
+    "canonical_hypothesis_writes": 0
+  },
+  "meaning": "Negative/deferred branches remain in denominator; canonical import is separate."
+}

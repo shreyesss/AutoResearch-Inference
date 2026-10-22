@@ -22,6 +22,8 @@ This corroborates our narrower source20-entry refresh and layers21–39 reuse co
 
 Current `deepseek_v4_backend.py:2734–2762` permits CP into `_use_sparse_prefill` only for **SM90**, V4.1, non-Mega attention, interleave metadata with `local_index is None`, and a non-q8kv8 prefill backend. The sole call to `_forward_prefill_sparse` at 4079–4102 is guarded by that predicate. Reuse inside the callee requires CP. Therefore the inspected current path does not establish B200/SM100 CP activation. This must be reconciled with the body’s B200 benchmark, by identifying the benchmark revision or a different reachable path. A direct unit call bypasses this dispatch.
 
+Helper definition verified at the same pin: `runtime_context.py1811,1844–1852` maps `is_sm90` to `common.is_sm90_supported`; `common.py332–336` supplies capability majors `[9]`, and `_check_cuda_device_version`273–285 tests membership, not a minimum capability. SM100 therefore does not satisfy it under normal platform facts. Scoped test overrides exist, but no evidence of a benchmark override was found. Successful E2E tests could execute the fallback without exercising this reuse branch.
+
 This mismatch is not evidence that the mechanism cannot help B200. It prevents treating this head as a validated B200 drop-in.
 
 ## Correctness test scope

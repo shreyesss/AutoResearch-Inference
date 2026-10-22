@@ -1,0 +1,121 @@
+[
+  {
+    "baseline": "Planned Flash-1017, TP1 DP4 EP4, MegaMoE, DSpark5. Source defaults; live image not verified.",
+    "vllm_pin": "c4557869393db4d75c483d92edd02a5125500883",
+    "deepgemm_pin": "a7a927731b109fdfec770df7c2a5be5d7e2216b5",
+    "no_gpu": true,
+    "measured_service_improvement": false,
+    "id": "RD01",
+    "statement": "Localize routed and fused-shared MXFP4/FP8 MegaMoE weights across physical GPU memory domains, using the existing domain-aware scheduler, to test lower decode MoE cost without changing routing or quantization.",
+    "mechanism": "Physical placement aligns weight slices with persistent CTAs already assigned by the dependency to locality domains; reduced remote traffic/power may reduce weight-read cost. Whether that is on the critical decode path is unmeasured.",
+    "proposed_change": "Post-load, before EPLB view/NIXL registration and graph capture, localize already transformed routed L1/L2 and fused shared L1/L2 weights. Keep scale layout. Export each routed domain slice as a separate contiguous (E,-1) EPLB component; preserve reload ownership and prohibit stale pre-localization views. Do not disable baseline EPLB.",
+    "supportsource": [
+      {
+        "url": "https://github.com/deepseek-ai/DeepGEMM/pull/462",
+        "path": "sources/DeepGEMM-462-local.json",
+        "exact_short_quote": "optional weight localization and domain-aware scheduling"
+      },
+      {
+        "url": "https://github.com/vllm-project/DeepGEMM/blob/a7a927731b109fdfec770df7c2a5be5d7e2216b5/deep_gemm/locality_domain.py",
+        "path": "sources/dg__deep_gemm__locality_domain.py",
+        "exact_short_quote": "localized.copy_(t.unflatten(dim, (num_domains, -1)).movedim(dim, 0))"
+      },
+      {
+        "url": "https://arxiv.org/html/2609.24270v1",
+        "path": "sources/2609.24270v1.html",
+        "exact_short_quote": null
+      },
+      {
+        "url": "https://arxiv.org/html/2607.28824v1",
+        "path": "sources/2607.28824v1.html",
+        "exact_short_quote": null
+      }
+    ],
+    "pincheck": {
+      "delta": "Physical weight localization absent in target _register_weight torch.zeros; dependency already supports MXFP4 localized layouts and already invokes locality mapping in ordinary launch. Not a dependency upgrade/scheduler-addition claim.",
+      "callchain": [
+        "vllm/models/deepseek_v4/nvidia/model.py:_init_mega_moe_experts inherited by V4.1",
+        "vllm/model_executor/layers/fused_moe/deep_gemm_mega_moe.py:_register_weight/_load_weight/_kernel_layout_shard/_kernel_weights/forward",
+        "DeepGEMM csrc/apis/mega_moe.hpp:logical layout checks, shared parity, architecture major10 dispatch",
+        "DeepGEMM csrc/jit_kernels/heuristics/mega_moe.hpp:full-device SM requirement"
+      ],
+      "source_shape": "ordinary routed (E,N,Kpacked) becomes (2,E,N/2,Kpacked); each domain slice is the candidate EPLB component",
+      "eligibility": "MXFP4 path and architecture-major10 source dispatch. Actual driver/MPS/tooling/locality map unknown; no claim from hardcoded domain count or sm100 filename. Separate NVFP4 path not covered."
+    },
+    "priorcomparison": "Distinct from M01 route-histogram tile choices, N03 SM quota/Weave, inter-GPU EPLB placements, expert offload and AT03 compressed-KV reuse. Existing scheduler is explicitly excluded from new delta.",
+    "counterevidence": [
+      "No target ITL measurement; upstream power/frequency claim is not token throughput.",
+      "Naive Parameter replacement breaks expert-leading loader/EPLB shape; naive flatten mixes experts. Domain-slice repair passes only shape/symbolic test.",
+      "Shared and routed localization must match; scales remain ordinary.",
+      "Availability helper starts CUDA/MPS; even cleanup can probe GPU. None executed.",
+      "Probe may fall back to even mapping; successful allocation does not prove useful affinity.",
+      "Requires full GPU SM count; do not combine blindly with SM partition proposals.",
+      "Temporary allocation/copy and padding need measured HBM headroom; retaining both full representations is not acceptable by default.",
+      "Live checkpoint expert format, installed dependency revision, MPS eligibility and baseline EPLB not yet audited."
+    ],
+    "status": "defer_environment_and_adapter; retain_for_bounded_CPU_source_diagnostic",
+    "CPUcheck": {
+      "artifact": "layout_contract.json",
+      "executed": true,
+      "result": "Extracted target EPLB view accepts ordinary and domain-slice shapes; rejects domain-first whole tensors for two target packed matrices. Symbolic swap of all domain components reconstructs desired expert; naive flatten fails.",
+      "limits": "Shape-only stubs and symbolic coordinates, not torch stride/allocation, distributed copy, loader lifecycle, numerical inference or speed."
+    },
+    "evalplan": {
+      "now": "Read saved loader/EPLB registration call order and define no-stale-view conversion point. CPU adapter tests should reconstruct packed weights/scales after simulated remote and duplicate expert transfers. No device allocator calls.",
+      "future_authorized": "First attest actual MLOPart availability and mapping quality on an idle isolated node; verify physical tensor allocation, round-trip packed weights, outputs, EPLB transitions and stable captured pointers. Then paired same-route/shape MegaMoE timing followed by standard Mooncake and agent-75 A/B under unchanged DSpark and full workload.",
+      "existing_evaluator_coverage": "Both serving workloads can expose decode ITL/TPOT, throughput, TTFT/tail regressions; use request-level paired repeats and identical output lengths. Neither alone proves locality or diagnoses clock/power causes.",
+      "additional_only_for_missing_mechanism": "Targeted weight-layout/EPLB correctness and mapping/power/clock/MoE-duration instrumentation, not another replacement workload.",
+      "gain_estimation": "Unknown. Amdahl bound requires observed exposed MoE fraction; do not multiply upstream clock improvement by end-to-end latency."
+    }
+  },
+  {
+    "baseline": "Planned Flash-1017, TP1 DP4 EP4, MegaMoE, DSpark5. Source defaults; live image not verified.",
+    "vllm_pin": "c4557869393db4d75c483d92edd02a5125500883",
+    "deepgemm_pin": "a7a927731b109fdfec770df7c2a5be5d7e2216b5",
+    "no_gpu": true,
+    "measured_service_improvement": false,
+    "id": "RD02",
+    "statement": "Cache repeat MXFP8 CuTeDSL host runner construction and successful metadata validation on genuinely uncaptured decode calls.",
+    "mechanism": "Avoid repeated Python factory/validation overhead without caching outputs or skipping launches.",
+    "proposed_change": "Adapt donor cache keyed by all tensor shapes/strides/dtypes/devices plus output dtype and scale layout, only after demonstrating uncaptured host exposure and compatible FlashInfer API.",
+    "supportsource": [
+      {
+        "url": "https://github.com/sgl-project/sglang/pull/42156",
+        "path": "sources/sglang-42156-pulls.json",
+        "exact_short_quote": null
+      },
+      {
+        "url": "https://github.com/sgl-project/sglang/pull/42156/files",
+        "path": "sources/sglang-42156-files.json",
+        "exact_short_quote": null
+      }
+    ],
+    "pincheck": {
+      "delta": "Target FlashInferCutedslMxfp8LinearKernel apply_weights calls vllm.utils.flashinfer.mm_mxfp8, which forwards raw API with out=None. No equivalent caching seen in this wrapper; installed FlashInfer internals could already cache.",
+      "paths": [
+        "vllm/model_executor/kernels/linear/mxfp8/flashinfer.py",
+        "vllm/model_executor/kernels/linear/__init__.py:CUDA candidate order",
+        "vllm/utils/flashinfer.py:mm_mxfp8"
+      ],
+      "donor_head": "6601ff2f4b244f86abb97ac11bed28d8d21886ad",
+      "eligibility": "CuTeDSL backend, compatible private runner factory, donor guard FlashInfer>=0.7.0; actual backend/image unverified."
+    },
+    "priorcomparison": "Specific host wrapper cache, not GPU kernel fusion or shared FlashMLA planner. Still shares broad host-overhead premise with prior host-control work; no new service claim without exposed path.",
+    "counterevidence": [
+      "CUDA graph replay does not re-run this host validation/factory each step.",
+      "Donor body has no filled speed/accuracy report; tests prove cache behavior, not serving win.",
+      "Target installed FlashInfer may already cache internals.",
+      "Private API and omitted metadata keys could produce stale specialization; backend/version gating required."
+    ],
+    "status": "defer_until_uncaptured_host_exposure_proven",
+    "CPUcheck": {
+      "executed": false,
+      "reason": "Do not mirror donor cache tests before exposure is established; source graph boundary is the cheaper discriminator."
+    },
+    "evalplan": {
+      "now": "Audit saved graph mode and actual selected FlashInfer version/backend; determine whether call occurs during capture only or during each decode replay. Reject if capture-only.",
+      "future_authorized": "If exposed, compare host factory/validation counts and CPU wall time, then same standard Mooncake/agent-75 streaming ITL and tail guards.",
+      "gain_estimation": "Unknown; no duration attributable to repeated host calls yet."
+    }
+  }
+]

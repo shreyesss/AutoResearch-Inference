@@ -11,4 +11,11 @@
 - **Round2 canonical import completed:**7 immutable proposal records representing6 directions,13 grounded claims and3 scoped CPU results. Independent read-only inspection verified every latest disposition; the original unfinished-prefill rejection remains in history with its superseding revision. See `round2/canonical-receipt.json` and `round2/canonical-independent-readback.json`.
 - The round2 import marked a checkpoint pending. The earlier S3 receipts do **not** cover it. Its historical `--local-snapshot` flag name was misleading: the executed helper used deferred mode and created only the pending marker, as the receipt states.
 - **Round3 canonical import completed:**3 hypothesis cards,6 grounded claims,7 narrowly scoped CPU records and71 archived artifacts. Independent read-only inspection verified all3 dispositions and every one of the26 returned hit references against documents, immutable revisions and the search index. This preserves22 unique searchable papers,26 original discovery edges and3 explicitly receipt-derived query records. See `round3/canonical-receipt.json` and `round3/canonical-independent-readback.json`. S3 publication of this later state remains pending.
-- Round4 source20 geometry/donor-PR refinements remain external retained artifacts awaiting an append-only update to AT03; they must not become another hypothesis in the yield denominator.
+- Round4 source20 geometry/donor-PR refinement was appended to the existing AT03 identity:5 new grounded claims,2 scoped CPU records,zero new hypotheses. The first queued attempt safely aborted before mutation because a reviewer added source evidence; retry against frozen inputs succeeded. Independent read-only status check still reports implementation deferred. Its S3 publication remains pending; see `round4/canonical-receipt.json`.
+
+## Latest research, not yet published
+
+- Round5 RD01/RD02 retention packet passed isolated validation and idempotent retry; canonical import is queued behind the writer lock. Do not infer completion from its invocation.
+- Round6 AT03 and round7 RD01 are source/CPU refinements of existing identities. Reports and independent reviews are frozen externally; retention preparation is ongoing.
+- Round8 evaluator literature has its own isolated corpus, original search receipt and full-text dossier; canonical import is not yet performed. Two citation expansions failed explicitly.
+- A separate snapshot command for rounds2/3/4 is running. No new publication receipt or VM readback is claimed here.

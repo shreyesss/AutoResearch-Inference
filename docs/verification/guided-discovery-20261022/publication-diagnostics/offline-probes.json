@@ -1,0 +1,75 @@
+[
+  {
+    "case": "same_digest_second_reference_wrong_size",
+    "outcome": "rejects_before_manifest_and_HEAD",
+    "diagnostics": {
+      "phase_seconds": {
+        "local_manifest": 0.00013904098886996508,
+        "remote_head_read": 1.2749922461807728e-05,
+        "local_chunk_validation": 0.00019041611813008785,
+        "immutable_chunk_transfer": 1.5208031982183456e-05
+      },
+      "counts": {
+        "files": 2,
+        "chunk_occurrences": 2,
+        "unique_chunks": 1,
+        "chunk_transfer_checks": 1,
+        "duplicate_transfer_checks_skipped": 0,
+        "chunk_objects_written": 1,
+        "compressed_chunk_bytes_written": 23,
+        "files_verified": 1,
+        "manifest_objects_written": 0
+      },
+      "scope": "push only; phase wall times include local/SDK work, not snapshot or lock wait",
+      "request_scope": "logical SDK calls, not wire attempts; GET seconds exclude body reading; retry totals cover only responses with metadata",
+      "byte_scope": "new immutable compressed chunk payloads only; excludes manifest, HEAD, retries and protocol overhead",
+      "total_seconds": 0.0003753750352188945,
+      "s3_requests": {
+        "get_calls": 1,
+        "get_failed": 1,
+        "get_seconds": 4.624947905540466e-06,
+        "responses_with_retry_metadata": 3,
+        "reported_retry_attempts": 0,
+        "head_calls": 1,
+        "head_failed": 1,
+        "head_seconds": 2.791057340800762e-06,
+        "put_calls": 1,
+        "put_succeeded": 1,
+        "put_seconds": 1.959037035703659e-06
+      }
+    }
+  },
+  {
+    "case": "stream_body_failure",
+    "outcome": "original_exception_preserved_context_reset_body_closed",
+    "counter_meaning": "get_succeeded means SDK response returned, not payload consumed/validated",
+    "diagnostics": {
+      "phase_seconds": {
+        "local_manifest": 0.00010170810855925083,
+        "remote_head_read": 7.0409150794148445e-06
+      },
+      "counts": {
+        "files": 2,
+        "chunk_occurrences": 2,
+        "unique_chunks": 1,
+        "chunk_transfer_checks": 0,
+        "duplicate_transfer_checks_skipped": 0,
+        "chunk_objects_written": 0,
+        "compressed_chunk_bytes_written": 0,
+        "files_verified": 0,
+        "manifest_objects_written": 0
+      },
+      "scope": "push only; phase wall times include local/SDK work, not snapshot or lock wait",
+      "request_scope": "logical SDK calls, not wire attempts; GET seconds exclude body reading; retry totals cover only responses with metadata",
+      "byte_scope": "new immutable compressed chunk payloads only; excludes manifest, HEAD, retries and protocol overhead",
+      "total_seconds": 0.00011395802721381187,
+      "s3_requests": {
+        "get_calls": 1,
+        "get_succeeded": 1,
+        "get_seconds": 1.625041477382183e-06,
+        "responses_with_retry_metadata": 1,
+        "reported_retry_attempts": 0
+      }
+    }
+  }
+]

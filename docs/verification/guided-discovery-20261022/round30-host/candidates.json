@@ -1,0 +1,62 @@
+[
+  {
+    "local_id": "HS30-01",
+    "statement": "Conditionally remove repeated unchanged prompt-tail prefix-cache registration during decode output updates in exact Flash-1017 serving.",
+    "mechanism": "Request prompt boundary stays fixed; full-attention manager currently re-enters registration whenever group cache block exceeds hash granularity. Memoize only while owner and alias lifecycle are provably unchanged.",
+    "proposed_change": "Evaluate a narrow adaptation of vLLM51333 unchanged-owner memo after resolved cache-group exposure and real block-pool lifecycle checks. Do not adopt blanket non-Mamba suppression without connector/event and lookup proof.",
+    "status": "deferred",
+    "priority": "low pending exposure",
+    "novelty_requirement": false,
+    "known_upstream": "https://github.com/vllm-project/vllm/pull/51333",
+    "source_head": "b00d7cc0829c3b1ca2fd638a3f9bb61b9fc9f837",
+    "target_pin": "c4557869393db4d75c483d92edd02a5125500883",
+    "baseline_scope": "planned two TP1/DP4/EP4 groups, exact Flash-1017; resolved cache groups and current launch not attested",
+    "support": [
+      {
+        "path": "sources/vllm__v1__core__single_type_kv_cache_manager.py",
+        "quote": "self._cache_partial_tail_block(request, num_tokens)"
+      },
+      {
+        "path": "sources/vllm__v1__core__sched__async_scheduler.py",
+        "quote": "self.kv_cache_manager.cache_blocks("
+      },
+      {
+        "path": "sources/vllm__models__deepseek_v41__attention.py",
+        "quote": "return MLAAttentionSpec("
+      },
+      {
+        "path": "donor-51333/manager.py",
+        "quote": "if registered.get(boundary_tokens) == (block.block_id, block.block_hash):"
+      }
+    ],
+    "prior_comparison": {
+      "id": "hypothesis:36d91144b8d619410f608f070e5f63ec4a29d4689b70852ace4754236ec60708",
+      "relationship": "distinct repeated alias registration vs null SWA-table walking on admission/free"
+    },
+    "counterevidence": [
+      "No calls if hash and cache blocks match, or relevant prompt boundary is block aligned.",
+      "Per-group EAGLE flags matter: 8192/256/32 non-EAGLE calls while EAGLE does not.",
+      "Target source has many existing async/DP optimizations; total host fraction unknown.",
+      "Upstream reported ~1% comes from a broader variant; isolated empty-list guard showed noise-level endpoint effect at much larger request batches.",
+      "Actual alias lifecycle correctness of memo not tested; closure reason unknown."
+    ],
+    "cpu_check": {
+      "path": "partial_tail_probe.json",
+      "outcome": "inconclusive for implementation and service; supports conditional repeated calls",
+      "cases": 26,
+      "repeated_cases": 4,
+      "noop_cases": 22,
+      "scope": "Exact helper AST, synthetic resolved geometry and recording pool only"
+    },
+    "evaluation_plan": {
+      "status": "needs_evidence",
+      "remaining_cpu_gate": [
+        "Recover resolved group/block/hash/EAGLE/cacheability configuration and effective request lengths.",
+        "Run real block-pool lifecycle differential including promotion, COW, shared aliases, reset, preemption/reallocation.",
+        "Measure exposed scheduler CPU with real retained replay; no invented ROI."
+      ],
+      "future_service": "Use existing agent-p75/Mooncake if path exposure confirmed; compare exact outputs/cache behavior and primary ITL/goodput with TTFT/E2E tail guards."
+    },
+    "implementation_allowed": false
+  }
+]

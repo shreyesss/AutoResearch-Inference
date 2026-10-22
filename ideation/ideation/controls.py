@@ -22,7 +22,7 @@ def _date(value):
     return dt.date.fromisoformat(value)
 
 
-def expand_query(question, config, after=None, before=None):
+def expand_query(question, config, after=None, before=None, plan=None):
     """Return at most eight transparent query recipes using a resolved config.
 
     Dates are [after, before). Local dates default to source updated_at; paper
@@ -39,13 +39,17 @@ def expand_query(question, config, after=None, before=None):
     if end == dt.date.min:
         raise ValueError("before has no preceding representable date")
     question = question.strip()
+    if plan is not None:
+        from .query_plan import compile_plan
+        return compile_plan(question, plan, after, before)
     words = list(dict.fromkeys(w for w in re.findall(r"[\w][\w.\-/]*", question) if w.casefold() not in _STOP))[:12]
     words = words or [question]
     matches = []
     for family in config.get("families", config.get("topics", [])):
         terms = [str(t) for t in family.get("terms", []) if str(t).strip()]
         found = [t for t in terms if re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", question, re.I)]
-        if found:
+        generic = {'latency', 'performance', 'perf', 'throughput', 'optimization', 'speedup', 'ttft', 'tpot', 'itl'}
+        if any(t.casefold() not in generic for t in found):
             matches.append({"id": family.get("id"), "name": family.get("name", family.get("id")), "matched_terms": found, "terms": terms})
     matches.sort(key=lambda m: (-len(m["matched_terms"]), -max(map(len, m["matched_terms"])), str(m["id"])))
     recipes = []
@@ -81,7 +85,7 @@ def expand_query(question, config, after=None, before=None):
     anchor = max((t for m in matches for t in m["matched_terms"]), key=len, default=words[0])
     add("control", [anchor, "regression"], "Look for counterevidence or regression reports anchored to the request.", "all")
     add("control", [anchor, "limitations"], "Look for applicability boundaries; absence of results is not proof of absence.", "all")
-    return {"version": 1, "question": question, "matched_families": [{k: v for k, v in m.items() if k != "terms"} for m in matches],
+    return {"version": 1, 'mode': 'lexical_fallback', "question": question, "matched_families": [{k: v for k, v in m.items() if k != "terms"} for m in matches],
             "date_filters": {"after_inclusive": after, "before_exclusive": before, "local_field": "updated_at", "paper_field": "publication/submission date"},
             "queries": recipes, "limits": {"max_queries": 8, "max_families": 4, "network_calls": 0, "model_calls": 0},
             "notes": ["Use local.query with Store.search; fts5 is rendered SQL MATCH syntax, not input for Store.search.", "OpenAlex search is provider text search, not guaranteed equivalent to local Boolean/phrase matching.", "No matched taxonomy family leaves user wording intact and adds only general counterevidence searches."]}

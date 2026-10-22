@@ -245,6 +245,10 @@ class ResearchFlow:
             result['blocking_gaps'].append('No hypothesis-linked no-GPU screening record')
         elif manifest.get('purpose') != 'diagnostic' and (screens[-1]['status'] == 'insufficient_evidence' or screens[-1]['result'].get('decision') in {'defer', 'reject'}):
             result['blocking_gaps'].append('Unresolved/negative screen permits a diagnostic plan, not qualification')
+        if screens and manifest.get('purpose') == 'qualification':
+            origin = screens[-1].get('input', {}).get('provenance', {}).get('measurement_origin')
+            if origin not in ('target_trace', 'reproduced_measurement'):
+                result['blocking_gaps'].append('Simulation/agent-estimate ROI permits diagnosis; qualification needs target trace or reproduced measurement inputs')
         result['readiness'] = 'ready_for_review' if not result['blocking_gaps'] else 'blocked'
         result['execution_authorized'] = False
         return self._record('eval_plan', hypothesis_id, {'manifest': clean(manifest), **result})

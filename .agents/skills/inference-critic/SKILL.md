@@ -28,3 +28,12 @@ Keep every earlier card and verdict in durable memory. If review is performed in
 ## Refined evidence-to-experiment tools
 
 Use `docs/RESEARCH_TO_IMPLEMENTATION.md` for typed claims, `hypothesis propose/show`, hypothesis-linked `screen`, `eval-plan`, attributed `decide`, source-change alerts and MCP. Prefer these contracts for new work; legacy cards remain readable. A selection verdict from the older model workflow is not an executable evaluation-plan approval. The plan tool checks reproducibility and evaluator coverage; scientific applicability and execution authorization remain separate.
+
+
+## Adaptive decisions and cheap diagnosis
+
+Read `docs/EVALUATION_GATING.md` when a proposal has unknown ROI or lacks a live target. Treat the rubric as an explicit decision aid, not a golden filter. Choose the next action by the uncertainty it resolves: alternate paper/PR search, inspect a dispatch path, replay a trace, revise the mechanism, or stop. Do not force every candidate through the same sequence or generate a replacement merely to fill a quota.
+
+Separate the current-baseline gap, mechanism activation, workload exposure, and service-value evidence. A favorable arithmetic bound or complete manifest cannot supply any of them. If a source or CPU check can settle the next question, use the `execution_kind=cpu`, `purpose=diagnostic` plan: pin its inputs, declare the observation and support/refute/inconclusive branches, and use zero GPU minutes. Missing serving pins need not block this check. Its result cannot certify service gain.
+
+For any shortlist, state the strongest competing explanation, the cheapest observation that changes ranking, and which existing evaluator can supply it. Prefer revising an existing hypothesis with new evidence over relabeling the same idea. Stop retrieval when another query is unlikely to change the decision within the task budget; retain unresolved assumptions and a reopening condition.

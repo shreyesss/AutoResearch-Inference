@@ -206,3 +206,117 @@ def test_snapshot_restore_preserves_typed_research_trace(flow, tmp_path):
         assert dossier['records'][1]['reopen_when'] == 'Trace available'
     finally:
         recovered.close()
+
+
+def cpu_manifest(flow, hypothesis):
+    return {
+        'purpose': 'diagnostic', 'execution_kind': 'cpu', 'scope': 'component',
+        'baseline': {'id': flow.memory.get(hypothesis)['baseline']},
+        'probe': {'git_sha': 'a' * 40, 'description': 'Synthetic source eligibility inspection',
+                  'read_only': True, 'environment': 'Python 3.12; fixture source only',
+                  'command_argv': ['python', 'inspect_fixture.py', '--offline'],
+                  'inputs': [{'id': 'fixture-source', 'role': 'target source fixture', 'sha256': 'b' * 64}]},
+        'diagnostic': {'question': 'Is the candidate fast path already implemented?',
+                       'mechanism': 'Eliminate redundant scanning on request free',
+                       'target_code_path': 'fixture/free_blocks', 'target_path_status': 'unknown',
+                       'observable': 'Presence and dispatch conditions of equivalent implementation',
+                       'supports_if': 'Old path reachable and replacement absent',
+                       'refutes_if': 'Equivalent fast path already active',
+                       'inconclusive_if': 'Target source cannot be linked to intended image',
+                       'limitations': 'Cannot establish turnover exposure or service gain'},
+        'evaluation': {'existing': [{'name': 'Mooncake', 'coverage': 'not_applicable',
+                                     'reason': 'A serving replay cannot establish exact source-path equivalence'}]},
+        'budget': {'gpu_minutes': 0, 'wall_minutes': 5, 'max_attempts': 1},
+        'stop_rules': ['Stop on missing target source identity; report inconclusive']}
+
+
+def test_unknown_roi_can_reach_review_for_cpu_probe_without_fabricated_gpu_pins(flow):
+    _, hypothesis = proposal(flow)
+    flow.screen(hypothesis, {})
+    with patch('subprocess.run', side_effect=AssertionError('planning never executes')):
+        result = flow.eval_plan(hypothesis, cpu_manifest(flow, hypothesis))
+    assert result['blocking_gaps'] == []
+    assert result['readiness'] == 'ready_for_review'
+    assert result['scientific_validity'] == 'unverified'
+    assert result['target_relative_gain'] is None
+    assert result['execution_authorized'] is False
+    assert result['gpu_calls'] == 0
+    assert flow.dossier(hypothesis)['hypothesis']['experiment_status'] == 'untested'
+
+
+@pytest.mark.parametrize(('path', 'value', 'expected'), [
+    (('purpose',), 'qualification', 'diagnostic purpose only'),
+    (('scope',), 'service', 'service benefit stays unverified'),
+    (('budget', 'gpu_minutes'), 1, 'gpu_minutes=0'),
+    (('probe', 'git_sha'), 'main', 'Not an exact hash'),
+    (('diagnostic', 'refutes_if'), '', 'Missing diagnostic.refutes_if'),
+    (('diagnostic', 'inconclusive_if'), '', 'Missing diagnostic.inconclusive_if'),
+    (('probe', 'read_only'), False, 'read_only=true'),
+    (('baseline', 'id'), 'another-baseline', 'immutable hypothesis baseline'),
+    (('evaluation', 'existing'), [], 'existing evaluator coverage'),
+])
+def test_cpu_diagnostic_does_not_bypass_design_or_serving_gates(flow, path, value, expected):
+    _, hypothesis = proposal(flow)
+    flow.screen(hypothesis, {})
+    manifest = cpu_manifest(flow, hypothesis)
+    obj = manifest
+    for key in path[:-1]:
+        obj = obj[key]
+    obj[path[-1]] = value
+    result = flow.eval_plan(hypothesis, manifest)
+    assert result['readiness'] == 'blocked'
+    assert any(expected in gap for gap in result['blocking_gaps'])
+
+
+def test_cpu_probe_requires_grounded_claim_and_linked_screen(flow):
+    _, hypothesis = proposal(flow)
+    result = flow.eval_plan(hypothesis, cpu_manifest(flow, hypothesis))
+    assert 'No hypothesis-linked no-GPU screening record' in result['blocking_gaps']
+
+
+def test_cpu_probe_malformed_sections_fail_closed(flow):
+    _, hypothesis = proposal(flow)
+    flow.screen(hypothesis, {})
+    manifest = cpu_manifest(flow, hypothesis)
+    manifest.update(probe=[], budget='bad', evaluation=None)
+    result = flow.eval_plan(hypothesis, manifest)
+    assert result['readiness'] == 'blocked'
+    assert 'probe must be an object' in result['blocking_gaps']
+
+
+@pytest.mark.parametrize('origin', ['simulation', 'agent_estimate'])
+def test_positive_simulated_roi_cannot_qualify_serving_plan(flow, origin):
+    _, hypothesis = proposal(flow)
+    flow.screen(hypothesis, {'provenance': {
+        'baseline_id': flow.memory.get(hypothesis)['baseline'],
+        'workload_id': 'fixture-agent-75', 'hardware': 'fixture B200',
+        'input_source_ids': [FIXTURE['source']['id']], 'measurement_origin': origin},
+        'inputs': {'target': {'benchmark': 'fixture-agent-75', 'metric': 'amortized_time_per_output_token'},
+                   'baseline_iteration': {'value': 10, 'unit': 'ms'},
+                   'component_savings': {'low': 1, 'high': 2, 'unit': 'ms'},
+                   'calls_per_iteration': 1, 'exposed_fraction': {'low': 1, 'high': 1},
+                   'progress': {'baseline_tokens': 1, 'candidate_tokens': 1},
+                   'next_cheapest_falsifier': 'Inspect actual source path'}})
+    manifest = ready_manifest(flow, hypothesis)
+    manifest['purpose'] = 'qualification'
+    result = flow.eval_plan(hypothesis, manifest)
+    assert any('Simulation/agent-estimate' in g for g in result['blocking_gaps'])
+    # Same assumptions can motivate a bounded CPU investigation.
+    assert flow.eval_plan(hypothesis, cpu_manifest(flow, hypothesis))['readiness'] == 'ready_for_review'
+
+
+def test_target_evidence_without_numeric_roi_can_design_qualification_trial(flow):
+    _, hypothesis = proposal(flow)
+    screen = flow.screen(hypothesis, {'provenance': {
+        'baseline_id': flow.memory.get(hypothesis)['baseline'],
+        'workload_id': 'fixture-agent-75', 'hardware': 'fixture B200',
+        'input_source_ids': [FIXTURE['source']['id']], 'measurement_origin': 'target_trace'},
+        'inputs': {'target': {'benchmark': 'fixture-agent-75', 'metric': 'TTFT'},
+                   'next_cheapest_falsifier': 'Paired trial measures service effect unidentifiable from component arithmetic'}})
+    assert screen['result']['target_relative_gain'] is None
+    manifest = ready_manifest(flow, hypothesis)
+    manifest['purpose'] = 'qualification'
+    manifest['objective']['metric'] = 'TTFT'
+    result = flow.eval_plan(hypothesis, manifest)
+    assert result['readiness'] == 'ready_for_review'
+    assert result['scientific_validity'] == 'unverified'

@@ -80,3 +80,33 @@ def test_mcp_repo_refresh_online_boundary_and_scope(tmp_path):
                 assert not result.is_error
     asyncio.run(check())
     assert calls[0][3:]==['refresh','--only','github','--repo','example/new-repo','--force']
+
+
+def test_mcp_iterative_surface_and_checkpoint_modes(tmp_path):
+    from unittest.mock import patch
+    calls=[]
+    def fake(args):
+        calls.append(args)
+        if '--plan' in args:
+            value=json.loads(Path(args[args.index('--plan')+1]).read_text())
+            assert value['mechanism']=='queue interference'
+        return {'ok':True}
+    async def check():
+        with patch('ideation.foundation.invoke',fake):
+            async with Client(create_server(tmp_path, defer_snapshot=True)) as client:
+                for name, arguments in (
+                    ('recall_hypotheses',{'query':'routing'}),
+                    ('command_history',{'limit':5}),
+                    ('source_show',{'source_id':'paper:test','revision_hash':'abc'}),
+                    ('search_local',{'query':'routing','date_field':'created_at'}),
+                    ('expand_queries',{'question':'reduce interference','plan':{'mechanism':'queue interference'}}),
+                    ('checkpoint',{}),
+                ):
+                    result=await client.call_tool(name,arguments)
+                    assert not result.is_error
+    asyncio.run(check())
+    assert all('--defer-snapshot' in args for args in calls[:-1])
+    assert '--defer-snapshot' not in calls[-1]
+    assert '--local-only' in calls[-1]
+    assert '--revision-hash' in calls[2]
+    assert calls[3][-4:]==['--date-field','created_at','--match','any']

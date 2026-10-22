@@ -1,4 +1,5 @@
 import hashlib
+import datetime as dt
 import base64
 import io
 import json
@@ -85,19 +86,28 @@ class Sources:
         (raw / hashlib.sha256(data).hexdigest()).write_bytes(data)
         return data, ctype
 
-    def papers(self, query, limit=8, provider="both"):
-        results, errors = [], []
+    def papers(self, query, limit=8, provider="both", after=None, before=None):
+        results, errors, attempts = [], [], []
         if provider in ("arxiv", "both"):
             try:
                 ns = {"a": "http://www.w3.org/2005/Atom"}
                 effective = arxiv_query(query)
                 entries = []
-                for relaxed in (False, True):
-                    effective = arxiv_query(query, relaxed=relaxed)
+                # Relax the user's words BEFORE adding field/date syntax. Never
+                # drop dates or rewrite explicit Boolean queries on a retry.
+                variants = list(dict.fromkeys(arxiv_query(query, relaxed=r) for r in (False, True)))
+                for index, variant in enumerate(variants):
+                    effective = variant
+                    if after or before:
+                        first = (after or '1991-01-01').replace('-', '') + '0000'
+                        end = dt.date.fromisoformat(before) - dt.timedelta(days=1) if before else dt.date(2099, 12, 31)
+                        effective = '(' + variant + ') AND submittedDate:[' + first + ' TO ' + end.strftime('%Y%m%d') + '2359]'
                     params = urllib.parse.urlencode({"search_query": effective, "start": 0, "max_results": limit, "sortBy": "relevance"})
                     raw, _ = self.request("https://export.arxiv.org/api/query?" + params, xml=True)
                     entries = ET.fromstring(raw).findall("a:entry", ns)
-                    if entries or arxiv_query(query) == arxiv_query(query, relaxed=True):
+                    attempts.append({'query': effective, 'relaxed': index > 0, 'returned': len(entries),
+                                     'cache': getattr(self, 'last_cache', None)})
+                    if entries:
                         break
                 for e in entries:
                     url = e.findtext("a:id", "", ns).replace("http://", "https://")
@@ -106,7 +116,7 @@ class Sources:
                     self.store.put(doc)
                     results.append(doc["id"])
             except Exception as e:
-                errors.append({"provider": "arxiv", "error": str(e)})
+                errors.append({"provider": "arxiv", "error_type": type(e).__name__})
         if provider in ("hf", "both"):
             try:
                 raw, _ = self.request("https://huggingface.co/api/papers/search?" + urllib.parse.urlencode({"q": query, "limit": limit}))
@@ -123,7 +133,7 @@ class Sources:
             except Exception as e:
                 errors.append({"provider": "hf", "error": str(e)})
         self.store.db.commit()
-        return {"query": query, "ids": results, "errors": errors}
+        return {"query": query, "ids": results, "errors": errors, 'attempts': attempts}
 
     def fetch(self, url, refresh=False):
         self.refresh = refresh

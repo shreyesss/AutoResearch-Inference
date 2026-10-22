@@ -6,7 +6,11 @@ import re
 def qualify_plan(manifest, hypothesis):
     if not isinstance(manifest, dict):
         raise ValueError('Evaluation manifest must be an object')
+    if manifest.get('execution_kind') == 'cpu':
+        return _qualify_cpu_diagnostic(manifest, hypothesis)
     gaps = []
+    if manifest.get('execution_kind', 'serving') != 'serving':
+        gaps.append('execution_kind must be cpu or serving')
     if manifest.get('purpose') not in ('diagnostic', 'qualification'):
         gaps.append('Specify purpose diagnostic or qualification')
     if manifest.get('scope') not in ('component', 'native', 'service'):
@@ -104,4 +108,108 @@ def qualify_plan(manifest, hypothesis):
     return {'blocking_gaps': list(dict.fromkeys(gaps)), 'readiness': 'blocked' if gaps else 'ready_for_review',
             'quality_gate_version': 'controlled-serving-plan-v1', 'scope': manifest.get('scope', 'service'),
             'execution_authorized': False, 'gpu_calls': 0,
+            'scientific_validity': 'unverified', 'review_questions': _review_questions(),
             'meaning': 'Manifest completeness and consistency, not verified applicability or GPU approval'}
+
+
+
+def _review_questions():
+    return [
+        'Does pinned implementation evidence show this mechanism can affect the target path?',
+        'What current-baseline gap remains after checking existing code and previous attempts?',
+        'Does the proposed stimulus expose the mechanism and the observable discriminate alternatives?',
+        'Which finding changes the decision, and what remains unproven about service benefit?',
+        'Are numerical bounds conditional on supported units, frequency, overlap and workload exposure?',
+    ]
+
+
+def _qualify_cpu_diagnostic(manifest, hypothesis):
+    """Permit cheap source/replay checks without inventing a serving environment.
+
+    This checks a plan, never executes argv or attests to artifact availability.
+    A CPU diagnostic can resolve applicability or inputs to ROI; it cannot qualify
+    target serving performance, even if all fields are filled.
+    """
+    gaps = []
+    manifest = dict(manifest)
+    for section in ('baseline', 'probe', 'diagnostic', 'evaluation', 'budget'):
+        if not isinstance(manifest.get(section), dict):
+            gaps.append(section + ' must be an object')
+            manifest[section] = {}
+
+    def required(path, allow_unknown=False):
+        value = manifest
+        for key in path.split('.'):
+            value = value.get(key) if isinstance(value, dict) else None
+        if value is None or value == '' or value == [] or value == {} or isinstance(value, str) and value.strip().lower() in ({'unset', 'tbd'} if allow_unknown else {'unknown', 'unset', 'tbd'}):
+            gaps.append('Missing ' + path)
+        return value
+
+    def exact_hash(path, size):
+        value = required(path)
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{' + str(size) + '}', value):
+            gaps.append('Not an exact hash: ' + path)
+
+    if manifest.get('purpose') != 'diagnostic':
+        gaps.append('CPU checks permit diagnostic purpose only, not serving qualification')
+    if manifest.get('scope') not in ('component', 'native'):
+        gaps.append('CPU diagnostic scope must be component or native; service benefit stays unverified')
+    if required('baseline.id') != hypothesis['baseline']:
+        gaps.append('baseline.id must match the immutable hypothesis baseline')
+    # The baseline may be incompletely known; freezing the question does not
+    # magically supply a container, GPU measurement, or implementation patch.
+    supplied = manifest.get('baseline', {})
+    pinned = hypothesis['brief']['baseline']
+
+    def compare_supplied(actual, expected, prefix):
+        if isinstance(actual, dict) and isinstance(expected, dict):
+            for key, value in actual.items():
+                if key not in {'id', 'unknown', 'notes'} and key in expected:
+                    compare_supplied(value, expected[key], prefix + '.' + key)
+        elif expected not in (None, '', 'unknown') and actual != expected:
+            gaps.append('Plan conflicts with pinned hypothesis ' + prefix)
+
+    compare_supplied(supplied, pinned, 'baseline')
+    exact_hash('probe.git_sha', 40)
+    for path in ('probe.description', 'probe.environment', 'probe.read_only',
+                 'diagnostic.question', 'diagnostic.mechanism', 'diagnostic.target_code_path',
+                 'diagnostic.observable', 'diagnostic.supports_if', 'diagnostic.refutes_if',
+                 'diagnostic.inconclusive_if', 'diagnostic.limitations', 'stop_rules'):
+        required(path)
+    if manifest.get('probe', {}).get('read_only') is not True:
+        gaps.append('CPU diagnostic must declare read_only=true for the serving deployment')
+    argv = required('probe.command_argv')
+    if not isinstance(argv, list) or not argv or any(not isinstance(v, str) or not v.strip() for v in argv):
+        gaps.append('Probe command must be explicit nonempty argv; plan tool never executes it')
+    inputs = required('probe.inputs')
+    if not isinstance(inputs, list) or not inputs:
+        gaps.append('Pin at least one inspected source, fixture or replay input')
+    else:
+        for item in inputs:
+            if not isinstance(item, dict) or not all(isinstance(item.get(k), str) and item[k].strip() for k in ('id', 'role')) or not re.fullmatch(r'[0-9a-f]{64}', str(item.get('sha256', ''))):
+                gaps.append('Each probe input needs id, role and exact sha256')
+    status = required('diagnostic.target_path_status', allow_unknown=True)
+    if status not in ('observed', 'configured', 'unknown', 'proposed'):
+        gaps.append('target_path_status must distinguish observed/configured/unknown/proposed applicability')
+    existing = manifest.get('evaluation', {}).get('existing', [])
+    if not isinstance(existing, list) or not existing:
+        gaps.append('Document existing evaluator coverage before proposing a CPU probe')
+    else:
+        for evaluator in existing:
+            if not isinstance(evaluator, dict) or not evaluator.get('name') or not evaluator.get('reason') or evaluator.get('coverage') not in ('sufficient', 'insufficient', 'not_applicable'):
+                gaps.append('Existing evaluator needs name, coverage and question-specific reason')
+    gpu = required('budget.gpu_minutes')
+    if isinstance(gpu, bool) or not isinstance(gpu, (int, float)) or gpu != 0:
+        gaps.append('CPU diagnostic requires budget.gpu_minutes=0')
+    wall = required('budget.wall_minutes')
+    if isinstance(wall, bool) or not isinstance(wall, (int, float)) or not math.isfinite(wall) or wall <= 0:
+        gaps.append('Positive bounded budget required: budget.wall_minutes')
+    attempts = required('budget.max_attempts')
+    if type(attempts) is not int or attempts < 1:
+        gaps.append('Positive integer required: budget.max_attempts')
+    return {'blocking_gaps': list(dict.fromkeys(gaps)), 'readiness': 'blocked' if gaps else 'ready_for_review',
+            'quality_gate_version': 'cpu-diagnostic-plan-v1', 'scope': manifest.get('scope'),
+            'execution_kind': 'cpu', 'execution_authorized': False, 'gpu_calls': 0,
+            'scientific_validity': 'unverified', 'target_relative_gain': None,
+            'review_questions': _review_questions(),
+            'meaning': 'Pinned bounded diagnostic plan only; no proof of applicability, service gain or execution approval'}

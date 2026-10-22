@@ -139,6 +139,25 @@ def _snapshot(root, namespace, *, publish=True):
             receipt.update(publication_failed=True, publication_error_type=type(error).__name__)
             _write(root / "publication-failure.json", receipt)
             raise PublicationError(receipt, error) from error
+    if namespace == "research" and (root / "pending-research-checkpoint.json").exists():
+        _write(root / "pending-research-checkpoint.json", {
+            "snapshot_required": False, "published": receipt["published"],
+            "snapshot_id": receipt["id"], "at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "meaning": "Checkpoint captured pending research; published reports this checkpoint only"})
+    return receipt
+
+
+def _research_snapshot(root, args, *, publish):
+    """Opt-in interactive durability: local commits survive; backup is explicit."""
+    if not getattr(args, "defer_snapshot", False):
+        return _snapshot(root, "research", publish=publish)
+    receipt = {"namespace": "research", "deferred": True, "published": False,
+               "local_state_retained": True, "snapshot_required": True,
+               "at": dt.datetime.now(dt.timezone.utc).isoformat(),
+               "command": args.command,
+               "next_action": "researchctl snapshot --namespace research",
+               "meaning": "Local source records, receipts and journal retained; no new recovery snapshot or S3 backup yet"}
+    _write(root / "pending-research-checkpoint.json", receipt)
     return receipt
 
 
@@ -323,7 +342,7 @@ def _run_research(root, args):
     finally:
         store.db.commit()
         store.db.close()
-        result["snapshot"] = _snapshot(root, "research", publish=not args.offline and not args.local_only)
+        result["snapshot"] = _research_snapshot(root, args, publish=not args.offline and not args.local_only)
         _write(out / "snapshot-receipt.json", result["snapshot"])
     return result
 
@@ -350,7 +369,7 @@ def _execute(root, args):
             _write(output / 'search.json', result)
         finally:
             store.db.close()
-        result['snapshot'] = _snapshot(root, 'research', publish=not args.local_only)
+        result['snapshot'] = _research_snapshot(root, args, publish=not args.local_only)
         return result
     if command in {"doctor", "costs"}:
         if command == "costs":
@@ -392,7 +411,7 @@ def _execute(root, args):
         finally:
             flow.close()
             if mutation:
-                snapshot = _snapshot(root, "research", publish=not args.local_only)
+                snapshot = _research_snapshot(root, args, publish=not args.local_only)
         return {"record": result, "snapshot": snapshot} if mutation else result
     if command == "backfill":
         from . import backfill
@@ -407,12 +426,18 @@ def _execute(root, args):
     if command in {"expand", "prescreen"}:
         from .controls import expand_query, prescreen
         if command == "expand":
-            value = expand_query(args.question, _config(root, args), after=args.after, before=args.before)
+            plan = None
+            if args.plan:
+                plan = json.loads(Path(args.plan).expanduser().read_text())
+                if not isinstance(plan, dict):
+                    raise ValueError('Explicit query plan must be a JSON object')
+            value = expand_query(args.question, _config(root, args), after=args.after, before=args.before,
+                                 plan=plan)
         else:
             value = prescreen(_read(Path(args.record).expanduser()))
         output = root / "research/records" / (command + "-" + uuid.uuid4().hex)
         _write(output / "result.json", value)
-        return {"output": str(output), "result": value, "snapshot": _snapshot(root, "research", publish=False)}
+        return {"output": str(output), "result": value, "snapshot": _research_snapshot(root, args, publish=False)}
     if command == "hypothesis":
         from .chat_memory import persist_card, recall_cards
         if args.hypothesis_command == "recall":
@@ -420,7 +445,7 @@ def _execute(root, args):
         try:
             result = persist_card(root, _read(Path(args.record).expanduser()))
         finally:
-            snapshot = _snapshot(root, "research", publish=not args.local_only)
+            snapshot = _research_snapshot(root, args, publish=not args.local_only)
         return {"record": result, "snapshot": snapshot}
     if command == "sync-replica":
         from .replica import sync
@@ -471,7 +496,8 @@ def _execute(root, args):
     if command == "status":
         from .store import Store
         corpus = Path(replica["path"]) / "corpus.sqlite" if replica else root / "research/corpus.sqlite"
-        result = {"state_dir": str(root), "lineage": _lineage(root), "latest_snapshots": _read(root / "latest-snapshots.json", {})}
+        result = {"state_dir": str(root), "lineage": _lineage(root), "latest_snapshots": _read(root / "latest-snapshots.json", {}),
+                  "research_checkpoint": _read(root / "pending-research-checkpoint.json", None)}
         result["replica"] = replica or _read(root / "replicas/research/CURRENT.json")
         if corpus.exists():
             store = Store(corpus, readonly=bool(replica))
@@ -513,20 +539,28 @@ def _execute(root, args):
                 finally:
                     store.db.commit()
                     _write(output / "receipt.json", result)
-                    receipt = _snapshot(root, "research", publish=not args.local_only)
+                    receipt = _research_snapshot(root, args, publish=not args.local_only)
                 result["snapshot"] = receipt
                 result["output"] = str(output)
                 return result
             if command in {"search", "pr-search"}:
-                return store.search(args.query_text, after=args.after, before=args.before, limit=args.limit, offset=args.offset,
+                return store.search(args.query_text, match=args.match, after=args.after, before=args.before, limit=args.limit, offset=args.offset,
                                     date_field=args.date_field, kind="pr" if command == "pr-search" else args.kind,
                                     id_prefix="github:" + args.repo + ":" if args.repo else None)
             if command == "show":
                 result = store.get(args.id)
                 if result is None:
                     raise KeyError("Source does not exist")
+                if args.revision_hash:
+                    revisions = store.revisions(args.id)
+                    result = next((r for r in revisions if r["content_hash"] == args.revision_hash), None)
+                    if result is None:
+                        raise KeyError("Source revision does not exist")
                 if args.history:
-                    return {"current": result, "revisions": store.revisions(args.id)}
+                    history = {"current": store.get(args.id), "revisions": store.revisions(args.id)}
+                    if args.revision_hash:
+                        history["selected_revision"] = result
+                    return history
                 if args.claims:
                     from .research_flow import ResearchFlow
                     flow = ResearchFlow(root)
@@ -543,7 +577,7 @@ def _execute(root, args):
     if command in {"run", "investigate"}:
         return _run_research(root, args)
     if command == "snapshot":
-        return _snapshot(root, args.namespace)
+        return _snapshot(root, args.namespace, publish=not args.local_only)
     if command == "push":
         from .storage import push, ConflictError
         lineage = _lineage(root).get(args.namespace, {}).get("id")
@@ -613,6 +647,7 @@ def parser():
     p.add_argument("--env-file", help="Explicit local credential file; never copied into state")
     p.add_argument("--replica", action="store_true", help="Read downloaded VM replica for search/show/status; writer state untouched")
     p.add_argument("--local-only", action="store_true", help="New evidence/plan mutations snapshot locally; explicit later snapshot publishes")
+    p.add_argument("--defer-snapshot", action="store_true", help="Interactive research only: retain local state/journal, checkpoint explicitly after the batch; no new snapshot/S3 backup per command")
     commands = p.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="Offline state initialization with resolved config")
     init.add_argument("--config")
@@ -646,6 +681,7 @@ def parser():
     history.add_argument("--limit", type=int, default=20)
     expand = commands.add_parser("expand", help="Offline bounded query expansion with taxonomy provenance")
     expand.add_argument("--question", required=True)
+    expand.add_argument("--plan", help="Agent-authored semantic queries and observations JSON; validated offline")
     expand.add_argument("--config")
     expand.add_argument("--after")
     expand.add_argument("--before")
@@ -686,6 +722,7 @@ def parser():
     run.add_argument("--max-repositories", type=int, default=2)
     search = commands.add_parser("search", aliases=["pr-search"])
     search.add_argument("query_text")
+    search.add_argument("--match", choices=("any", "all"), default="any", help="Match any or all lexical terms/quoted phrases")
     search.add_argument("--after")
     search.add_argument("--before")
     search.add_argument("--limit", type=int, default=20)
@@ -696,6 +733,7 @@ def parser():
     show = commands.add_parser("show")
     show.add_argument("id")
     show.add_argument("--history", action="store_true")
+    show.add_argument("--revision-hash", help="Inspect an exact retained content revision")
     show.add_argument("--claims", action="store_true")
     imp = commands.add_parser("import-corpus")
     imp.add_argument("--source", required=True)
@@ -750,6 +788,8 @@ def parser():
 def invoke(argv=None):
     """Shared locked API for CLI and MCP; no stdout or exception text logging."""
     args = parser().parse_args(argv)
+    if args.defer_snapshot and args.command not in {"paper-search", "expand", "prescreen", "investigate", "claim", "hypothesis", "screen", "eval-plan", "decide", "link-evidence", "snapshot", "search", "pr-search", "show", "history", "changes", "doctor", "status"}:
+        raise ValueError("--defer-snapshot is restricted to interactive research; ingestion and experiment checkpoints remain immediate")
     root = Path(args.state_dir).expanduser().resolve()
     if args.env_file:
         os.environ["IDEATION_ENV_FILE"] = str(Path(args.env_file).expanduser().resolve())

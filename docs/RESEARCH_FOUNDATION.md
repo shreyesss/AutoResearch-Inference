@@ -2,6 +2,8 @@
 
 Implementation: 22 October 2026. This is the CPU-side discovery, evidence, hypothesis and state layer. Serving and GPU experiment execution remain separate in Bitlane and the existing benchmark adapters.
 
+For the current adaptive host-agent workflow, use [chat research](CHAT_RESEARCH_WORKFLOW.md) and [system design](SYSTEM_DESIGN.md). The diagram below describes the optional bounded `run` pipeline, not a required sequence for every research task.
+
 ## What runs
 
 ```mermaid
@@ -53,7 +55,7 @@ The existing hypothesis ledger retains its historical test records for compatibi
 git clone https://github.com/shreyesss/AutoResearch-Inference.git
 cd AutoResearch-Inference
 # Use main for current code; the S3 bundle is a recovery fallback.
-git checkout infra/research-foundation
+git checkout main
 scripts/bootstrap-node.sh --storage --agents
 source "$HOME/.local/share/autoresearch/venv/bin/activate"
 export AUTORESEARCH_STATE_ROOT="$HOME/.local/share/inference-autoresearch"
@@ -61,7 +63,7 @@ researchctl init
 researchctl plan
 ```
 
-The initial delivery uses a private S3 Git bundle because GitHub push authentication is unavailable; follow the bundle instructions in [portable setup](PORTABLE_SETUP.md) before checkout. For an existing corpus, **restore before `init`**, because restore refuses to overwrite initialized state. See [portable setup](PORTABLE_SETUP.md). To clone Bitlane alongside this repo, pass `--bitlane-repo <canonical-url> --bitlane-ref <commit>` to bootstrap. The URL must be supplied; the deployment release directory is not a canonical Git remote. Bootstrap does not install or launch Bitlane services.
+GitHub main is the current code delivery path; the private S3 Git bundle is an earlier recovery fallback. For an existing corpus, **restore before `init`**, because restore refuses to overwrite initialized state. See [portable setup](PORTABLE_SETUP.md). To clone Bitlane alongside this repo, pass `--bitlane-repo <canonical-url> --bitlane-ref <commit>` to bootstrap. The URL must be supplied; the deployment release directory is not a canonical Git remote. Bootstrap does not install or launch Bitlane services.
 
 Credentials stay in a local file or normal provider environment:
 

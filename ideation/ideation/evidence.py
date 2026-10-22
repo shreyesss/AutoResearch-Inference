@@ -102,11 +102,8 @@ class ResearchTools:
             ids = [self._openalex(work) for work in works]
             result = {"ids": ids, "errors": [], "cache": cached}
         elif provider in ("arxiv", "hf", "both"):
-            effective = query
-            if (after or before) and provider != "hf":
-                effective = arxiv_query(query) + " AND submittedDate:[" + (after or "1991-01-01")[:10].replace("-", "") + "0000 TO " + (before or "2099-12-31")[:10].replace("-", "") + "2359]"
             # HF must receive the user's words rather than arXiv field syntax.
-            result = self.sources.papers(effective, limit, "arxiv" if provider == "both" else provider)
+            result = self.sources.papers(query, limit, "arxiv" if provider == "both" else provider, after=after, before=before)
             if provider == "both":
                 hf = self.sources.papers(query, limit, "hf")
                 result["ids"] += hf["ids"]

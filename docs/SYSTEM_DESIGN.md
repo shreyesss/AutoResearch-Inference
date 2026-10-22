@@ -51,7 +51,7 @@ All CLI examples assume the installed `researchctl` environment. The optional se
 | **Search papers online** | `paper-search QUERY --provider arxiv --provider openalex --after DATE --before DATE` | **`search_papers(query, providers, after, before, limit)`** | Calls live providers through response caches; stores returned evidence and query receipt |
 | Refresh configured paper feeds | `refresh --only papers` | `discover(dry_run=False)` refreshes all configured feeds, not papers only | Bounded taxonomy/seed/user-query rotation; CLI can isolate papers |
 | Preview configured discovery | `plan` | `discover(dry_run=True)` | Offline plan; no search has run |
-| Suggest additional queries | `expand --question ...` | `expand_queries` | Offline rules/taxonomy expansion; host chooses what to execute |
+| Plan adaptive query rounds | `expand --question ... --plan FILE` | `expand_queries(..., plan=...)` | Host-authored semantic queries, observations, explicit relaxations and repeat detection; lexical fallback without a plan |
 | Read source/revisions | `show ID --history` / `--claims` | `source_show` | Stored source text, revisions or linked claims |
 | Investigate selected sources | `investigate --source-id ... --question ...` | `investigate(..., offline=False)` | Bounded primary-text/discussion/code retrieval; no automatic proof of applicability |
 | Persist source claim | `claim record --record claim.json` | `record_claim` | Exact excerpt in pinned source revision required |
@@ -64,7 +64,7 @@ All CLI examples assume the installed `researchctl` environment. The optional se
 | Find observed source changes | `changes --cursor ...` | `changes_since` | Revision changes and affected hypotheses; caller retains cursor |
 | Record experiment attempts/results | `experiment create/transition/show/list` | Not exposed as MCP tools | Separate scoped execution journal; does not launch tests |
 
-MCP has **16 tools**. `doctor` provides local health/credential-presence checks. `search_local` currently filters `updated_at`; CLI local search additionally exposes `--date-field created_at|updated_at|merged_at|fetched_at`.
+MCP has **19 tools**, including `recall_hypotheses`, `command_history` and `checkpoint`. `doctor` provides local health/credential-presence checks. Both CLI and MCP local search expose date-field selection (`created_at`, `updated_at`, `merged_at`, `fetched_at`) and `any`/`all` term matching. Source inspection can select a retained revision hash.
 
 ### What “arXiv/OpenAlex MCP tools” means here
 
@@ -153,7 +153,7 @@ Fixed checks concern provenance, required fields, consistent baselines, experime
 
 Missing target provenance returns insufficient evidence and a deferred conclusion. A negative optimistic bound can reject spending under the stated assumptions. Unknown benefit can motivate a bounded diagnostic. CPU source audits, replay scripts and correctness tests are tasks the host can implement/run; they are not all available as generic one-click screen tools.
 
-The evaluation-plan checker requires pinned baseline/candidate/workload, metric definitions, correctness oracle, paired runs, separate profiling, budgets and stop rules. It requires the agent to assess existing evaluator coverage before proposing a custom evaluator. It checks completeness and consistency; it does not execute the command or verify that a real benchmark reaches the claimed regime. The current manifest schema is serving-oriented even for some smaller scopes; it is not yet a fully adaptive experiment-design engine.
+The serving evaluation-plan checker requires pinned baseline/candidate/workload, metric definitions, correctness oracle, paired runs, separate profiling, budgets and stop rules. A separate CPU diagnostic path requires pinned probe code, hashed inputs, an observable, support/refute/inconclusive branches and zero GPU budget; it does not demand missing GPU pins or invented ROI. Both paths require existing-evaluator coverage rationale and retain scientific validity as unverified. Simulation or agent-estimate provenance cannot qualify a serving plan. See [evaluation gating](EVALUATION_GATING.md). These checks establish completeness and consistency, not scientific merit or execution authorization.
 
 `accepted` means selected with an attributed reason, not measured improvement. The preferred typed decision path requires a review-ready evaluation plan for acceptance. Older proposal/selection entry points remain for compatibility and do not enforce every new handoff check; legacy accepted records must be reviewed before execution.
 
@@ -174,7 +174,7 @@ This is a relational graph in SQLite, not a separate knowledge-graph service. Ne
 
 S3 stores verified snapshots/blobs; it is not a live multi-writer database. One authoritative writer and verified VM read replicas avoid silently merging conflicting SQLite state. Git stores code, skills and compact reports. Large/raw artifacts have separate retention limits; not every downloaded byte or profiler trace is automatically backed up. Local mutations are durable before publication; a successful local command or snapshot does not prove the latest VM replica has arrived.
 
-The common writer lock covers CLI/MCP operations, including schema-opening reads. It provides consistency but can make chat tools wait behind backfill/snapshot work. Bulk snapshot overhead is a current performance limitation; this is not a low-latency multi-user service. Verified provider billing/cost reconciliation and general paid-model budget accounting are incomplete; logical request caps are not a billing cap.
+The common writer lock covers CLI/MCP operations, including schema-opening reads. It provides consistency but can make chat tools wait behind backfill/snapshot work. Interactive `--defer-snapshot` commits local research and receipts while postponing bulk backup until an explicit checkpoint; pending state is visible, and failed checkpoints retain it. It cannot preempt a backfill lock already held. Default publication behavior is unchanged. Verified provider billing/cost reconciliation and general paid-model budget accounting are incomplete; logical request caps are not a billing cap. See [adaptive chat operation](CHAT_RESEARCH_WORKFLOW.md).
 
 ## 9. Your TreeSpark handover in this system
 

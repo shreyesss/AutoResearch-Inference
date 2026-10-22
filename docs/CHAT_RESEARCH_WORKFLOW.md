@@ -1,203 +1,179 @@
 # Research operated from chat
 
-The chat agent chooses questions, reads evidence, challenges claims and decides the next useful action. Repository skills describe that workflow; `researchctl` provides deterministic data, state and accounting operations. Optional `run --reason` invokes the existing bounded model stages. A background backfill is a downloader, not an independently reasoning agent. No research command launches GPU experiments.
+The host agent interprets the task, authors semantic queries, reads evidence and chooses the next action. `researchctl` and the optional MCP server provide retrieval, provenance, memory and checked handoffs. No research tool launches GPU experiments. The optional `run --reason` is a bounded model pipeline; it is not required for chat-driven research.
 
-## Components and ownership
+## How an adaptive run works
 
 ```mermaid
 flowchart TD
-    U[User: target, direction, dates, budget] --> A[Chat agent + repository skills]
-    A --> Q[Query expansion / retrieval plan]
-    Q --> D[Refresh due feeds or resume archive job]
-    D --> C[(Corpus: papers + PRs/issues + revisions)]
-    C --> S[Local dated search]
-    S --> E[Selected full text, discussion, pinned code]
-    E --> H[Task rubric + hypotheses + critique]
-    H --> P[ROI scenarios + cheapest falsification]
-    P --> M[(Hypothesis memory: every disposition)]
-    M --> X[Implementation and evaluation handoff]
-    X --> T[(Separate experiment registry)]
-    T --> B[Authorized Bitlane / benchmark execution]
-    B --> T
-    C --> K[Immutable snapshots]
+    U[Task: deployment, objective, constraints, budget] --> A[Host agent + research skills]
+    A <--> M[Recall hypotheses, decisions, experiments]
+    A --> Q[Author mechanism queries and record observations]
+    Q --> X[expand: validate plan and warn about repeated searches]
+    X --> A
+    A --> P[paper-search: online arXiv / OpenAlex / HF]
+    A --> L[search: retained PRs / issues / papers]
+    A --> R[Explicit refresh for missing or stale GitHub coverage]
+    R --> L
+    P --> C[(Cached source corpus and revisions)]
+    L --> A
+    C --> A
+    A --> I[investigate selected full text / PRs / pinned code]
+    I --> A
+    A --> H[Record claims, hypotheses and counterevidence]
+    H --> S[Conditional ROI / CPU diagnostic / critique]
+    S --> A
+    S --> E[Evaluation plan + attributed decision]
+    E --> M
+    C --> K[Checkpoint snapshot]
     M --> K
-    T --> K
-    K --> S3[(Approved private S3)]
-    S3 --> V[Versioned VM read replica]
+    K --> B[Configured S3 publication]
+    B --> V[Separately synchronized VM replica]
 ```
 
-| Skill | Request it handles | Main output |
+This is a feedback loop, not a mandatory sequence or fixed number of searches. The next call should resolve a named uncertainty. An irrelevant paper suggests a more discriminating query; an empty search suggests checking errors and permitted relaxations; a useful paper suggests full text, code, counterevidence or related PRs. Stop when the decision is supported, budget is reached, or the missing evidence needs a deployment check. Retain that stop reason.
+
+| Skill | Use | Output |
 |---|---|---|
-| [inference-discovery](../.agents/skills/inference-discovery/SKILL.md) | Find new papers/PRs; inspect dated local results, coverage or synchronization | Source IDs, retrieval depth, omissions and receipts |
-| [inference-research](../.agents/skills/inference-research/SKILL.md) | Propose useful changes for this deployment/objective | Source-grounded hypotheses, adaptive rubric, ROI assumptions and cheapest tests |
-| [inference-critic](../.agents/skills/inference-critic/SKILL.md) | Challenge, revise and prioritize proposals | Explicit verdicts, objections and uncertainty-resolving checks |
-| [inference-implementation](../.agents/skills/inference-implementation/SKILL.md) | Prepare or execute an authorized implementation/evaluation | Pinned code/eval handoff and scoped attempt records |
+| [inference-discovery](../.agents/skills/inference-discovery/SKILL.md) | Adaptive paper/PR discovery and coverage | Query ledger, sources, omissions |
+| [inference-pr-research](../.agents/skills/inference-pr-research/SKILL.md) | Trace source changes into target deployment | Applicability and contradiction evidence |
+| [inference-research](../.agents/skills/inference-research/SKILL.md) | Form and improve useful hypotheses | Mechanism, transfer chain, falsifier |
+| [inference-critic](../.agents/skills/inference-critic/SKILL.md) | Challenge hypotheses and ROI | Revisions, dispositions, next checks |
+| [inference-implementation](../.agents/skills/inference-implementation/SKILL.md) | Prepare authorized execution | Pinned change/evaluation handoff |
 
-These are repo-owned instruction files. Their presence does not make a daemon run them. The current chat uses them and invokes tools. The legacy research method and historical run folders remain useful evidence; new mutable state belongs outside Git.
+Skills are repo-owned instructions, not daemons. MCP tools must be registered with the host client; their implementation alone does not expose them to this chat. CLI access works independently.
 
-## 1. Find new work and retain previous work
+## Online discovery and semantic expansion
+
+```bash
+researchctl hypothesis recall --query 'prefix routing' --limit 10
+researchctl history --limit 20
+researchctl --defer-snapshot expand --question 'Reduce TTFT without harming tails' \
+  --after 2026-06-01 --before 2026-10-23 --plan /path/to/query-plan.json
+researchctl --defer-snapshot paper-search 'prefix cache routing' \
+  --provider arxiv --provider openalex \
+  --after 2026-06-01 --before 2026-10-23 --limit 10
+```
+
+A minimal **agent-authored** plan:
+
+```json
+{
+  "mechanism": "Avoid repeating prefill by routing to useful retained prefix state",
+  "constraints": {
+    "must_keep": ["correct outputs", "requested publication date interval"],
+    "may_relax": ["model-specific wording"]
+  },
+  "queries": [
+    {
+      "query": "prefix cache routing",
+      "provider": "arxiv",
+      "purpose": "Find cache-aware placement mechanisms",
+      "why": "Determine whether placement improves reuse beyond current session affinity",
+      "relaxes": ["model-specific wording"]
+    },
+    {
+      "query": "cache eviction admission control",
+      "provider": "openalex",
+      "purpose": "Find limitations and alternative mechanisms",
+      "why": "A placement benefit may disappear when retained blocks are evicted"
+    },
+    {
+      "query": "prefix affinity",
+      "provider": "local",
+      "repo": "vllm-project/vllm",
+      "purpose": "Inspect existing implementation",
+      "why": "Determine whether the suggested mechanism already exists"
+    }
+  ],
+  "observations": [],
+  "open_questions": ["Does explicit DP rank bypass engine affinity?"],
+  "stop_reason": null
+}
+```
+
+After executing selected queries, append observations (`query`, `provider`, date/repo scope, `status`, `reason`, optional `source_ids`) and revise the next queries. Status is `useful`, `irrelevant`, `empty`, `error` or `redundant`. Preserve source identities and why a new query matters. The tool validates bounds/dates/relaxation declarations, identifies repeated queries and emits runnable recipes; **semantic decomposition comes from the host agent**. A missing plan uses the basic lexical helper. No LLM or network call occurs inside `expand`.
+
+`paper-search` performs cached online retrieval with publication/submission dates: **after inclusive, before exclusive**. Limit is per provider. It returns abstracts alongside source IDs and retains metadata/abstracts, revisions and query receipts. Plain arXiv queries with zero results may relax to the first three terms while preserving the requested dates; attempted queries are reported. Explicit arXiv field expressions are preserved. Selected full text is retrieved separately. Provider ranking and keyword scores are not scientific qualification. Bounded top results are not exhaustive coverage; a failed or empty search is not proof of novelty.
+
+OpenAlex needs its configured key; arXiv can run without one. Known-URL fetches and local searches do not require Serper. Citation edges are leads until their source text is read. No unattended paper-search scheduler is installed.
+
+## Local PR search and selected deep reads
+
+```bash
+researchctl backfill status
+researchctl pr-search 'prefix affinity' --repo vllm-project/vllm \
+  --after 2026-06-01 --date-field created_at --limit 20
+researchctl search 'cache eviction regression' --kind issue --repo vllm-project/vllm
+researchctl show github:vllm-project/vllm:52464 --history
+researchctl show SOURCE_ID --revision-hash CONTENT_HASH
+researchctl --defer-snapshot investigate --question 'Does explicit DP rank bypass affinity?' \
+  --source-id SOURCE_ID --deep-count 1 --max-http-calls 8 --max-repositories 1
+```
+
+`search`/`pr-search` never refresh. Use `--match all` for conjunction of terms/quoted phrases; the default `any` uses OR. Date field defaults to stored `updated_at`; choose `created_at`, `merged_at` or `fetched_at` explicitly when appropriate. A local miss is qualified by retained coverage. Reading a prior revision does not update it or revalidate its claims.
+
+Run an explicit refresh when requested, for a newly pointed repository, or to resolve missing/stale coverage:
+
+```bash
+researchctl refresh --only github --repo owner/new-repo
+```
+
+This is bounded/resumable and invocation-scoped; edit resolved `research/config.json` for a persistent watchlist change. All-history backfill retains opening bodies/basic metadata. Comments, reviews and diffs are selective deep reads. Exhausted archive cursors establish completion, not record count or issue numbering. A background downloader requires its host to remain running.
+
+`investigate` selects original text, open full text and pinned implementation evidence within budget. `--offline` uses retained/cached evidence. Mark abstracts, full text and actual code separately. `run` also refreshes configured feeds; use `investigate` to avoid that broader refresh. `--reason --brief FILE` optionally invokes model stages; no model calls occur by default. A source's author-reported speedup remains attached to its original conditions.
+
+## From evidence to a useful hypothesis
+
+For each lead, connect:
+
+> source mechanism → changed code and dispatch → actual workload exposure → affected service metric → contrary evidence → cheapest discriminating check
+
+This requires more than links or a generic rubric score. Inspect our image/source/runtime pins; keep missing facts explicit. Check memory for prior failures and explain any changed premise when reopening. Count a paper, its README and its PR as related evidence, not three independent replications. Require novelty only when the user requests it.
+
+Use [typed research contracts](RESEARCH_TO_IMPLEMENTATION.md) for new proposals:
+
+```bash
+researchctl --defer-snapshot claim record --record /path/to/claim.json
+researchctl --defer-snapshot hypothesis propose --record /path/to/proposal.json
+researchctl --defer-snapshot screen HYPOTHESIS_ID --record /path/to/screen.json
+researchctl --defer-snapshot eval-plan HYPOTHESIS_ID --record /path/to/plan.json
+researchctl --defer-snapshot decide HYPOTHESIS_ID --record /path/to/decision.json
+researchctl hypothesis show HYPOTHESIS_ID
+```
+
+Records retain exact source revisions, quotations, support/refutation, baseline and attributed decisions. Quote matching proves text presence, not entailment. Legacy `hypothesis record` remains supported for history; prefer typed `propose` for new work. Plain chat text is not persisted automatically.
+
+Adapt the rubric to the task. Separate applicability, materiality, diagnostic value and service qualification. A component result cannot be converted directly into ITL/TTFT/tail/capacity/dollars. For a conditional estimate, use sourced exposed critical-path savings, calls, relevant workload fraction, added overhead and useful progress in both arms. Unknown inputs remain unknown; an inexpensive CPU/source/trace diagnostic may still be valuable. See [ROI guidance](../ideation/docs/HYPOTHESIS_ROI.md).
+
+Reuse actual Mooncake/agent-75 manifests where their stimulus and observables cover the mechanism. Add a probe only for a documented gap. An installed evaluator name does not prove coverage. A checked plan is not execution authorization or a measured win. Execution is tracked separately in `researchctl experiment`, with immutable attempt scope and explicit outcomes; research commands do not launch Bitlane.
+
+## Interactive persistence and S3
+
+Default research mutations still snapshot, and publish when configured. For repeated interactive calls, explicit `--defer-snapshot` skips that per-call bulk snapshot while retaining committed local sources, dossiers and command journal. It is restricted to interactive research; refresh/backfill and experiment operations retain their existing checkpoints.
 
 ```bash
 researchctl status
-researchctl expand --question 'Reduce long-output ITL through adaptive speculation' \
-  --after 2026-09-01 --before 2026-10-23
-researchctl plan --query 'all:"adaptive speculation"'
-researchctl refresh --query 'all:"adaptive speculation"'
-researchctl search 'speculation acceptance draft' --after 2026-09-01 --before 2026-10-23 --limit 20
-researchctl show github:vllm-project/vllm:62541 --history
-researchctl history --limit 20
+researchctl snapshot --namespace research
+# Or explicitly capture a local recovery snapshot without publishing:
+researchctl --local-only snapshot --namespace research
 ```
 
-`expand` suggests queries; it does not contact a provider or assert relevance. Inspect the suggestions before passing selected arXiv expressions to `--query`. Configured keyword families supply aliases and broad discovery directions, while the user's question can introduce a new direction. `--repo` overrides repositories for one invocation; edit the resolved `research/config.json` for a persistent feed change. Completed tasks respect refresh intervals and successful responses use caching. New observations merge by source identity and retain observed material revisions.
+`pending-research-checkpoint.json` reports whether a recovery snapshot is still required. A failed checkpoint leaves pending state intact. A local checkpoint is not S3 publication. Only a successful publication receipt establishes backup; VM pull/restore requires its own receipt. Deferred calls still wait for the writer lock, including any backfill snapshot already underway.
 
-`search` is local and does not refresh automatically. Its date predicate is **stored `updated_at >= after` and `< before`**, not a universal publication-date filter. Provider discovery dates and stored created/revised/fetched timestamps remain distinct. Query expansion and lexical scores are retrieval aids, not estimated performance gains.
+For registered MCP clients, launch `research-mcp --allow-network --defer-snapshot` for local batching; add `--publish` only for the authoritative configured publisher. Call `checkpoint` at a useful batch boundary. Without `--allow-network`, live provider tools are denied. Without `--publish`, checkpoints remain local. This changes invocation behavior, not stored auto-publication configuration.
 
-Inspect command history for invocations and source checkpoints for ingestion progress. A command's completion timestamp is not proof that every configured feed was exhausted. A failed publication can leave valid newer local data; read its receipt before retrying.
+| State | Location under state root |
+|---|---|
+| Sources/revisions | `research/corpus.sqlite` |
+| Claims, hypotheses, screens, plans, decisions | `research/hypotheses.sqlite` |
+| Query plans, discoveries, deep-read receipts | `research/records/` |
+| Invocation journal | `commands.sqlite` (copy retained in snapshots) |
+| Experiment attempts | `experiments/experiments.sqlite3` |
+| Recovery payloads and writer ancestry | `archives/`, `lineage.json` |
 
-### All-history GitHub openings
-
-```bash
-researchctl --env-file /path/to/private/providers.env backfill start --publish-every 300
-researchctl backfill status
-researchctl backfill stop
-```
-
-The configured repository list comes from the resolved discovery config. This job resumes archive cursors and reports rate limits, progress and available ETA information. `GITHUB_TOKEN` or `GH_TOKEN` provides authenticated public API allowance; credentials stay in the provider environment/file. A GitHub read token for ingestion is separate from permission to push this code repository.
-
-Opening records include title, full initial body, URL, open/closed state, timestamps, labels and basic metadata. Comments, review threads, diffs and detailed PR file data are fetched selectively. Full-history completion requires exhaustion of the archive cursor for each configured repository; recent-window completion, an import receipt or a large record count does not establish that. Download speed depends on actual page latency and rate allowance. A background process still requires its host to stay running.
-
-### Deep reads
-
-```bash
-researchctl run --question 'When does adaptive draft length improve useful progress per cycle?' \
-  --deep-count 3 --max-http-calls 12
-```
-
-This refreshes due sources within limits and builds a bounded dossier. Add repeated `--source-id` to select exact records. Paper discovery uses arXiv, OpenAlex and Hugging Face; the reader obtains supported open full text where available. Metadata, abstracts, full text and actual implementation reads have different evidence strength. Unresolved citations remain explicit. There is no promise that every paper is freely available or that every linked repository was inspected. Known URLs and local retrieval do not require spending a Serper search request.
-
-Use `--offline` for cached-only inspection. `--reason` opts into model calls and cannot be combined with `--offline`. Exact pinned `{repo, ref, path}` entries under the brief's `code_sources` direct inspection to implementation files; automatic README discovery alone does not verify the active code path.
-
-## 2. Adapt selection to the task
-
-A brief should identify the actual model/image/commit, GPU topology, workload manifest, objective and operating region, separate correctness/tail guards, constraints and available budget. Unknown pins or timings stay unknown. For the current improvement-oriented task:
-
-```json
-{
-  "name": "Improve our deployed long-output ITL",
-  "count": 3,
-  "baseline": {"unknown": true, "needed": "Current image digest, topology and workload manifest"},
-  "target": {"objective": "Long-output ITL", "workload": "Pinned Mooncake and agent-75"},
-  "selection": {"require_novelty": false},
-  "instructions": "Known methods and upstream ports are welcome. Establish local applicability, estimate exposed saved time, and prioritize CPU/source/trace checks. Treat unknown ROI as a named diagnostic, not an invented speedup. Reuse existing evaluators unless they cannot expose the mechanism.",
-  "constraints": ["No GPU execution in this research stage", "Separate correctness and tail guards"]
-}
-```
-
-Save it as a task JSON, then:
-
-```bash
-researchctl run --question 'Find useful changes for this deployment' \
-  --reason --brief /path/to/task.json --deep-count 3 --max-http-calls 12
-```
-
-This uses the existing evidence extraction → task rubric → proposal → critique stages. Exact-quote checks establish that quoted text exists, not that a paper's claim transfers to our hardware. Task-defined criteria/weights and mandatory evidence requirements determine selection. Scientific novelty is off by default. Deduplicating two equivalent experiments does not require an unpublished idea.
-
-Read [the ROI guidance](../ideation/docs/HYPOTHESIS_ROI.md) for screening. Distinguish the following questions:
-
-1. **Applicability:** Is the affected path active, or what integration enables it? Source inspection and existing logs may answer this with no GPU time.
-2. **Materiality:** How much exposed time can the change remove at relevant shapes/load, after overhead? Work counts or component percentages do not answer this by themselves.
-3. **Cheapest discriminating test:** Which measurement would change the decision? Prefer existing traces, counters, CPU replay and correctness checks, then a bounded native/component probe if needed.
-4. **Service qualification:** Can a matched unprofiled benchmark demonstrate the frozen objective without violating guards?
-
-For fixed useful progress, conditional ITL saving is exposed saved cycle time divided by useful output tokens per cycle. If draft acceptance changes, compare time per useful token for both arms. Overlapped work, parallel ranks, affected request fraction and new control overhead matter. Queueing tails, capacity and dollars require separate reasoning and measurements. A small diagnostic with unknown ROI can be worthwhile; an expensive confirmation needs stronger justification.
-
-`researchctl prescreen --record /path/to/prescreen.json` records the explicit task and arithmetic inputs/unknowns. Start from [prescreen-example.json](../ideation/config/prescreen-example.json), whose numbers are explicitly illustrative, and replace them with sourced inputs or unknowns. Its schema separates baseline iteration time, component savings, calls per iteration, exposed fraction, accepted progress, evidence/assumptions and tail guards. Its estimate is a conditional scenario, not measured service improvement or independent scientific review. Select a minimum worthwhile gain for this task; no historical campaign threshold is universal.
-
-## 3. Persist chat-authored ideas too
-
-Plain chat text is not automatically memory. `run --reason` persists its generated proposals and decisions. For an idea authored/reviewed in the current chat, write a record and use:
-
-```bash
-researchctl hypothesis record --record /path/to/chat-card.json
-researchctl hypothesis recall --query sampler --limit 20
-```
-
-The input shape is:
-
-```json
-{
-  "run_id": "my-research-batch",
-  "card": {
-    "id": "H1",
-    "statement": "A conditional improvement claim for the stated baseline",
-    "mechanism": "The work or waiting removed",
-    "proposed_change": "Specific implementation or configuration change",
-    "parents": [],
-    "evidence": []
-  },
-  "brief": {
-    "baseline": {"unknown": true},
-    "selection": {"require_novelty": false}
-  },
-  "disposition": {
-    "status": "proposed",
-    "reasons": ["Source applicability still needs inspection"]
-  },
-  "prescreen": {
-    "expected_relative_gain": null,
-    "unknowns": ["Exposed time on target path"],
-    "next_check": "Inspect dispatch and retained profile"
-  }
-}
-```
-
-Evidence entries use `{source_id, quote, relation}` with `supports`, `challenges` or `context`; source IDs must exist locally and quotations must match their text. An accepted selection additionally requires source evidence and an explicit prescreen record. Unknown gain can remain unknown. The command records a **caller-attributed** verdict and quote integrity, not an independently validated improvement. Keep all proposals including rejected/deferred ones.
-
-The same `run_id` and card ID with identical content is retry-safe. Changed immutable card content requires a new ID, with the original in `parents`. A changed disposition for the same immutable card appends a review and preserves previous reviews. Experiment outcomes cannot be supplied as selection statuses. The existing hypothesis SQLite graph is reused; this does not create a second memory system.
-
-## 4. Implementation and evaluation handoff
-
-Use the implementation skill to produce a pinned change plan, correctness test, CPU-first falsification, matched control/treatment, evaluator commands, cost estimate and stopping conditions. Reuse Mooncake and agent-75/AIPerf manifests from the actual deployment. Add an evaluator only with a documented missing stimulus or observable; an installed tester's name does not prove it covers the mechanism.
-
-```bash
-researchctl experiment create --record /path/to/attempt.json
-researchctl experiment get ATTEMPT_ID
-researchctl experiment transition ATTEMPT_ID --record /path/to/transition.json
-researchctl experiment list --scope service
-```
-
-See [portable setup](PORTABLE_SETUP.md#independent-experiment-registry) for the attempt schema. Each attempt has a fixed hypothesis/baseline and component, native or service scope. Selection acceptance is not validation. An execution error is not an invalidated hypothesis. New attempts preserve the old attempt and link its ID. This registry records execution; it does not launch Bitlane or design custom evaluators automatically.
-
-## 5. State, S3 and another node
-
-| State | Location under the configured state root | Meaning |
-|---|---|---|
-| Research sources | `research/corpus.sqlite` | Documents, observed revisions, retrieval graph and feed checkpoints |
-| Hypotheses | `research/hypotheses.sqlite` | Immutable cards, task/policy/baseline snapshots, source links and dispositions |
-| Dossiers/receipts | `research/records/` | Reproducible run inputs and outputs |
-| Invocation journal | `commands.sqlite` | Command starts/finishes; a copy at `research/command-history.sqlite` is included in snapshots |
-| Experiment attempts | `experiments/experiments.sqlite3` | Append-only scoped attempts and outcomes |
-| Retained small evidence | `experiments/artifacts/` | Verified content-addressed files |
-| Snapshots/lineage | `archives/`, `lineage.json` | Immutable recovery payloads and this writer's known published/restored ancestor |
-
-`researchctl remote show` reports configured publication. With `auto_publish` enabled, supported mutations snapshot and publish using conditional lineage checks. Pure searches are local; explicit offline operations do not silently publish. Invocation history records tool activity; it does not prove publication or external evaluation occurred. A command's finish event occurs after its own snapshot and is retained in the next snapshot.
-
-On a node with read access to the approved bucket:
-
-```bash
-researchctl sync-replica --bucket autoresearch-641134885443-us-east-1 \
-  --prefix autoresearch --region us-east-1 --namespace research
-researchctl --replica status
-researchctl --replica search 'adaptive speculation' --limit 10
-```
-
-Replica synchronization restores a verified version into a separate directory and updates `replicas/research/CURRENT.json`. It does not overwrite the canonical writer's database or reconcile a VM's independent unpublished work. `--replica` selects the research read replica for `status`, `search` and `show`; write commands are not permitted in replica mode. Code releases still travel separately through Git or the documented S3 Git-bundle fallback. A successful S3 publication alone does not establish that every VM has pulled it. A scheduled pull, when installed, is a separate observable process; inspect its latest receipt rather than assuming it ran.
+Preserve one authoritative writer per lineage. Never adopt remote HEAD to bypass a conflict. VM replica reads use `--replica search/show/status`; independent node research needs an isolated workspace and deliberate canonical import. See [portable setup](PORTABLE_SETUP.md) and [storage](../ideation/docs/STORAGE.md). Git code release, S3 research backup and VM restoration remain separate operations.
 
 ## Honest capability boundary
 
-The system provides persistent retrieval, evidence/proposal records, conditional screening, append-only experiment tracking and portable snapshots. Chat reasoning or optional bounded model calls supply research judgment. It does not establish research quality from source count, estimate exact service gains from titles, reproduce every paper, continuously reason without invocation, execute GPU experiments from a research request, or turn a component result into a serving win. Those distinctions remain visible in records and final reports.
-
-
-## Refined evidence-to-experiment interface
-
-Use [Research to implementation](RESEARCH_TO_IMPLEMENTATION.md) for typed source claims, hypothesis-linked screens, checked evaluation plans, decisions, source-change review and the optional MCP server. The host agent retains scientific judgment. The journal now retains normalized, credential-redacted queries with config/code provenance; provider billing remains unknown.
+The system supplies online retrieval, cached evidence, structured memory, conditional arithmetic and reproducibility checks. The host agent performs semantic expansion, adapts research, judges relevance and critiques hypotheses. No tool guarantees independent corroboration, full literature recall, scientific merit, exact service gain or continuous unattended research. A useful outcome may be a rejected hypothesis or a precise missing measurement.

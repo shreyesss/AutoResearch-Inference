@@ -1,0 +1,1054 @@
+[
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "target": "Flash-1017 revision1bae0e1088993b9b82de08f59de5be5a34e42170; planned two DEP4 groups; not verified live",
+      "code_pin": "c4557869393db4d75c483d92edd02a5125500883",
+      "gain_estimate": null,
+      "execution_authorized": false,
+      "gpu_calls": 0,
+      "review_kind": "self plus independent guided_adversary",
+      "id": "M01",
+      "statement": "Select MegaMoE GEMM tile configurations using layer/rank routing distributions at fixed SM allocation, retaining a fixed-tactic fallback.",
+      "mechanism": "Pinned DeepGEMM chooses block_m from uniform expected tokens per expert plus sqrt margin. At fixed token count, real histograms can change the number of expert tiles and padding; changing legal block_m may trade weight reloads against padded arithmetic. Preserve expert IDs/weights, placement, quantization, communication policy and SM allocation.",
+      "proposed_change": "First qualify a small per-layer and token-bucket tactic table from actual physical histogram evidence; use a fixed tactic within each captured layer/bucket where stable. Only if within-bucket variation matters, consider GPU-resident histogram-conditioned selection. Expose legal block_m through DeepGEMM API/layout rather than assume existing FlashInfer environment flag reaches MegaMoE. Co-design symmetric buffer, scale layout, ring divisibility and rank compatibility before any dynamic launch. No implementation authorized.",
+      "supportsources": [
+        {
+          "url": "https://arxiv.org/html/2607.23099v1",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/2607.23099v1.html",
+          "quote": "the best fused-MoE kernel changes with routing skew and token count"
+        },
+        {
+          "url": "https://github.com/vllm-project/DeepGEMM/blob/a7a927731b109fdfec770df7c2a5be5d7e2216b5/csrc/jit_kernels/heuristics/mega_moe.hpp",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/dg__csrc__jit_kernels__heuristics__mega_moe.hpp",
+          "quote": "Expected tokens per expert, plus a one-sigma routing margin"
+        },
+        {
+          "url": "https://github.com/flashinfer-ai/flashinfer/pull/4106",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/github_flashinfer-ai_flashinfer_4106.md",
+          "quote": ""
+        }
+      ],
+      "counterevidence": [
+        "DA-MoE source measurements use TRTLLM/FlashInfer NVFP4 on DeepSeek-V3/Kimi, not Flash-1017 MXFP4 MegaMoE. Source full MoE-graph measurements are not request E2E measurements.",
+        "Paper reports ~14us full selector/control overhead per graph; a faster tactic can lose overall. PR5194 newer PrimsTS experiments show many near-neutral or slower cells; no advantage over best fixed tactic established.",
+        "DeepGEMM381 only calibrated EP8/E256/K8/H7168/I2048 and near128expectedTPE; changed wave size saved~1.27% in one testedcell, broader policies regressed. Target EP4/E384/K6 differs; do not import its flag or gain.",
+        "Routing histogram is not sufficient latency estimator; locality, communication, activation shape, quantization and synchronization still matter."
+      ],
+      "pincheck": {
+        "absent": "Actual-histogram-conditioned block-M choice absent in inspected c455 wrapper and default CMake-pinned DeepGEMM heuristics. No claim about an overridden/deployed DeepGEMM binary.",
+        "locations": [
+          "deep_gemm_mega_moe.py652-666 get_block_m; 762-774 capture logical IDs before EPLB remap",
+          "deepgemm.cmake sets default pin a7a927 but DEEPGEMM_SRC_DIR can override",
+          "DeepGEMM heuristics/mega_moe.hpp get_block_config_for_mega_moe",
+          "DeepGEMM APIs accept optional cumulative_local_expert_recv_stats; vLLM wrapper inspected does not wire it"
+        ]
+      },
+      "priorcomparison": "Refines old shape-bucket backend selection by same shape + different actual distribution, inside existing MegaMoE; separate from N03 communication/compute SM partition and DeepGEMM381 wave sizing. Shared routing evidence does not make these identical interventions.",
+      "status": "advance_to_bounded_source_and_CPU_diagnostic",
+      "readiness": "Mechanism/source gap supported; actual profitable tactic and target distributions unknown. Not implementation-qualified or service-qualified.",
+      "CPUcheck": {
+        "executed": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/da_cpu_discriminator.json",
+        "result": "Pinned heuristic chooses block16 for both synthetic fixed-count histograms; uniform96x8 gives96tiles/padded1536, concentrated16x48 gives48tiles/padded768. block64 yields96tiles/padded6144 vs16tiles/padded1024. These competing work proxies establish that count alone loses information, not that64isfaster.",
+        "next": "Use any already-retained physical receive histograms, never launch GPUs to collect. Inventory legal tile/layout combinations and counter semantics. If no retained histograms, preserve source-qualified research idea and defer quantitative benefit. Current capture_fn is logical/pre-remap; cannot call it rank-local receive data."
+      },
+      "evalplan": {
+        "future_only": true,
+        "control": "Best fixed layer/bucket legal tactic and present heuristic; candidate dynamic only after it beats strong fixed control incl selectorcost.",
+        "correctness": "Identical selected experts and routing weights, valid logical-to-physical mapping, per-layer numerical comparison and full output parity/repeatability under samequant; graph pointer/layout lifetime and heterogeneous rank contracts.",
+        "service": "Reuse AIPerf agent-p75 and Mooncake median/burst/cache-heavy; paired same tokenIDs, arrivals, prefixes, lengths and seeds. Primary target metric frozen by task before run; report TTFT/ITL/TPOT/E2E and goodput plus tail/errors.",
+        "addition_reason": "Existing evaluators observe service outcomes but not physical expert histograms or selectedtile exposure. Add bounded mechanism counters/tactic receipts only, separate instrumentation pass. No new loadgenerator.",
+        "decision": "Reject if histograms do not change profitable tactic choice, legal variants incompatible, or total MoE+control/service cost regresses. Keep null/inconclusive results."
+      },
+      "synthesis": {
+        "reuse": [
+          "DA-MoE distribution-specific kernel selection",
+          "existing MegaMoE computation/communication integration",
+          "PR5194 single-body vs switch vs fallback distinction"
+        ],
+        "omit": [
+          "Neural training",
+          "TRTLLM backend swap",
+          "paper headline transfer",
+          "mandatory per-round CPU copy of histogram"
+        ],
+        "compatibility_unknowns": [
+          "Per-rank different block_m safety with shared symmetric ring/scale layout",
+          "bestfixedpolicy vs dynamic overhead",
+          "actual format/image pin"
+        ]
+      },
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": \"/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/da_cpu_discriminator.json\", \"result\": \"Pinned heuristic chooses block16 for both synthetic fixed-count histograms; uniform96x8 gives96tiles/padded1536, concentrated16x48 gives48tiles/padded768. block64 yields96tiles/padded6144 vs16tiles/padded1024. These competing work proxies establish that count alone loses information, not that64isfaster.\", \"next\": \"Use any already-retained physical receive histograms, never launch GPUs to collect. Inventory legal tile/layout combinations and counter semantics. If no retained histograms, preserve source-qualified research idea and defer quantitative benefit. Current capture_fn is logical/pre-remap; cannot call it rank-local receive data.\"}",
+      "prior_comparison": "Refines old shape-bucket backend selection by same shape + different actual distribution, inside existing MegaMoE; separate from N03 communication/compute SM partition and DeepGEMM381 wave sizing. Shared routing evidence does not make these identical interventions."
+    },
+    "claim_links": [
+      {
+        "claim_id": "claim:6fb1b5d7702bef0f5bc244ad1fbdbc584a1a63b74ef35c6284d100cb0632eeda",
+        "relation": "supports",
+        "rationale": "Retained primary-source premise; transfer and service benefit remain unverified"
+      },
+      {
+        "claim_id": "claim:eadaf969505ddeaf230dd93e15c359057d44b378f96ddc5a7123db246180d1ab",
+        "relation": "supports",
+        "rationale": "Retained primary-source premise; transfer and service benefit remain unverified"
+      }
+    ]
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "target": "Flash-1017 revision1bae0e1088993b9b82de08f59de5be5a34e42170; planned two DEP4 groups; not verified live",
+      "code_pin": "c4557869393db4d75c483d92edd02a5125500883",
+      "gain_estimate": null,
+      "execution_authorized": false,
+      "gpu_calls": 0,
+      "review_kind": "self plus independent guided_adversary",
+      "id": "M02",
+      "statement": "Replace generic sparse-index TopK with HPC-Ops sample-guided selector.",
+      "mechanism": "Early sampled threshold plus full-row certification and exact refinement can reduce repeated score scans.",
+      "proposed_change": "Direct port was rejected. Retain only a possible future producer-K2048 comparison on sufficiently long block-score rows, after distinguishing existing sampled selector and DeepSelect path.",
+      "supportsources": [
+        {
+          "url": "https://arxiv.org/html/2609.08450v1",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/2609.08450v1.html",
+          "quote": ""
+        },
+        {
+          "url": "https://github.com/Tencent/hpc-ops/blob/f39028d9f5ab77f71906fbf929d1b611859ab6b7/src/topk/topk_filtered.cu",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/hpc__src__topk__topk_filtered.cu",
+          "quote": "No sampled variant at 512"
+        }
+      ],
+      "counterevidence": [
+        "Target indexTopK512: author code selects unsampled kernel for512. Paper performance H20 Hy4 K2048 128K–1M rows, not target service.",
+        "c455 already contains sampled_topk.cuh with exact fallback; generic mechanism not absent. Candidate producer uses length-aware DeepSelect; producerK2048 is distinct from tokenK512.",
+        "Scalar topK exactness allows arbitrary boundary ties; different KV membership can change downstream logits.",
+        "Short compressed/block-score rows in agent-p75 do not establish paper long-row exposure."
+      ],
+      "pincheck": {
+        "already_present": [
+          "csrc/sampled_topk.cuh",
+          "candidate_blocks.py valid_blocks/DeepSelect path"
+        ],
+        "missing": "HPC particular fused validation/refinement implementation not found in inspected dispatch; this does not itself imply benefit"
+      },
+      "priorcomparison": "E06 already proposes selector qualification; no standalone new acceptance for adding another library without target differentiation.",
+      "status": "reject_direct_port",
+      "CPUcheck": {
+        "executed": "Source inspection pinnedHPC K512 false and c455 existing sampledimplementation",
+        "next": "Only reopen on target longrow contract and specific reducedpass delta; preserve producer/consumer distinction"
+      },
+      "evalplan": {
+        "future_only": true,
+        "correctness": "Target membership, ties, newestblock, NaN/inf/sentinel, raggedrow andgraph replay semantics before operatorbenchmark",
+        "service": "Reuse existing workloads only if they expose eligible rowlengths; otherwise targetedlongcontext probe needs explicitlydifferent workloadscope"
+      },
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": \"Source inspection pinnedHPC K512 false and c455 existing sampledimplementation\", \"next\": \"Only reopen on target longrow contract and specific reducedpass delta; preserve producer/consumer distinction\"}",
+      "prior_comparison": "E06 already proposes selector qualification; no standalone new acceptance for adding another library without target differentiation."
+    },
+    "claim_links": [
+      {
+        "claim_id": "claim:bb1dd4ece7e4eb2a51c95c82c9b08b26b3e44d1a7dc562a68f93cf60b3e991e0",
+        "relation": "supports",
+        "rationale": "Retained primary-source premise; transfer and service benefit remain unverified"
+      }
+    ]
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "target": "Flash-1017 revision1bae0e1088993b9b82de08f59de5be5a34e42170; planned two DEP4 groups; not verified live",
+      "code_pin": "c4557869393db4d75c483d92edd02a5125500883",
+      "gain_estimate": null,
+      "execution_authorized": false,
+      "gpu_calls": 0,
+      "review_kind": "self plus independent guided_adversary",
+      "id": "M03",
+      "statement": "Skip candidate-producer block ranking when every valid candidate block fits the2048block budget.",
+      "mechanism": "Source scans blockmaxima then ranks even in all-candidates regime. A per-row membership shortcut might eliminate only block-scoring/selection, preserving producer tokenTop512 and later indexers.",
+      "proposed_change": "Unconditional enumeration is invalid; revise to branch-specific invariant investigation. Need prove no legitimate all-minus-infinity valid block or preserve current exclusion semantics; not implement bypass untilresolved. GPU-side row condition only, no hostsync.",
+      "supportsources": [
+        {
+          "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/model_executor/kernels/attention/dsa/candidate_blocks.py",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/vllm__vllm__model_executor__kernels__attention__dsa__candidate_blocks.py",
+          "quote": "Select local block IDs by maximum score, pinning each row's newest block."
+        },
+        {
+          "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/1bae0e1088993b9b82de08f59de5be5a34e42170/config.json",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/model-config.json",
+          "quote": ""
+        }
+      ],
+      "counterevidence": [
+        "Reviewer executed CPU counterexample: valid all-inf producerblock dropped by fallback, futureconsumerfinite scorewould be reintroduced byenumeration. Not observedtargetinput, but disproves unconditional claim.",
+        "Eligibility is ceil((min(end,width)-start)/8)<=2048 in compressed rowspace, not merely rawpromptlength. newestblock pin uses unclamped end; rowrepeat/padding matter.",
+        "DeepSelect may already shortcut ranking; only blockscore reduction mayremain. Measureactualexposedcost later, not infer2kernelsremoved.",
+        "SparseMQA candidate expansion sortsascending, resolving initial order-only objection onthatbranch; otherbranches remainseparate."
+      ],
+      "pincheck": {
+        "absent": "No per-row bypass before blockscore kernel in inspected candidate_blocks.py",
+        "scope": "layer20 candidate producer; never skip tokenTop512"
+      },
+      "priorcomparison": "Narrower than existing #61039 length-aware scan: avoids rankproblem entirely only whenalleligible. New conditionalpremise, not rebrand fullwidth fix.",
+      "status": "revise_defer_semantics",
+      "CPUcheck": {
+        "executed": "../review/candidate_bypass_counterexample.py and .json byindependentreviewer",
+        "next": "Audit finite-score and backend contracts; preserve sentinelmembership. If no safe cheap predicate, rejectshortcut rather thanaddcheckcostblindly."
+      },
+      "evalplan": {
+        "future_only": true,
+        "correctness": "Differential candidate membership through downstream consumers; all-inf/NaN/newestblock, clampedbounds, rowrepeat, padding, DSpark positions.",
+        "service": "Existing agent-p75 and Mooncake cover shortcontexts; need only perroweligiblecounts/kernelcomponentcounters, no customload.",
+        "ROI": "Unknown; only oneproducerlayer and alreadycheap selection maymake serviceimpactnegligible."
+      },
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": \"../review/candidate_bypass_counterexample.py and .json byindependentreviewer\", \"next\": \"Audit finite-score and backend contracts; preserve sentinelmembership. If no safe cheap predicate, rejectshortcut rather thanaddcheckcostblindly.\"}",
+      "prior_comparison": "Narrower than existing #61039 length-aware scan: avoids rankproblem entirely only whenalleligible. New conditionalpremise, not rebrand fullwidth fix."
+    },
+    "claim_links": [
+      {
+        "claim_id": "claim:50313cfc7ecf06a544629a51495aae00fccfb994b327df55bb9e1e4c37626390",
+        "relation": "supports",
+        "rationale": "Retained primary-source premise; transfer and service benefit remain unverified"
+      }
+    ]
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "target": "Flash-1017 revision1bae0e1088993b9b82de08f59de5be5a34e42170; planned two DEP4 groups; not verified live",
+      "code_pin": "c4557869393db4d75c483d92edd02a5125500883",
+      "gain_estimate": null,
+      "execution_authorized": false,
+      "gpu_calls": 0,
+      "review_kind": "self plus independent guided_adversary",
+      "id": "M04",
+      "statement": "Enable or integrate HiSparse bounded resident KV tier for Flash-1017.",
+      "mechanism": "Keep complete sparse KV inhost and resolve selected positions into bounded GPU cache. Selective reuse keeps modelselection unchanged; gains require KVcapacitypressure exceeding transfercost.",
+      "proposed_change": "Low-change flag activation rejected. Separate integration remains deferred: V4.1 sparsecompressed/source-shared caches must acquire correct host/hot layout and CED/SWA/DSpark lifecycle.",
+      "supportsources": [
+        {
+          "url": "https://arxiv.org/html/2608.07009v1",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/2608.07009v1.html",
+          "quote": ""
+        },
+        {
+          "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/hisparse/layout.py",
+          "path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/sources/vllm__vllm__v1__hisparse__layout.py",
+          "quote": "HiSparse does not support DeepSeek V4."
+        }
+      ],
+      "counterevidence": [
+        "V41 attention.py returns model_version=deepseek_v4; HiSparse layout explicitly rejects that version. Existinggeneralfeature doesnotmake exacttargetcompatible.",
+        "SGLang44684 open V4FlashFP8 TP8H20DSpark accuracycheck exists, no speedtable; not V4.1 CED/CSA2 integrationproof.",
+        "FP8 compressed/source-shared targetKV can have less capacitypressure than GLMpaper; hostEngram competes for hostmemory/bandwidth."
+      ],
+      "pincheck": {
+        "incompatible_activation": "attention.py1195-1214 => hisparse/layout.py rejection",
+        "source_existing": "Generic HiSparse present; target adapter absent in inspected path"
+      },
+      "priorcomparison": "Prior corpus alreadylisted #53781 asimplemented; this corrects eligibility instead of claimingnewfeature.",
+      "status": "defer_integration_reject_flag",
+      "CPUcheck": {
+        "executed": "Version-field/rejection source chain",
+        "next": "Compute targetKV bytes from cachegroup manifests and retained pressurelogs; enumerate source-sharedcache ownership; noGPU"
+      },
+      "evalplan": {
+        "future_only": true,
+        "service": "Reuse Mooncake cache-heavy+burst andagent-p75; ifnoKVpressure, do notclaimnegativecapacityresult universal.",
+        "addition_reason": "Host/hotmisses, byte traffic and sourcecacheownership needed; only extendcontext distribution if specificallytesting capacitybeyondexistingload."
+      },
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": \"Version-field/rejection source chain\", \"next\": \"Compute targetKV bytes from cachegroup manifests and retained pressurelogs; enumerate source-sharedcache ownership; noGPU\"}",
+      "prior_comparison": "Prior corpus alreadylisted #53781 asimplemented; this corrects eligibility instead of claimingnewfeature."
+    },
+    "claim_links": [
+      {
+        "claim_id": "claim:7742d18442aa6e1ff7229ba8a792b7fea1f483cde09ca32f28adaf69db1553c6",
+        "relation": "supports",
+        "rationale": "Retained primary-source premise; transfer and service benefit remain unverified"
+      }
+    ]
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "id": "S01",
+      "statement": "Exact renderer-aware CPU prefix repair may reduce frontend TTFT when text requests repeat long context; target benefit remains unmeasured.",
+      "mechanism": "Retain exact token state after the existing custom V4.1 renderer. Reuse only a certified unchanged rendered prefix and re-encode changed suffixes, falling back to whole-reference encode for unsupported or changed semantics.",
+      "proposed_change": "Adapt CPU repair component from TokTier/Delta Tokenizer to exact Flash1017 added-token configuration and suffix rewrites. Do not enable optional GPU tokenizer, replace checkpoint tokenizer, bypass renderer, or alter serving code in this research stage.",
+      "support": [
+        {
+          "source_url": "https://arxiv.org/html/2607.29678v1",
+          "source_path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/sources/2607.29678v1.html",
+          "quote": "accepts the splice only when a per-request check finds a stable pre-tokenization boundary",
+          "read_depth": "full mechanism, constraints and evaluation sections",
+          "relation": "CPU incremental-repair mechanism; requires target-specific boundary proof and fallback"
+        },
+        {
+          "source_url": "https://arxiv.org/html/2610.19801v1",
+          "source_path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/sources/2610.19801v1.html",
+          "quote": "a short incremental job can run in between one long request’s chunks",
+          "read_depth": "full mechanism and evaluation sections",
+          "relation": "optional CPU scheduling extension, only if later bottleneck evidence warrants"
+        },
+        {
+          "source_url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/tokenizers/deepseek_v41.py",
+          "source_path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/sources/vllm__tokenizers__deepseek_v41.py",
+          "quote": "return self.encode(prompt, add_special_tokens=False, **tokenizer_kwargs)",
+          "read_depth": "complete pinned file",
+          "relation": "inspected Python wrapper re-encodes rendered prompt"
+        },
+        {
+          "source_url": "https://github.com/asu-idi/toktier/blob/0591fe18235f3e64f0576fa7f77a0804af1ba5c2/docs/support-matrix.md",
+          "source_path": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/toktier/docs/support-matrix.md",
+          "quote": "same pipeline, different added-token table",
+          "read_depth": "support matrix exact-target section and repair registry/code",
+          "relation": "narrow exact-artifact adaptation opportunity; not ready-made certification"
+        }
+      ],
+      "counterevidence": [
+        "Exact Flash1017 tokenizer hash c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b absent both TokTier artifact and repair registries; default package falls back.",
+        "Actual CPU target-vs-anchor tests differ18/18changed literals; naive append concatenation wrong254/300targeted boundaries.",
+        "Pinned default thinking/drop_thinking rewrites trailing marker in2/8constructed transitions; pureappend cache misses this path.",
+        "Render serialization/materialization remain; no current CPU timing or TTFT exposure measured.",
+        "Installed Bitlane sweep explicitly configures chat endpoints, but agent-p75 fixedprefix workload is not a sessionappend trace. Existing multiturn profile lacks session_header flag; real frontend/sessionidentity unresolved."
+      ],
+      "pincheck": {
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "model_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "live_image_equivalence": "unknown",
+        "gpu_experiments": 0,
+        "measured_service_gain": null,
+        "tokenizer_sha256": "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b",
+        "toktier_commit": "0591fe18235f3e64f0576fa7f77a0804af1ba5c2",
+        "absence_scope": "Inspected Python wrapper and HF property-cache helper; no global/live absence claim"
+      },
+      "priorcomparison": {
+        "nearest": "pr-evaluation-audit-001/E18 HF tokenizer cache #47583",
+        "changed_premise": "Custom V4.1 exact-artifact repair and post-render edits, not old generic HF cache activation.",
+        "prior_new": true
+      },
+      "status": "advance_to_bounded_cpu_compatibility_diagnostic",
+      "scientific_validity": "unverified",
+      "execution_authorized": false,
+      "CPUcheck": {
+        "executed": [
+          "cpu_tokenizer_audit.py",
+          "cpu_tokenizer_counterexamples.py",
+          "cpu_render_prefix_audit.py"
+        ],
+        "not_executed": [
+          "TokTier repair on target",
+          "HTTP path",
+          "service timing"
+        ],
+        "next": "Exact1017 loader/certificate tests, rendered suffix-edit differential, and runtime frontend/sessionidentity check. Standard sweep source configuredchat; no HTTPcapture.",
+        "stop": "Any token mismatch disables fast route. No text exposure defers presentbenchmark claim. No reproducible repeat text defers reuse.",
+        "reproduction": [
+          {
+            "command": "python3 /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_tokenizer_audit.py",
+            "probe_sha256": "fa82436bfd835002890c8382fc8d67bbfa95aec1dd6f82399e635938b73265ff",
+            "inputs": [
+              "sources/tokenizer.json",
+              "sources/anchor-tokenizer.json",
+              "toktier/tables/support_registry.json",
+              "toktier/src/toktier/repair/tables/fast_repair_families.v1.json"
+            ],
+            "supports": "Exacttarget pipeline matchesanchor and difference remains finiteaddedtokenentries",
+            "refutes": "Target pipeline or flags differ beyond understoodpremises",
+            "inconclusive": "Absentexactartifact/registry or unresolvedloader"
+          },
+          {
+            "command": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu-venv/bin/python /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_tokenizer_counterexamples.py",
+            "probe_sha256": "f665ca4ad540f5fa97c0ed42aeab929317ce0e516be50524a39b52abee30710a",
+            "environment": "tokenizers0.22.2 isolatedCPUreference, not deployedloader",
+            "supports": "Counterexamples reproduced; targetliteralcontract required",
+            "refutes": "A proposed shortcut disagrees on orderedIDs",
+            "inconclusive": "No shortcutcounterexample does not certifyrepair"
+          },
+          {
+            "command": "python3 /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_render_prefix_audit.py",
+            "probe_sha256": "a3b3362084e50910d40da1ce0036f9c11f48ec3b4a325ad3f9f5165be31e076d",
+            "supports": "Actualrendererproduces suffixrewrites that boundedrepairmusthandle",
+            "refutes": "Appendonlyapplicationassumption fails",
+            "inconclusive": "Syntheticthree-turncoverage not runtimeworkload"
+          }
+        ]
+      },
+      "evalplan": {
+        "now": "CPU compatibility, source eligibility and existing workload payload audit only",
+        "later": "Retain standard Mooncake and agent-p75 chat controls; reuse existing multiturn.yaml for growinghistory exposure. Add CPUexactness fixtures only, not a new loadharness. Verify explicit or contentderived session identity because config lacks session_header.",
+        "metrics": [
+          "ordered token-ID equality",
+          "CPU encode including materialization",
+          "fallback fraction",
+          "state memory",
+          "TTFT p50/p95/p99",
+          "request goodput",
+          "ITL guardrail",
+          "errors"
+        ],
+        "gap": "Current standard fixtures contain repeatedprefix but not established sessionappend relationships. Existingmultiturn covers growingturns but not tokenizerboundary/adversarial renderer correctness."
+      },
+      "synthesis": {
+        "parts_used": [
+          "TokTier stable-boundary CPU repair",
+          "DeltaTokenizer shortjob/chunk schedule optionalextension"
+        ],
+        "parts_omitted": [
+          "GPU full tokenizer",
+          "unverified V4 tokenizer substitution",
+          "unmeasured universal ROI"
+        ],
+        "dependence": "Sameauthors/evidence lineage, not independent replication; preserve tokenizer semantics."
+      },
+      "review": {
+        "kind": "delegated",
+        "reviewer": "guided_adversary",
+        "verdict": "advance_bounded_cpu_compatibility_and_exposure_diagnostic",
+        "scope": "No targetrepair or deployedloadervalidation performed; no accelerationclaim; sameauthors notindependent; exactrepeatedpayload/sessionmapping stillrequired."
+      },
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": [\"cpu_tokenizer_audit.py\", \"cpu_tokenizer_counterexamples.py\", \"cpu_render_prefix_audit.py\"], \"not_executed\": [\"TokTier repair on target\", \"HTTP path\", \"service timing\"], \"next\": \"Exact1017 loader/certificate tests, rendered suffix-edit differential, and runtime frontend/sessionidentity check. Standard sweep source configuredchat; no HTTPcapture.\", \"stop\": \"Any token mismatch disables fast route. No text exposure defers presentbenchmark claim. No reproducible repeat text defers reuse.\", \"reproduction\": [{\"command\": \"python3 /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_tokenizer_audit.py\", \"probe_sha256\": \"fa82436bfd835002890c8382fc8d67bbfa95aec1dd6f82399e635938b73265ff\", \"inputs\": [\"sources/tokenizer.json\", \"sources/anchor-tokenizer.json\", \"toktier/tables/support_registry.json\", \"toktier/src/toktier/repair/tables/fast_repair_families.v1.json\"], \"supports\": \"Exacttarget pipeline matchesanchor and difference remains finiteaddedtokenentries\", \"refutes\": \"Target pipeline or flags differ beyond understoodpremises\", \"inconclusive\": \"Absentexactartifact/registry or unresolvedloader\"}, {\"command\": \"/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu-venv/bin/python /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_tokenizer_counterexamples.py\", \"probe_sha256\": \"f665ca4ad540f5fa97c0ed42aeab929317ce0e516be50524a39b52abee30710a\", \"environment\": \"tokenizers0.22.2 isolatedCPUreference, not deployedloader\", \"supports\": \"Counterexamples reproduced; targetliteralcontract required\", \"refutes\": \"A proposed shortcut disagrees on orderedIDs\", \"inconclusive\": \"No shortcutcounterexample does not certifyrepair\"}, {\"command\": \"python3 /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_render_prefix_audit.py\", \"probe_sha256\": \"a3b3362084e50910d40da1ce0036f9c11f48ec3b4a325ad3f9f5165be31e076d\", \"supports\": \"Actualrendererproduces suffixrewrites that boundedrepairmusthandle\", \"refutes\": \"Appendonlyapplicationassumption fails\", \"inconclusive\": \"Syntheticthree-turncoverage not runtimeworkload\"}]}",
+      "prior_comparison": {
+        "nearest": "pr-evaluation-audit-001/E18 HF tokenizer cache #47583",
+        "changed_premise": "Custom V4.1 exact-artifact repair and post-render edits, not old generic HF cache activation.",
+        "prior_new": true
+      }
+    },
+    "claim_links": [
+      {
+        "claim_id": "claim:e47792863d54337f9eeb3439e3799c0b4b61041e5067f34a813219203abb106c",
+        "relation": "supports",
+        "rationale": "CPU incremental-repair mechanism; requires target-specific boundary proof and fallback"
+      },
+      {
+        "claim_id": "claim:88a99555f363d5ca9f6693bb00924ab49e4f97bc0e98cfc1510077afcf73af8d",
+        "relation": "background",
+        "rationale": "optional CPU scheduling extension, only if later bottleneck evidence warrants"
+      },
+      {
+        "claim_id": "claim:f76a5bf28c25d64e7023db3978676381183b650a70c4d52dac01f60570a52b02",
+        "relation": "supports",
+        "rationale": "inspected Python wrapper re-encodes rendered prompt"
+      },
+      {
+        "claim_id": "claim:ec5beeecc5b418c6c52b149a72c1751e00d8ed5334ad3ce8f37fafc50bd75746",
+        "relation": "supports",
+        "rationale": "narrow exact-artifact adaptation opportunity; not ready-made certification"
+      }
+    ]
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "id": "S02",
+      "statement": "Quick demotion of one-hit prefixes",
+      "mechanism": "Quick demotion of one-hit prefixes",
+      "proposed_change": "Not selected for implementation in this batch",
+      "support": [
+        {
+          "source_url": "https://arxiv.org/abs/2609.28870",
+          "read_depth": "full relevant mechanism/evaluation sections"
+        }
+      ],
+      "counterevidence": [
+        "Canonical hypothesis4028a37... already ghost-admission/probation with ancestry; no new intervention."
+      ],
+      "pincheck": {
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "model_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "live_image_equivalence": "unknown",
+        "gpu_experiments": 0,
+        "measured_service_gain": null
+      },
+      "priorcomparison": "Canonical hypothesis4028a37... already ghost-admission/probation with ancestry; no new intervention.",
+      "status": "duplicate_refinement",
+      "CPUcheck": {
+        "executed": [],
+        "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+      },
+      "evalplan": null,
+      "scientific_validity": "unverified",
+      "execution_authorized": false,
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": [], \"next\": \"See REPORT.md disposition; no new check justified until missing premise supplied\"}",
+      "prior_comparison": "Canonical hypothesis4028a37... already ghost-admission/probation with ancestry; no new intervention."
+    },
+    "claim_links": []
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "id": "S03",
+      "statement": "Compute-aware retention of deep blocks after shallow eviction",
+      "mechanism": "Compute-aware retention of deep blocks after shallow eviction",
+      "proposed_change": "Not selected for implementation in this batch",
+      "support": [
+        {
+          "source_url": "https://arxiv.org/abs/2609.28870",
+          "read_depth": "full relevant mechanism/evaluation sections"
+        }
+      ],
+      "counterevidence": [
+        "Requires cache-hole reuse and sparse/CED cost model; densequadratic cost not target evidence."
+      ],
+      "pincheck": {
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "model_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "live_image_equivalence": "unknown",
+        "gpu_experiments": 0,
+        "measured_service_gain": null
+      },
+      "priorcomparison": "Requires cache-hole reuse and sparse/CED cost model; densequadratic cost not target evidence.",
+      "status": "defer_integration",
+      "CPUcheck": {
+        "executed": [],
+        "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+      },
+      "evalplan": null,
+      "scientific_validity": "unverified",
+      "execution_authorized": false,
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": [], \"next\": \"See REPORT.md disposition; no new check justified until missing premise supplied\"}",
+      "prior_comparison": "Requires cache-hole reuse and sparse/CED cost model; densequadratic cost not target evidence."
+    },
+    "claim_links": []
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "id": "S04",
+      "statement": "CacheScout transition-guided agent-anchor retention",
+      "mechanism": "CacheScout transition-guided agent-anchor retention",
+      "proposed_change": "Not selected for implementation in this batch",
+      "support": [
+        {
+          "source_url": "https://arxiv.org/abs/2608.14624",
+          "read_depth": "full relevant mechanism/evaluation sections"
+        }
+      ],
+      "counterevidence": [
+        "Current synthetic prefixes do not establish learnable agent transitions; exact session traces needed. Exclude prewarming from firstchange."
+      ],
+      "pincheck": {
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "model_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "live_image_equivalence": "unknown",
+        "gpu_experiments": 0,
+        "measured_service_gain": null
+      },
+      "priorcomparison": "Current synthetic prefixes do not establish learnable agent transitions; exact session traces needed. Exclude prewarming from firstchange.",
+      "status": "defer_workload",
+      "CPUcheck": {
+        "executed": [],
+        "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+      },
+      "evalplan": null,
+      "scientific_validity": "unverified",
+      "execution_authorized": false,
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": [], \"next\": \"See REPORT.md disposition; no new check justified until missing premise supplied\"}",
+      "prior_comparison": "Current synthetic prefixes do not establish learnable agent transitions; exact session traces needed. Exclude prewarming from firstchange."
+    },
+    "claim_links": []
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "id": "S05",
+      "statement": "DRO fixed request-growth reservations",
+      "mechanism": "DRO fixed request-growth reservations",
+      "proposed_change": "Not selected for implementation in this batch",
+      "support": [
+        {
+          "source_url": "https://arxiv.org/abs/2607.16892",
+          "read_depth": "full relevant mechanism/evaluation sections"
+        }
+      ],
+      "counterevidence": [
+        "Simulator A100/70B reservation objective not currentincremental allocator; no target preemption mapping/costweights."
+      ],
+      "pincheck": {
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "model_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "live_image_equivalence": "unknown",
+        "gpu_experiments": 0,
+        "measured_service_gain": null
+      },
+      "priorcomparison": "Simulator A100/70B reservation objective not currentincremental allocator; no target preemption mapping/costweights.",
+      "status": "reject_direct_application",
+      "CPUcheck": {
+        "executed": [],
+        "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+      },
+      "evalplan": null,
+      "scientific_validity": "unverified",
+      "execution_authorized": false,
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": [], \"next\": \"See REPORT.md disposition; no new check justified until missing premise supplied\"}",
+      "prior_comparison": "Simulator A100/70B reservation objective not currentincremental allocator; no target preemption mapping/costweights."
+    },
+    "claim_links": []
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "id": "S06",
+      "statement": "PersistentKV GQA workqueue",
+      "mechanism": "PersistentKV GQA workqueue",
+      "proposed_change": "Not selected for implementation in this batch",
+      "support": [
+        {
+          "source_url": "https://arxiv.org/abs/2606.26666",
+          "read_depth": "abstract"
+        }
+      ],
+      "counterevidence": [
+        "RTX3060 FP16 GQA kernel not target sparseCSA2/MLA backend; abstractonly."
+      ],
+      "pincheck": {
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "model_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "live_image_equivalence": "unknown",
+        "gpu_experiments": 0,
+        "measured_service_gain": null
+      },
+      "priorcomparison": "RTX3060 FP16 GQA kernel not target sparseCSA2/MLA backend; abstractonly.",
+      "status": "reject_direct_application",
+      "CPUcheck": {
+        "executed": [],
+        "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+      },
+      "evalplan": null,
+      "scientific_validity": "unverified",
+      "execution_authorized": false,
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": [], \"next\": \"See REPORT.md disposition; no new check justified until missing premise supplied\"}",
+      "prior_comparison": "RTX3060 FP16 GQA kernel not target sparseCSA2/MLA backend; abstractonly."
+    },
+    "claim_links": []
+  },
+  {
+    "run_id": "guided-discovery-20261022-001",
+    "brief": {
+      "task": "CPU-only adaptive recent-paper discovery with delegated adversarial review",
+      "baseline": {
+        "git_sha": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": {
+          "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+        },
+        "hardware": {
+          "gpu_type": "B200",
+          "gpu_count": 8
+        },
+        "parallelism": {
+          "tp": 1,
+          "dp": 4,
+          "ep": 4
+        },
+        "notes": "Planned two independent DEP4 groups; source inspected, current live deployment not attested",
+        "unknown": [
+          "current image equivalence",
+          "target latency share",
+          "actual routing histograms",
+          "front-end session identity"
+        ]
+      },
+      "objective": "Improve target inference performance with exactness and TTFT/ITL/E2E tail guards; compare methods under same workload; no numeric improvement threshold supplied.",
+      "selection": {
+        "require_novelty": false
+      },
+      "execution_authorized": false,
+      "GPU_experiments": 0
+    },
+    "card": {
+      "id": "S07",
+      "statement": "GraphTok full GPU tokenizer",
+      "mechanism": "GraphTok full GPU tokenizer",
+      "proposed_change": "Not selected for implementation in this batch",
+      "support": [
+        {
+          "source_url": "https://arxiv.org/abs/2610.13325",
+          "read_depth": "full relevant mechanism/evaluation sections"
+        }
+      ],
+      "counterevidence": [
+        "ExactFlash1017 unsupportedproof and sharedGPUcontention unknown; CPU repair first; GPUexecutionprohibited."
+      ],
+      "pincheck": {
+        "vllm_commit": "c4557869393db4d75c483d92edd02a5125500883",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "model_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "live_image_equivalence": "unknown",
+        "gpu_experiments": 0,
+        "measured_service_gain": null
+      },
+      "priorcomparison": "ExactFlash1017 unsupportedproof and sharedGPUcontention unknown; CPU repair first; GPUexecutionprohibited.",
+      "status": "defer_alternative",
+      "CPUcheck": {
+        "executed": [],
+        "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+      },
+      "evalplan": null,
+      "scientific_validity": "unverified",
+      "execution_authorized": false,
+      "author_type": "agent",
+      "prediction": null,
+      "target_profile_version": "planned-Flash1017-2DEP4-c455-source-audit-not-live",
+      "falsification_test": "{\"executed\": [], \"next\": \"See REPORT.md disposition; no new check justified until missing premise supplied\"}",
+      "prior_comparison": "ExactFlash1017 unsupportedproof and sharedGPUcontention unknown; CPU repair first; GPUexecutionprohibited."
+    },
+    "claim_links": []
+  }
+]

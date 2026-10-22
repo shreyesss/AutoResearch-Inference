@@ -225,6 +225,34 @@ class DeepDiveTests(unittest.TestCase):
                 self.run_dive([identifier], code_sources=[{"repo": "owner/repo", "ref": "a" * 40, "path": str(i) + ".py"} for i in range(7)])
         request.assert_not_called()
 
+    def test_explicit_repository_avoids_cited_dependency_and_invented_edge(self):
+        identifier = self.paper(body="We compare against https://github.com/cited/dependency")
+        requested = []
+
+        def get(client, endpoint, params=None):
+            requested.append(client.repo)
+            if endpoint.startswith("https://"):
+                return {"default_branch": "main"}, {}
+            if endpoint.startswith("commits/"):
+                return {"sha": "a" * 40}, {}
+            return [{"name": "README.md", "path": "README.md"}], {}
+
+        with patch.object(GitHub, "get", get), patch.object(Sources, "_request", return_value=(b"# chosen", "text/plain")):
+            result = self.run_dive([identifier], max_fulltexts=0, max_repositories=1,
+                                   repositories=["chosen/implementation"])
+        self.assertEqual(set(requested), {"chosen/implementation"})
+        self.assertEqual(result["repository_candidates"][0]["repository"], "cited/dependency")
+        self.assertEqual(result["repository_selection"][0]["repository"], "chosen/implementation")
+        self.assertEqual(list(self.store.db.execute("SELECT * FROM edges WHERE relation='implementation_candidate'")), [])
+
+    def test_repository_selection_validation_happens_before_network(self):
+        identifier = self.paper()
+        with patch.object(Sources, "_request") as request:
+            for value in ("owner/repo", ["https://github.com/owner/repo"], ["owner/repo", "second/repo"]):
+                with self.assertRaises(ValueError):
+                    self.run_dive([identifier], max_repositories=1, repositories=value)
+        request.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

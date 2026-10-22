@@ -15,6 +15,17 @@ from ideation.store import Store
 
 
 class FoundationTests(unittest.TestCase):
+    def test_uninitialized_online_search_has_safe_actionable_error_before_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), mock.patch('ideation.paper_search.search_papers') as provider:
+                result = main(['--state-dir', directory, 'paper-search', 'exact tokenization'])
+            self.assertEqual(result, 1)
+            error = json.loads(stderr.getvalue())
+            self.assertEqual(error['error_code'], 'state_not_initialized')
+            self.assertIn('init', error['message'])
+            provider.assert_not_called()
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

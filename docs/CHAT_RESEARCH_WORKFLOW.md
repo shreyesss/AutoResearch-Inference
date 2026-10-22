@@ -121,6 +121,16 @@ researchctl refresh --only github --repo owner/new-repo
 
 This is bounded/resumable and invocation-scoped; edit resolved `research/config.json` for a persistent watchlist change. All-history backfill retains opening bodies/basic metadata. Comments, reviews and diffs are selective deep reads. Exhausted archive cursors establish completion, not record count or issue numbering. A background downloader requires its host to remain running.
 
+When a paper links several repositories, choose the implementation explicitly instead of spending the README budget on its first cited dependency:
+
+```bash
+researchctl --defer-snapshot investigate --question 'What transfers from this implementation?' \
+  --source-id PAPER_ID --repository author/project --max-repositories 1 \
+  --code-source '{"repo":"owner/engine","ref":"EXACT_40_HEX_COMMIT","path":"relative/kernel.py"}'
+```
+
+`--repository` is repeatable and replaces automatic repository selection. The manifest retains discovered candidates, including skipped dependencies. Explicit selection does not establish authorship or a paper-to-code relationship. `--code-source` is repeatable (at most six unique files across arguments and the brief); exact pinned files are read before heuristic READMEs and share the HTTP budget. Use `--max-repositories 0` for files/full text only. MCP `investigate` exposes the same `repositories` and `code_sources` inputs; `repositories=[]` disables README discovery. Invalid pins or an explicit selection larger than its budget fail rather than silently dropping requests.
+
 `investigate` selects original text, open full text and pinned implementation evidence within budget. `--offline` uses retained/cached evidence. Mark abstracts, full text and actual code separately. `run` also refreshes configured feeds; use `investigate` to avoid that broader refresh. `--reason --brief FILE` optionally invokes model stages; no model calls occur by default. A source's author-reported speedup remains attached to its original conditions.
 
 ## From evidence to a useful hypothesis
@@ -181,3 +191,7 @@ Preserve one authoritative writer per lineage. Never adopt remote HEAD to bypass
 ## Honest capability boundary
 
 The system supplies online retrieval, cached evidence, structured memory, conditional arithmetic and reproducibility checks. The host agent performs semantic expansion, adapts research, judges relevance and critiques hypotheses. No tool guarantees independent corroboration, full literature recall, scientific merit, exact service gain or continuous unattended research. A useful outcome may be a rejected hypothesis or a precise missing measurement.
+
+## Latest guided field check
+
+[Guided discovery checkpoint, 22 October 2026](verification/guided-discovery-20261022/REPORT.md) records actual online searches, pinned-code counterexamples, diagnostic-only selections, source refinements and tool/cache checks. It distinguishes discovery yield from unmeasured serving benefit.

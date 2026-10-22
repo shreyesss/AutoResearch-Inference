@@ -110,3 +110,34 @@ def test_mcp_iterative_surface_and_checkpoint_modes(tmp_path):
     assert '--local-only' in calls[-1]
     assert '--revision-hash' in calls[2]
     assert calls[3][-4:]==['--date-field','created_at','--match','any']
+
+
+def test_mcp_deep_read_explicit_selection_reaches_cli(tmp_path):
+    from unittest.mock import patch
+    calls=[]
+    pin={'repo':'owner/engine','ref':'a'*40,'path':'kernel.py'}
+    def fake(args):
+        calls.append(args)
+        return {'ok':True}
+    async def check():
+        with patch('ideation.foundation.invoke',fake):
+            async with Client(create_server(tmp_path, allow_network=True)) as client:
+                for repositories in (['author/project'], []):
+                    result=await client.call_tool('investigate',{'source_ids':['arxiv:2610.12345'],
+                        'question':'Does this code implement the selected mechanism?', 'offline':False,
+                        'repositories':repositories, 'code_sources':[pin]})
+                    assert not result.is_error
+    asyncio.run(check())
+    assert calls[0][calls[0].index('--repository')+1]=='author/project'
+    assert json.loads(calls[0][calls[0].index('--code-source')+1])==pin
+    assert '--repository' not in calls[1]
+    assert calls[1][calls[1].index('--max-repositories')+1]=='0'
+
+
+def test_mcp_uninitialized_state_recovery_hint(tmp_path):
+    async def check():
+        async with Client(create_server(tmp_path, allow_network=True)) as client:
+            result=await client.call_tool('search_papers',{'query':'exact tokenization'})
+            assert result.is_error
+            assert 'researchctl --state-dir PATH init' in str(result.content)
+    asyncio.run(check())

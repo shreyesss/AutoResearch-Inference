@@ -1,0 +1,289 @@
+[
+  {
+    "actor": "root-with-delegated-review",
+    "status": "accepted",
+    "rationale": "Accepted only for bounded source/CPU diagnosis; implementation and serving qualification remain deferred. advance_to_bounded_source_and_CPU_diagnostic: DA-MoE source measurements use TRTLLM/FlashInfer NVFP4 on DeepSeek-V3/Kimi, not Flash-1017 MXFP4 MegaMoE. Source full MoE-graph measurements are not request E2E measurements.; Paper reports ~14us full selector/control overhead per graph; a faster tactic can lose overall. PR5194 newer PrimsTS experiments show many near-neutral or slower cells; no advantage over best fixed tactic established.",
+    "reopen_when": "Use any already-retained physical receive histograms, never launch GPUs to collect. Inventory legal tile/layout combinations and counter semantics. If no retained histograms, preserve source-qualified research idea and defer quantitative benefit. Current capture_fn is logical/pre-remap; cannot call it rank-local receive data.",
+    "selection_scope": "source/CPU diagnostic",
+    "service_qualified": false,
+    "review": {
+      "id": "M01",
+      "verdict": "advance_to_bounded_source_and_cpu_diagnostic",
+      "service_qualified": false,
+      "strongest_objection": "Actual legal alternative tile/layout and physical target histogram unknown; selector overhead may erase gains",
+      "required_revision": "No target distribution claim from synthetic counts; retain best fixed layer/bucket control",
+      "next": "Inventory legal full MegaMoE configurations and existing physical receive histograms only"
+    },
+    "CPU_checks": {
+      "executed": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/da_cpu_discriminator.json",
+      "result": "Pinned heuristic chooses block16 for both synthetic fixed-count histograms; uniform96x8 gives96tiles/padded1536, concentrated16x48 gives48tiles/padded768. block64 yields96tiles/padded6144 vs16tiles/padded1024. These competing work proxies establish that count alone loses information, not that64isfaster.",
+      "next": "Use any already-retained physical receive histograms, never launch GPUs to collect. Inventory legal tile/layout combinations and counter semantics. If no retained histograms, preserve source-qualified research idea and defer quantitative benefit. Current capture_fn is logical/pre-remap; cannot call it rank-local receive data."
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/tool-use-ledger.json",
+    "future_evaluation": {
+      "future_only": true,
+      "control": "Best fixed layer/bucket legal tactic and present heuristic; candidate dynamic only after it beats strong fixed control incl selectorcost.",
+      "correctness": "Identical selected experts and routing weights, valid logical-to-physical mapping, per-layer numerical comparison and full output parity/repeatability under samequant; graph pointer/layout lifetime and heterogeneous rank contracts.",
+      "service": "Reuse AIPerf agent-p75 and Mooncake median/burst/cache-heavy; paired same tokenIDs, arrivals, prefixes, lengths and seeds. Primary target metric frozen by task before run; report TTFT/ITL/TPOT/E2E and goodput plus tail/errors.",
+      "addition_reason": "Existing evaluators observe service outcomes but not physical expert histograms or selectedtile exposure. Add bounded mechanism counters/tactic receipts only, separate instrumentation pass. No new loadgenerator.",
+      "decision": "Reject if histograms do not change profitable tactic choice, legal variants incompatible, or total MoE+control/service cost regresses. Keep null/inconclusive results."
+    },
+    "eval_plan_id": "eval_plan:400f2759d5e474adadafe64feb081e7a55ea5d4eb08d8439f9c4891484fbc13b"
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "rejected",
+    "rationale": "reject_direct_port: Target indexTopK512: author code selects unsampled kernel for512. Paper performance H20 Hy4 K2048 128K–1M rows, not target service.; c455 already contains sampled_topk.cuh with exact fallback; generic mechanism not absent. Candidate producer uses length-aware DeepSelect; producerK2048 is distinct from tokenK512.",
+    "reopen_when": "Only reopen on target longrow contract and specific reducedpass delta; preserve producer/consumer distinction",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "id": "M02",
+      "verdict": "reject_direct_port",
+      "service_qualified": false,
+      "reason": "K512 unsampled author route, existing sampled target mechanism, mismatched row/dtype regime",
+      "reopen": "Specific K2048 producer reduced-pass delta with actual long-row exposure and tie contract"
+    },
+    "CPU_checks": {
+      "executed": "Source inspection pinnedHPC K512 false and c455 existing sampledimplementation",
+      "next": "Only reopen on target longrow contract and specific reducedpass delta; preserve producer/consumer distinction"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/tool-use-ledger.json",
+    "future_evaluation": {
+      "future_only": true,
+      "correctness": "Target membership, ties, newestblock, NaN/inf/sentinel, raggedrow andgraph replay semantics before operatorbenchmark",
+      "service": "Reuse existing workloads only if they expose eligible rowlengths; otherwise targetedlongcontext probe needs explicitlydifferent workloadscope"
+    }
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "deferred",
+    "rationale": "revise_defer_semantics: Reviewer executed CPU counterexample: valid all-inf producerblock dropped by fallback, futureconsumerfinite scorewould be reintroduced byenumeration. Not observedtargetinput, but disproves unconditional claim.; Eligibility is ceil((min(end,width)-start)/8)<=2048 in compressed rowspace, not merely rawpromptlength. newestblock pin uses unclamped end; rowrepeat/padding matter.",
+    "reopen_when": "Audit finite-score and backend contracts; preserve sentinelmembership. If no safe cheap predicate, rejectshortcut rather thanaddcheckcostblindly.",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "id": "M03",
+      "verdict": "revise_defer_semantics",
+      "service_qualified": false,
+      "reason": "CPU counterexample disproves unconditional fallback enumeration; DeepSelect short-row contract unresolved",
+      "resolved_objection": "Sparse consumer sorts candidates, so input order alone not a blocker",
+      "next": "Prove restricted membership invariant or preserve -inf/newestblock semantics cheaply"
+    },
+    "CPU_checks": {
+      "executed": "../review/candidate_bypass_counterexample.py and .json byindependentreviewer",
+      "next": "Audit finite-score and backend contracts; preserve sentinelmembership. If no safe cheap predicate, rejectshortcut rather thanaddcheckcostblindly."
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/tool-use-ledger.json",
+    "future_evaluation": {
+      "future_only": true,
+      "correctness": "Differential candidate membership through downstream consumers; all-inf/NaN/newestblock, clampedbounds, rowrepeat, padding, DSpark positions.",
+      "service": "Existing agent-p75 and Mooncake cover shortcontexts; need only perroweligiblecounts/kernelcomponentcounters, no customload.",
+      "ROI": "Unknown; only oneproducerlayer and alreadycheap selection maymake serviceimpactnegligible."
+    }
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "deferred",
+    "rationale": "defer_integration_reject_flag: V41 attention.py returns model_version=deepseek_v4; HiSparse layout explicitly rejects that version. Existinggeneralfeature doesnotmake exacttargetcompatible.; SGLang44684 open V4FlashFP8 TP8H20DSpark accuracycheck exists, no speedtable; not V4.1 CED/CSA2 integrationproof.",
+    "reopen_when": "Compute targetKV bytes from cachegroup manifests and retained pressurelogs; enumerate source-sharedcache ownership; noGPU",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "id": "M04",
+      "verdict": "defer_integration_reject_flag",
+      "service_qualified": false,
+      "reason": "Target model-version explicitly rejected; generic feature not current target support",
+      "next": "Retained cache-group capacity/ownership evidence and compatible adapter design"
+    },
+    "CPU_checks": {
+      "executed": "Version-field/rejection source chain",
+      "next": "Compute targetKV bytes from cachegroup manifests and retained pressurelogs; enumerate source-sharedcache ownership; noGPU"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/moe/tool-use-ledger.json",
+    "future_evaluation": {
+      "future_only": true,
+      "service": "Reuse Mooncake cache-heavy+burst andagent-p75; ifnoKVpressure, do notclaimnegativecapacityresult universal.",
+      "addition_reason": "Host/hotmisses, byte traffic and sourcecacheownership needed; only extendcontext distribution if specificallytesting capacitybeyondexistingload."
+    }
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "accepted",
+    "rationale": "Accepted only for bounded source/CPU diagnosis; implementation and serving qualification remain deferred. advance_to_bounded_cpu_compatibility_diagnostic: Exact Flash1017 tokenizer hash c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b absent both TokTier artifact and repair registries; default package falls back.; Actual CPU target-vs-anchor tests differ18/18changed literals; naive append concatenation wrong254/300targeted boundaries.",
+    "reopen_when": "Exact1017 loader/certificate tests, rendered suffix-edit differential, and runtime frontend/sessionidentity check. Standard sweep source configuredchat; no HTTPcapture.",
+    "selection_scope": "source/CPU diagnostic",
+    "service_qualified": false,
+    "review": {
+      "id": "S01",
+      "verdict": "advance_to_bounded_cpu_compatibility_diagnostic",
+      "service_qualified": false,
+      "strongest_objection": "Exact target added-token artifact uncertified and default renderer rewrites suffix; actual session workload exposure unresolved",
+      "required_revision": "Structured support must include core TokTier CPU repair claim; bind actual reference loader/version",
+      "next": "Exact-target rendered-prefix certificate differential fixture plus source payload/session audit"
+    },
+    "CPU_checks": {
+      "executed": [
+        "cpu_tokenizer_audit.py",
+        "cpu_tokenizer_counterexamples.py",
+        "cpu_render_prefix_audit.py"
+      ],
+      "not_executed": [
+        "TokTier repair on target",
+        "HTTP path",
+        "service timing"
+      ],
+      "next": "Exact1017 loader/certificate tests, rendered suffix-edit differential, and runtime frontend/sessionidentity check. Standard sweep source configuredchat; no HTTPcapture.",
+      "stop": "Any token mismatch disables fast route. No text exposure defers presentbenchmark claim. No reproducible repeat text defers reuse.",
+      "reproduction": [
+        {
+          "command": "python3 /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_tokenizer_audit.py",
+          "probe_sha256": "fa82436bfd835002890c8382fc8d67bbfa95aec1dd6f82399e635938b73265ff",
+          "inputs": [
+            "sources/tokenizer.json",
+            "sources/anchor-tokenizer.json",
+            "toktier/tables/support_registry.json",
+            "toktier/src/toktier/repair/tables/fast_repair_families.v1.json"
+          ],
+          "supports": "Exacttarget pipeline matchesanchor and difference remains finiteaddedtokenentries",
+          "refutes": "Target pipeline or flags differ beyond understoodpremises",
+          "inconclusive": "Absentexactartifact/registry or unresolvedloader"
+        },
+        {
+          "command": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu-venv/bin/python /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_tokenizer_counterexamples.py",
+          "probe_sha256": "f665ca4ad540f5fa97c0ed42aeab929317ce0e516be50524a39b52abee30710a",
+          "environment": "tokenizers0.22.2 isolatedCPUreference, not deployedloader",
+          "supports": "Counterexamples reproduced; targetliteralcontract required",
+          "refutes": "A proposed shortcut disagrees on orderedIDs",
+          "inconclusive": "No shortcutcounterexample does not certifyrepair"
+        },
+        {
+          "command": "python3 /Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/cpu_render_prefix_audit.py",
+          "probe_sha256": "a3b3362084e50910d40da1ce0036f9c11f48ec3b4a325ad3f9f5165be31e076d",
+          "supports": "Actualrendererproduces suffixrewrites that boundedrepairmusthandle",
+          "refutes": "Appendonlyapplicationassumption fails",
+          "inconclusive": "Syntheticthree-turncoverage not runtimeworkload"
+        }
+      ]
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/tool-use-ledger.json",
+    "future_evaluation": {
+      "now": "CPU compatibility, source eligibility and existing workload payload audit only",
+      "later": "Retain standard Mooncake and agent-p75 chat controls; reuse existing multiturn.yaml for growinghistory exposure. Add CPUexactness fixtures only, not a new loadharness. Verify explicit or contentderived session identity because config lacks session_header.",
+      "metrics": [
+        "ordered token-ID equality",
+        "CPU encode including materialization",
+        "fallback fraction",
+        "state memory",
+        "TTFT p50/p95/p99",
+        "request goodput",
+        "ITL guardrail",
+        "errors"
+      ],
+      "gap": "Current standard fixtures contain repeatedprefix but not established sessionappend relationships. Existingmultiturn covers growingturns but not tokenizerboundary/adversarial renderer correctness."
+    },
+    "eval_plan_id": "eval_plan:fbda44982d910523fe3e3ceb1e67d227973768bb8a9454801f1f0b6e68690d73"
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "rejected",
+    "rationale": "duplicate_refinement: Canonical hypothesis4028a37... already ghost-admission/probation with ancestry; no new intervention.",
+    "reopen_when": "See REPORT.md disposition; no new check justified until missing premise supplied",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "kind": "author triage; cohort checked by reviewer, not independent fulltext reread"
+    },
+    "CPU_checks": {
+      "executed": [],
+      "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/tool-use-ledger.json",
+    "future_evaluation": null
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "deferred",
+    "rationale": "defer_integration: Requires cache-hole reuse and sparse/CED cost model; densequadratic cost not target evidence.",
+    "reopen_when": "See REPORT.md disposition; no new check justified until missing premise supplied",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "kind": "author triage; cohort checked by reviewer, not independent fulltext reread"
+    },
+    "CPU_checks": {
+      "executed": [],
+      "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/tool-use-ledger.json",
+    "future_evaluation": null
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "deferred",
+    "rationale": "defer_workload: Current synthetic prefixes do not establish learnable agent transitions; exact session traces needed. Exclude prewarming from firstchange.",
+    "reopen_when": "See REPORT.md disposition; no new check justified until missing premise supplied",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "kind": "author triage; cohort checked by reviewer, not independent fulltext reread"
+    },
+    "CPU_checks": {
+      "executed": [],
+      "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/tool-use-ledger.json",
+    "future_evaluation": null
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "rejected",
+    "rationale": "reject_direct_application: Simulator A100/70B reservation objective not currentincremental allocator; no target preemption mapping/costweights.",
+    "reopen_when": "See REPORT.md disposition; no new check justified until missing premise supplied",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "kind": "author triage; cohort checked by reviewer, not independent fulltext reread"
+    },
+    "CPU_checks": {
+      "executed": [],
+      "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/tool-use-ledger.json",
+    "future_evaluation": null
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "rejected",
+    "rationale": "reject_direct_application: RTX3060 FP16 GQA kernel not target sparseCSA2/MLA backend; abstractonly.",
+    "reopen_when": "See REPORT.md disposition; no new check justified until missing premise supplied",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "kind": "author triage; cohort checked by reviewer, not independent fulltext reread"
+    },
+    "CPU_checks": {
+      "executed": [],
+      "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/tool-use-ledger.json",
+    "future_evaluation": null
+  },
+  {
+    "actor": "root-with-delegated-review",
+    "status": "deferred",
+    "rationale": "defer_alternative: ExactFlash1017 unsupportedproof and sharedGPUcontention unknown; CPU repair first; GPUexecutionprohibited.",
+    "reopen_when": "See REPORT.md disposition; no new check justified until missing premise supplied",
+    "selection_scope": "research triage",
+    "service_qualified": false,
+    "review": {
+      "kind": "author triage; cohort checked by reviewer, not independent fulltext reread"
+    },
+    "CPU_checks": {
+      "executed": [],
+      "next": "See REPORT.md disposition; no new check justified until missing premise supplied"
+    },
+    "tool_use_ledger": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/scheduling/tool-use-ledger.json",
+    "future_evaluation": null
+  }
+]

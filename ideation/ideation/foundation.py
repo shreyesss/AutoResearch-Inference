@@ -74,11 +74,15 @@ def _namespace_root(root, namespace):
     raise ValueError("CLI namespace must be research or experiments/registry")
 
 
+class StateNotInitializedError(ValueError):
+    """Safe actionable error; contains no provider URL or credential values."""
+
+
 def _config(root, args):
     from .discovery import load_config, validate
     path = Path(args.config).expanduser() if getattr(args, "config", None) else root / "research/config.json"
     if not path.exists():
-        raise ValueError("Run researchctl init or supply --config")
+        raise StateNotInitializedError("Run researchctl init or supply --config")
     config = load_config(path)
     if getattr(args, "repo", None):
         config["repositories"] = args.repo
@@ -328,6 +332,7 @@ def _run_research(root, args):
             result["dossier"] = investigate(store, args.question, chosen, out / "dossier",
                 max_http_calls=0 if args.offline else args.max_http_calls,
                 max_fulltexts=args.deep_count, max_repositories=args.max_repositories,
+                repositories=args.repository, code_sources=args.code_source,
                 reason=args.reason, brief=brief, model=args.model, timeout=args.timeout)
             if args.reason:
                 from .research_flow import retain_reasoned_packet
@@ -360,7 +365,7 @@ def _execute(root, args):
         from .paper_search import search_papers
         from .store import Store
         if not (root / 'research/config.json').exists():
-            raise ValueError('Run researchctl init first')
+            raise StateNotInitializedError('Run researchctl init first')
         store = Store(root / 'research/corpus.sqlite')
         output = root / 'research/records' / (dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S') + '-paper-search-' + uuid.uuid4().hex[:8])
         try:
@@ -520,7 +525,7 @@ def _execute(root, args):
         from .store import Store
         source_root = Path(replica["path"]) if replica else root / "research"
         if not (source_root / "config.json").exists():
-            raise ValueError("Run researchctl init first")
+            raise StateNotInitializedError("Run researchctl init first")
         store = Store(source_root / "corpus.sqlite", readonly=bool(replica))
         try:
             if command == "refresh":
@@ -720,6 +725,8 @@ def parser():
     run.add_argument("--timeout", type=int, default=300)
     run.add_argument("--max-http-calls", type=int, default=12)
     run.add_argument("--max-repositories", type=int, default=2)
+    run.add_argument("--repository", action="append", help="Read only explicitly selected owner/repository READMEs; repeatable. Replaces automatic link selection, does not establish authorship")
+    run.add_argument("--code-source", action="append", type=json.loads, help='Pinned file JSON: {"repo":"owner/name","ref":"40-hex commit","path":"relative/file.py"}; repeatable, at most 6 unique files')
     search = commands.add_parser("search", aliases=["pr-search"])
     search.add_argument("query_text")
     search.add_argument("--match", choices=("any", "all"), default="any", help="Match any or all lexical terms/quoted phrases")
@@ -819,6 +826,8 @@ def main(argv=None):
         # Provider exception URLs can carry API keys. Never print their text.
         failure = {"error_type": type(error).__name__, "command": args.command,
                    "message": "Operation failed. State and existing snapshots were retained; check configuration, input records, credentials, or local lineage."}
+        if isinstance(error, StateNotInitializedError):
+            failure.update(error_code="state_not_initialized", message="Initialize this state directory with researchctl --state-dir PATH init, then retry. No provider request was made by this operation.")
         if isinstance(error, PublicationError):
             failure.update(message="Local snapshot retained, but configured remote publication failed. Resolve credentials/connectivity or reconcile lineage before retrying; remote HEAD was not adopted.",
                            snapshot=error.receipt, publication_error_type=error.cause_type)

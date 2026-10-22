@@ -1,0 +1,62 @@
+{
+  "execution": "CPU only",
+  "model_trace": false,
+  "latency_prediction": null,
+  "source_sha256": "24961c1f738a504b7f965d9513059b7f400d466746ed4251844a0a221a0ca11e",
+  "source_commit": "a7a927731b109fdfec770df7c2a5be5d7e2216b5",
+  "shape": {
+    "global_experts": 384,
+    "topk": 6,
+    "EP": 4,
+    "tokens_per_rank": 128
+  },
+  "baseline_block_m_for_both_histograms": 16,
+  "synthetic_histogram_work": {
+    "uniform_local96": {
+      "16": {
+        "tiles": 96,
+        "padded_token_rows": 1536,
+        "actual_assignments": 768
+      },
+      "32": {
+        "tiles": 96,
+        "padded_token_rows": 3072,
+        "actual_assignments": 768
+      },
+      "64": {
+        "tiles": 96,
+        "padded_token_rows": 6144,
+        "actual_assignments": 768
+      },
+      "128": {
+        "tiles": 96,
+        "padded_token_rows": 12288,
+        "actual_assignments": 768
+      }
+    },
+    "concentrated_local16": {
+      "16": {
+        "tiles": 48,
+        "padded_token_rows": 768,
+        "actual_assignments": 768
+      },
+      "32": {
+        "tiles": 32,
+        "padded_token_rows": 1024,
+        "actual_assignments": 768
+      },
+      "64": {
+        "tiles": 16,
+        "padded_token_rows": 1024,
+        "actual_assignments": 768
+      },
+      "128": {
+        "tiles": 16,
+        "padded_token_rows": 2048,
+        "actual_assignments": 768
+      }
+    }
+  },
+  "conclusion": "Identical token count yields one baseline tile but different padding/reload tradeoffs. No tile is declared faster: lower tile count and padded arithmetic conflict, and communication, ring scheduling and memory reuse are omitted.",
+  "next_decision": "Need actual per-layer physical counts and legal tile variants; then compare best fixed layer/bucket tactic vs dynamic selector including its overhead. Reject if distributions do not change profitable tile choice."
+}

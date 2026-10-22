@@ -73,7 +73,7 @@ def _round_robin_repositories(groups, limit):
 
 def investigate(store, question, source_ids, output, *, max_http_calls=12,
                 max_fulltexts=3, max_repositories=2, citations_per_paper=3,
-                code_sources=None, max_code_files=6,
+                code_sources=None, max_code_files=6, repositories=None,
                 reason=False, brief=None, model=None, timeout=300):
     """Fetch original text/code under a shared cache-miss budget; never run GPUs.
 
@@ -89,6 +89,15 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
     brief_data = brief if isinstance(brief, dict) else json.loads(Path(brief).read_text()) if brief else {}
     if not isinstance(brief_data, dict):
         raise ValueError("Task brief must be a JSON object")
+    if repositories is not None:
+        if not isinstance(repositories, list) or any(
+            not isinstance(repo, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
+            for repo in repositories
+        ):
+            raise ValueError("repositories must be a list of owner/repository names")
+        repositories = list(dict.fromkeys(repositories))
+        if len(repositories) > max_repositories:
+            raise ValueError("Explicit repositories exceed max_repositories; no selection was silently dropped")
     pinned_requests = {}
     for requested_by, entries in (("argument", [] if code_sources is None else code_sources), ("brief", brief_data.get("code_sources", []))):
         if not isinstance(entries, list):
@@ -213,7 +222,11 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
                     group_seen.add(repo)
                     group.append({**candidate, "source_id": origin_id})
         repository_groups.append(group)
-    repository_selection = _round_robin_repositories(repository_groups, max_repositories)
+    repository_candidates = _round_robin_repositories(repository_groups, sum(map(len, repository_groups)))
+    repository_selection = (
+        [{"repository": repo, "basis": "explicit agent selection; authorship unverified"} for repo in repositories]
+        if repositories is not None else _round_robin_repositories(repository_groups, max_repositories)
+    )
     for selection in repository_selection:
         repo = selection["repository"]
         try:
@@ -229,7 +242,7 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
                 evidence_ids.append(result["id"])
                 reads.append({"repository": repo, "commit": head["sha"], "code": result, "selection": selection,
                               "depth": "README only; code-path qualification pending"})
-                for origin, link_source_id in sorted(repo_origins[repo]):
+                for origin, link_source_id in sorted(repo_origins.get(repo, [])):
                     store.edge(origin, "implementation_candidate", result["id"], link_source_id,
                                {"basis": "explicit repository link; applicability unverified", "link_source_id": link_source_id})
         except Exception as error:
@@ -249,7 +262,9 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
                 "reasoning_source_ids": reasoning_ids,
                 "reasoning_omitted_source_ids": [identity for identity in evidence_ids if identity not in reasoning_ids],
                 "repository_selection": repository_selection,
-                "repository_selection_policy": "Round robin across selected sources; explicit githubRepo metadata then original source links then fulltext links. Repository names do not establish relevance or authorship.",
+                "repository_candidates": repository_candidates,
+                "repository_selection_policy": ("Explicit selection only; no automatic dependency fallback. Selection does not establish authorship or applicability."
+                    if repositories is not None else "Round robin across selected sources; explicit githubRepo metadata then original source links then fulltext links. Repository names do not establish relevance or authorship."),
                 "pinned_file_limit": max_code_files,
                 "pinned_files_requested": len(pinned_requests),
                 "sources": [{"id": d["id"], "sha256": hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest(),

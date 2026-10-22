@@ -111,6 +111,12 @@ A minimal **agent-authored** plan:
 
 After executing selected queries, append observations (`query`, `provider`, date/repo scope, `status`, `reason`, optional `source_ids`) and revise the next queries. Status is `useful`, `irrelevant`, `empty`, `error` or `redundant`. Preserve source identities and why a new query matters. The tool validates bounds/dates/relaxation declarations, identifies repeated queries and emits runnable recipes; **semantic decomposition comes from the host agent**. A missing plan uses the basic lexical helper. No LLM or network call occurs inside `expand`.
 
+Each `queries` or `observations` entry must be an object, not a narrative string.
+CLI and MCP identify malformed rows with `query_plan_row_must_be_object` and a
+zero-based location such as `observations[0]`, plus required field names. Use
+`"observations": []` before any searches. This guidance never echoes the submitted
+row; other failures retain their existing sanitized error behavior.
+
 `paper-search` performs cached online retrieval with publication/submission dates: **after inclusive, before exclusive**. Limit is per provider. It returns abstracts alongside source IDs and retains metadata/abstracts, revisions and query receipts. Plain arXiv queries compile every content term/quoted phrase with AND (common stopwords are removed); there is no term-count truncation or automatic semantic fallback. Explicit arXiv field expressions are preserved. The receipt records the exact compiled query, status, result count and cache use; failed attempts retain the error type instead of pretending to have zero hits. A successful zero-result search remains zero, including on a cache hit.
 
 Choose the next action from those observations: inspect a provider failure, try a more discriminating query after irrelevant hits, or explicitly revise overconstrained wording after empty hits. Retain the mechanism anchors and record any permitted relaxation in the next `expand --plan` round. For example, dropping `kernel scheduling layout transformation` from `LLM inference fine grained kernel scheduling layout transformation` would remove the research question; a host-authored alternative might instead be `abs:GPU AND (abs:"layout transformation" OR abs:"kernel scheduling")`. That alternative is a new search, not equivalent coverage. `constraints.must_keep` records semantic constraints for agent review; it does not mechanically prove that query wording obeys them. CLI and MCP use the same retrieval path.

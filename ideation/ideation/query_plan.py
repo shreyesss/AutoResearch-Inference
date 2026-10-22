@@ -5,6 +5,24 @@ import json
 import re
 
 
+class QueryPlanRowError(ValueError):
+    """Static, safe-to-display guidance for an invalid plan row shape."""
+    error_code = 'query_plan_row_must_be_object'
+
+    def __init__(self, field, index):
+        # Only compiler-owned field names and bounded positions enter messages.
+        limits = {'queries': 12, 'observations': 50}
+        if field not in limits or type(index) is not int or not 0 <= index < limits[field]:
+            raise ValueError('Invalid query plan error location')
+        self.field, self.index = field, index
+        required = ('query, provider, purpose and why' if field == 'queries'
+                    else 'query, provider, status and reason')
+        self.safe_message = f'{field}[{index}] must be an object containing {required}.'
+        if field == 'observations':
+            self.safe_message += ' Use observations: [] when there are no prior searches to record.'
+        super().__init__(self.safe_message)
+
+
 def _text(value, field):
     if not isinstance(value, str) or not value.strip() or len(value) > 2000:
         raise ValueError(field + ' requires bounded nonempty text')
@@ -25,9 +43,9 @@ def _date(value):
     return value
 
 
-def _request(row, after=None, before=None):
+def _request(row, after=None, before=None, *, field, index):
     if not isinstance(row, dict):
-        raise ValueError('Query/observation must be an object')
+        raise QueryPlanRowError(field, index)
     provider = row.get('provider')
     if provider not in ('arxiv', 'openalex', 'local'):
         raise ValueError('Choose arxiv, openalex or local')
@@ -72,8 +90,8 @@ def compile_plan(question, plan, after=None, before=None):
     if not rows and not stop:
         raise ValueError('Supply queries or an explicit stop_reason')
     observations, by_key = [], {}
-    for row in prior:
-        request = _request(row)
+    for index, row in enumerate(prior):
+        request = _request(row, field='observations', index=index)
         status = row.get('status')
         if status not in ('useful', 'irrelevant', 'empty', 'error', 'redundant'):
             raise ValueError('Unknown search observation status')
@@ -82,8 +100,8 @@ def compile_plan(question, plan, after=None, before=None):
         observations.append(observation)
         by_key.setdefault(_key(request), []).append(observation)
     recipes, seen, warnings = [], set(), []
-    for row in rows:
-        request = _request(row, after, before)
+    for index, row in enumerate(rows):
+        request = _request(row, after, before, field='queries', index=index)
         identity = _key(request)
         relaxes = _texts(row.get('relaxes', []), 'relaxes')
         if any(item not in allowed or item in keep for item in relaxes):

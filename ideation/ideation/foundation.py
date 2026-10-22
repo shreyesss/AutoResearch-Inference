@@ -12,6 +12,7 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
+from .query_plan import QueryPlanRowError
 
 DEFAULT_STATE = Path.home() / ".local/share/inference-autoresearch"
 
@@ -926,6 +927,9 @@ def main(argv=None):
             failure.update(error_code=error.error_code, message=error.safe_message)
         if isinstance(error, SourceLookupError):
             failure.update(error_code=error.error_code, message=error.safe_message)
+        if isinstance(error, QueryPlanRowError):
+            failure.update(error_code=error.error_code, message=error.safe_message,
+                           field=error.field, index=error.index)
         if isinstance(error, PublicationError):
             failure.update(message="Local snapshot retained, but configured remote publication failed. Resolve credentials/connectivity or reconcile lineage before retrying; remote HEAD was not adopted.",
                            snapshot=error.receipt, publication_error_type=error.cause_type)

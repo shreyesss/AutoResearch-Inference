@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Read [Checkpoint15](CHECKPOINT_15.md) for the latest science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
+Read [Checkpoint16](CHECKPOINT_16.md) for the latest science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 
 - [WP38 paired FP4 weight packets](round38/REPORT.md)
 - [OP36 output-projection quantized handoff](round36/REPORT.md)
@@ -14,5 +14,7 @@ Read [Checkpoint15](CHECKPOINT_15.md) for the latest science, tool changes, yiel
 - [Explicit OA PDF reading and coverage](oa-fulltext/REPORT.md)
 - [Separate DSpark draft-head precision lead](round45/REPORT.md), [independent review and typed-workflow status](round45/REVIEW_STATUS.md)
 - [Expert sparsity screen](round43/REPORT.md) and [KV placement screen](round44/REPORT.md)
+- [Router comparator audit](round46/REPORT.md), [indexer geometry adaptation](round47/REPORT.md), [shared context quantization](round48/REPORT.md), and [draft vocabulary restriction](round49/REPORT.md)
+- [Actionable query-plan errors](query-plan-errors/REPORT.md)
 
 No measured inference improvement or GPU execution has been claimed in this discovery campaign.

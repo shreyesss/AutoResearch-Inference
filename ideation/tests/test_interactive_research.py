@@ -6,6 +6,55 @@ import pytest
 
 from ideation.foundation import invoke
 from ideation.store import Store
+from ideation.storage import restore
+
+
+def test_deferred_corpus_import_retains_revisions_edges_and_later_restore(tmp_path):
+    root = tmp_path/'state'
+    invoke(['--state-dir', str(root), 'init'])
+    before = json.loads((root/'latest-snapshots.json').read_text())
+    source = Store(tmp_path/'source.sqlite')
+    doc = {'id':'paper:import', 'source':'arxiv', 'kind':'paper', 'title':'Cache plan',
+           'url':'https://example.org/paper', 'body':'Old evidence'}
+    source.put(doc)
+    source.put({**doc, 'body':'New evidence'})
+    revisions = {r['content_hash'] for r in source.revisions(doc['id'])}
+    source.edge(doc['id'], 'discovered_by', 'query:fixture', doc['id'], {'scope':'fixture'})
+    source.db.commit(); source.db.close()
+    with patch('ideation.foundation._snapshot', side_effect=AssertionError('Deferred import must not publish')):
+        result = invoke(['--state-dir', str(root), '--defer-snapshot', 'import-corpus', '--source', str(tmp_path/'source.sqlite')])
+    assert result['snapshot']['deferred'] and not result['snapshot']['published']
+    assert json.loads((root/'latest-snapshots.json').read_text()) == before
+    assert json.loads((root/'pending-research-checkpoint.json').read_text())['snapshot_required']
+    history = invoke(['--state-dir', str(root), 'history'])['commands']
+    assert any(r['command']=='import-corpus' and r['outcome']=='succeeded' for r in history)
+    receipt = invoke(['--state-dir', str(root), '--local-only', 'snapshot'])
+    destination = tmp_path/'relocated'
+    restore(root/'archives', destination/'research', receipt['id'])
+    restored = Store(destination/'research/corpus.sqlite', readonly=True)
+    try:
+        assert restored.get(doc['id'])['body'] == 'New evidence'
+        assert {r['content_hash'] for r in restored.revisions(doc['id'])} == revisions
+        assert restored.db.execute('SELECT 1 FROM edges WHERE src=? AND relation=? AND dst=?',
+                                   (doc['id'], 'discovered_by', 'query:fixture')).fetchone()
+    finally:
+        restored.db.close()
+
+
+def test_local_only_corpus_import_cannot_publish_to_configured_remote(tmp_path):
+    root = tmp_path/'state'
+    invoke(['--state-dir', str(root), 'init'])
+    remote = tmp_path/'remote'
+    invoke(['--state-dir', str(root), 'remote', 'configure', '--local-remote', str(remote), '--auto-publish'])
+    source = tmp_path/'source.jsonl'
+    source.write_text(json.dumps({'id':'paper:local', 'source':'test', 'kind':'paper',
+                                 'title':'Local evidence', 'url':'https://example.org', 'body':'Evidence'})+'\n')
+    local = invoke(['--state-dir', str(root), '--local-only', 'import-corpus', '--source', str(source)])
+    assert not local['snapshot']['published'] and not remote.exists()
+    assert (root/'archives/research/manifests'/f"{local['snapshot']['id']}.json").exists()
+    published = invoke(['--state-dir', str(root), 'import-corpus', '--source', str(source)])
+    assert published['snapshot']['published']
+    assert (remote/'research/HEAD').read_text().strip() == published['snapshot']['id']
 
 
 def test_deferred_paper_search_retains_data_and_journal_then_checkpoints(tmp_path):
@@ -36,7 +85,7 @@ def test_deferred_paper_search_retains_data_and_journal_then_checkpoints(tmp_pat
     assert pending['snapshot_id'] == receipt['id']
 
 
-def test_defer_cannot_skip_ingestion_or_experiment_checkpoint(tmp_path):
+def test_defer_cannot_skip_refresh_backfill_or_experiment_checkpoint(tmp_path):
     for command in (['refresh'], ['experiment', 'list'], ['backfill', 'start']):
         with pytest.raises(ValueError, match='restricted to interactive research'):
             invoke(['--state-dir', str(tmp_path), '--defer-snapshot', *command])

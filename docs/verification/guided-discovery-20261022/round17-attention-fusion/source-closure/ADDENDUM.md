@@ -1,0 +1,11 @@
+# Metadata object sharing: source closure addendum
+
+Frozen round17 report unchanged. The runner does provide a stronger guard than per-layer device equality tests in a **verified common attention group**.
+
+At c455 `v1/worker/gpu/attn_utils.py:217–266`, attention groups are discovered separately inside each KV-cache group, keyed by backend full name, layer KV spec and per-rank Q-head count. At `:580–581`, every member name receives the **same metadata object**, not a copy. Thus members of that actual group share exact `token_to_req_indices`, `is_valid_token`, decode partition and counts. Common metadata also passes a cached row-to-request buffer across KV groups, but validity remains group-specific. Group membership is not implied merely by the same model index-source ID or same SWA window.
+
+The important exception is c455 `models/deepseek_v41/nvidia/model_state.py:520–548`: bounded replay builds copied metadata builders for replay groups and another set for `first_swa_prefix`, then **replaces that first layer’s dictionary entry** with separately built metadata. `_copy_attn_groups:666–687` copies matching groups and creates independent builders; it does not restrict each copied group’s layer_names to the supplied prefix subset. Only the first_swa result is installed from the second build. The kept batch and slot mappings are the same inputs, but distinct buffer identity and different replay-start inputs mean simple original-group identity must be checked against the final forward-context mapping.
+
+Practical narrowing: admit a group only if all relevant entries in the **final actual forward-context dictionary** resolve to one metadata object and the compressed-cache metadata and index-source epoch are common. That host identity guard is a potential zero-device-compare test during graph construction/eager dispatch. It is not an across-call cache key. Require fresh publication every execution; capture/replay topology and partial-entry domination remain gates. The first-source replay group can safely fall back instead of generalizing from presumed equal masks.
+
+No actual configured group list or live dictionary was inspected. This closes the conditional source rule (same AttentionGroup → same object before overrides), not the deployment eligibility claim. No promotion, GPU call or new hypothesis identity.

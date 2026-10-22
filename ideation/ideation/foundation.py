@@ -609,7 +609,7 @@ def _execute(root, args):
                         flow.close()
                 return result
             result = _import_corpus(args.source, store)
-            result["snapshot"] = _snapshot(root, "research")
+            result["snapshot"] = _research_snapshot(root, args, publish=not args.local_only)
             return result
         finally:
             store.db.close()
@@ -832,8 +832,8 @@ def parser():
 def invoke(argv=None):
     """Shared locked API for CLI and MCP; no stdout or exception text logging."""
     args = parser().parse_args(argv)
-    if args.defer_snapshot and args.command not in {"paper-search", "expand", "prescreen", "investigate", "claim", "hypothesis", "screen", "eval-plan", "decide", "link-evidence", "snapshot", "search", "pr-search", "show", "history", "changes", "doctor", "status"}:
-        raise ValueError("--defer-snapshot is restricted to interactive research; ingestion and experiment checkpoints remain immediate")
+    if args.defer_snapshot and args.command not in {"paper-search", "expand", "prescreen", "investigate", "claim", "hypothesis", "screen", "eval-plan", "decide", "link-evidence", "snapshot", "search", "pr-search", "show", "history", "changes", "doctor", "status", "import-corpus"}:
+        raise ValueError("--defer-snapshot is restricted to interactive research; refresh/backfill and experiment checkpoints remain immediate")
     root = Path(args.state_dir).expanduser().resolve()
     if args.env_file:
         os.environ["IDEATION_ENV_FILE"] = str(Path(args.env_file).expanduser().resolve())

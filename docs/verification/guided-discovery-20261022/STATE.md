@@ -1,4 +1,19 @@
-# Current persistence summary
+# Current persistence summary — checkpoint 7
+
+As of 22 October 2026, 02:28 UTC. This section supersedes the earlier checkpoint table below.
+
+- Round15 canonical import completed (one new CMR01, same AT02 refinement); independent readback is in progress.
+- Historical artifact retention completed for 117 explicitly reviewed references. The new local snapshot/restore check is pending; no repaired S3 or VM recovery is claimed.
+- Round16, paper HTTP diagnostics and round17–18 retention imports are queued/running behind the writer lock. Their invocation is not completion.
+- Verified S3 publication: `b3e4baaeb9c14a19aa46f46aaccbfe796dbaf3aa62d7406ec98208c11c7e884d`, covering the query-domain import. It predates the round15/117-reference writes. The later local snapshot is not yet verified as published.
+- Round19 and native CPU round20 evidence are external local research artifacts, with selected reports/source hashes copied to Git. No canonical import, S3 publication or VM restoration is claimed for them.
+- Scientific yield through round17:32 cards,2 accepted bounded CPU investigations,22 deferred,7 rejected,1 duplicate;zero implementation/service qualification. Rounds18/20 refine S01 without adding identities.
+
+See [checkpoint7](CHECKPOINT_7.md) for results and scope.
+
+# Historical persistence summaries
+
+# Checkpoint 6 persistence summary
 
 Checkpoint6: round15 canonical import and selected-artifact retention are queued; round16 retention is being prepared. Snapshot omission audit found185/304 references restored,119 missing. Reviewed selection can retain117 text references; PNG and hidden `.gitignore` remain excluded. No repaired canonical/S3/VM state is claimed yet. See [checkpoint6](CHECKPOINT_6.md).
 

@@ -172,6 +172,20 @@ Reuse actual Mooncake/agent-75 manifests where their stimulus and observables co
 
 Default research mutations still snapshot, and publish when configured. For repeated interactive calls, explicit `--defer-snapshot` skips that per-call bulk snapshot while retaining committed local sources, dossiers and command journal. It is restricted to interactive research; refresh/backfill and experiment operations retain their existing checkpoints.
 
+Reviewed isolated corpora can join the same explicit batch:
+
+```bash
+researchctl --defer-snapshot import-corpus --source /path/to/isolated/research/corpus.sqlite
+researchctl snapshot --namespace research
+```
+
+The import still holds the writer lock, preserves source revisions/discovery edges
+and newer canonical records, and marks a pending checkpoint. The first command
+does not create a recovery snapshot or publish S3. A running publisher is not
+preempted. Without `--defer-snapshot`, imports retain their immediate checkpoint;
+`--local-only import-corpus` checkpoints locally without publishing. Use the final
+checkpoint receipt to establish durability, not the successful merge alone.
+
 ```bash
 researchctl status
 researchctl snapshot --namespace research

@@ -55,6 +55,22 @@ def test_mcp_shared_tools_and_network_boundary(tmp_path):
     asyncio.run(check())
 
 
+def test_mcp_round_estimate_retains_inputs_without_network(tmp_path):
+    from test_round_estimate import example
+    invoke(['--state-dir', str(tmp_path), 'init'])
+    async def check():
+        async with Client(create_server(tmp_path, defer_snapshot=True)) as client:
+            result = await client.call_tool('estimate_rounds', {'inputs': example()})
+            assert not result.is_error
+            value = result.structured_content
+            assert value['result']['expected_rounds_given_trajectory'] == pytest.approx(1.5)
+            assert json.loads((Path(value['output'])/'input.json').read_text()) == example()
+            bad = example()
+            bad['adaptive_verification'] = True
+            assert (await client.call_tool('estimate_rounds', {'inputs': bad})).is_error
+    asyncio.run(check())
+
+
 def test_mcp_online_search_forwards_dates_and_provider(tmp_path):
     from unittest.mock import patch
     calls=[]

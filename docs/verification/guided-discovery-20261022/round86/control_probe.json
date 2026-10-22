@@ -1,0 +1,114 @@
+{
+  "scope": "Independent source-inspired scheduling oracle, not extracted sampler execution or distributional validation",
+  "fp32_bound_counterexample": {
+    "r": 0.30000001192092896,
+    "mass": 0.30000001192092896,
+    "denom": 0.9999999403953552,
+    "h": 0.30000004172325134,
+    "coin": 0.30000004172325134,
+    "native_source_compare": true,
+    "bound_skip_would_reject": true,
+    "scope": "FP32 operation-order model, not compiled Triton or realized Philox/model trajectory"
+  },
+  "control_cases": [
+    {
+      "case": "full5",
+      "accepted": 5,
+      "flag": true,
+      "reference_threshold_reads": 5,
+      "proposed_threshold_reads": 0,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "terminal_tie",
+      "accepted": 5,
+      "flag": true,
+      "reference_threshold_reads": 5,
+      "proposed_threshold_reads": 0,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "terminal_fail_earlier_pass",
+      "accepted": 1,
+      "flag": false,
+      "reference_threshold_reads": 5,
+      "proposed_threshold_reads": 5,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "all_fail",
+      "accepted": 0,
+      "flag": false,
+      "reference_threshold_reads": 5,
+      "proposed_threshold_reads": 5,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "AV_short2",
+      "accepted": 2,
+      "flag": true,
+      "reference_threshold_reads": 2,
+      "proposed_threshold_reads": 0,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "one_draft",
+      "accepted": 1,
+      "flag": false,
+      "reference_threshold_reads": 1,
+      "proposed_threshold_reads": 1,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "empty",
+      "accepted": 0,
+      "flag": false,
+      "reference_threshold_reads": 0,
+      "proposed_threshold_reads": 0,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "placeholder_then_apparent_success",
+      "accepted": 0,
+      "flag": false,
+      "reference_threshold_reads": 1,
+      "proposed_threshold_reads": 1,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "nan_terminal",
+      "accepted": 1,
+      "flag": false,
+      "reference_threshold_reads": 2,
+      "proposed_threshold_reads": 2,
+      "scope": "control and stores only; no native probability calculation"
+    },
+    {
+      "case": "nonfinite_earlier_irrelevant",
+      "accepted": 2,
+      "flag": true,
+      "reference_threshold_reads": 2,
+      "proposed_threshold_reads": 0,
+      "scope": "control and stores only; no native probability calculation"
+    }
+  ],
+  "negative_controls": {
+    "strict_comparison_changes_terminal_tie": true,
+    "any_earlier_pass_does_not_imply_full": true,
+    "placeholder_cannot_be_ignored": true,
+    "state_slot_is_not_batch_row": true
+  },
+  "request_slot_controls": {
+    "fresh_init": true,
+    "nonidentity_mapping": true
+  },
+  "native_imports": false,
+  "logical_byte_bound": {
+    "vocab": 129280,
+    "drafts": 5,
+    "interior_rows": 4,
+    "assumed_bytes_each_target_draft": 2,
+    "max_avoided_input_bytes": 2068480,
+    "unchanged": "normalization, cumulative ratios, launches, fallback scans, bonus/recovery and token stores"
+  }
+}

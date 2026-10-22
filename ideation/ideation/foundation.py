@@ -545,7 +545,7 @@ def _execute(root, args):
     if command == "history":
         from .journal import history
         return history(root, args.limit)
-    if command in {"expand", "prescreen"}:
+    if command in {"expand", "prescreen", "round-estimate"}:
         from .controls import expand_query, prescreen
         if command == "expand":
             plan = None
@@ -555,9 +555,15 @@ def _execute(root, args):
                     raise ValueError('Explicit query plan must be a JSON object')
             value = expand_query(args.question, _config(root, args), after=args.after, before=args.before,
                                  plan=plan)
+        elif command == "round-estimate":
+            from .round_estimate import estimate_rounds
+            diagnostic_input = _read(Path(args.record).expanduser())
+            value = estimate_rounds(diagnostic_input)
         else:
             value = prescreen(_read(Path(args.record).expanduser()))
         output = root / "research/records" / (command + "-" + uuid.uuid4().hex)
+        if command == "round-estimate":
+            _write(output / "input.json", diagnostic_input)
         _write(output / "result.json", value)
         return {"output": str(output), "result": value, "snapshot": _research_snapshot(root, args, publish=False)}
     if command == "hypothesis":
@@ -829,6 +835,8 @@ def parser():
     expand.add_argument("--before")
     prescreen = commands.add_parser("prescreen", help="Offline conditional ROI and cheapest diagnostic")
     prescreen.add_argument("--record", required=True)
+    rounds = commands.add_parser("round-estimate", help="CPU conditional round-count diagnostic from supplied all-anchor p/q; no AV or latency prediction")
+    rounds.add_argument("--record", required=True)
     hypothesis = commands.add_parser("hypothesis").add_subparsers(dest="hypothesis_command", required=True)
     hypothesis.add_parser("retain-artifacts", help="Retain explicitly reviewed hash-pinned text evidence; never execute sources").add_argument("--manifest", required=True)
     hypothesis.add_parser("record").add_argument("--record", required=True)
@@ -942,7 +950,7 @@ def parser():
 def invoke(argv=None):
     """Shared locked API for CLI and MCP; no stdout or exception text logging."""
     args = parser().parse_args(argv)
-    if args.defer_snapshot and args.command not in {"paper-search", "expand", "prescreen", "investigate", "claim", "hypothesis", "screen", "eval-plan", "decide", "link-evidence", "snapshot", "search", "pr-search", "show", "history", "changes", "doctor", "status", "import-corpus"}:
+    if args.defer_snapshot and args.command not in {"paper-search", "expand", "prescreen", "round-estimate", "investigate", "claim", "hypothesis", "screen", "eval-plan", "decide", "link-evidence", "snapshot", "search", "pr-search", "show", "history", "changes", "doctor", "status", "import-corpus"}:
         raise UnsupportedDeferSnapshotError()
     root = Path(args.state_dir).expanduser().resolve()
     if args.env_file:

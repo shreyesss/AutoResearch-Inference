@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint31](CHECKPOINT_31.md) corrects conditional cache-format assumptions, audits a recent prefetch PR, and selectively retains an offline round-count evaluator from a training paper. Start with the [current candidate map](CANDIDATE_MAP_30.md) for source-supported opportunities and their decisive unknowns. The native block/AV estimator remains unqualified; new residual-scan and evaluation-contract investigations are active. No measured inference improvement or blanket S3 coverage is claimed.
+Latest update: [Checkpoint32](CHECKPOINT_32.md) adds deferred terminal-prefix residual-scan proposal FV86 and a reviewed fixed-block CPU round estimator exposed through CLI/MCP. Start with the [candidate map](CANDIDATE_MAP_30.md) plus [FV86](round86/REPORT.md) for source-supported opportunities and their decisive unknowns. Mathematical fixed-block evaluation is now available; native AV, probability acquisition and serving gains remain unqualified. Discovery continues without GPU execution or blanket S3 coverage claims.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

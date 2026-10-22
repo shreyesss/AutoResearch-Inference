@@ -133,6 +133,19 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
         return call(args)
 
     @server.tool(structured_output=True)
+    def estimate_rounds(inputs: dict) -> dict[str, object]:
+        """CPU conditional round-count diagnostic; never collects probabilities or runs models.
+
+        See docs/OFFLINE_ROUND_ESTIMATE.md for schema_version=1. Requires
+        law=ordinary|block, fixed block_size, fixed_output_cap_no_eos_full_block
+        horizon, adaptive_verification=false, positive normalized realized-token
+        target_probabilities and proposal_probabilities_by_anchor for EVERY
+        possible anchor. Supplied provenance is retained, not independently
+        certified. No AV/EOS/native parity, latency or promotion inference.
+        """
+        return record(['round-estimate'], inputs)
+
+    @server.tool(structured_output=True)
     def checkpoint() -> dict[str, object]:
         """Capture pending locally persisted research into a recovery snapshot. Publishes only when server --publish and configured remote auto_publish are enabled. Failure retains pending state; never bypasses lineage."""
         return call(['snapshot', '--namespace', 'research'])

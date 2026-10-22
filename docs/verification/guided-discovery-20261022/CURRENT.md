@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint 22](CHECKPOINT_22.md) adds the reviewed active-request ownership candidate, numerical-admission literature, CF59 prompt-logprob gates and a source-format skill repair. Both new mechanisms remain deferred. [Checkpoint 21](CHECKPOINT_21.md) contains CF59, low-bit screens and compact recall of later objections. Canonical retention completion and S3 publication require their own receipts.
+Latest update: [Checkpoint 23](CHECKPOINT_23.md) adds the independently reviewed layered-prefill direction, concrete continuation-buffer constraints, a next-action priority table, isolated RM61 persistence checks and pinned-code identity reuse. [Checkpoint 22](CHECKPOINT_22.md) contains request migration, numerical-admission literature and CF59 prompt-logprob gates. Canonical retention and S3 publication require their own completion receipts.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

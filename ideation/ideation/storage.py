@@ -15,6 +15,7 @@ import sqlite3
 import tempfile
 import time
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from pathlib import Path, PurePosixPath
 
 SCHEMA = 1
@@ -173,6 +174,10 @@ class S3Transport:
                 raise StorageError('Install optional boto3 for S3 transport') from exc
             client = boto3.Session(profile_name=profile, region_name=region).client('s3')
         self.client = client
+        # Numeric SDK-call accounting only: never retain keys, request options,
+        # response bodies or exception text. Context-local accounting isolates
+        # concurrent pushes even if they share an S3 client/transport.
+        self._publication_requests = ContextVar('publication_requests', default=None)
         members = client.meta.service_model.operation_model('PutObject').input_shape.members
         if not {'IfMatch', 'IfNoneMatch'} <= set(members):
             raise StorageError('AWS SDK lacks conditional PutObject; upgrade boto3. No unsafe fallback.')
@@ -180,9 +185,35 @@ class S3Transport:
     def _key(self, key):
         return self.prefix + '/' + _path(key)
 
+    def _request(self, operation, **arguments):
+        stats = self._publication_requests.get()
+        if stats is None:
+            stats = {}
+        name = {'get_object': 'get', 'head_object': 'head', 'put_object': 'put'}[operation]
+        def add(field, value):
+            stats[field] = stats.get(field, 0) + value
+        add(name + '_calls', 1)
+        started = time.monotonic()
+        response = None
+        try:
+            response = getattr(self.client, operation)(**arguments)
+            add(name + '_succeeded', 1)
+            return response
+        except Exception as error:
+            response = getattr(error, 'response', None)
+            add(name + '_failed', 1)
+            raise
+        finally:
+            add(name + '_seconds', time.monotonic() - started)
+            metadata = response.get('ResponseMetadata', {}) if isinstance(response, dict) else {}
+            retries = metadata.get('RetryAttempts') if isinstance(metadata, dict) else None
+            if type(retries) is int and retries >= 0:
+                add('responses_with_retry_metadata', 1)
+                add('reported_retry_attempts', retries)
+
     def _read(self, key, limit):
         try:
-            response = self.client.get_object(Bucket=self.bucket, Key=self._key(key))
+            response = self._request('get_object', Bucket=self.bucket, Key=self._key(key))
         except Exception as exc:
             code = getattr(exc, 'response', {}).get('Error', {}).get('Code')
             if code in {'NoSuchKey', '404', 'NotFound'}:
@@ -202,7 +233,7 @@ class S3Transport:
 
     def _put(self, key, data, **condition):
         try:
-            self.client.put_object(Bucket=self.bucket, Key=self._key(key), Body=data,
+            self._request('put_object', Bucket=self.bucket, Key=self._key(key), Body=data,
                                    ServerSideEncryption='AES256', Metadata={'sha256': _sha(data)}, **condition)
         except Exception as exc:
             code = getattr(exc, 'response', {}).get('Error', {}).get('Code')
@@ -213,7 +244,7 @@ class S3Transport:
     def put_immutable(self, key, data):
         # A read avoids PUT charges for unchanged chunks; IfNoneMatch resolves races.
         try:
-            metadata = self.client.head_object(Bucket=self.bucket, Key=self._key(key))
+            metadata = self._request('head_object', Bucket=self.bucket, Key=self._key(key))
         except Exception as exc:
             code = getattr(exc, 'response', {}).get('Error', {}).get('Code')
             if code not in {'NoSuchKey', '404', 'NotFound'}:
@@ -424,44 +455,109 @@ def _chunk(transport, row):
     return raw, data
 
 
+@contextmanager
+def _publication_phase(diagnostics, name):
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        phases = diagnostics['phase_seconds']
+        phases[name] = phases.get(name, 0.) + time.monotonic() - started
+
+
 def push(archive_dir, transport, manifest_id, namespace='research', expected_head=None):
-    """Publish only after all objects exist. A stale writer cannot replace HEAD."""
-    local = LocalTransport(archive_dir)
-    value, raw = _manifest(local, manifest_id, namespace)
-    if value.get('parent') != expected_head:
-        raise ConflictError('Snapshot parent must equal expected HEAD')
-    remote_head = transport.head(namespace)
+    """Publish immutable objects, then CAS HEAD; return measured numeric diagnostics.
+
+    Timing covers this push, not snapshot construction or the caller's writer
+    lock wait. On failure the same safe diagnostics are attached to the original
+    exception as publication_diagnostics; its type and cause are preserved.
+    """
+    started = time.monotonic()
+    requests = {} if isinstance(transport, S3Transport) else None
+    request_token = transport._publication_requests.set(requests) if requests is not None else None
+    diagnostics = {'phase_seconds': {}, 'counts': {},
+                   'scope': 'push only; phase wall times include local/SDK work, not snapshot or lock wait',
+                   'request_scope': 'logical SDK calls, not wire attempts; GET seconds exclude body reading; retry totals cover only responses with metadata',
+                   'byte_scope': 'new immutable compressed chunk payloads only; excludes manifest, HEAD, retries and protocol overhead'}
+    def finish():
+        diagnostics['total_seconds'] = time.monotonic() - started
+        diagnostics['s3_requests'] = dict(requests) if requests is not None else None
+    try:
+        try:
+            result = _push(archive_dir, transport, manifest_id, namespace, expected_head, diagnostics)
+        except Exception as error:
+            finish()
+            error.publication_diagnostics = diagnostics
+            raise
+        finish()
+        result['diagnostics'] = diagnostics
+        return result
+    finally:
+        if request_token is not None:
+            transport._publication_requests.reset(request_token)
+
+
+def _push(archive_dir, transport, manifest_id, namespace, expected_head, diagnostics):
+    """Preserve validation and CAS ordering; deduplicate transfer, not validation."""
+    with _publication_phase(diagnostics, 'local_manifest'):
+        local = LocalTransport(archive_dir)
+        value, raw = _manifest(local, manifest_id, namespace)
+        if value.get('parent') != expected_head:
+            raise ConflictError('Snapshot parent must equal expected HEAD')
+    counts = diagnostics['counts']
+    chunks = [chunk for row in value['files'] for chunk in row['chunks']]
+    counts.update(files=len(value['files']), chunk_occurrences=len(chunks),
+                  unique_chunks=len({chunk['sha256'] for chunk in chunks}),
+                  chunk_transfer_checks=0, duplicate_transfer_checks_skipped=0,
+                  chunk_objects_written=0, compressed_chunk_bytes_written=0,
+                  files_verified=0, manifest_objects_written=0)
+    with _publication_phase(diagnostics, 'remote_head_read'):
+        remote_head = transport.head(namespace)
     if remote_head == manifest_id:
-        # Publication can succeed immediately before a client crashes saving its
-        # local lineage. Recover only OUR exact immutable manifest, never adopt
-        # an arbitrary remote head or rewrite the expected parent to bypass CAS.
-        # Verify both copies: a dangling HEAD or damaged local archive is not a
-        # successful recovery. This rare retry may download existing S3 chunks.
-        _manifest(transport, manifest_id, namespace)
-        for source in (local, transport):
-            for row in value['files']:
-                hasher = hashlib.sha256()
-                for chunk in row['chunks']:
-                    _, data = _chunk(source, chunk)
-                    hasher.update(data)
-                if hasher.hexdigest() != row['sha256']:
-                    raise StorageError('File checksum mismatch during publication recovery')
+        # Recover only OUR exact immutable manifest, never adopt an arbitrary
+        # remote head. Keep both complete file validations on this rare path.
+        with _publication_phase(diagnostics, 'exact_publication_recovery_validation'):
+            _manifest(transport, manifest_id, namespace)
+            for source in (local, transport):
+                for row in value['files']:
+                    hasher = hashlib.sha256()
+                    for chunk in row['chunks']:
+                        _, data = _chunk(source, chunk)
+                        hasher.update(data)
+                    if hasher.hexdigest() != row['sha256']:
+                        raise StorageError('File checksum mismatch during publication recovery')
+                    counts['files_verified'] += 1
         return {'id': manifest_id, 'namespace': namespace, 'objects_written': 0,
                 'already_published': True}
     if remote_head != expected_head:
         raise ConflictError('HEAD changed; pull/reconcile before publishing')
-    written = 0
+    checked = set()
     for row in value['files']:
         hasher = hashlib.sha256()
         for chunk in row['chunks']:
-            compressed, data = _chunk(local, chunk)
-            hasher.update(data)
-            written += bool(transport.put_immutable(_object_key(chunk['sha256']), compressed))
+            with _publication_phase(diagnostics, 'local_chunk_validation'):
+                compressed, data = _chunk(local, chunk)
+                hasher.update(data)
+            identity = chunk['sha256']
+            if identity in checked:
+                counts['duplicate_transfer_checks_skipped'] += 1
+                continue
+            counts['chunk_transfer_checks'] += 1
+            with _publication_phase(diagnostics, 'immutable_chunk_transfer'):
+                written = bool(transport.put_immutable(_object_key(identity), compressed))
+            checked.add(identity)
+            if written:
+                counts['chunk_objects_written'] += 1
+                counts['compressed_chunk_bytes_written'] += len(compressed)
         if hasher.hexdigest() != row['sha256']:
             raise StorageError('File checksum mismatch')
-    transport.put_immutable(_manifest_key(namespace, manifest_id), raw)
-    transport.compare_and_swap(namespace, expected_head, manifest_id)
-    return {'id': manifest_id, 'namespace': namespace, 'objects_written': written}
+        counts['files_verified'] += 1
+    with _publication_phase(diagnostics, 'immutable_manifest_transfer'):
+        counts['manifest_objects_written'] = int(bool(transport.put_immutable(_manifest_key(namespace, manifest_id), raw)))
+    with _publication_phase(diagnostics, 'head_compare_and_swap'):
+        transport.compare_and_swap(namespace, expected_head, manifest_id)
+    return {'id': manifest_id, 'namespace': namespace,
+            'objects_written': counts['chunk_objects_written']}
 
 
 def pull(transport, archive_dir, namespace='research', manifest_id=None):

@@ -78,6 +78,20 @@ class StateNotInitializedError(ValueError):
     """Safe actionable error; contains no provider URL or credential values."""
 
 
+class UnsupportedDeferSnapshotError(ValueError):
+    """Known local flag error; safe to expose without arbitrary exception text."""
+
+    error_code = "unsupported_defer_snapshot"
+    safe_message = (
+        "--defer-snapshot is restricted to interactive research and is not supported "
+        "for this command. Remove --defer-snapshot and retry; this command's "
+        "checkpoint behavior remains unchanged. No state mutation or provider request was made."
+    )
+
+    def __init__(self):
+        super().__init__(self.safe_message)
+
+
 class SourceLookupError(KeyError):
     """Local absence, distinct from provider failure; messages contain no inputs."""
 
@@ -839,7 +853,7 @@ def invoke(argv=None):
     """Shared locked API for CLI and MCP; no stdout or exception text logging."""
     args = parser().parse_args(argv)
     if args.defer_snapshot and args.command not in {"paper-search", "expand", "prescreen", "investigate", "claim", "hypothesis", "screen", "eval-plan", "decide", "link-evidence", "snapshot", "search", "pr-search", "show", "history", "changes", "doctor", "status", "import-corpus"}:
-        raise ValueError("--defer-snapshot is restricted to interactive research; refresh/backfill and experiment checkpoints remain immediate")
+        raise UnsupportedDeferSnapshotError()
     root = Path(args.state_dir).expanduser().resolve()
     if args.env_file:
         os.environ["IDEATION_ENV_FILE"] = str(Path(args.env_file).expanduser().resolve())
@@ -871,6 +885,8 @@ def main(argv=None):
                    "message": "Operation failed. State and existing snapshots were retained; check configuration, input records, credentials, or local lineage."}
         if isinstance(error, StateNotInitializedError):
             failure.update(error_code="state_not_initialized", message="Initialize this state directory with researchctl --state-dir PATH init, then retry. No provider request was made by this operation.")
+        if isinstance(error, UnsupportedDeferSnapshotError):
+            failure.update(error_code=error.error_code, message=error.safe_message)
         if isinstance(error, SourceLookupError):
             failure.update(error_code=error.error_code, message=error.safe_message)
         if isinstance(error, PublicationError):

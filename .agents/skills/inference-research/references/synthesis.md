@@ -50,6 +50,15 @@ For a proposed combination, state:
 5. **Tradeoff:** additional work, memory, contention, accuracy or maintenance.
    Do not sum headline speedups or treat shared authors' artifacts as replications.
 
+For an overlap, readiness or staging change, identify the producer event, affected
+consumers, and the first useful operation that can start earlier; compare with the
+target's existing independent issue or polling path. Preserve accumulator and
+buffer-reuse dependencies, and distinguish branches where the event is absent or
+the producer already overlaps work. An abstract DAG test assigning identical old
+and new readiness equations illustrates its premise; it is not independent
+evidence that the implementations have those dependencies. Establish them from
+the actual consumer paths before drawing that conclusion.
+
 Keep an evidence graph simple: claim → source revision; hypothesis → supporting,
 opposing or background claims. A hypothesis `derived_from` another hypothesis
 means substantive method ancestry. Sharing a citation alone does not make one

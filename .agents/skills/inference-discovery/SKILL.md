@@ -28,6 +28,11 @@ does not mean both mechanisms are absent. Try each mechanism separately or inspe
 the paginated compact inventory. For GitHub filtering use `pr-search` or
 `search --kind pr`; `pull_request` is not the stored kind and can silently exclude
 every PR. Correct the filter before treating an empty result as evidence.
+For an empty or paginated local search, use `search --explain` (MCP
+`search_local(explain=True)`) to inspect the exact lexical expression, applied
+filters, matching count and kinds stored in the selected repository. It warns
+about an absent kind/source scope or an offset beyond the matches. It neither
+relaxes filters nor proves upstream coverage; separate calls can see new imports.
 
 In the dossier, read `linked_research` for later refinements and priority limits
 before treating an old accepted investigation as active implementation work.

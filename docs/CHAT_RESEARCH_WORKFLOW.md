@@ -127,6 +127,16 @@ OpenAlex needs its configured key; arXiv can run without one. Known-URL fetches 
 
 ## Local PR search and selected deep reads
 
+Use `search --explain` or `pr-search --explain` when diagnosing empty results or
+pagination. The optional response includes `hits`, `total_matches`, `next_offset`,
+the effective lexical FTS expression, applied filters, and kinds/counts retained
+in the selected repository. It warns about absent kinds, empty repository scopes
+and offsets past the matches. MCP exposes the same response with
+`search_local(explain=True)`. Default response formats remain unchanged. Filters
+are never silently relaxed; these counts describe current retained records,
+not archive completeness or semantic recall. Each response is internally
+consistent, but separate pages can see later imports.
+
 ```bash
 researchctl backfill status
 researchctl pr-search 'prefix affinity' --repo vllm-project/vllm \

@@ -37,6 +37,7 @@ def main():
     q.add_argument("--match", choices=["all", "any"], default="any")
     q.add_argument("--sort", choices=["relevance", "newest"], default="relevance")
     q.add_argument("--limit", type=int, default=20)
+    q.add_argument("--explain", action="store_true", help="Return hits with matching count, effective query, filters and source-scope warnings")
     sub.add_parser("status")
     g = sub.add_parser("graph")
     g.add_argument("node")

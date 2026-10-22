@@ -59,8 +59,8 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
     @server.tool(structured_output=True)
     def search_local(query: str, after: str | None = None, before: str | None = None,
                      repo: str | None = None, kind: str | None = None, limit: int = 20, offset: int = 0,
-                     date_field: str = "updated_at", match: str = "any") -> dict[str, object]:
-        """Search retained papers/PRs/issues, not online. Choose created_at, updated_at, merged_at or fetched_at; >=after and <before. match=all requires each term/quoted phrase; any uses OR. Stored kind examples: pr, issue, paper, report, code. GitHub pull requests use kind=pr, not pull_request. Inspect coverage and filters before treating absence as evidence."""
+                     date_field: str = "updated_at", match: str = "any", explain: bool = False) -> dict[str, object]:
+        """Search retained papers/PRs/issues, not online. Choose created_at, updated_at, merged_at or fetched_at; >=after and <before. match=all requires each term/quoted phrase; any uses OR. Stored kind examples: pr, issue, paper, report, code. GitHub pull requests use kind=pr, not pull_request. explain=True adds total_matches, effective lexical query, filters and source-scope warnings without relaxing filters. Counts describe retained records, not upstream completeness."""
         if date_field not in ("created_at", "updated_at", "merged_at", "fetched_at"):
             raise ToolError("Choose created_at, updated_at, merged_at or fetched_at")
         if match not in ("any", "all"):
@@ -69,6 +69,8 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
         for option, value in (('after', after), ('before', before), ('repo', repo), ('kind', kind)):
             if value is not None:
                 args += ['--' + option, value]
+        if explain:
+            return call(args + ['--explain'])
         return {'hits': call(args)}
 
     @server.tool(structured_output=True)

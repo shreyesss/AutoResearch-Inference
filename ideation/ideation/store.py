@@ -171,7 +171,7 @@ class Store:
                 d[k] = json.loads(d[k])
         return d
 
-    def search(self, query="", match="any", after=None, before=None, date_field="updated_at", kind=None, state=None, tags=None, limit=20, sort="relevance", id_prefix=None, offset=0):
+    def search(self, query="", match="any", after=None, before=None, date_field="updated_at", kind=None, state=None, tags=None, limit=20, sort="relevance", id_prefix=None, offset=0, explain=False):
         if type(offset) is not int or offset < 0:
             raise ValueError("offset must be a nonnegative integer")
         if date_field not in {"created_at", "updated_at", "merged_at", "fetched_at"}:
@@ -200,9 +200,46 @@ class Store:
             where.append("EXISTS(SELECT 1 FROM json_each(d.tags) WHERE value=?)")
             args.append(tag.lower())
         order = "d." + date_field + " DESC" if sort == "newest" else "rank,d.updated_at DESC"
-        sql = "SELECT d.*," + rank + " FROM documents d" + join + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY " + order + ",d.id LIMIT ? OFFSET ?"
-        args.extend([min(max(int(limit), 1), 500), offset])
-        return [self.decode(r) for r in self.db.execute(sql, args)]
+        selection = " FROM documents d" + join + (" WHERE " + " AND ".join(where) if where else "")
+        sql = "SELECT d.*," + rank + selection + " ORDER BY " + order + ",d.id LIMIT ? OFFSET ?"
+        page_limit = min(max(int(limit), 1), 500)
+        page_args = args + [page_limit, offset]
+        if not explain:
+            return [self.decode(r) for r in self.db.execute(sql, page_args)]
+        # Keep hits/counts/diagnostics in one SQLite read snapshot, including
+        # callers already inside a transaction. Do not commit caller writes.
+        self.db.execute("SAVEPOINT search_explanation")
+        try:
+            hits = [self.decode(r) for r in self.db.execute(sql, page_args)]
+            total = self.db.execute("SELECT count(*)" + selection, args).fetchone()[0]
+            scope_sql = "SELECT kind,count(*) FROM documents"
+            scope_args = []
+            if id_prefix:
+                scope_sql += " WHERE substr(id,1,?)=?"
+                scope_args = [len(id_prefix), id_prefix]
+            kinds = dict(self.db.execute(scope_sql + " GROUP BY kind ORDER BY kind", scope_args))
+            warnings = []
+            if not kinds:
+                warnings.append({"code": "empty_source_scope", "message": "No retained documents in this repository/ID scope; check ingestion coverage and the exact repository name."})
+            elif kind and kind not in kinds:
+                message = "Requested kind is absent in this source scope; inspect available_kinds before interpreting an empty result."
+                if kind == "pull_request" and "pr" in kinds:
+                    message += " GitHub pull requests use kind=pr; retry with pr or pr-search."
+                warnings.append({"code": "kind_absent_in_scope", "message": message})
+            if total and offset >= total:
+                warnings.append({"code": "offset_past_matches", "message": "This page starts after all matches; retry with a smaller offset."})
+            return {
+                "hits": hits, "total_matches": total, "offset": offset, "limit": page_limit,
+                "next_offset": offset + len(hits) if offset + len(hits) < total else None,
+                "filters": {"query": query, "match": match, "effective_fts": fts_query(query, match) if query.strip() else None,
+                            "after_inclusive": after, "before_exclusive": before, "date_field": date_field,
+                            "kind": kind, "state": state, "tags": tags or [], "id_prefix": id_prefix, "sort": sort},
+                "source_scope": {"documents": sum(kinds.values()), "available_kinds": kinds},
+                "warnings": warnings,
+                "coverage_note": "Counts describe retained current records, not upstream completeness or semantic recall. Pages from separate calls may change during ingestion. No filters were relaxed.",
+            }
+        finally:
+            self.db.execute("RELEASE search_explanation")
 
     def graph(self, node, limit=100):
         return [dict(r) for r in self.db.execute("SELECT * FROM edges WHERE src=? OR dst=? LIMIT ?", (node, node, limit))]

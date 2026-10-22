@@ -687,7 +687,7 @@ def _execute(root, args):
             if command in {"search", "pr-search"}:
                 return store.search(args.query_text, match=args.match, after=args.after, before=args.before, limit=args.limit, offset=args.offset,
                                     date_field=args.date_field, kind="pr" if command == "pr-search" else args.kind,
-                                    id_prefix="github:" + args.repo + ":" if args.repo else None)
+                                    id_prefix="github:" + args.repo + ":" if args.repo else None, explain=args.explain)
             if command == "show":
                 result = store.get(args.id)
                 if result is None:
@@ -882,6 +882,7 @@ def parser():
     search.add_argument("--date-field", choices=("created_at", "updated_at", "merged_at", "fetched_at"), default="updated_at")
     search.add_argument("--kind", help="Stored source kind, e.g. pr, issue, paper, report or code; GitHub pull requests use pr, not pull_request")
     search.add_argument("--repo")
+    search.add_argument("--explain", action="store_true", help="Return hits with matching count, effective lexical query, applied filters and source-scope warnings; no automatic filter relaxation")
     show = commands.add_parser("show")
     show.add_argument("id")
     show.add_argument("--history", action="store_true")

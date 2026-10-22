@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint19](CHECKPOINT_19.md) adds reviewed rounds54–57, the source-backed M01 arithmetic correction, and search-surface clarification. The guided loop continues; canonical publication remains pending. [Checkpoint18](CHECKPOINT_18.md) preserves the preceding WAL repair and reviews.
+Latest update: [Checkpoint20](CHECKPOINT_20.md) adds reviewed round58, tested local-search diagnostics, and completed ingestion repair for two missing predecessor reports. The guided loop and larger sequential retention work continue; no fresh cloud coverage is claimed for that repair. [Checkpoint19](CHECKPOINT_19.md) preserves reviewed rounds54–57 and the M01 arithmetic correction.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

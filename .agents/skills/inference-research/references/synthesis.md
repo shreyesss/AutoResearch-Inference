@@ -30,6 +30,24 @@ Engram/CED state or cache commits merely because the policy is training-free.
 Two similarly named papers remain distinct. This example teaches decomposition;
 its checkpoint, GSM8K restriction and waived ROI are specific to that task.
 
+For proposal-distribution or policy calibration, separate the fitting objective
+from the deployed probability contract. A training paper's acceptance-overlap
+objective can motivate fitting permitted scalar parameters with frozen weights;
+its trained-model gains and teacher-forced surrogate do not transfer with it.
+Changing the policy can change sampled parents and reached states, so a
+request-disjoint split alone does not make baseline traces a valid estimate of
+the new policy's online progress. State which counterfactuals the data actually
+cover. For lossless speculative sampling, trace the actual proposal through
+normalizers, acceptance and residual recovery, including cached dtype/scaling;
+adjusting sampling or acceptance alone can bias outputs. Make effective support
+and confidence/scheduling policies explicit, so changes to them are not silently
+credited to scalar calibration. A lossless claim requires the target distribution
+to remain unchanged.
+Stochastic correctness need not imply identical outputs at the same seed; retain
+the workload's EOS/length policy and account for actual completed outputs.
+These checks arose in [PC76's selective objective/PR synthesis](../../../../docs/verification/guided-discovery-20261022/round76/REPORT.md);
+that investigation is a deferred proposal, not evidence of a serving win.
+
 ## Synthesize with a compatibility argument
 
 Generate only combinations with a causal reason to help. Useful moves include

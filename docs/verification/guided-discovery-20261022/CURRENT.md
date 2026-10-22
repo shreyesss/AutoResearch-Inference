@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint27](CHECKPOINT_27.md) adds the independently reviewed Engram remainder experiment, an exact-target AV activation audit, research yield through round74, and a tested query-plan error repair. [Checkpoint26](CHECKPOINT_26.md) covers AV copy elision and the verified AIPerf first-chunk ITL correction. No measured inference improvement or blanket S3 coverage is claimed. The discovery loop remains active.
+Latest update: [Checkpoint28](CHECKPOINT_28.md) adds draft-temperature calibration with explicit probability/progress gates, Engram request-map reuse, and a normalization transfer rejected against existing source. It includes exact CPU counterexamples, independent reviews, research yield through round77 and a narrow synthesis-skill correction. [Checkpoint27](CHECKPOINT_27.md) covers exact Engram remainder, AV activation and query-plan repair. No measured inference improvement or blanket S3 coverage is claimed. The discovery loop remains active.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

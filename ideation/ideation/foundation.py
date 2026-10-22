@@ -319,6 +319,8 @@ def _run_research(root, args):
     config = _config(root, args)
     if not 0 <= args.deep_count <= 20:
         raise ValueError("deep-count must be 0..20")
+    if not 0 <= args.citations_per_paper <= 5:
+        raise ValueError("citations-per-paper must be 0..5")
     if args.reason and args.offline:
         raise ValueError("--offline cannot enable model reasoning; use a separate online --reason run")
     if args.reason and not args.brief:
@@ -345,6 +347,7 @@ def _run_research(root, args):
             result["dossier"] = investigate(store, args.question, chosen, out / "dossier",
                 max_http_calls=0 if args.offline else args.max_http_calls,
                 max_fulltexts=args.deep_count, max_repositories=args.max_repositories,
+                citations_per_paper=args.citations_per_paper,
                 repositories=args.repository, code_sources=args.code_source,
                 reason=args.reason, brief=brief, model=args.model, timeout=args.timeout)
             if args.reason:
@@ -738,6 +741,8 @@ def parser():
     run.add_argument("--timeout", type=int, default=300)
     run.add_argument("--max-http-calls", type=int, default=12)
     run.add_argument("--max-repositories", type=int, default=2)
+    run.add_argument("--citations-per-paper", type=int, default=3,
+                     help="Citation links per paper, 0..5 (default 3); 0 skips citation expansion while retaining full-text reads")
     run.add_argument("--repository", action="append", help="Read only explicitly selected owner/repository READMEs; repeatable. Replaces automatic link selection, does not establish authorship")
     run.add_argument("--code-source", action="append", type=json.loads, help='Pinned file JSON: {"repo":"owner/name","ref":"40-hex commit","path":"relative/file.py"}; repeatable, at most 6 unique files')
     search = commands.add_parser("search", aliases=["pr-search"])

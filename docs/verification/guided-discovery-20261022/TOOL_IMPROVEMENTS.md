@@ -22,3 +22,7 @@ Two added CLI/MCP tests exercise the actual error path; command failures remain 
 - An initial manual focused-test invocation named a nonexistent test file and ran zero tests; the corrected full suite above is the verification evidence.
 
 These checks establish tool behavior, not improved scientific judgment or inference throughput. No claim that the two repairs increase accepted-hypothesis yield has been tested.
+
+## Agent-controlled citation expansion
+
+Round8 spent2 of4 logicalHTTPmisses on unwanted citation expansion; both failed. CLI/MCP now expose the existing citations-per-paper limit0..5 (default3). Explicit0 preserves full-text reads and skips bibliography work; limits are checked before refresh/network. Cold mocked tests prove two full texts still fetch without citation calls; an actual cached re-read with HTTPbudget0 returned both papers with zeroerrors/misses. Provider outages themselves are not fixed. Full suite after this change: **263 passed**,11subtests; bootstrapdryrun and diffcheckpassed.

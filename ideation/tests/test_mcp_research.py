@@ -132,6 +132,30 @@ def test_mcp_deep_read_explicit_selection_reaches_cli(tmp_path):
     assert json.loads(calls[0][calls[0].index('--code-source')+1])==pin
     assert '--repository' not in calls[1]
     assert calls[1][calls[1].index('--max-repositories')+1]=='0'
+    assert all(args[args.index('--citations-per-paper')+1]=='3' for args in calls)
+
+
+def test_mcp_investigate_citation_limit_forwarding_and_validation(tmp_path):
+    from unittest.mock import patch
+    calls=[]
+    def fake(args):
+        calls.append(args)
+        return {'ok':True}
+    async def check():
+        with patch('ideation.foundation.invoke',fake), patch('ideation.sources.Sources._request') as request:
+            async with Client(create_server(tmp_path,allow_network=True)) as client:
+                arguments={'source_ids':['arxiv:2610.15366'], 'question':'Read full text', 'offline':False}
+                for limit in (0,5):
+                    result=await client.call_tool('investigate',{**arguments,'citations_per_paper':limit})
+                    assert not result.is_error
+                for limit in (-1,6):
+                    result=await client.call_tool('investigate',{**arguments,'citations_per_paper':limit})
+                    assert result.is_error
+                    assert 'citations_per_paper must be 0..5' in str(result.content)
+                assert len(calls)==2
+            request.assert_not_called()
+    asyncio.run(check())
+    assert [args[args.index('--citations-per-paper')+1] for args in calls]==['0','5']
 
 
 def test_mcp_uninitialized_state_recovery_hint(tmp_path):

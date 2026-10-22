@@ -141,13 +141,16 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
     @server.tool(structured_output=True)
     def investigate(source_ids: list[str], question: str, offline: bool = True, max_http_calls: int = 8,
                     max_repositories: int = 2, repositories: list[str] | None = None,
-                    code_sources: list[dict[str, str]] | None = None) -> dict[str, object]:
-        """Read selected full text/PRs within budget. repositories chooses only those READMEs (not proof of authorship); code_sources selects up to 6 exact {repo, ref:40-hex-commit, path} files. Null repositories uses heuristic link selection; [] disables it. Host synthesizes claims."""
+                    code_sources: list[dict[str, str]] | None = None,
+                    citations_per_paper: int = 3) -> dict[str, object]:
+        """Read selected full text/PRs within budget. citations_per_paper is 0..5 (default 3); 0 skips citation expansion, retaining full-text reads. repositories chooses only those READMEs (not proof of authorship); code_sources selects up to 6 exact {repo, ref:40-hex-commit, path} files. Null repositories uses heuristic link selection; [] disables it. Host synthesizes claims."""
         if not source_ids or len(source_ids) > 20 or not 0 <= max_http_calls <= 30 or not 0 <= max_repositories <= 5:
             raise ToolError('Choose 1..20 source IDs, 0..30 HTTP calls and 0..5 repositories')
+        if not 0 <= citations_per_paper <= 5:
+            raise ToolError('citations_per_paper must be 0..5; 0 skips citation expansion')
         if not offline and not allow_network:
             raise ToolError('Network disabled')
-        args = ['investigate', '--question', question, '--deep-count', str(len(source_ids)), '--max-http-calls', str(max_http_calls), '--max-repositories', str(max_repositories)]
+        args = ['investigate', '--question', question, '--deep-count', str(len(source_ids)), '--max-http-calls', str(max_http_calls), '--max-repositories', str(max_repositories), '--citations-per-paper', str(citations_per_paper)]
         for source in source_ids:
             args += ['--source-id', source]
         if repositories is not None:

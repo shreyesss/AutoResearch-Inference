@@ -143,9 +143,39 @@ class FoundationTests(unittest.TestCase):
              mock.patch("ideation.deep_dive.investigate", return_value={"status": "dossier_ready"}) as investigate:
             result = self.call("run", "--question", "sampler", "--offline")
         self.assertEqual(investigate.call_args.kwargs["max_http_calls"], 0)
+        self.assertEqual(investigate.call_args.kwargs["citations_per_paper"], 3)
         self.assertEqual(result["selected_sources"], ["github:example/repo:1"])
         self.assertEqual(result["GPU_experiments"], 0)
         self.assertIn("snapshot", result)
+
+    def test_run_and_investigate_forward_explicit_citation_limits(self):
+        self.init()
+        store = Store(self.state / "research/corpus.sqlite")
+        store.put(self.document())
+        store.db.commit()
+        store.db.close()
+        for command in ("run", "investigate"):
+            for limit in (0, 5):
+                with self.subTest(command=command, limit=limit), \
+                     mock.patch("ideation.deep_dive.investigate", return_value={"status": "dossier_ready"}) as investigate:
+                    self.call(command, "--question", "sampler", "--offline",
+                              "--citations-per-paper", str(limit))
+                self.assertEqual(investigate.call_args.kwargs["citations_per_paper"], limit)
+
+    def test_invalid_citation_limit_blocks_online_refresh_and_reads(self):
+        self.init()
+        for command in ("run", "investigate"):
+            for limit in (-1, 6):
+                with self.subTest(command=command, limit=limit), \
+                     mock.patch("ideation.discovery.refresh") as refresh, \
+                     mock.patch("ideation.deep_dive.investigate") as investigate, \
+                     mock.patch("ideation.sources.Sources._request") as request:
+                    result = self.call(command, "--question", "sampler",
+                                       "--citations-per-paper", str(limit), expected=1)
+                self.assertEqual(result["error_type"], "ValueError")
+                refresh.assert_not_called()
+                investigate.assert_not_called()
+                request.assert_not_called()
 
     def test_provider_file_allowlist_no_interpolation_or_snapshot_leak(self):
         env_file = self.root / "providers.env"

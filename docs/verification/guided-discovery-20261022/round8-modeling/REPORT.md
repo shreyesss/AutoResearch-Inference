@@ -40,3 +40,7 @@ Its agent-session profiles and saturation sweeps are useful comparison dimension
 ## Yield
 
 One online research query;8 hits;2 selected full texts;2 failed citation expansions;0 new hypotheses;3 evaluator components considered with explicit limitations. Existing cards can reference this assessment without being duplicated. This is evidence inspection, not a controlled experiment proving a better research skill.
+
+## Observed tool refinement and cached re-read
+
+The tool now exposes `--citations-per-paper 0..5` (default3), so an agent can choose full-text inspection without automatic bibliography expansion. A second actual invocation used0citations and0allowed HTTP misses: both retained full texts were cache hits, zeroHTTPmisses, zeroerrors. This verifies selected work and cache reuse; the original provider failures remain unresolved. Zero network usage also depends on the warm cache and is not evidence that cold full-text retrieval is free or that research quality increased. Original failed receipts remain unchanged.

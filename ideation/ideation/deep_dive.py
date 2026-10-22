@@ -82,6 +82,8 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
     """
     if not question.strip() or not source_ids:
         raise ValueError("Provide a question and at least one stored source ID")
+    if type(citations_per_paper) is not int or not 0 <= citations_per_paper <= 5:
+        raise ValueError("citations_per_paper must be an integer in 0..5")
     if len(source_ids) > 20 or any(int(n) < 0 for n in (max_http_calls, max_fulltexts, max_repositories, citations_per_paper, max_code_files)):
         raise ValueError("At most 20 sources; budgets must be nonnegative")
     if reason and not brief:
@@ -183,7 +185,7 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
                 errors.append({"stage": "fulltext", "id": identity, "error_type": type(error).__name__})
             if citations_per_paper:
                 try:
-                    citations = sources.citations(identity, limit=min(5, citations_per_paper))
+                    citations = sources.citations(identity, limit=citations_per_paper)
                     failed = bool(citations.get("error") or citations.get("errors"))
                     if failed:
                         errors.append({"stage": "citations", "id": identity, "error_type": "ProviderError"})
@@ -257,6 +259,7 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
     write_json(out / "sources.json", documents)
     manifest = {"version": 1, "question": question, "created_at": now(), "status": "dossier_ready",
                 "http_cache_misses": used, "http_limit": max_http_calls,
+                "citations_per_paper": citations_per_paper,
                 "network_note": "Logical cache misses; GitHub transient retries can add HTTP attempts.",
                 "reads": reads, "errors": errors,
                 "reasoning_source_ids": reasoning_ids,

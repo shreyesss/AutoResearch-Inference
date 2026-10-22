@@ -105,6 +105,31 @@ class DeepDiveTests(unittest.TestCase):
         self.assertNotIn(known, result["reasoning_source_ids"])
         self.assertNotIn(unknown, result["reasoning_source_ids"])
 
+    def test_zero_citations_keeps_both_fulltexts_with_no_citation_calls(self):
+        ids = [self.paper("arxiv:2610.15366"), self.paper("arxiv:2609.34683")]
+        with patch.object(Sources, "_request", return_value=(b"<html>Full paper evidence</html>", "text/html")) as request, \
+             patch.object(Sources, "citations", side_effect=AssertionError("Unrequested citation expansion")) as citations:
+            result = self.run_dive(ids, max_http_calls=2, max_fulltexts=2,
+                                   max_repositories=0, citations_per_paper=0)
+        citations.assert_not_called()
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(result["http_cache_misses"], 2)
+        self.assertEqual(result["citations_per_paper"], 0)
+        self.assertEqual(len([read for read in result["reads"] if "fulltext" in read]), 2)
+        self.assertEqual(result["errors"], [])
+        self.assertFalse(any(read.get("stage") == "citations" for read in result["reads"]))
+        self.assertTrue(all(self.store.get("fulltext:" + identity.split(":", 1)[1]) for identity in ids))
+
+    def test_invalid_citation_limit_fails_before_any_provider_request(self):
+        identifier = self.paper()
+        for limit in (-1, 6, 1.5):
+            with self.subTest(limit=limit), patch.object(Sources, "_request") as request, \
+                 patch.object(Sources, "citations") as citations:
+                with self.assertRaisesRegex(ValueError, "citations_per_paper"):
+                    self.run_dive([identifier], citations_per_paper=limit)
+            request.assert_not_called()
+            citations.assert_not_called()
+
     def test_cache_miss_budget_stops_second_network_operation(self):
         identifier = self.paper()
         with patch.object(Sources, "_request", return_value=(b"<html>Paper</html>", "text/html")) as request:

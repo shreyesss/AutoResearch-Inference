@@ -89,6 +89,16 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
         return call(args)
 
     @server.tool(structured_output=True)
+    def import_sources(source_corpus: str, source_ids: list[str]) -> dict[str, object]:
+        """Reuse 1..100 exact retained SQLite source IDs from a local read-only corpus. Imports their revisions and incident edges into this server state, preserving newer local records; other edge endpoints may remain unresolved. No checkpoints, credentials, HTTP cache or network refresh. Read with source_show afterward; investigate may still attempt retrieval."""
+        if not source_ids or len(source_ids) > 100 or any(not isinstance(s, str) or not s.strip() for s in source_ids):
+            raise ToolError('Select 1..100 nonempty source IDs')
+        args = ['import-corpus', '--source', source_corpus]
+        for source in source_ids:
+            args += ['--source-id', source]
+        return call(args)
+
+    @server.tool(structured_output=True)
     def expand_queries(question: str, after: str | None = None, before: str | None = None, plan: dict | None = None) -> dict[str, object]:
         """Validate semantic queries authored by the host, offline. No model or search runs here.
 

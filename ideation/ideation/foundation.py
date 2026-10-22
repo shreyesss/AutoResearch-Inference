@@ -257,11 +257,17 @@ def _import_jsonlines(source, destination):
     return {**counts, "source": str(source), "source_open_mode": "readonly-jsonlines", "source_modified": False}
 
 
-def _import_corpus(source, destination):
+def _import_corpus(source, destination, source_ids=None):
     """Merge a read-only old corpus; preserve newer target records and conflicts."""
     from .store import Store
+    if source_ids is not None and (not source_ids or len(source_ids) > 100 or
+            any(not isinstance(identity, str) or not identity.strip() for identity in source_ids)):
+        raise ValueError("Select 1..100 nonempty source IDs")
+    selected = list(dict.fromkeys(source_ids)) if source_ids is not None else None
     source = Path(source).expanduser().resolve(strict=True)
     if source.name.endswith((".jsonl", ".jsonl.gz", ".ndjson", ".ndjson.gz")):
+        if selected is not None:
+            raise ValueError("Selected-source import requires SQLite; JSONL import remains whole-file")
         return _import_jsonlines(source, destination)
     if source == destination.path.resolve():
         raise ValueError("Source and destination corpus must differ")
@@ -276,9 +282,16 @@ def _import_corpus(source, destination):
         tables = {row[0] for row in original.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "documents" not in tables:
             raise ValueError("Source is not a supported corpus database")
+        placeholders = ",".join("?" for _ in selected) if selected else ""
+        selection = " WHERE id IN (" + placeholders + ")" if selected else ""
+        parameters = selected or []
+        if selected is not None:
+            found = {row[0] for row in original.execute("SELECT id FROM documents" + selection, parameters)}
+            if found != set(selected):
+                raise ValueError("Selected source IDs missing from source corpus; no documents imported")
         try:
             destination.db.execute("BEGIN IMMEDIATE")
-            for row in original.execute("SELECT * FROM documents"):
+            for row in original.execute("SELECT * FROM documents" + selection, parameters):
                 raw = dict(row)
                 incoming = Store.decode(raw)
                 current = destination.get(incoming["id"])
@@ -297,19 +310,32 @@ def _import_corpus(source, destination):
                     destination.put(incoming)
                     counts["documents_imported"] += 1
             if "document_revisions" in tables:
-                for row in original.execute("SELECT id,content_hash,observed_at,document FROM document_revisions"):
+                for row in original.execute("SELECT id,content_hash,observed_at,document FROM document_revisions" + selection, parameters):
                     # Validate JSON; preserve exact historical payload and identity.
                     json.loads(row["document"])
                     counts["revisions_imported"] += destination.db.execute(
                         "INSERT OR IGNORE INTO document_revisions VALUES(?,?,?,?)", tuple(row)).rowcount
             if "edges" in tables:
-                for row in original.execute("SELECT src,relation,dst,evidence,detail FROM edges"):
-                    if row["evidence"] in preserved_newer and row["relation"] in {"mentions", "links_to", "child_of"}:
-                        counts["historical_derived_edges_skipped"] += 1
-                        continue
+                newer_evidence = {identity: True for identity in preserved_newer}
+                edge_selection = (" WHERE src IN (" + placeholders + ") OR dst IN (" + placeholders +
+                                  ") OR evidence IN (" + placeholders + ")") if selected else ""
+                for row in original.execute("SELECT src,relation,dst,evidence,detail FROM edges" + edge_selection,
+                                            parameters * 3 if selected else []):
+                    if row["relation"] in {"mentions", "links_to", "child_of"}:
+                        evidence = row["evidence"]
+                        if selected is not None and evidence not in newer_evidence:
+                            # An incoming edge can be derived from an unselected
+                            # document whose destination projection is newer.
+                            prior = original.execute("SELECT * FROM documents WHERE id=?", (evidence,)).fetchone()
+                            current = destination.get(evidence)
+                            newer_evidence[evidence] = bool(prior and current and
+                                _document_order(current) > _document_order(Store.decode(prior)))
+                        if newer_evidence.get(evidence, False):
+                            counts["historical_derived_edges_skipped"] += 1
+                            continue
                     json.loads(row["detail"])
                     counts["edges_imported"] += destination.db.execute("INSERT OR IGNORE INTO edges VALUES(?,?,?,?,?)", tuple(row)).rowcount
-            if "checkpoints" in tables:
+            if "checkpoints" in tables and selected is None:
                 for row in original.execute("SELECT key,value FROM checkpoints"):
                     json.loads(row["value"])
                     current = destination.db.execute("SELECT value FROM checkpoints WHERE key=?", (row["key"],)).fetchone()
@@ -324,7 +350,9 @@ def _import_corpus(source, destination):
         except BaseException:
             destination.db.rollback()
             raise
-    return {**counts, "source": str(source), "source_open_mode": "readonly", "source_modified": False}
+    return {**counts, "source": str(source), "source_open_mode": "readonly", "source_modified": False,
+            "selected_source_ids": selected,
+            "scope": "Selected documents, all their revisions and incident edges; other edge endpoints may be unresolved. No checkpoints or remote refresh." if selected is not None else "Full corpus merge"}
 
 
 def _run_research(root, args):
@@ -623,7 +651,7 @@ def _execute(root, args):
                     finally:
                         flow.close()
                 return result
-            result = _import_corpus(args.source, store)
+            result = _import_corpus(args.source, store, source_ids=args.source_id)
             result["snapshot"] = _research_snapshot(root, args, publish=not args.local_only)
             return result
         finally:
@@ -801,6 +829,7 @@ def parser():
     show.add_argument("--claims", action="store_true")
     imp = commands.add_parser("import-corpus")
     imp.add_argument("--source", required=True)
+    imp.add_argument("--source-id", action="append", help="Import only this exact SQLite document ID, its revisions and incident provenance edges; repeat up to 100. No checkpoints. Omit for whole-corpus import.")
     for name in ("snapshot", "push", "pull", "restore", "sync-replica"):
         command = commands.add_parser(name)
         command.add_argument("--namespace", choices=("research", "experiments/registry"), default="research")

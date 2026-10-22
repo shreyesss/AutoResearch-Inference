@@ -43,6 +43,23 @@ This is a feedback loop, not a mandatory sequence or fixed number of searches. T
 
 Skills are repo-owned instructions, not daemons. MCP tools must be registered with the host client; their implementation alone does not expose them to this chat. CLI access works independently.
 
+## Reuse retained sources in an isolated study
+
+Before downloading a known paper again, inspect the source library as well as hypothesis recall. Recall matches cards, decisions and linked claims; it can miss a paper mentioned only in an investigation's artifact list. `search --kind fulltext`, `show ID --history`, and MCP `search_local` / `source_show` already read retained evidence. A versioned full text has an ID such as `fulltext:2610.00001v1`; an unversioned ID does **not** establish which current arXiv revision it represents.
+
+```bash
+# Inspect the library/replica first; choose the exact retained ID and revision hash.
+researchctl --state-dir /path/to/library show fulltext:2610.00001v1 --history
+# Import only selected evidence into an initialized isolated state. Repeat --source-id as needed.
+researchctl --state-dir /path/to/study --local-only --defer-snapshot import-corpus \
+  --source /path/to/library/research/corpus.sqlite --source-id fulltext:2610.00001v1
+researchctl --state-dir /path/to/study show fulltext:2610.00001v1 --revision-hash HASH_FROM_HISTORY
+```
+
+MCP `import_sources(source_corpus, source_ids)` provides the same selected import, followed by `source_show`. SQLite selection imports the exact documents, all their retained revisions and incident provenance edges; it preserves newer local records and skips all collection checkpoints. Other edge endpoints may remain unresolved: explicitly select their records if the query/paper context is needed. This does not copy cache databases, credentials, hypothesis decisions or storage lineage. Without `--source-id`, the existing whole-corpus merge still includes checkpoints. JSONL import remains whole-file and rejects a selection instead of silently ignoring it.
+
+Record the source ID, content hash and original retrieval date as **reused evidence**, not a new fetch or updated coverage. Use online discovery when freshness or a missing revision is the question. The import does not seed the HTTP cache or change `investigate`: a subsequent investigation may fetch again, even with a full-text document present. For an offline reread, use `show`/`source_show`; a zero-HTTP investigation budget prevents network calls but does not turn the existing fetch path into a retained-text lookup. Snapshot the isolated work when ready; reuse itself makes no S3 or VM synchronization claim.
+
 ## Online discovery and semantic expansion
 
 ```bash

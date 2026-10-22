@@ -11,6 +11,27 @@ from ideation.mcp_server import create_server
 from ideation.store import Store
 
 
+def test_mcp_selected_source_import_is_explicit_and_offline(tmp_path):
+    from unittest.mock import patch
+    calls = []
+    def fake(args):
+        calls.append(args)
+        return {'selected_source_ids': ['fulltext:2610.00001v1']}
+    async def check():
+        with patch('ideation.foundation.invoke', fake):
+            async with Client(create_server(tmp_path, defer_snapshot=True)) as client:
+                result = await client.call_tool('import_sources', {
+                    'source_corpus': '/library/corpus.sqlite', 'source_ids': ['fulltext:2610.00001v1']})
+                assert not result.is_error
+                assert calls[-1][-5:] == ['import-corpus', '--source', '/library/corpus.sqlite',
+                                          '--source-id', 'fulltext:2610.00001v1']
+                assert '--local-only' in calls[-1] and '--defer-snapshot' in calls[-1]
+                count = len(calls)
+                denied = await client.call_tool('import_sources', {'source_corpus': '/library/corpus.sqlite', 'source_ids': []})
+                assert denied.is_error and len(calls) == count
+    asyncio.run(check())
+
+
 def test_mcp_shared_tools_and_network_boundary(tmp_path):
     invoke(['--state-dir',str(tmp_path),'init'])
     fixture=json.loads((Path(__file__).resolve().parents[1]/'examples/evidence_fixture.json').read_text())

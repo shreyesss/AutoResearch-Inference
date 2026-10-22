@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint28](CHECKPOINT_28.md) adds draft-temperature calibration with explicit probability/progress gates, Engram request-map reuse, and a normalization transfer rejected against existing source. It includes exact CPU counterexamples, independent reviews, research yield through round77 and a narrow synthesis-skill correction. [Checkpoint27](CHECKPOINT_27.md) covers exact Engram remainder, AV activation and query-plan repair. No measured inference improvement or blanket S3 coverage is claimed. The discovery loop remains active.
+Latest update: [Checkpoint29](CHECKPOINT_29.md) adds a source-supported FP8 expert-return experiment with explicit numerical gates, a deeper ReAnchor screen, and a tested historical-revision claim fix. [Checkpoint28](CHECKPOINT_28.md) covers proposal calibration, Engram request-map reuse and exact CPU falsifiers. No measured inference improvement or blanket S3 coverage is claimed. The discovery loop remains active.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

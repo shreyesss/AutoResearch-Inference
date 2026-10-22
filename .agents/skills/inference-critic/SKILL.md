@@ -28,6 +28,15 @@ proof of improved serving performance. Do not tune repeatedly to an opened test.
 
 Audit every numerical ROI input: measured/inferred/unknown, units, frequency, affected workload fraction, exposed critical-path time, useful output progress and treatment overhead. Component timing cannot establish client-visible speedup, and fixed-load latency cannot establish cost savings. Identify the cheapest CPU/source/trace check first. Recommend a small GPU diagnostic only when it resolves a named remaining uncertainty; unknown ROI is not automatic scientific rejection. Selection scores are priorities, not probabilities or experimental validation.
 
+Before using a reported loss or parity result to reject an idea, identify its
+treatment, control, metric, measured boundary and hardware/workload. Check the
+actual table values and direction when a summary determines the verdict. A losing
+collective-fusion ablation does not refute a different local-operator speedup;
+conversely, a winning bundle does not isolate each component. Preserve both
+comparisons and narrow the rejection to the unsupported transfer. If a prior
+summary misstated the evidence, append a sourced correction and link it to affected
+investigations; do not silently rewrite the original or reverse unrelated decisions.
+
 Write `review.md` with evidence checked, strongest support, strongest objection, cheapest resolution and advance/revise/defer/reject. Explain each verdict. Defer costly or inaccessible but plausible work without calling it disproven. Rank opportunities using explicit tradeoffs rather than ungrounded precision scores.
 
 When invoked inside the research loop, revise cards and record substantive changes; preserve the earlier claim in a revision note or version history. When asked only for an external review, preserve the author's cards and provide revision instructions. Replacement ideas must receive the same scrutiny. Check that the requested number and breadth were addressed without splitting one mechanism into duplicates.

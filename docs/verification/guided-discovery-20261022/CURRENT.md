@@ -1,6 +1,8 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint39](CHECKPOINT_39.md) retains SP109 as a new deferred target-SWA precision proposal, closes FV86 flag ownership at source level, corrects historical timing scope, and reopens TokenRouter at component level without a duplicate hypothesis. No GPU execution or measured win.
+Latest update: [Checkpoint40](CHECKPOINT_40.md) retains conditional resident-replica selection, adds an allocator falsifier and null physical-saving controls to SP109, and clarifies isolated-workspace initialization. No GPU execution or measured win.
+
+Previous update: [Checkpoint39](CHECKPOINT_39.md) retains SP109 as a new deferred target-SWA precision proposal, closes FV86 flag ownership at source level, corrects historical timing scope, and reopens TokenRouter at component level without a duplicate hypothesis. No GPU execution or measured win.
 
 Previous update: [Checkpoint38](CHECKPOINT_38.md) records three recent-paper branches, historical cache evidence with corrections, and a null date-guidance comparison. No new formal cards or measured wins. FV86 source integration and selective SWA precision are the next bounded branches.
 

@@ -9,7 +9,7 @@ from ideation.controls import expand_query
 from ideation.evidence import ResearchTools
 from ideation.foundation import invoke
 from ideation.paper_search import search_papers
-from ideation.sources import Sources
+from ideation.sources import Sources, arxiv_query
 from ideation.store import Store
 
 
@@ -78,27 +78,33 @@ def test_stop_without_quota_and_no_metric_only_family_expansion():
     assert result['queries'] == [] and result['stop_reason']
 
 
-def test_arxiv_dated_relaxation_keeps_dates_and_cache_reuses_both_attempts(tmp_path):
+def test_arxiv_empty_search_retains_mechanism_dates_and_cached_absence(tmp_path):
     store = Store(tmp_path/'corpus.sqlite')
     requests = []
     def fetch(self, url, xml=False, headers=None):
         query = parse_qs(urlparse(url).query)['search_query'][0]
         requests.append(query)
-        entries = '' if 'all:"tail"' in query else '''<entry><id>http://arxiv.org/abs/2608.12345v1</id>
+        # The historical fallback would lose kernel/layout and return off-topic
+        # hits. A successful cacheable zero result must remain zero instead.
+        entries = '' if 'all:"layout"' in query else '''<entry><id>http://arxiv.org/abs/2608.12345v1</id>
         <title>Prefix placement</title><summary>Fixture evidence only</summary>
         <published>2026-08-01T00:00:00Z</published><updated>2026-08-01T00:00:00Z</updated></entry>'''
         return ('<feed xmlns="http://www.w3.org/2005/Atom">'+entries+'</feed>').encode(), 'application/atom+xml'
     try:
         with patch.object(Sources, '_request', fetch):
-            first = search_papers(store, 'prefix cache routing tail latency', ['arxiv'], '2026-06-01', '2026-10-23')
-            second = search_papers(store, 'prefix cache routing tail latency', ['arxiv'], '2026-06-01', '2026-10-23')
-        assert len(requests) == 2
+            query = 'LLM inference fine grained kernel scheduling layout transformation'
+            first = search_papers(store, query, ['arxiv'], '2026-06-01', '2026-10-23')
+            second = search_papers(store, query, ['arxiv'], '2026-06-01', '2026-10-23')
+        assert len(requests) == 1
         assert all('submittedDate:[202606010000 TO 202610222359]' in q for q in requests)
-        assert 'all:"tail"' in requests[0] and 'all:"tail"' not in requests[1]
-        assert first['providers'][0]['attempts'][1]['relaxed'] is True
+        assert 'all:"kernel"' in requests[0] and 'all:"transformation"' in requests[0]
+        attempt, = first['providers'][0]['attempts']
+        assert attempt['query'] == requests[0] and attempt['relaxed'] is False
+        assert attempt['returned'] == 0 and attempt['status'] == 'completed'
+        assert 'author it explicitly' in attempt['guidance']
         assert all(a['cache']['hit'] for a in second['providers'][0]['attempts'])
-        assert first['hits'][0]['abstract'] == 'Fixture evidence only'
-        assert first['unique_paper_identities'] == 1
+        assert first['hits'] == second['hits'] == []
+        assert first['status'] == 'completed' and first['unique_paper_identities'] == 0
     finally:
         store.db.close()
 
@@ -110,8 +116,62 @@ def test_explicit_arxiv_expression_is_not_broadened_on_empty_result(tmp_path):
             result = ResearchTools(store).search('ti:"routing" AND abs:"prefix"', provider='arxiv', after='2026-01-01')
         assert fetch.call_count == 1 and result['ids'] == []
         assert result['attempts'][0]['relaxed'] is False
+        assert result['attempts'][0]['query'].startswith('(ti:"routing" AND abs:"prefix") AND submittedDate:')
     finally:
         store.db.close()
+
+
+def test_arxiv_preserves_late_terms_and_phrases_without_primary_truncation():
+    query = 'LLM inference runtime hardware workload sparse attention decode distributed kernels "layout transformation"'
+    compiled = arxiv_query(query)
+    assert compiled.endswith('all:"kernels" AND all:"layout transformation"')
+    assert compiled.count('all:') == 11
+    assert arxiv_query('abs:"GPU" AND (ti:"layout" OR ti:"scheduling")') == 'abs:"GPU" AND (ti:"layout" OR ti:"scheduling")'
+
+
+def test_arxiv_failure_retains_exact_attempt_and_does_not_broaden(tmp_path):
+    store = Store(tmp_path/'corpus.sqlite')
+    try:
+        with patch.object(Sources, '_request', side_effect=TimeoutError('private provider detail')) as fetch:
+            result = search_papers(store, 'GPU kernel layout transformation', ['arxiv'])
+        assert fetch.call_count == 1 and result['status'] == 'failed'
+        attempt, = result['providers'][0]['attempts']
+        assert attempt['status'] == 'failed' and attempt['error_type'] == 'TimeoutError'
+        assert attempt['query'].endswith('all:"transformation"')
+        assert 'returned' not in attempt and 'guidance' not in attempt
+        assert 'private provider detail' not in json.dumps(result)
+    finally:
+        store.db.close()
+
+
+def test_arxiv_stopword_only_query_never_requests_broad_feed(tmp_path):
+    store = Store(tmp_path/'corpus.sqlite')
+    try:
+        with patch.object(Sources, '_request') as fetch:
+            result = search_papers(store, 'the and of', ['arxiv'])
+        fetch.assert_not_called()
+        assert result['status'] == 'failed'
+        assert result['providers'][0]['attempts'] == []
+        assert result['providers'][0]['errors'][0]['error_type'] == 'ValueError'
+    finally:
+        store.db.close()
+
+
+def test_cli_paper_search_persists_unbroadened_empty_attempt(tmp_path):
+    root = tmp_path/'state'
+    invoke(['--state-dir', str(root), 'init'])
+    query = 'LLM inference fine grained kernel scheduling layout transformation'
+    with patch.object(Sources, '_request', return_value=(b'<feed xmlns="http://www.w3.org/2005/Atom"/>', 'application/atom+xml')) as fetch:
+        receipt = invoke(['--state-dir', str(root), '--defer-snapshot', 'paper-search', query,
+                          '--provider', 'arxiv', '--after', '2026-06-01', '--before', '2026-10-23'])
+    assert fetch.call_count == 1
+    from pathlib import Path
+    retained = json.loads((Path(receipt['output'])/'search.json').read_text())
+    attempt, = retained['providers'][0]['attempts']
+    assert attempt['relaxed'] is False and attempt['returned'] == 0
+    assert 'all:"layout"' in attempt['query'] and 'all:"transformation"' in attempt['query']
+    assert 'submittedDate:[202606010000 TO 202610222359]' in attempt['query']
+    assert retained['hits'] == [] and receipt['snapshot']['deferred'] is True
 
 
 def test_cli_agent_plan_persists_a_round_without_network_or_snapshot(tmp_path):

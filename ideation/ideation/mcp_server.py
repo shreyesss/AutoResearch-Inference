@@ -66,7 +66,7 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
     @server.tool(structured_output=True)
     def search_papers(query: str, providers: list[str] | None = None, after: str | None = None,
                       before: str | None = None, limit: int = 10) -> dict[str, object]:
-        """Live cached arXiv/OpenAlex/HF keyword search with publication dates; retain sources and query provenance. Requires --allow-network. Limit is per provider, 1..20."""
+        """Live cached arXiv/OpenAlex/HF keyword search with publication dates; retain sources and query provenance. Requires --allow-network. Limit is per provider, 1..20. arXiv preserves all content terms and explicit field expressions; no automatic semantic relaxation. Inspect attempts/errors, then author any revised query explicitly with expand_queries."""
         if not allow_network:
             raise ToolError('Online paper search requires server --allow-network; use search_local for the retained corpus')
         args = ['paper-search', query, '--limit', str(limit)]

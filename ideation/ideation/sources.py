@@ -15,13 +15,15 @@ from html.parser import HTMLParser
 from .store import now
 from .cache import Cache, policy
 
-def arxiv_query(query, relaxed=False):
+def arxiv_query(query):
+    """Compile all supplied content terms; semantic relaxation belongs to the caller."""
     if re.search(r"\b(?:all|ti|au|abs|cat|id):", query):
         return query
     stop = {"a", "an", "the", "of", "for", "and", "or", "in", "on", "under", "with", "to", "per", "based"}
     terms = [phrase or word for phrase, word in re.findall(r'"([^"]+)"|(\S+)', query)]
     terms = [t for t in terms if t.lower() not in stop]
-    terms = terms[:3] if relaxed else terms[:10]
+    if not terms:
+        raise ValueError("arXiv query needs at least one content term or field expression")
     return " AND ".join('all:"' + t.replace('"', '') + '"' for t in terms)
 
 class TextHTML(HTMLParser):
@@ -92,23 +94,28 @@ class Sources:
             try:
                 ns = {"a": "http://www.w3.org/2005/Atom"}
                 effective = arxiv_query(query)
-                entries = []
-                # Relax the user's words BEFORE adding field/date syntax. Never
-                # drop dates or rewrite explicit Boolean queries on a retry.
-                variants = list(dict.fromkeys(arxiv_query(query, relaxed=r) for r in (False, True)))
-                for index, variant in enumerate(variants):
-                    effective = variant
-                    if after or before:
-                        first = (after or '1991-01-01').replace('-', '') + '0000'
-                        end = dt.date.fromisoformat(before) - dt.timedelta(days=1) if before else dt.date(2099, 12, 31)
-                        effective = '(' + variant + ') AND submittedDate:[' + first + ' TO ' + end.strftime('%Y%m%d') + '2359]'
-                    params = urllib.parse.urlencode({"search_query": effective, "start": 0, "max_results": limit, "sortBy": "relevance"})
+                if after or before:
+                    first = (after or '1991-01-01').replace('-', '') + '0000'
+                    end = dt.date.fromisoformat(before) - dt.timedelta(days=1) if before else dt.date(2099, 12, 31)
+                    effective = '(' + effective + ') AND submittedDate:[' + first + ' TO ' + end.strftime('%Y%m%d') + '2359]'
+                params = urllib.parse.urlencode({"search_query": effective, "start": 0, "max_results": limit, "sortBy": "relevance"})
+                attempt = {'query': effective, 'relaxed': False, 'status': 'started'}
+                attempts.append(attempt)
+                # One semantic request, including a cached response. Empty hits
+                # never authorize dropping the mechanism's trailing terms.
+                try:
                     raw, _ = self.request("https://export.arxiv.org/api/query?" + params, xml=True)
+                    attempt['cache'] = getattr(self, 'last_cache', None)
                     entries = ET.fromstring(raw).findall("a:entry", ns)
-                    attempts.append({'query': effective, 'relaxed': index > 0, 'returned': len(entries),
-                                     'cache': getattr(self, 'last_cache', None)})
-                    if entries:
-                        break
+                    attempt.update(status='completed', returned=len(entries))
+                    if not entries:
+                        attempt['guidance'] = ('No results for this exact compiled query and date scope. '
+                            'Inspect wording, scope and provider coverage; if another query is useful, '
+                            'author it explicitly with the mechanism anchors retained and any permitted '
+                            'relaxation recorded in the query plan. Absence is not novelty evidence.')
+                except Exception as e:
+                    attempt.update(status='failed', error_type=type(e).__name__)
+                    raise
                 for e in entries:
                     url = e.findtext("a:id", "", ns).replace("http://", "https://")
                     arxiv_id = re.sub(r"v\d+$", "", url.rsplit("/", 1)[-1])

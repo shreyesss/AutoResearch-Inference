@@ -1,0 +1,54 @@
+[
+  {
+    "id": "C106-1",
+    "intervention": "Replace the native communication backend with T-CCL or add TMA movement.",
+    "status": "rejected_as_scoped",
+    "basis": "TP1/custom MegaMoE path and existing TMA loads/stores; no dense per-layer TP collective replacement identified.",
+    "prior_overlap": [
+      "A52",
+      "round100",
+      "round102"
+    ]
+  },
+  {
+    "id": "C106-2",
+    "intervention": "Pipeline multiple TMA pulls within each scaled-FP8 activation row.",
+    "status": "rejected_as_scoped",
+    "basis": "H5120 fits the 8192-byte pull limit: one dispatch chunk. Cross-token staging is separate.",
+    "prior_overlap": [
+      "R3"
+    ]
+  },
+  {
+    "id": "C106-3",
+    "intervention": "Use TMA bulk reduction for the expert-output combine, with an explicit FP32 staging/ordering/initialization/finalization adapter.",
+    "status": "conditional_component_parked",
+    "basis": "Real donor helpers exist; native two-stage ordered FP32 register fold is not a direct equivalent. Numerical changes require explicit admission. No exposure or benefit measurement.",
+    "prior_overlap": [
+      "EC79 (different representation change)",
+      "A52 (readiness)"
+    ],
+    "next_test": "Specify legal FP32 source/destination and completion lifecycle; reject any assumed pass removal that requires unaccounted initialization/conversion/finalization.",
+    "ROI": null,
+    "formal_hypothesis_created": false
+  },
+  {
+    "id": "C106-4",
+    "intervention": "Fan out input loads or assign transfers to peer-specific CTAs.",
+    "status": "duplicate_or_unresolved_component",
+    "basis": "Sender fan-out changes current receiver-pull ownership; readiness/deduplication/resource policy overlaps A52/D52/R3/N03.",
+    "prior_overlap": [
+      "A52",
+      "D52",
+      "R3",
+      "N03"
+    ]
+  },
+  {
+    "id": "C106-5",
+    "intervention": "Apply RailWave node permutation and NIC-rail redistribution.",
+    "status": "rejected_as_scoped",
+    "basis": "Planned single-node EP4 has no multi-node rail demand.",
+    "prior_overlap": []
+  }
+]

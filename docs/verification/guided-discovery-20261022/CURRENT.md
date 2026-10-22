@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint 21](CHECKPOINT_21.md) adds the independently audited CF59 context-overlap candidate, recent low-bit component screens, compact recall of later objections, and verified canonical retention. CF59 remains deferred; no GPU experiments or measured serving wins. [Checkpoint 20](CHECKPOINT_20.md) preserves round58, search diagnostics and the predecessor-report ingestion repair.
+Latest update: [Checkpoint 22](CHECKPOINT_22.md) adds the reviewed active-request ownership candidate, numerical-admission literature, CF59 prompt-logprob gates and a source-format skill repair. Both new mechanisms remain deferred. [Checkpoint 21](CHECKPOINT_21.md) contains CF59, low-bit screens and compact recall of later objections. Canonical retention completion and S3 publication require their own receipts.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

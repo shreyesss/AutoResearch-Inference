@@ -1,0 +1,5 @@
+# Returned text representation: bounded skill review
+
+No blocking correction. The added paragraph is accurate and narrowly scoped. `Sources.fetch` recognizes arXiv HTML URLs but feeds HTML content through `TextHTML`, stores the extracted text as the source document body, and records parser/content-type metadata. Therefore neither the retained URL nor a local `.html` filename establishes that the returned body still contains HTML. A second HTML parser can treat C++ template arguments or inequalities as markup.
+
+The instruction preserves the exact retained revision, asks for representation inspection before reparsing, and labels cleanup as derived. It does not claim the first extraction is lossless or that text extraction covers figures/tables. The adjacent paragraph already states those coverage limits. No behavior, network or ranking change is introduced. I inspected the working diff and the exact source branch; no tests or broad paper reprocessing were needed. Root's round62 corruption finding is the motivating observation, not independently reproduced here.

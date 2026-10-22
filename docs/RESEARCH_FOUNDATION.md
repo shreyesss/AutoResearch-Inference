@@ -207,3 +207,12 @@ scripts/bootstrap-node.sh --dry-run
 ```
 
 The legacy GPU harness has separate environment-dependent tests requiring pinned AIPerf/tokenizer/model fixtures. Its historical results and protocols remain intact; this refactor does not make that harness portable merely by installing research dependencies. The current verification report records live API, cache, migration and restore results separately from mocked tests.
+
+### Online search command outcomes
+
+`paper-search` retains its full JSON receipt on stdout and returns exit code 1
+when the receipt has `status: failed`. A successful empty search returns 0;
+a partial search with usable hits also returns 0 and keeps its provider failures
+in the receipt. Always inspect `status`, provider errors and coverage before
+interpreting hits or absence. This CLI distinction does not change provider
+requests, caching, persisted records, MCP/in-process results or snapshot policy.

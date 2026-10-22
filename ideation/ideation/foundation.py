@@ -878,6 +878,10 @@ def main(argv=None):
     try:
         value = invoke(argv)
         print(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False))
+        # Keep the full persisted receipt on stdout, but do not let a failed
+        # online search look like a successful empty result to shell callers.
+        if args.command == "paper-search" and value.get("status") == "failed":
+            return 1
         return 0
     except Exception as error:
         # Provider exception URLs can carry API keys. Never print their text.

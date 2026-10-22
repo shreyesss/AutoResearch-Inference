@@ -51,3 +51,20 @@ def test_unrelated_value_error_text_remains_redacted(tmp_path, monkeypatch, caps
     assert "error_code" not in error
     assert secret not in output.err
     assert "must-not-appear" not in output.err
+
+
+@pytest.mark.parametrize("status,hits,exit_code", [
+    ("failed", [], 1),
+    ("completed", [], 0),
+    ("completed", [{"id": "arxiv:fixture"}], 0),
+    ("partial", [{"id": "arxiv:fixture"}], 0),
+])
+def test_paper_cli_retains_receipt_and_distinguishes_failed_from_empty(
+    monkeypatch, capsys, status, hits, exit_code
+):
+    receipt = {"status": status, "hits": hits, "snapshot": {"id": "retained"}}
+    monkeypatch.setattr("ideation.foundation.invoke", lambda argv: receipt)
+    assert main(["paper-search", "normalization inference"]) == exit_code
+    output = capsys.readouterr()
+    assert json.loads(output.out) == receipt
+    assert output.err == ""

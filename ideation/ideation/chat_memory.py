@@ -106,10 +106,14 @@ def persist_card(root, record):
         ledger.db.close()
 
 
-def recall_cards(root, query=None, limit=20):
+def recall_cards(root, query=None, limit=20, *, compact=False, offset=0, source_ids=None):
     """Existing ledger search; selection status remains separate from outcomes."""
     ledger = HypothesisMemory(Path(root) / "research/hypotheses.sqlite")
     try:
+        if compact:
+            return ledger.recall_index(query=query, source_ids=source_ids, limit=limit, offset=offset)
+        if offset or source_ids:
+            raise ValueError('Pagination/source IDs require compact recall')
         return ledger.query(text=query, limit=limit)
     finally:
         ledger.db.close()

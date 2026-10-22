@@ -185,14 +185,22 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
         return call(['hypothesis', 'show', hypothesis_id])
 
     @server.tool(structured_output=True)
-    def recall_hypotheses(query: str | None = None, limit: int = 20) -> dict[str, object]:
-        """Recall prior proposals before researching: search lexical text, inspect returned IDs with hypothesis_show for decisions, refutations and exact baseline. No semantic deduplication is implied."""
+    def recall_hypotheses(query: str | None = None, limit: int = 20, offset: int = 0,
+                          source_ids: list[str] | None = None, compact: bool = True) -> dict[str, object]:
+        """Recall before drafting: compact latest selections, literal card/reason matches OR exact source IDs, source hits first. Inspect total_matches/next_offset and paginate; restart if inventory_hash changes between pages (no snapshot isolation). No match is not novelty proof. Open hypothesis_show for full reasons, baseline and scoped outcomes. compact=False retains legacy full-card output (no pagination/source filter)."""
         if not 1 <= limit <= 100:
             raise ToolError('limit must be 1..100')
         args = ['hypothesis', 'recall', '--limit', str(limit)]
+        if compact:
+            args += ['--compact', '--offset', str(offset)]
+        elif offset or source_ids:
+            raise ToolError('Pagination/source IDs require compact recall')
+        for source_id in source_ids or []:
+            args += ['--source-id', source_id]
         if query:
             args += ['--query', query]
-        return {'hypotheses': call(args)}
+        result = call(args)
+        return result if compact else {'hypotheses': result}
 
     @server.tool(structured_output=True)
     def command_history(limit: int = 20) -> dict[str, object]:

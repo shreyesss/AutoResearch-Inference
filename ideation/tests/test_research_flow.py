@@ -65,6 +65,30 @@ def test_revision_grounded_claim_and_distinct_target_prediction(flow):
         flow.db.execute('DELETE FROM evidence_claims')
 
 
+def test_compact_recall_includes_later_evidence_and_typed_reopening_condition(flow):
+    record = copy.deepcopy(FIXTURE['proposal'])
+    identity = flow.propose(record)['id']
+    claim = flow.claim(FIXTURE['claim'])
+    flow.link(identity, claim['id'], 'refutes', 'Later evidence contradicts applicability')
+    decision = flow.decide(identity, {'status': 'rejected', 'actor': 'test',
+                                    'rationale': 'K512 skips this mechanism',
+                                    'reopen_when': 'Different dispatch documented'})
+    before = flow.db.total_changes
+    page = flow.memory.recall_index(source_ids=[FIXTURE['source']['id']])
+    entry = page['hypotheses'][0]
+    assert entry['id'] == identity and entry['status'] == 'rejected'
+    assert entry['rationale'] == 'K512 skips this mechanism'
+    assert entry['reopen_when'] == 'Different dispatch documented'
+    assert entry['decision_id'] == decision['id']
+    assert page['total_matches'] == 1
+    assert flow.memory.recall_index(query='K512')['hypotheses'][0]['id'] == identity
+    ranked = flow.memory.recall({'task': 'verification'})[0]
+    assert ranked['rationale'] == entry['rationale']
+    assert ranked['reopen_when'] == entry['reopen_when']
+    assert ranked['decision_id'] == decision['id']
+    assert flow.db.total_changes == before
+
+
 def test_updated_source_triggers_review_without_rewriting_claim(flow):
     claim, hypothesis = proposal(flow)
     store = Store(flow.root / 'research/corpus.sqlite')

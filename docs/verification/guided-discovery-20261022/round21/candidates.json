@@ -1,0 +1,66 @@
+{
+  "candidates": [
+    {
+      "id": "OH21-01",
+      "title": "Avoid repeated history tuple copies for already-valid streaming reasoning counters",
+      "status": "deferred",
+      "priority": "low",
+      "statement": "A guarded usage-counter interface could avoid copying all generated IDs on each chunk when the existing incremental reasoning counter is valid. Current standard-output CPU headroom is too small to prioritize implementation.",
+      "mechanism": "serving.py builds tuple(generated_token_ids[i]); actual ready adapter delegates to an existing O(1) counter that ignores history. False-ready adapter reparses full history, requiring retained fallback.",
+      "proposed_change": "Only if reopened: expose an explicit valid incremental-count capability and use it in continuous usage; retain original history semantics and fallback for nonready and legacy parsers. No global empty-history or mutable-list substitution.",
+      "baseline_pin": "c4557869393db4d75c483d92edd02a5125500883",
+      "support": [
+        {
+          "source": "source-audit/vllm__entrypoints__openai__chat_completion__serving.py",
+          "quote": "tuple(generated_token_ids[i])"
+        },
+        {
+          "source": "source-audit/vllm__parser__engine__adapters.py",
+          "quote": "if self._streaming_count_valid:"
+        },
+        {
+          "source": "source-audit/vllm__parser__engine__parser_engine.py",
+          "quote": "return self._engine.reasoning_token_count"
+        }
+      ],
+      "donor": {
+        "url": "https://github.com/vllm-project/vllm/pull/62728",
+        "head": "535e4be5c4a0b6b5b86e92cb8d78b76110812689",
+        "scope": "Muse/Glimmer parser, not DeepSeek direct port. Donor timings cannot be transferred."
+      },
+      "counterevidence": [
+        "Pinned runtime already has DecodeStream and engine-based delta parsing.",
+        "False-ready branch needs complete history; unsafe empty history changes count.",
+        "1,024-output/five-token-chunk proxy saves only 0.100416 ms over whole stream.",
+        "Actual loaded parser route and AIPerf wire stream_options not attested."
+      ],
+      "prior_comparison": {
+        "id": "hypothesis:a5d530ce5da737fb780bdd0aed42e9126ba955b1375307b0fe3592bbf63ad4ed",
+        "difference": "S01 addresses input tokenization; this is output usage bookkeeping. Narrow lexical recall is not proof of novelty."
+      },
+      "cpu_check": {
+        "artifact": "cpu_bookkeeping.json",
+        "result": "inconclusive_for_service",
+        "scope": "Actual AST-extracted source methods and call expression; mocked parser state, not full parser or HTTP runtime. Seven repeated passes over same synthetic trace, not independent requests."
+      },
+      "evaluation_plan": {
+        "state": "deferred",
+        "reopen_if": "Real frontend CPU backpressure or profiling implicates continuous-usage copying on substantially longer outputs, or a separately justified maintenance change makes the safe capability cheap.",
+        "bounded_tests": [
+          "Exercise actual configured parser and ready/false-ready transitions, reasoning on/off, prompt-closed reasoning, tool handoff and usage on/off.",
+          "Capture actual benchmark payload/options and measure CPU allocation/copy share without model execution.",
+          "Only after exposure/materiality: paired full service benchmark using existing agent-p75 and Mooncake; add long-output cells only if their current lengths miss the hypothesized growth."
+        ],
+        "future_metrics": [
+          "Exact output and usage equality",
+          "CPU time and allocations per chunk by output length",
+          "Client ITL and SSE gaps, TTFT, throughput and tail guards"
+        ],
+        "no_gpu_executed": true
+      }
+    }
+  ],
+  "unique_interventions": 1,
+  "implementation_promotions": 0,
+  "service_promotions": 0
+}

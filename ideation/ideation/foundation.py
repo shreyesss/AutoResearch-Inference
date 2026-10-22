@@ -480,7 +480,8 @@ def _execute(root, args):
                     "snapshot": _research_snapshot(root, args, publish=not args.local_only)}
         from .chat_memory import persist_card, recall_cards
         if args.hypothesis_command == "recall":
-            return recall_cards(root, query=args.query, limit=args.limit)
+            return recall_cards(root, query=args.query, limit=args.limit, compact=args.compact,
+                                offset=args.offset, source_ids=args.source_id)
         try:
             result = persist_card(root, _read(Path(args.record).expanduser()))
         finally:
@@ -734,6 +735,9 @@ def parser():
     recall = hypothesis.add_parser("recall")
     recall.add_argument("--query")
     recall.add_argument("--limit", type=int, default=20)
+    recall.add_argument("--compact", action="store_true", help="Bounded summaries with match counts and pagination; full dossiers via hypothesis show")
+    recall.add_argument("--offset", type=int, default=0)
+    recall.add_argument("--source-id", action="append", help="Exact evidence source ID; requires --compact. Combined with query using OR; exact source hits first")
     backfill = commands.add_parser("backfill", help="Persistent resumable all-repository opening-record job").add_subparsers(dest="backfill_command", required=True)
     backfill.add_parser("start").add_argument("--publish-every", type=int, default=300)
     backfill.add_parser("status")

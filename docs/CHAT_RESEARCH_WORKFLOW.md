@@ -215,3 +215,25 @@ The system supplies online retrieval, cached evidence, structured memory, condit
 ## Latest guided field check
 
 [Guided discovery checkpoint, 22 October 2026](verification/guided-discovery-20261022/REPORT.md) records actual online searches, pinned-code counterexamples, diagnostic-only selections, source refinements and tool/cache checks. It distinguishes discovery yield from unmeasured serving benefit.
+## Compact prior-decision inspection
+
+Before drafting a candidate, use `researchctl hypothesis recall --compact --query "mechanism phrase" --limit 20`. `--source-id arxiv:IDENTIFIER` can
+be repeated for exact stored source identities, including evidence linked
+after the original proposal. Query and source matches are combined with OR;
+exact source hits sort first, then newer proposals. This is literal matching,
+not semantic deduplication. The response includes latest selection rationale,
+reopening condition, baseline identity, `total_matches`, `next_offset`, and
+explicit field truncation. Follow `--offset` until the relevant inventory is
+covered; read full evidence and scoped outcomes using `hypothesis show ID`.
+Compare `inventory_hash` across pages and restart if concurrent changes alter
+it. It hashes the matching compact projections, not a frozen database snapshot
+or the complete underlying evidence. Per-field bounds do not impose a global
+response-character budget; use a smaller limit if needed.
+
+MCP `recall_hypotheses` defaults to compact output with the same query,
+source_ids, limit and offset controls. `compact=false` retains its older full
+card response; CLI without `--compact` also retains the legacy format. Full
+mode does not support source filtering or pagination. This change addresses
+an observed failure where a known rejection was outside a manually printed
+prefix of a 101,072-character recall file. It does not certify novelty or
+scientific relevance.

@@ -52,6 +52,29 @@ def test_mcp_online_search_forwards_dates_and_provider(tmp_path):
                          '--after','2026-09-01','--before','2026-10-23']
 
 
+def test_mcp_compact_recall_reads_real_typed_decision_and_legacy_mode(tmp_path):
+    from ideation.research_flow import ResearchFlow
+    invoke(['--state-dir', str(tmp_path), 'init'])
+    fixture = json.loads((Path(__file__).resolve().parents[1] / 'examples/evidence_fixture.json').read_text())
+    flow = ResearchFlow(tmp_path)
+    identity = flow.propose(fixture['proposal'])['id']
+    flow.decide(identity, {'status': 'rejected', 'actor': 'test',
+                          'rationale': 'Dispatch excludes K512', 'reopen_when': 'Changed dispatch'})
+    flow.close()
+    async def check():
+        async with Client(create_server(tmp_path, defer_snapshot=True)) as client:
+            result = await client.call_tool('recall_hypotheses', {'query': 'K512'})
+            assert not result.is_error
+            value = result.structured_content
+            assert value['total_matches'] == 1 and value['next_offset'] is None
+            assert value['hypotheses'][0]['id'] == identity
+            assert value['hypotheses'][0]['rationale'] == 'Dispatch excludes K512'
+            assert len(value['inventory_hash']) == 64
+            full = await client.call_tool('recall_hypotheses', {'compact': False})
+            assert not full.is_error and full.structured_content['hypotheses'][0]['card']
+    asyncio.run(check())
+
+
 def test_stdio_real_transport_roundtrip(tmp_path):
     import sys
     invoke(['--state-dir',str(tmp_path),'init'])
@@ -109,6 +132,7 @@ def test_mcp_iterative_surface_and_checkpoint_modes(tmp_path):
     assert '--defer-snapshot' not in calls[-1]
     assert '--local-only' in calls[-1]
     assert '--revision-hash' in calls[2]
+    assert '--compact' in calls[0] and '--offset' in calls[0]
     assert calls[3][-4:]==['--date-field','created_at','--match','any']
 
 

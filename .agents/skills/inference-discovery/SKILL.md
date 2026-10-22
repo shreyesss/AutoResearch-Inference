@@ -11,6 +11,17 @@ Read `docs/CHAT_RESEARCH_WORKFLOW.md` for runnable tools. Live state is external
 
 Start from the user's objective and known deployment facts. Recall prior proposals and inspect their decisive objections before revisiting a mechanism. Missing baseline facts need an explicit check; they do not require stopping all literature exploration.
 
+Use compact recall before drafting: `hypothesis recall --compact --query TEXT`
+or MCP `recall_hypotheses`. Inspect `total_matches` and follow `next_offset`
+when the inventory is incomplete. Compare `inventory_hash` across pages and
+restart if it changes during concurrent updates; this is a projection hash,
+not a frozen database snapshot. A printed prefix of full cards is not a
+complete recall review. Try the exact paper/source ID with `--source-id` when
+known, then mechanism wording. Matches include latest decision rationale and
+reopening conditions, with exact source matches first. Open `hypothesis show`
+for decisive records. A shared source can support a different useful component;
+it does not automatically make the new proposal a duplicate.
+
 Translate the objective into mechanism-level questions. For each selected query state what uncertainty it resolves, which provider fits, what facts/constraints must remain, and which constraints can be relaxed. Useful alternatives include exact implementation symbols, the work or waiting removed, different vocabulary in another serving engine, foundational methods and contrary evidence. Choose alternatives that change evidence coverage rather than producing synonyms to fill a list.
 
 Use `expand --question TEXT --plan PLAN.json` to retain an agent-authored plan with observations from previous searches. The tool validates bounds/dates and warns about repeated identities. Without a plan it returns lexical suggestions only. A taxonomy is a source of vocabulary, not the relevance boundary. See the plan example in the workflow doc.

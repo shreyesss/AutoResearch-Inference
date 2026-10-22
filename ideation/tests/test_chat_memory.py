@@ -75,3 +75,39 @@ def test_partial_proposal_retained_but_acceptance_needs_prescreen(proposal):
     record["disposition"]["status"] = "validated"
     with pytest.raises(ValueError, match="selection status"):
         persist_card(root, record)
+
+
+def test_compact_recall_pages_old_rejection_and_prioritizes_exact_source(proposal):
+    root, record = proposal
+    record['disposition'] = {'status': 'rejected', 'reasons': ['K512 bypasses sampled selection']}
+    first = persist_card(root, record)['hypothesis']
+    for i in range(25):
+        newer = copy.deepcopy(record)
+        newer['run_id'] = f'newer-{i}'
+        newer['card']['id'] = str(i)
+        newer['card']['evidence'] = []
+        newer['card']['statement'] = 'Other sampler direction ' + 'x' * 10000
+        newer['disposition'] = {'status': 'deferred', 'reasons': ['Exposure unknown']}
+        persist_card(root, newer)
+    page = recall_cards(root, 'sampler', compact=True, limit=5)
+    assert page['total_matches'] == page['scanned'] == 26
+    assert page['next_offset'] == 5 and page['omitted_matches'] == 21
+    assert len(page['hypotheses'][0]['statement']) <= 240
+    assert page['hypotheses'][0]['truncated_fields'] == ['statement']
+    found = list(page['hypotheses'])
+    inventory_hash = page['inventory_hash']
+    while page['next_offset'] is not None:
+        page = recall_cards(root, 'sampler', compact=True, limit=5, offset=page['next_offset'])
+        assert page['inventory_hash'] == inventory_hash
+        found += page['hypotheses']
+    assert len({h['id'] for h in found}) == 26
+    assert any(h['id'] == first['id'] and h['reasons'] == ['K512 bypasses sampled selection'] for h in found)
+    exact = recall_cards(root, 'sampler', compact=True, limit=1, source_ids=['github:example/lib:1'])
+    assert exact['hypotheses'][0]['id'] == first['id']
+    assert exact['hypotheses'][0]['matched_source_ids'] == ['github:example/lib:1']
+    assert recall_cards(root, 'does-not-exist', compact=True)['total_matches'] == 0
+    assert recall_cards(root, 'K512', compact=True)['hypotheses'][0]['id'] == first['id']
+    assert recall_cards(root, compact=True, offset=100)['next_offset'] is None
+    record['disposition'] = {'status': 'deferred', 'reasons': ['New deployment evidence changes the reopening case']}
+    persist_card(root, record)
+    assert recall_cards(root, 'sampler', compact=True)['inventory_hash'] != inventory_hash

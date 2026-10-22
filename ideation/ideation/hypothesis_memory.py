@@ -278,6 +278,71 @@ class HypothesisMemory:
                 break
         return results
 
+    def recall_index(self, query=None, source_ids=None, limit=20, offset=0):
+        """Compact paginated inventory; literal matches are not semantic novelty checks.
+
+        Scan every immutable card and latest disposition. Exact source identity
+        hits sort first; source IDs include evidence linked after card creation.
+        Full dossiers stay available through get()/hypothesis show.
+        """
+        if not 1 <= limit <= 100 or offset < 0:
+            raise ValueError('Recall limit must be 1..100 and offset nonnegative')
+        requested = set(source_ids or [])
+        if any(not isinstance(s, str) or not s.strip() for s in requested):
+            raise ValueError('Source IDs must be nonempty strings')
+        linked = {}
+        tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if {'hypothesis_claims', 'evidence_claims'} <= tables:
+            for row in self.db.execute('SELECT hc.hypothesis_id,c.source_id FROM hypothesis_claims hc JOIN evidence_claims c ON c.id=hc.claim_id'):
+                linked.setdefault(row[0], set()).add(row[1])
+        matches, scanned = [], 0
+        needle = (query or '').strip().casefold()
+        for row in self.db.execute('SELECT h.*,n.data FROM hypotheses h JOIN nodes n ON n.id=h.id'):
+            scanned += 1
+            card = json.loads(row['data'])['card']
+            latest = self.db.execute("SELECT data FROM events WHERE hypothesis_id=? AND type='reviewed' ORDER BY seq DESC LIMIT 1", (row['id'],)).fetchone()
+            review = json.loads(latest[0]) if latest else {}
+            assessment = review.get('assessment') or {}
+            commentary = review.get('review') or {}
+            sources = linked.get(row['id'], set()) | {e['source_id'] for e in card.get('evidence', []) if isinstance(e, dict) and isinstance(e.get('source_id'), str)}
+            exact = sorted(sources & requested)
+            fields = {'card': card, 'assessment': assessment, 'review': commentary,
+                      'source_ids': sorted(sources), 'local_id': row['local_id']}
+            matched = [k for k, value in fields.items() if needle and needle in encoded(value).casefold()]
+            if (needle or requested) and not (matched or exact):
+                continue
+            truncated = []
+            def short(value, name, cap):
+                value = str(value or '')
+                if len(value) > cap:
+                    truncated.append(name)
+                    return value[:cap - 1] + '…'
+                return value
+            reasons = assessment.get('reasons') or []
+            entry = {'id': row['id'], 'local_id': row['local_id'], 'status': review.get('status', 'proposed'),
+                     'baseline': row['baseline'],
+                     'statement': short(card.get('statement', card.get('title')), 'statement', 240),
+                     'mechanism': short(card.get('mechanism'), 'mechanism', 320),
+                     'reasons': [short(r, 'reasons', 200) for r in reasons[:2]],
+                     'rationale': short(commentary.get('rationale'), 'rationale', 320),
+                     'reopen_when': short(commentary.get('reopen_when'), 'reopen_when', 200),
+                     'decision_id': assessment.get('decision_id'),
+                     'omitted_reasons': max(0, len(reasons) - 2),
+                     'matched_fields': matched, 'matched_source_ids': exact[:10],
+                     'omitted_matched_source_ids': max(0, len(exact) - 10),
+                     'source_count': len(sources), 'truncated_fields': sorted(set(truncated))}
+            matches.append((bool(exact), row['created_at'], row['id'], entry))
+        matches.sort(key=lambda x: x[:3], reverse=True)
+        page = [x[3] for x in matches[offset:offset + limit]]
+        following = offset + len(page)
+        return {'hypotheses': page, 'scanned': scanned, 'total_matches': len(matches),
+                'inventory_hash': digest([x[3] for x in matches]),
+                'returned': len(page), 'offset': offset,
+                'next_offset': following if following < len(matches) else None,
+                'omitted_matches': len(matches) - len(page),
+                'method': 'literal_card_disposition_or_exact_source; exact_source_first_then_newest',
+                'meaning': 'Selection status only. Open hypothesis show for complete reasons, baseline, source revisions and scoped test outcomes. No semantic deduplication or scientific qualification.'}
+
     def recall(self, brief, limit=12, max_chars=24000):
         """Budgeted lexical recall, not an embedding search or a relevance guarantee.
 
@@ -321,6 +386,7 @@ class HypothesisMemory:
                 break
             item = self.get(identity)
             card = item["card"]
+            latest_review = next((e['data'].get('review') or {} for e in reversed(item['events']) if e['type'] == 'reviewed'), {})
             outcomes = sorted(item["outcomes_by_scope"], key=lambda o: o["status"] in ("invalidated", "conflicting", "mixed"), reverse=True)
             selected_outcomes = []
             for outcome in outcomes[:3]:
@@ -332,6 +398,9 @@ class HypothesisMemory:
                 "statement": short(card.get("statement", card.get("title")), 320),
                 "mechanism": short(card.get("mechanism"), 500), "change": short(card.get("proposed_change", card.get("new_adaptation")), 400),
                 "reasons": [short(r, 180) for r in (item["assessment"] or {}).get("reasons", [])[:3]],
+                "rationale": short(latest_review.get('rationale'), 320),
+                "reopen_when": short(latest_review.get('reopen_when'), 200),
+                "decision_id": (item['assessment'] or {}).get('decision_id'),
                 "baseline": item["baseline"], "experiment_status": item["experiment_status"], "outcomes": selected_outcomes,
                 "omitted_outcome_scopes": max(0, len(outcomes) - len(selected_outcomes)),
                 "recall": {"score": score, "known_baseline_match": baseline_match, "task_token_overlap": task_overlap,

@@ -1,3 +1,7 @@
+# Latest checkpoint — 9
+
+[Checkpoint9](CHECKPOINT_9.md) is the current summary. 34 reviewed cards:2 accepted bounded CPU investigations,24 deferred,7 rejected,1 duplicate; no implementation/service qualification. Rounds15–18 independent canonical readback passed. Historical local restore verified302/304 references; S3 publication3b131343 covers round15 and historical retention, not later imports. Canonical19/20/22 import and additional15–18 raw-reference retention are queued. Later sections below are historical checkpoints.
+
 # Latest research checkpoint — 8
 
 [Checkpoint8](CHECKPOINT_8.md) supersedes the earlier scientific yield: 33 reviewed cards, 2 accepted bounded CPU investigations, 23 deferred, 7 rejected, 1 duplicate; no implementation/service qualification. Native tokenizer alternatives are refinements of S01. Round15 independent canonical readback completed. Later queued imports/publication remain unverified at this checkpoint; no new S3 or VM recovery claim.

@@ -72,6 +72,14 @@ The graph stores explicit hyperlinks, paper identities, bibliographic relationsh
 - PDF text extraction does not interpret plots, recover scanned text, or guarantee table/equation fidelity. Large documents exceeding the existing 8 MB fetch limit are rejected explicitly.
 - HF date filtering applies after a bounded search, so it is not exhaustive date-window retrieval.
 
+### Selected paper reading through `researchctl investigate` / MCP `investigate`
+
+For selected papers, the reader prefers the existing arXiv path. When no arXiv identity is available, it can read the first eligible HTTPS `pdf_url` whose retained metadata location explicitly has `is_oa: true`. OpenAlex `locations` are retained by search; `best_oa_location` and `primary_location` are also recognized when present. This uses the same cached fetcher, shared HTTP budget, PDF parser and 8 MB limit. A response must have a PDF signature and a PDF or `application/octet-stream` content type, and yield sufficient parsed text; an abstract/login HTML page is not promoted to full text. Page-number markers do not count as extracted evidence.
+
+No DOI resolver or landing-page PDF discovery runs implicitly. A DOI-only record with `pdf_url: null`, including a Zenodo DOI, returns `no_supported_oa_pdf_locator`. Publication dates remain source dates; an unversioned PDF's revision date is unknown, and its source record hash, location, retrieval hash and original update date are retained separately.
+
+Both interfaces return `fulltext_coverage` counts and a `reads` entry for each selected paper: `completed`, `skipped` (missing locator, full-text limit or HTTP budget), or `failed` (fetch/extraction). `dossier_ready` can mean the original abstract is available; it does not certify a full-paper read. Offline calls may reuse cached PDF bytes at zero HTTP cost; an uncached locator is explicitly skipped under the zero HTTP budget. These receipts do not interpret figures or establish scientific validity.
+
 ## 3. Hypothesis tool
 
 Reuse DiscoveryRSI's `Candidate`, `Episode`, `ReplayBuffer`, and `ToolRegistry` from commit `8f7214865548bc9b48170aa844e205341d24c4b9`. Domain contracts and validation are small local adapters. We do not use the public loop's unconditional best-candidate selection.

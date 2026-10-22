@@ -2,6 +2,7 @@ import hashlib
 import datetime as dt
 import base64
 import io
+import ipaddress
 import json
 import os
 import re
@@ -65,7 +66,11 @@ class Sources:
 
     def request(self, url, xml=False, headers=None):
         ttl = policy()["ttl_seconds"]
-        immutable = bool(re.search(r"raw.githubusercontent.com/[^/]+/[^/]+/[0-9a-fA-F]{40}/|arxiv.org/(?:html|pdf)/\d{4}\.\d+v\d+", url))
+        parsed = urllib.parse.urlparse(url)
+        immutable = bool(
+            parsed.hostname == "raw.githubusercontent.com" and re.match(r"/[^/]+/[^/]+/[0-9a-fA-F]{40}/", parsed.path)
+            or parsed.hostname in {"arxiv.org", "export.arxiv.org"}
+            and re.fullmatch(r"/(?:html|pdf)/\d{4}\.\d+v\d+(?:\.pdf)?/?", parsed.path))
         lifetime = ttl["immutable"] if immutable else ttl["search"] if "/api/" in url or "/api?" in url else ttl["page"]
         def fetch():
             try:
@@ -150,13 +155,35 @@ class Sources:
         self.store.db.commit()
         return {"query": query, "ids": results, "errors": errors, 'attempts': attempts}
 
-    def fetch(self, url, refresh=False):
+    @staticmethod
+    def eligible_pdf_url(url):
+        """Lexical locator check; not a DNS/redirect or network sandbox guarantee."""
+        if not isinstance(url, str):
+            return False
+        try:
+            parsed = urllib.parse.urlparse(url)
+            host = (parsed.hostname or "").rstrip(".")
+        except ValueError:
+            return False
+        if parsed.scheme != "https" or not host or parsed.username or parsed.password:
+            return False
+        if host == "localhost" or host.endswith((".localhost", ".local")):
+            return False
+        try:
+            return ipaddress.ip_address(host).is_global
+        except ValueError:
+            return "." in host
+
+    def fetch(self, url, refresh=False, *, expected_pdf=False):
         self.refresh = refresh
         parsed = urllib.parse.urlparse(url)
         allowed = {"arxiv.org", "export.arxiv.org", "huggingface.co", "raw.githubusercontent.com", "docs.vllm.ai", "autoloops.ai"}
-        if parsed.scheme != "https" or parsed.hostname not in allowed:
+        if expected_pdf and not self.eligible_pdf_url(url):
+            raise ValueError("Explicit PDF locator requires a public HTTPS URL")
+        if not expected_pdf and (parsed.scheme != "https" or parsed.hostname not in allowed):
             raise ValueError("Fetch supports HTTPS primary sources only: " + ", ".join(sorted(allowed)))
-        arxiv = re.search(r"arxiv.org/(?:abs|html|pdf)/(\d{4}\.\d+)(v\d+)?", url)
+        arxiv = (re.fullmatch(r"/(?:abs|html|pdf)/(\d{4}\.\d+)(v\d+)?(?:\.pdf)?/?", parsed.path)
+                 if parsed.hostname in {"arxiv.org", "export.arxiv.org"} else None)
         requested = arxiv.group(1) + (arxiv.group(2) or "") if arxiv else None
         if arxiv and not parsed.path.startswith("/pdf/"):
             url = "https://arxiv.org/html/" + requested
@@ -168,15 +195,23 @@ class Sources:
             url = "https://arxiv.org/pdf/" + requested
             raw, ctype = self.request(url)
         parser_name = "plain_text"
-        if "pdf" in ctype:
+        # A metadata PDF locator may resolve to an abstract, login or error page.
+        # Never promote that landing-page body to paper full text.
+        pdf_content_type = "pdf" in ctype.lower() or ctype.split(";", 1)[0].strip().lower() == "application/octet-stream"
+        if expected_pdf and (not pdf_content_type or not raw.lstrip().startswith(b"%PDF-")):
+            raise ValueError("Explicit PDF locator did not return a PDF")
+        if expected_pdf or "pdf" in ctype.lower():
             try:
                 from pypdf import PdfReader
             except ImportError as e:
                 raise ValueError("PDF requires pypdf; install requirements-research.txt") from e
             reader = PdfReader(io.BytesIO(raw))
-            text = "\n".join(f"[PDF page {i+1}]\n" + (page.extract_text() or "") for i, page in enumerate(reader.pages))
-            if len(text.strip()) < 200:
+            pages = [page.extract_text() or "" for page in reader.pages]
+            # Page labels are our metadata, not evidence extracted from a PDF.
+            # Many scanned/blank pages must not pass the text threshold on labels.
+            if sum(len(page.strip()) for page in pages) < 200:
                 raise ValueError("PDF text extraction insufficient; OCR/visual inspection required")
+            text = "\n".join(f"[PDF page {i+1}]\n" + page for i, page in enumerate(pages))
             parser_name = "pypdf; text only, no OCR or figure interpretation"
         else:
             text = raw.decode("utf-8", errors="replace")
@@ -186,7 +221,7 @@ class Sources:
             text = re.sub(r"[ \t]+", " ", "".join(parser.parts))
             parser_name = "html_text"
         id = "fulltext:" + requested if arxiv else "web:" + hashlib.sha256(url.encode()).hexdigest()[:16]
-        self.store.put(dict(id=id, source=parsed.hostname, kind="fulltext" if arxiv else "resource", url=url, title=url, body=text, parent="arxiv:" + arxiv.group(1) if arxiv else None, metadata={"read_depth": "fulltext_available", "characters": len(text), "parser": parser_name, "sha256": hashlib.sha256(raw).hexdigest(), "retrieval_cache": self.last_cache}))
+        self.store.put(dict(id=id, source=parsed.hostname, kind="fulltext" if arxiv or expected_pdf else "resource", url=url, title=url, body=text, parent="arxiv:" + arxiv.group(1) if arxiv else None, metadata={"read_depth": "fulltext_available", "characters": len(text), "parser": parser_name, "content_type": ctype, "sha256": hashlib.sha256(raw).hexdigest(), "retrieval_cache": self.last_cache}))
         self.store.db.commit()
         return {"id": id, "url": url, "characters": len(text), "cache": self.last_cache}
 

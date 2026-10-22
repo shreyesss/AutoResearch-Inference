@@ -1,0 +1,115 @@
+{
+  "scope": "AST/text dataflow plus exact-rational single-step toy rejection; no native block-verifier correctness or service measurement",
+  "source_manifest": [
+    {
+      "path": "vllm/config/speculative.py",
+      "copy": "sources/vllm__config__speculative.py",
+      "sha256": "2fe8ada20642610050595ec664c70da498c58c7b0c05b63f9ed6e9429adccb33",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/config/speculative.py"
+    },
+    {
+      "path": "vllm/models/deepseek_v41/nvidia/dspark.py",
+      "copy": "sources/vllm__models__deepseek_v41__nvidia__dspark.py",
+      "sha256": "5934ce7fb1df4d308c0e11f8c4235f07f083e6dc7dc4edea83bd885b30f05d02",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/nvidia/dspark.py"
+    },
+    {
+      "path": "vllm/models/deepseek_v4/quant_config.py",
+      "copy": "sources/vllm__models__deepseek_v4__quant_config.py",
+      "sha256": "390bf026e3c08dc611457756257bdf9f11bd33acb7fac8f56488a9c8b0e4ff04",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v4/quant_config.py"
+    },
+    {
+      "path": "vllm/model_executor/layers/quantization/online/lm_head.py",
+      "copy": "sources/vllm__model_executor__layers__quantization__online__lm_head.py",
+      "sha256": "df205d00f3bc50b52fa616cc2c057450e5e37fa49d4467144ddea5a365e633b0",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/model_executor/layers/quantization/online/lm_head.py"
+    },
+    {
+      "path": "vllm/v1/worker/gpu/spec_decode/eagle/utils.py",
+      "copy": "sources/vllm__v1__worker__gpu__spec_decode__eagle__utils.py",
+      "sha256": "15c4ee896051b5995d19af8f8f00834692e0afb5caa84daef283c6ada7d1ca92",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/eagle/utils.py"
+    },
+    {
+      "path": "vllm/v1/worker/gpu/spec_decode/dspark/utils.py",
+      "copy": "sources/vllm__v1__worker__gpu__spec_decode__dspark__utils.py",
+      "sha256": "e442d715a8a52a4a60a62ec96d8324da5efc0849fceed8b35fc722c2eaddbfc1",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/dspark/utils.py"
+    },
+    {
+      "path": "vllm/v1/worker/gpu/spec_decode/dspark/speculator.py",
+      "copy": "sources/vllm__v1__worker__gpu__spec_decode__dspark__speculator.py",
+      "sha256": "97bcfaa655c6d4a5ecdfb17ab87b80547e8216b9d15a91c341798ebbb558f146",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/dspark/speculator.py"
+    },
+    {
+      "path": "vllm/v1/worker/gpu/sample/gumbel.py",
+      "copy": "sources/vllm__v1__worker__gpu__sample__gumbel.py",
+      "sha256": "1eca2fb5fb3407c12138b7ea88187cc48a9b290dea0000229b8564985f51f777",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/sample/gumbel.py"
+    },
+    {
+      "path": "vllm/v1/worker/gpu/spec_decode/rejection_sampler.py",
+      "copy": "sources/vllm__v1__worker__gpu__spec_decode__rejection_sampler.py",
+      "sha256": "25759f98e8aace9a556bc4252c206f246535f0536ebc919f97e097f92a72066a",
+      "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/rejection_sampler.py"
+    }
+  ],
+  "source_checks_passed": 7,
+  "toy_actual_q": [
+    "3/10",
+    "7/10"
+  ],
+  "toy_target_p": [
+    "3/5",
+    "2/5"
+  ],
+  "correct_cached_q_output": [
+    "3/5",
+    "2/5"
+  ],
+  "stale_cached_q_output": [
+    "1/5",
+    "4/5"
+  ],
+  "logical_weight_storage": {
+    "elements": 661913600,
+    "original_bf16_bytes": 1323827200,
+    "extra_fp8_weight_bytes": 661913600,
+    "extra_fp8_per_row_scale_bytes": 517120,
+    "extra_nvfp4_packed_bytes": 330956800,
+    "extra_nvfp4_block16_scale_bytes": 41369600,
+    "extra_nvfp4_global_scale_bytes": 4,
+    "limits": "Per full TP1 head. Target BF16 remains resident. Backend padding/repacking, transient conversion, allocator overhead, activation scales and workspace excluded. Logical capacity is not measured HBM traffic."
+  },
+  "conditional_roi": {
+    "equation": "gain=(G_new/G_old)/(T_new/T_old)-1; positive iff G_new/G_old > T_new/T_old",
+    "illustrations": [
+      {
+        "assumed_total_round_time_saved_fraction": 0.005,
+        "required_committed_progress_retained_strictly_above": 0.995
+      },
+      {
+        "assumed_total_round_time_saved_fraction": 0.01,
+        "required_committed_progress_retained_strictly_above": 0.99
+      },
+      {
+        "assumed_total_round_time_saved_fraction": 0.02,
+        "required_committed_progress_retained_strictly_above": 0.98
+      },
+      {
+        "assumed_total_round_time_saved_fraction": 0.05,
+        "required_committed_progress_retained_strictly_above": 0.95
+      }
+    ],
+    "estimated_target_gain": null,
+    "unknowns": [
+      "exposed head fraction",
+      "quantized head runtime at 5R rows",
+      "acceptance/commit distribution",
+      "extra residency and KV capacity loss",
+      "adaptive-controller response"
+    ]
+  }
+}

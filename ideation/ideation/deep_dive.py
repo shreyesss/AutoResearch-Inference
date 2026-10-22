@@ -12,6 +12,26 @@ from .sources import Sources
 from .store import now
 
 
+class _ReadBudgetExhausted(RuntimeError):
+    pass
+
+
+def _oa_pdf_locator(doc):
+    """Only reuse explicit OA PDF metadata; do not guess from a DOI or title."""
+    metadata = doc.get("metadata", {})
+    locations = metadata.get("locations", [])
+    if not isinstance(locations, list):
+        locations = []
+    for field in ("best_oa_location", "primary_location"):
+        if isinstance(metadata.get(field), dict):
+            locations = [metadata[field], *locations]
+    for location in locations:
+        if (isinstance(location, dict) and location.get("is_oa") is True
+                and Sources.eligible_pdf_url(location.get("pdf_url"))):
+            return location["pdf_url"], location
+    return None, None
+
+
 def _arxiv_target(doc, store):
     """Use the selected revision when known; never invent a v1 pin."""
     identity = canonical(doc)
@@ -140,7 +160,7 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
     def spend():
         nonlocal used
         if used >= max_http_calls:
-            raise RuntimeError("Deep-read HTTP budget exhausted")
+            raise _ReadBudgetExhausted("Deep-read HTTP budget exhausted")
         used += 1
 
     class BoundedSources(Sources):
@@ -174,27 +194,54 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
         origin_id = doc["id"]
         link_sources = [doc]
         identity = canonical(doc)
-        if identity.startswith("arxiv:") and fulltext_count < max_fulltexts:
-            fulltext_count += 1
-            try:
-                requested, revision_source = _arxiv_target(doc, store)
-                result = sources.fetch("https://arxiv.org/abs/" + requested)
-                evidence_ids.append(result["id"])
-                fulltext = store.get(result["id"])
-                pinned = bool(re.search(r"v\d+$", requested))
-                fulltext.update(title=doc["title"], created_at=doc.get("created_at"),
-                                updated_at=revision_source.get("updated_at") if pinned else None)
-                fulltext["metadata"].update(canonical_paper_id=identity, requested_arxiv_id=requested,
-                                             version_pinned=pinned, source_record_id=origin_id,
-                                             source_record_updated_at=doc.get("updated_at"),
-                                             revision_source_id=revision_source["id"])
-                store.put(fulltext)
-                reads.append({"source_id": origin_id, "fulltext": result, "requested_arxiv_id": requested,
-                              "version_pinned": pinned, "revision_source_id": revision_source["id"]})
-                link_sources.append(fulltext)
-            except Exception as error:
-                errors.append({"stage": "fulltext", "id": identity, "error_type": type(error).__name__})
-            if citations_per_paper:
+        if identity.startswith("arxiv:") or doc["kind"] == "paper":
+            is_arxiv = identity.startswith("arxiv:")
+            pdf_url, location = (None, None) if is_arxiv else _oa_pdf_locator(doc)
+            attempted = False
+            if fulltext_count >= max_fulltexts:
+                reads.append({"source_id": origin_id, "stage": "fulltext", "status": "skipped",
+                              "reason": "fulltext_limit", "read_depth": "not_retrieved"})
+            elif not is_arxiv and pdf_url is None:
+                reads.append({"source_id": origin_id, "stage": "fulltext", "status": "skipped",
+                              "reason": "no_supported_oa_pdf_locator", "read_depth": "not_retrieved",
+                              "meaning": "No explicit eligible open-access PDF URL in retained metadata; DOI and landing URLs were not resolved or guessed."})
+            else:
+                fulltext_count += 1
+                attempted = True
+                try:
+                    requested, revision_source = _arxiv_target(doc, store) if is_arxiv else (None, doc)
+                    result = (sources.fetch("https://arxiv.org/abs/" + requested) if is_arxiv
+                              else sources.fetch(pdf_url, expected_pdf=True))
+                    evidence_ids.append(result["id"])
+                    fulltext = store.get(result["id"])
+                    pinned = bool(requested and re.search(r"v\d+$", requested))
+                    fulltext.update(title=doc["title"], created_at=doc.get("created_at"),
+                                    updated_at=revision_source.get("updated_at") if pinned else None)
+                    provenance = {"version_pinned": pinned, "revision_source_id": revision_source["id"]}
+                    if is_arxiv:
+                        provenance["requested_arxiv_id"] = requested
+                    else:
+                        provenance.update(locator_basis="explicit_open_access_pdf_metadata", source_location=location,
+                                          source_record_content_hash=doc["content_hash"])
+                        fulltext["parent"] = identity
+                    fulltext["metadata"].update(canonical_paper_id=identity, source_record_id=origin_id,
+                                                 source_record_updated_at=doc.get("updated_at"), **provenance)
+                    store.put(fulltext)
+                    store.edge(origin_id, "has_fulltext", result["id"], origin_id,
+                               {"basis": "selected paper locator", "source_content_hash": doc["content_hash"]})
+                    reads.append({"source_id": origin_id, "stage": "fulltext", "status": "completed",
+                                  "fulltext": result, **provenance})
+                    link_sources.append(fulltext)
+                except _ReadBudgetExhausted as error:
+                    errors.append({"stage": "fulltext", "id": identity, "error_type": type(error).__name__})
+                    reads.append({"source_id": origin_id, "stage": "fulltext", "status": "skipped",
+                                  "reason": "http_budget_exhausted", "read_depth": "not_retrieved"})
+                except Exception as error:
+                    errors.append({"stage": "fulltext", "id": identity, "error_type": type(error).__name__})
+                    reads.append({"source_id": origin_id, "stage": "fulltext", "status": "failed",
+                                  "reason": "fetch_or_extraction_failed", "error_type": type(error).__name__,
+                                  "read_depth": "not_retrieved"})
+            if is_arxiv and attempted and citations_per_paper:
                 try:
                     citations = sources.citations(identity, limit=citations_per_paper)
                     failed = bool(citations.get("error") or citations.get("errors"))
@@ -270,11 +317,15 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
     usable_documents = [d for d in documents if d.get("body", "").strip()]
     reasoning_ids = [d["id"] for d in sorted(usable_documents, key=lambda d: priorities.get(d["kind"], 5))][:20]
     write_json(out / "sources.json", documents)
+    fulltext_reads = [read for read in reads if read.get("stage") == "fulltext"]
+    fulltext_coverage = {status: sum(read["status"] == status for read in fulltext_reads)
+                         for status in ("completed", "skipped", "failed")}
+    fulltext_coverage["selected_papers"] = len(fulltext_reads)
     manifest = {"version": 1, "question": question, "created_at": now(), "status": "dossier_ready" if reasoning_ids else "no_usable_sources",
                 "http_cache_misses": used, "http_limit": max_http_calls,
                 "citations_per_paper": citations_per_paper,
                 "network_note": "Logical cache misses; GitHub transient retries can add HTTP attempts.",
-                "reads": reads, "errors": errors,
+                "reads": reads, "errors": errors, "fulltext_coverage": fulltext_coverage,
                 "reasoning_source_ids": reasoning_ids,
                 "reasoning_omitted_source_ids": [identity for identity in evidence_ids if identity not in reasoning_ids],
                 "repository_selection": repository_selection,
@@ -291,6 +342,10 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
     write_json(out / "manifest.json", manifest)
     lines = ["# Research dossier", "", question, "", "Status: " + manifest["status"], "", "## Sources", ""]
     lines += [f"- [{d['title']}]({d['url']}) — `{d['id']}`; {d['metadata'].get('read_depth', d['kind'])}" for d in documents]
+    lines += ["", "## Full-text coverage", "", json.dumps(fulltext_coverage),
+              "", "Dossier readiness can rely on abstracts; it does not mean full text was read."]
+    lines += [f"- `{read['source_id']}`: {read['status']} — {read.get('reason', 'text extracted; figures not interpreted')}"
+              for read in fulltext_reads]
     lines += ["", "## Questions the evidence review must answer", "",
               "- What is the exact mechanism, comparator and ablation?",
               "- Which claims are author-reported, independently reproduced, upstream-implemented or locally validated?",

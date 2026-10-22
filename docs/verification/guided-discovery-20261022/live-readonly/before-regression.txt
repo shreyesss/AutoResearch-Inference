@@ -1,0 +1,28 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_live_readonly_sees_committed_wal_and_rejects_writes ___________
+
+tmp_path = PosixPath('/private/var/folders/27/slf0z31d16g2nrc45s6k_qg00000gn/T/pytest-of-shreyas/pytest-107/test_live_readonly_sees_commit0')
+
+    def test_live_readonly_sees_committed_wal_and_rejects_writes(tmp_path):
+        path = tmp_path / 'corpus.sqlite'
+        writer = Store(path)
+        try:
+            writer.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            writer.db.execute('PRAGMA wal_autocheckpoint=0')
+            writer.put({'id': 'report:new', 'source': 'analysis', 'kind': 'report',
+                        'url': 'local:report:new', 'title': 'Projected result reuse',
+                        'body': 'A committed report remains in the WAL before checkpoint.'})
+            writer.db.commit()
+            assert path.with_name(path.name + '-wal').stat().st_size > 0
+            reader = Store(path, readonly=True)
+            try:
+>               assert reader.get('report:new') is not None
+E               AssertionError: assert None is not None
+E                +  where None = get('report:new')
+E                +    where get = <ideation.store.Store object at 0x106db6120>.get
+
+ideation/tests/test_store_readonly.py:22: AssertionError
+=========================== short test summary info ============================
+FAILED ideation/tests/test_store_readonly.py::test_live_readonly_sees_committed_wal_and_rejects_writes
+1 failed in 0.03s

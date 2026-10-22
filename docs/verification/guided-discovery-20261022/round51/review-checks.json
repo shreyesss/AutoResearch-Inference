@@ -1,0 +1,41 @@
+{
+  "scope": "Exact frozen-hash comparison, AST inspection of two WKV argument expressions, independent integer capacity arithmetic. No execution of model/Torch/quantizer/GEMM or cache simulation.",
+  "author_manifest_sha256": "70c7241a5be79d8b51a6ccb9bd513988a8bcb5791ef3fed819274a95a2497f31",
+  "author_hashes_verified": 20,
+  "target_copies_compared": [
+    "vllm/models/deepseek_v41/quant_config.py",
+    "vllm/models/deepseek_v41/nvidia/model.py",
+    "vllm/models/deepseek_v41/common/engram.py",
+    "vllm/model_executor/kernels/linear/mxfp8/flashinfer.py",
+    "vllm/v1/worker/workspace.py",
+    "vllm/utils/flashinfer.py"
+  ],
+  "capacity": {
+    "hash_ids_per_layer": 24,
+    "embedding_elements": 6144,
+    "BF16_input_bytes": 12288,
+    "projected_elements": 25600,
+    "BF16_projected_bytes_per_entry_layer": 51200,
+    "engram_layers": [
+      1,
+      14
+    ],
+    "illustrative_1024_entries_per_layer_output_bytes": 104857600,
+    "illustrative_1024_entries_per_layer_full_key_bytes_if_int32": 196608,
+    "illustrative_1024_entries_per_layer_full_key_bytes_if_int64": 393216
+  },
+  "capacity_matches_author": true,
+  "actual_WKV_call_expressions": [
+    "self.wkv(self._batch.wkv_input(self, hash_ids.shape[0]))",
+    "self.wkv(self.embed(hash_ids).flatten(-2))"
+  ],
+  "not_proven": [
+    "Input staging/epoch ownership at runtime",
+    "Native batch/tactic numerical invariance",
+    "Cache hit frequency or chronological trace coverage",
+    "Cache publication/eviction/capture correctness",
+    "Latency or service ROI"
+  ],
+  "GPU_calls": 0,
+  "network_calls": 0
+}

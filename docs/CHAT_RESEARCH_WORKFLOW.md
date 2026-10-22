@@ -286,3 +286,28 @@ pointers and do not imply that source scripts have been rerun after restoration.
 limits time waiting to acquire the writer lock. Omit the option to retain the default indefinite wait; `0` tries once. Once acquired, command runtime is not limited. A busy attempt returns static `writer_busy` without starting the command or journal, so retry later or increase the budget. It does not bypass a publisher or permit concurrent state mutation. Lock directory/file creation can still occur before acquisition; this is not a promise of zero filesystem operations.
 
 The MCP server accepts the same optional startup `--lock-timeout SECONDS` (or `create_server(..., lock_timeout=...)`); all its calls share that configured wait budget. Existing servers and queued jobs retain their original behavior. Invalid/nonfinite/negative budgets are rejected without echoing their submitted value. This improves responsiveness under contention, not publication throughput.
+
+### Prior reports beyond hypothesis cards
+
+`hypothesis recall --compact` searches registered hypothesis memory. A standalone
+preflight can contain an already-developed intervention without having a formal
+card. Search indexed reports as well, for example:
+
+```bash
+researchctl --lock-timeout 2 --local-only --defer-snapshot search 'Engram WKV reuse' --match all --kind report --limit 20
+```
+
+This reads local retained text and journals the command; it does not discover
+unindexed filesystem reports. If the campaign has additional report directories,
+inspect those selectively and register missing reports through the normal source
+import/retention workflow. Preserve their authored provenance separately from the
+new indexing timestamp. An agent report remains analysis, not primary experimental
+evidence. Replay the same bounded query after ingestion to verify coverage; that
+one repaired case does not establish a general search-ranking improvement.
+
+For direct Python audits, `Store(path, readonly=True)` includes committed SQLite
+WAL records and forbids database writes. It can participate in SQLite locking and
+shared-memory bookkeeping; it is not a promise of zero filesystem activity.
+`immutable=True` is reserved for a sealed, unchanged, checkpointed database such
+as the installed read-only replica. Using it on a live corpus can hide recent
+commits. Normal CLI search still uses the writer lock and command journal.

@@ -641,7 +641,7 @@ def _execute(root, args):
                   "research_checkpoint": _read(root / "pending-research-checkpoint.json", None)}
         result["replica"] = replica or _read(root / "replicas/research/CURRENT.json")
         if corpus.exists():
-            store = Store(corpus, readonly=bool(replica))
+            store = Store(corpus, readonly=bool(replica), immutable=bool(replica))
             try:
                 result["research"] = store.stats()
             finally:
@@ -662,7 +662,7 @@ def _execute(root, args):
         source_root = Path(replica["path"]) if replica else root / "research"
         if not (source_root / "config.json").exists():
             raise StateNotInitializedError("Run researchctl init first")
-        store = Store(source_root / "corpus.sqlite", readonly=bool(replica))
+        store = Store(source_root / "corpus.sqlite", readonly=bool(replica), immutable=bool(replica))
         try:
             if command == "refresh":
                 from .discovery import refresh, shortlist

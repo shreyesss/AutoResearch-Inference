@@ -68,10 +68,15 @@ def content_fingerprint(doc):
 
 
 class Store:
-    def __init__(self, path, *, readonly=False):
+    def __init__(self, path, *, readonly=False, immutable=False):
         self.path = Path(path)
+        if immutable and not readonly:
+            raise ValueError("Immutable corpus access requires readonly=True")
         if readonly:
-            self.db = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True, timeout=30)
+            # Live readers must include committed WAL records. immutable=1
+            # ignores WAL and is only valid for a sealed, unchanged replica.
+            suffix = "?mode=ro&immutable=1" if immutable else "?mode=ro"
+            self.db = sqlite3.connect(self.path.resolve().as_uri() + suffix, uri=True, timeout=30)
             self.db.row_factory = sqlite3.Row
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)

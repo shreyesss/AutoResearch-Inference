@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint17](CHECKPOINT_17.md) adds the reviewed sparse-MQA components, optional writer timeout and completed canonical local retention; new S3 coverage remains unverified. The Checkpoint16 link below is retained as the preceding historical checkpoint.
+Latest update: [Checkpoint18](CHECKPOINT_18.md) adds adversarial reviews of rounds51–53, exact duplicate correction, trace applicability, and the verified live-readonly WAL repair. Canonical import is queued; new S3 coverage remains unverified. [Checkpoint17](CHECKPOINT_17.md) preserves the preceding delivery.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

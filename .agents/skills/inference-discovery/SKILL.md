@@ -26,6 +26,19 @@ In the dossier, read `linked_research` for later refinements and priority limits
 before treating an old accepted investigation as active implementation work.
 Use `--include-artifacts` only when the omitted evidence pointers are needed.
 
+Prior-card recall does not cover every standalone preflight or rejected-lead
+report. Before counting an intervention as new to the campaign, also search
+available report text by the operation being removed, for example
+`search 'Engram WKV reuse' --match all --kind report`. If a known local report
+is absent, check whether its exact source revision was indexed before blaming
+ranking or expanding keywords. Use a bounded `rg` search in the campaign's
+declared report directory to locate unindexed notes; avoid an unrestricted home
+directory scan. Retain/index the missing report with its original provenance
+through the normal import path, then replay the same query. A new paper supporting
+an already documented intervention is additional evidence, not another hypothesis.
+Report incomplete prior-work coverage explicitly; this check does not make
+scientific novelty mandatory or prevent reopening a changed premise.
+
 Translate the objective into mechanism-level questions. For each selected query state what uncertainty it resolves, which provider fits, what facts/constraints must remain, and which constraints can be relaxed. Useful alternatives include exact implementation symbols, the work or waiting removed, different vocabulary in another serving engine, foundational methods and contrary evidence. Choose alternatives that change evidence coverage rather than producing synonyms to fill a list.
 
 Use `expand --question TEXT --plan PLAN.json` to retain an agent-authored plan with observations from previous searches. The tool validates bounds/dates and warns about repeated identities. Without a plan it returns lexical suggestions only. A taxonomy is a source of vocabulary, not the relevance boundary. See the plan example in the workflow doc.

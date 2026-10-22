@@ -1,0 +1,251 @@
+{
+  "scope": "Extracted pinned Python method with shape/provenance stubs plus integer swizzle equations. Not actual tensor stride/view tests, quantized values, numerical equality, loader lifecycle, cache writes, CUDA or performance.",
+  "source_hashes": {
+    "sources/vllm__models__deepseek_v41__nvidia__dspark.py": "5934ce7fb1df4d308c0e11f8c4235f07f083e6dc7dc4edea83bd885b30f05d02",
+    "sources/vllm__models__deepseek_v41__common__ops__query_quant.py": "2e2d0b0111aceeecfa91cbd0a6ca340c2b4db2a93161cd6a56b8e21bd1401759",
+    "sources/model-config.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879"
+  },
+  "model_geometry": {
+    "K": 5120,
+    "Q_discarded": 1280,
+    "KV_kept": 512,
+    "layers": 3
+  },
+  "per_context_row_structural_work": {
+    "current_projection_MACs": 27525120,
+    "KV_only_projection_MACs": 7864320,
+    "removed_MAC_fraction": 0.7142857142857143,
+    "current_FP8_weight_elements": 27525120,
+    "KV_only_FP8_weight_elements": 7864320,
+    "meaning": "Mathematical output-width and weight-element counts, not measured memory traffic/latency. GEMM repeats/tactics/cache/overlap determine realizedcost."
+  },
+  "scale_view": {
+    "group_columns": 160,
+    "kv_start_row": 1280,
+    "base_byte_offset": 204800,
+    "region_bytes": 81920,
+    "address_equalities": 81920,
+    "misaligned_start_negative_control": 1279,
+    "negative_control_mismatches": 81280,
+    "gate": "128-row-aligned slice in exact F8_128x4 layout; other layouts/backends fallback"
+  },
+  "weight_views": {
+    "cute_dsl": {
+      "processed_shape": [
+        5120,
+        1792
+      ],
+      "strides": [
+        1,
+        5120
+      ],
+      "slice_axis": 1,
+      "slice": [
+        1280,
+        1792
+      ],
+      "expected_shape": [
+        5120,
+        512
+      ],
+      "storage_offset": 6553600
+    },
+    "cutlass": {
+      "processed_shape": [
+        1792,
+        5120
+      ],
+      "strides": [
+        5120,
+        1
+      ],
+      "slice_axis": 0,
+      "slice": [
+        1280,
+        1792
+      ],
+      "expected_shape": [
+        512,
+        5120
+      ],
+      "storage_offset": 6553600
+    },
+    "scope": "Expected integer metadata inferred from pinned contiguous+transpose source; real tensor object not instantiated."
+  },
+  "source_control_traces": [
+    {
+      "slot_mappings": [
+        "layer0slots",
+        "layer1slots",
+        "layer2slots"
+      ],
+      "events": [
+        {
+          "op": "full_projection",
+          "layer": 0,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 0,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "insert",
+          "layer": 0,
+          "start": 1280,
+          "width": 512,
+          "positions_identity": true,
+          "slot_mapping": "layer0slots"
+        },
+        {
+          "op": "full_projection",
+          "layer": 1,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 1,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "insert",
+          "layer": 1,
+          "start": 1280,
+          "width": 512,
+          "positions_identity": true,
+          "slot_mapping": "layer1slots"
+        },
+        {
+          "op": "full_projection",
+          "layer": 2,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 2,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "insert",
+          "layer": 2,
+          "start": 1280,
+          "width": 512,
+          "positions_identity": true,
+          "slot_mapping": "layer2slots"
+        }
+      ]
+    },
+    {
+      "slot_mappings": [
+        "layer0slots",
+        null,
+        "layer2slots"
+      ],
+      "events": [
+        {
+          "op": "full_projection",
+          "layer": 0,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 0,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "insert",
+          "layer": 0,
+          "start": 1280,
+          "width": 512,
+          "positions_identity": true,
+          "slot_mapping": "layer0slots"
+        },
+        {
+          "op": "full_projection",
+          "layer": 1,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 1,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "full_projection",
+          "layer": 2,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 2,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "insert",
+          "layer": 2,
+          "start": 1280,
+          "width": 512,
+          "positions_identity": true,
+          "slot_mapping": "layer2slots"
+        }
+      ]
+    },
+    {
+      "slot_mappings": null,
+      "events": [
+        {
+          "op": "full_projection",
+          "layer": 0,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 0,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "full_projection",
+          "layer": 1,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 1,
+          "start": 1280,
+          "width": 512
+        },
+        {
+          "op": "full_projection",
+          "layer": 2,
+          "input_is_shared": true,
+          "width": 1792
+        },
+        {
+          "op": "norm",
+          "layer": 2,
+          "start": 1280,
+          "width": 512
+        }
+      ]
+    }
+  ],
+  "latency_bound": "If f is measured exposed context-projection fraction of round time and r is its realized fractional duration saving, reduction <= f*r minus added normalized overhead. q/(q+kv) is only structural arithmetic fraction, not r. No target f or r measured.",
+  "gpu_calls": 0,
+  "verdict": "inconclusive"
+}

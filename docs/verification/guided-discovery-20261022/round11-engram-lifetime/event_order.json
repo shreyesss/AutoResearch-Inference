@@ -1,0 +1,167 @@
+{
+  "scope": "exact Python AST methods with logging stubs; source call-order only, not runtime stream synchronization",
+  "runs": [
+    {
+      "source": "/Users/shreyas/.local/share/autoresearch-reviews/pinned-vllm-c455786/vllm/models/deepseek_v41/common/engram.py",
+      "tokens": 1,
+      "dp_max": 1,
+      "threshold": 128,
+      "events": [
+        [
+          "wait_stream",
+          "prefetch",
+          "main"
+        ],
+        [
+          "hash_record_stream",
+          "prefetch"
+        ],
+        [
+          "enter",
+          "prefetch"
+        ],
+        [
+          "lookup",
+          {
+            "background": true
+          }
+        ],
+        [
+          "exit",
+          "prefetch"
+        ],
+        [
+          "record_event",
+          "prefetch"
+        ],
+        [
+          "wait_event",
+          "main",
+          "layer_event"
+        ]
+      ],
+      "lookup_before_event_before_wait": true
+    },
+    {
+      "source": "/Users/shreyas/.local/share/autoresearch-reviews/pinned-vllm-c455786/vllm/models/deepseek_v41/common/engram.py",
+      "tokens": 1,
+      "dp_max": 256,
+      "threshold": 128,
+      "events": [
+        [
+          "lookup",
+          {}
+        ],
+        [
+          "record_event",
+          "main"
+        ],
+        [
+          "wait_event",
+          "main",
+          "layer_event"
+        ]
+      ],
+      "lookup_before_event_before_wait": true
+    },
+    {
+      "source": "/Users/shreyas/.local/share/autoresearch-reviews/pinned-vllm-c455786/vllm/models/deepseek_v41/common/engram.py",
+      "tokens": 0,
+      "dp_max": 0,
+      "threshold": 128,
+      "events": [
+        [
+          "wait_stream",
+          "prefetch",
+          "main"
+        ],
+        [
+          "hash_record_stream",
+          "prefetch"
+        ],
+        [
+          "enter",
+          "prefetch"
+        ],
+        [
+          "lookup",
+          {
+            "background": true
+          }
+        ],
+        [
+          "exit",
+          "prefetch"
+        ],
+        [
+          "record_event",
+          "prefetch"
+        ],
+        [
+          "wait_event",
+          "main",
+          "layer_event"
+        ]
+      ],
+      "lookup_before_event_before_wait": true
+    },
+    {
+      "source": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round9-engram/sources/pr58766-vllm__models__deepseek_v41__nvidia__engram.py",
+      "tokens": 1,
+      "dp_max": 1,
+      "threshold": 128,
+      "events": [
+        [
+          "wait_stream",
+          "prefetch",
+          "main"
+        ],
+        [
+          "hash_record_stream",
+          "prefetch"
+        ],
+        [
+          "enter",
+          "prefetch"
+        ],
+        [
+          "lookup",
+          {
+            "background": true,
+            "out_scales": "scales"
+          }
+        ],
+        [
+          "record_event",
+          "prefetch"
+        ],
+        [
+          "exit",
+          "prefetch"
+        ],
+        [
+          "wait_event",
+          "main",
+          "layer_event"
+        ]
+      ],
+      "lookup_before_event_before_wait": true
+    }
+  ],
+  "findings": [
+    "Pinned DP maximum can force inline lookup even local tokens1",
+    "Donor passes both value rows and scale buffer to same lookup before event",
+    "Pinned current BF16 method lacks scale pointer by design: adaptation must pass it in BOTH inline and background branches",
+    "Empty-token wrapper still records/waits; lookup return does not imply live GPU empty GEMM support"
+  ],
+  "source_hashes": {
+    "/Users/shreyas/.local/share/autoresearch-reviews/pinned-vllm-c455786/vllm/models/deepseek_v41/common/engram.py": "ae2adbbe51f6b26d6a6816832ce87aa70378c99cf4307daf664f8afeba83308d",
+    "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/round9-engram/sources/pr58766-vllm__models__deepseek_v41__nvidia__engram.py": "03c589682f962c9a0e31dfc379499030d50d70b4e9cf3e5bcfbf1854cf31ad77"
+  },
+  "unproved": [
+    "cross-call concurrency",
+    "event reuse semantics under captured execution",
+    "prefetch overlap duration",
+    "graph and sleep resource lifetime"
+  ]
+}

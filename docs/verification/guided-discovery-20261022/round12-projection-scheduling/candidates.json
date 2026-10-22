@@ -1,0 +1,117 @@
+[
+  {
+    "id": "PJ01",
+    "statement": "Preserve native DSpark context updates but compute only the KV output columns of each draft layer's quantized merged projection, eliminating discarded Q work on compatible processed MXFP8 backends.",
+    "status": "deferred",
+    "stage": "completed CPU source/layout diagnostic; implementation and service qualification deferred",
+    "mechanism": "Native DSpark context preparation calls three distinct fused WQA/WKV projections on shared current target hidden states, then discards Q1280 and keeps KV512. A backend-specific output slice can omit those dead columns while preserving per-layer norm, RoPE and cache insertion.",
+    "proposed_change": {
+      "initial_arm": "Keep three projections and all control flow; use KV-only weight and scale views only for audited FlashInfer CuTe/CUTLASS MXFP8 layouts; full merged modules remain for actual query forward.",
+      "optional_arms": [
+        "Shared input quantization only after equal actual QuantizedActivation ABI/algorithm proven.",
+        "Stack three distinct layer KV projections and batched norm/insert only after slice-only value is established; preserve layer/group-specific slots and norms."
+      ],
+      "fallback": "Unsupported backend/packing, geometry, bias, quantization, LoRA, or lifecycle rebind failure uses unchanged full projection.",
+      "lifecycle": "Construct/rebind views after final weight preprocessing and parameter replacement/reload; do not cache first-use pointers indefinitely."
+    },
+    "source_grounding": [
+      {
+        "source_path": "sources/vllm__models__deepseek_v41__nvidia__dspark.py",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/nvidia/dspark.py",
+        "body_sha256": "5934ce7fb1df4d308c0e11f8c4235f07f083e6dc7dc4edea83bd885b30f05d02",
+        "exact_quote": "kv = qr_kv[..., attn.q_lora_rank :]",
+        "claim": "Context preparation computes fused Q+KV and keeps only KV."
+      },
+      {
+        "source_path": "sources/vllm__models__deepseek_v41__attention.py",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/attention.py",
+        "body_sha256": "1b22884bc309f89c3a9eaa217dcfc3ef85cc781ef767c14758c235631effef1c",
+        "exact_quote": "[self.q_lora_rank, self.head_dim]",
+        "claim": "Merged projection output splits into Q1280 plus KV512 for retained target config."
+      },
+      {
+        "source_path": "sources/sglang31986-body.md",
+        "url": "https://github.com/sgl-project/sglang/pull/31986",
+        "body_sha256": "36d31359150a5bf3ce1a56b6c68017bac7a4e276dd50ecb8551bd52b271bba5e",
+        "exact_quote": "Falls back to the per-layer loop when a layer's QKV weight cannot be sliced (quantized)",
+        "claim": "Donor explicitly excludes quantized-weight path; selective adaptation is required."
+      },
+      {
+        "source_path": "sources/vllm__v1__worker__gpu__spec_decode__dflash__speculator.py",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py",
+        "body_sha256": "28fb34eedddf62acbcb1018a2a31d5a2bd79937e43b7819e3025591fcd0128fe",
+        "exact_quote": "def _precompute_context_kv(",
+        "claim": "Native proposer calls context preparation; graph prefix and eager tail partition current target rows."
+      }
+    ],
+    "source_pins": {
+      "vllm": "c4557869393db4d75c483d92edd02a5125500883",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017@1bae0e1088993b9b82de08f59de5be5a34e42170",
+      "sglang31986_head": "05cd14c7b811887a3a6512b14a73687a7dc58427"
+    },
+    "route": "Source-profile TP1/DP4/EP4 Flash1017 native DSpark. Eager context prep handles current target rows; FULL capture handles a fixed prefix, with extra rows handled as eager tail. These partition rows; no multiplier by draft depth5 or entire historical context. Live image/backend not attested.",
+    "prior_comparison": {
+      "id": "hypothesis:61bf4139c462a5dd161f32e0143cb065d2785f1231b8cde38e93c0585425ff85",
+      "relation": "distinct_from",
+      "reason": "R2-03 sought to omit unused query/Markov work on unfinished-prefill iterations and had confidence-state dependencies. PJ01 keeps context preparation and removes only its discarded Q output on all applicable iterations. No query-forward, confidence scheduler, token RNG or collective omission."
+    },
+    "counterevidence": [
+      "Donor supports dense stacked weights and explicitly falls back for quantized weights; no target speed result.",
+      "Different GEMM output width may change tactic and numeric rounding. Algebraic equivalence and address checks do not prove identical context KV, proposals or confidence.",
+      "Views plausible only for exact CuTe/CUTLASS processed layouts; live selected backend unknown.",
+      "Projection may occupy too little exposed round time; normalization/insertion, query, target work or communication may dominate. Smaller GEMM may lose efficiency.",
+      "Final target output correctness cannot alone detect degraded draft KV or acceptance.",
+      "Full graph padding and profiling None slots have side effects and workspace contracts that must remain."
+    ],
+    "cpu_check": {
+      "command": "python3 context_projection_audit.py",
+      "artifacts": [
+        "context_projection_audit.py",
+        "context_projection_audit.json"
+      ],
+      "result": "inconclusive",
+      "observed": "81920 exact scale-coordinate equalities; misaligned start negative yields81280 mismatches;3 extracted native control traces with shape/provenance stubs.",
+      "scope": "No real tensor views, numeric quantized values, backend execution, loader lifecycle, model, CUDA, performance or actual KV memory writes. Independent reviewer similarly checks address equations, not additional runtime coverage."
+    },
+    "roi": {
+      "structural_MACs_per_context_row_before": 27525120,
+      "after": 7864320,
+      "discarded_output_fraction": 0.7142857142857143,
+      "meaning": "71.43% of nominal context-projection output arithmetic only. Not latency reduction or measured HBM traffic.",
+      "latency_model": "If f is measured exposed round-time fraction in these context projections, r realized component duration reduction, and h normalized added overhead, total reduction=f*r-h under that decomposition. f,r,h unknown; perfect elimination cannot save more than f. Structural5/7 is not a measured r.",
+      "forecast": null
+    },
+    "rubric": {
+      "source_mechanism": "supported at exact code pin",
+      "reachable_source_route": "supported; live deployment attestation absent",
+      "existing_implementation_absence": "supported for context loop; generic projection overlap already exists",
+      "benchmark_relevance": "context prep is decode proposer work; actual shapes/exposed share unknown",
+      "compatibility": "plausible only for2named layouts; numeric/backend/lifecycle unproven",
+      "fast_falsifier": "source/layout diagnostic completed, inconclusive for implementation",
+      "novelty": "not required; useful unimplemented component selected",
+      "decision": "retain one deferred hypothesis; no implementation admission or service win claim"
+    },
+    "evaluation_plan": {
+      "status": "needs_evidence",
+      "remaining_CPU_plan": [
+        "Inspect an already available immutable deployment manifest to attest selected quant kernel and actual prepared shapes/strides; do not start or probe a GPU.",
+        "Audit adapter metadata and loader/reload lifecycle; fail closed if weight or scale layout differs.",
+        "Specify distinct layer labels, PAD slots, None mapping and FULL/eager partition fixtures before implementing."
+      ],
+      "future_authorized_component_eval": [
+        "Compare original full projection KV slice against KV-only output on exact backend/weights for representative token counts, including small decode and graph-padded rows.",
+        "Compare each layer post-norm/RoPE and inserted context KV, confidence outputs, draft proposals/acceptance and graph/eager results; predeclare numerical tolerances against baseline rather than assume bitwise parity.",
+        "Verify source parameters remain intact for query forward, rebind on reload, and fixed buffers under graph replay.",
+        "Measure exposed synchronized projection/quant/norm/insert times separately; hold accepted progress and workload constant.",
+        "Only later test shared-quant or stacking arms one at a time."
+      ],
+      "service_eval": "Reuse exact agent-p75 and Mooncake traces with paired runs, fixed image/config/seed, frozen objective ITL/goodput and separate TTFT/E2E/tail/error guards. No new service workload needed because native DSpark context updates occur on standard decode; component instrumentation is additional attribution/correctness coverage. No arbitrary SLA threshold inherited.",
+      "kill_conditions": [
+        "No compatible actual backend/layout or safe lifecycle.",
+        "Draft-cache/confidence/proposal regression beyond declared contract.",
+        "No material exposed savings or service gain after overhead."
+      ]
+    },
+    "independent_review": "../review/round12/REVIEW.md"
+  }
+]

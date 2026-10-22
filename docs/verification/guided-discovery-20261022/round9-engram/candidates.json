@@ -1,0 +1,162 @@
+[
+  {
+    "author_type": "agent",
+    "target_profile_version": "Flash1017-c455786-source-audit",
+    "prediction": null,
+    "status": "deferred",
+    "implementation_status": "deferred",
+    "gpu_calls": 0,
+    "live_eligibility": "unknown; source shared-host defaults contingent on effective configuration and availability",
+    "id": "EG01",
+    "statement": "Recover direct MXFP8 activation staging for the eligible shared-host Engram route to remove exposed GPU dequantization/requantization overhead, conditional on exact numerical and lifetime equivalence.",
+    "mechanism": "Directly write raw FP8 values and swizzled E8M0 scales from existing host table lookup into persistent consumer-compatible staging; retain per-layer prefetch event; bypass BF16 staging and FlashInfer requantization. Host source bytes and absent shared-route collectives are unchanged.",
+    "proposed_change": "Selectively rebase PR58766 unsharded/shared-head producer and QuantizedActivation return into pinned native prefetch path; use actual can_fuse_query_quant ABI checks and default fallback. Do not import its obsolete sharded gather path or add all-to-all.",
+    "support": [
+      {
+        "source_path": "sources/pr58766-body.md",
+        "source_sha256": "a106a2e0ae6bb35b1830d0750b653a62a3cece15ffa590b3aac838871ee44a02",
+        "url": "https://github.com/vllm-project/vllm/pull/58766",
+        "quote": "Unsharded heads",
+        "claim": "Older donor explicitly implements unsharded/shared-head packed path; known work to recover, not invention."
+      },
+      {
+        "source_path": "sources/pr59923-body.md",
+        "source_sha256": "0b846763bc6bcec314d2a09b58090499cc09e6b59d043a54d117d0561c6eb61a",
+        "url": "https://github.com/vllm-project/vllm/pull/59923",
+        "quote": "including TP, DP-shared tables, single replicas and ROCm, keeps the existing BF16 path unchanged.",
+        "claim": "Merged donor leaves shared-host representation conversion as a distinct gap."
+      },
+      {
+        "source_path": "sources/vllm__models__deepseek_v41__common__engram.py",
+        "source_sha256": "ae2adbbe51f6b26d6a6816832ce87aa70378c99cf4307daf664f8afeba83308d",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/common/engram.py",
+        "quote": "table.dp_size == 1",
+        "claim": "Pinned EngramBatch rejects effective dp_size1 used for shared host tables."
+      },
+      {
+        "source_path": "sources/vllm__model_executor__kernels__linear__mxfp8__flashinfer.py",
+        "source_sha256": "d52c5a20013b6f78f8829fd6b567ea48f847941b6f4ebee329f51de6a44e9c4a",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py",
+        "quote": "input_mxfp8, input_scale = qa.data, qa.scale",
+        "claim": "QuantizedActivation bypasses tensor requantization in the eligible consumer."
+      }
+    ],
+    "source_pins": {
+      "vllm": "c4557869393db4d75c483d92edd02a5125500883",
+      "donor58766": "5030d5dd66884830e5b20149218ca27e9864901b",
+      "model": "1bae0e1088993b9b82de08f59de5be5a34e42170"
+    },
+    "counterevidence": [
+      "Donor reports only1.5\u20131.6us per layer small-shape requant savings on GB300; exact B200 ITL gain unknown.",
+      "Host traffic unchanged. Padded scale output can exceed BF16 payload at smallT.",
+      "Scalar extreme scales break unrestricted BF16 representability; real checkpoint range and actual quantizer/GEMM not verified.",
+      "Closed/unmerged donor model evaluation pending; fetched comment identifies merge conflicts, not full closure rationale.",
+      "Already merged DP-sharded path is not a new candidate.",
+      "Actual shared mode, consumer selection, target hash exposure and overlap unknown."
+    ],
+    "priorcomparison": {
+      "A01": "hypothesis:36794075a7034c3f1ff100e73c1d8436a4606397c8e07766ed5388ef64b16646",
+      "relation": "different mechanism; A01 moves projection timing, EG01 removes conversion before projection; combined effect not additive"
+    },
+    "CPUcheck": {
+      "command": "python3 representation_audit.py",
+      "script": "representation_audit.py",
+      "result": "representation_audit.json",
+      "outcome": "inconclusive",
+      "scope": "13extracted scale-layout equation cases,3556moderate scalar representability combinations,10extreme counterexamples; no target kernel/weights/stream execution"
+    },
+    "falsification_test": "Reject numerical path if actual checkpoint values/consumer output differ; reject service change if paired complete target-forward and long-output ITL fail to improve after correctness passes. Source fallback to unsupported consumer is not exposure.",
+    "eval_plan": {
+      "status": "needs_evidence",
+      "remaining_CPU": [
+        "Saved effective dispatch/config audit",
+        "Bounded actual checkpoint scale/FP8 range audit",
+        "Dirty-padding and sorted-permutation byte-layout fixture",
+        "Pin both FlashInfer consumers and stream/wake lifetimes",
+        "Audit SM100 FlashInfer cute-dsl quantizer, not torch fallback; scale-byte0 semantics",
+        "Alternating130\u21921\u2192129 dirty-padding fixture; values and scales guarded by same per-layer event"
+      ],
+      "future_GPU_not_authorized": [
+        "ActualWKV equality through both consumers",
+        "Graph/sleep/repeated-call lifetime checks",
+        "Existingagent-p75/Mooncake pairedA/B and breakdown"
+      ],
+      "metrics": [
+        "long-outputITL",
+        "TTFT",
+        "E2Etails",
+        "goodput",
+        "target-forward",
+        "exposedrequant",
+        "prefetchwait",
+        "committedtokens/round"
+      ],
+      "new_serving_evaluator_reason": null
+    },
+    "independent_review": {
+      "path": "../review/round9/review.json",
+      "sha256": "f67ac556401df8face36e1c06160480584550d80f9db4db0d0f7c271e8e374b6",
+      "verdict": "retain deferred",
+      "service_qualified": false,
+      "note": "Review captured pre-append cardhash; followup only adds review receipt and explicit gates."
+    }
+  },
+  {
+    "author_type": "agent",
+    "target_profile_version": "Flash1017-c455786-source-audit",
+    "prediction": null,
+    "status": "deferred",
+    "implementation_status": "deferred",
+    "gpu_calls": 0,
+    "live_eligibility": "unknown; source shared-host defaults contingent on effective configuration and availability",
+    "id": "EG02",
+    "statement": "Assess whether exact Engram row dedup or bounded GPU hot-row caching removes host lookup traffic not already served by hardware caches.",
+    "mechanism": "Read-only row reuse keyed by pinned layer/table/head-row identity, selecting only inference-system portions of STAPLE.",
+    "proposed_change": "No cache implementation yet; first offline target hash-reuse and memory-budget diagnostic with valid trace provenance.",
+    "support": [
+      {
+        "source_path": "sources/staple.txt",
+        "source_sha256": "e1ee9c956d11ec84903721936933859bd25ef640002d021a77aa5e218f3615df",
+        "url": "https://arxiv.org/html/2610.12599v1",
+        "quote": "Launch a GPU lookup kernel that probes the LFU cache.",
+        "claim": "STAPLE inference subsection includes GPU cache probing independent of its training recipe."
+      },
+      {
+        "source_path": "sources/pr59923-body.md",
+        "source_sha256": "0b846763bc6bcec314d2a09b58090499cc09e6b59d043a54d117d0561c6eb61a",
+        "url": "https://github.com/vllm-project/vllm/pull/59923",
+        "quote": "a repeated sentence keeps the few distinct n-gram rows in cache and hides Engram entirely.",
+        "claim": "Existing hardware cache behavior can eliminate marginal value of softwarecache on repetitive synthetic inputs."
+      }
+    ],
+    "counterevidence": [
+      "Token-indexed STAPLE inverse-map cannot transfer directly across layer/head-specific ngram hash tables.",
+      "GPUmemory reservation competes with servingKV and cacheprobe/admission adds work.",
+      "No target realistic hashtrace/cachemiss/PCIe traffic evidence; recurrence alone is not saved busbytes.",
+      "Low standalone decode component share reported elsewhere is not target measured but lowers priority."
+    ],
+    "priorcomparison": {
+      "status": "generic prefetch duplicate; exact rowcache distinct but weak materiality"
+    },
+    "falsification_test": "Stop if representative trace lacks reuse beyond modeled hardwarecache or bounded memory cannot reduce exposedcost; exact tablebytes and revision-safe keys mandatory.",
+    "eval_plan": {
+      "status": "needs_evidence",
+      "remaining_CPU": [
+        "Obtain existing payload/tokenhashtrace without newGPUrun",
+        "Table-aware reuse distance and cachecapacity sensitivity",
+        "Compare raw repeats to cacheline/hardwarecache explanation"
+      ],
+      "future_GPU_not_authorized": [
+        "Only after offline gate: cachemiss/bus counters and end-to-endA/B"
+      ],
+      "new_serving_evaluator_reason": "Only if current benchmarks hashdiversity does not exercise reuse/coldmiss mix; not yet established"
+    },
+    "independent_review": {
+      "path": "../review/round9/review.json",
+      "sha256": "f67ac556401df8face36e1c06160480584550d80f9db4db0d0f7c271e8e374b6",
+      "verdict": "retain deferred",
+      "service_qualified": false,
+      "note": "Review captured pre-append cardhash; followup only adds review receipt and explicit gates."
+    }
+  }
+]

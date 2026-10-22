@@ -1,0 +1,120 @@
+{
+  "scope": "AST source observations and two exact ideal-law countercontrols; no torch/native/GPU execution or deployment inputs",
+  "donor_commit": "a9d042912b42e5b2b0ea48d650f1b2e8f05af68a",
+  "source_sha256": {
+    "generator.py": "a6839a5a7c3de7498b2cd258b4ae60ce291591abc2f46d743650aedbb4aef507",
+    "strategy.py": "56270b8b339fef1205fae278a6cb7fbc0375c6ceaa894f1acb889224d2128c52",
+    "utils.py": "5fa221ee2a04b9f0e29e3c192aab18c372001e81d7a821611c4c716a315e6dea",
+    "test.py": "ecab989a0a83c599a97d6a75b3f6782db918fa6d4868757ca5bd370adf7fd2e5",
+    "qwen2_std.json": "d3f0baaaef1d98ab745558898909990eae274bf7b9ea761738b913ba6ba8e663"
+  },
+  "single_verify_gumbel_calls": [
+    "gumbel_sample(logits, rn)"
+  ],
+  "multi_verify_gumbel_calls": [
+    "gumbel_sample(logits[:, depth], target_noise)",
+    "gumbel_sample(logits[alive_group_id, depth])"
+  ],
+  "single_position_tape_observed": true,
+  "K1_full_support_countercontrol": {
+    "target": [
+      "4/5",
+      "1/5"
+    ],
+    "proposal": [
+      "1/5",
+      "4/5"
+    ],
+    "match_diagonal": [
+      "1/5",
+      "1/5"
+    ],
+    "fresh_after_rejection": [
+      "17/25",
+      "8/25"
+    ],
+    "TV": "3/25",
+    "limitation": "class supports K1; retained benchmark configurations use multi K>=2"
+  },
+  "K2_zero_proposal_countercontrol": {
+    "target": [
+      "4/5",
+      "1/5"
+    ],
+    "proposal": [
+      "0",
+      "1"
+    ],
+    "fresh_after_rejection": [
+      "16/25",
+      "9/25"
+    ],
+    "limitation": "boundary law control, not observed logits or same-topk50 benchmark fixture"
+  },
+  "K2_full_support_countercontrol": {
+    "target": [
+      "4/5",
+      "1/5"
+    ],
+    "proposal": [
+      "1/5",
+      "4/5"
+    ],
+    "all_drafts_one_and_target_one": "23/125",
+    "no_matching_draft": "57/125",
+    "match_diagonal": [
+      "43/125",
+      "1/5"
+    ],
+    "fresh_after_rejection": [
+      "443/625",
+      "182/625"
+    ],
+    "TV": "57/625",
+    "branch": "first position, identical target prefix on both rows, all rejections leave alive_group_id=0; fresh target redraw uses that same p",
+    "limitation": "ideal continuous-noise integration, not finite torch PRNG/benchmark execution"
+  },
+  "logical_tape_allocations": [
+    {
+      "label": "donor standard K1",
+      "output_length": 128,
+      "draft_depth": 4,
+      "draft_count": 1,
+      "vocab": 151936,
+      "assumed_itemsize": 4,
+      "bytes": 80829952,
+      "MiB": 77.08544921875
+    },
+    {
+      "label": "donor standard K8",
+      "output_length": 128,
+      "draft_depth": 4,
+      "draft_count": 8,
+      "vocab": 151936,
+      "assumed_itemsize": 4,
+      "bytes": 646639616,
+      "MiB": 616.68359375
+    },
+    {
+      "label": "target illustrative output1024 K1",
+      "output_length": 1024,
+      "draft_depth": 5,
+      "draft_count": 1,
+      "vocab": 129280,
+      "assumed_itemsize": 4,
+      "bytes": 532633600,
+      "MiB": 507.958984375
+    },
+    {
+      "label": "target illustrative output1024 K8",
+      "output_length": 1024,
+      "draft_depth": 5,
+      "draft_count": 8,
+      "vocab": 129280,
+      "assumed_itemsize": 4,
+      "bytes": 4261068800,
+      "MiB": 4063.671875
+    }
+  ],
+  "verdict": "single path supplies source precedent; do not transplant the multi-path fresh rejection redraw; no speed or complete donor-correctness claim"
+}

@@ -153,9 +153,9 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
                     max_repositories: int = 2, repositories: list[str] | None = None,
                     code_sources: list[dict[str, str]] | None = None,
                     citations_per_paper: int = 3) -> dict[str, object]:
-        """Read selected full text/PRs within budget. citations_per_paper is 0..5 (default 3); 0 skips citation expansion, retaining full-text reads. repositories chooses only those READMEs (not proof of authorship); code_sources selects up to 6 exact {repo, ref:40-hex-commit, path} files. Null repositories uses heuristic link selection; [] disables it. Host synthesizes claims."""
-        if not source_ids or len(source_ids) > 20 or not 0 <= max_http_calls <= 30 or not 0 <= max_repositories <= 5:
-            raise ToolError('Choose 1..20 source IDs, 0..30 HTTP calls and 0..5 repositories')
+        """Read selected full text/PRs or explicit code within budget. source_ids=[] supports code-only/repository-only reads; no input returns no_selected_sources. citations_per_paper is 0..5 (default 3); 0 skips citation expansion, retaining full-text reads. repositories chooses only those READMEs (not proof of authorship); code_sources selects up to 6 exact {repo, ref:40-hex-commit, path} files. Null repositories uses heuristic link selection; [] disables it. Host synthesizes claims."""
+        if len(source_ids) > 20 or not 0 <= max_http_calls <= 30 or not 0 <= max_repositories <= 5:
+            raise ToolError('Choose 0..20 source IDs, 0..30 HTTP calls and 0..5 repositories')
         if not 0 <= citations_per_paper <= 5:
             raise ToolError('citations_per_paper must be 0..5; 0 skips citation expansion')
         if not offline and not allow_network:

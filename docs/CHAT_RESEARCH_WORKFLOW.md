@@ -152,6 +152,16 @@ researchctl --defer-snapshot investigate --question 'What transfers from this im
 
 `--repository` is repeatable and replaces automatic repository selection. The manifest retains discovered candidates, including skipped dependencies. Explicit selection does not establish authorship or a paper-to-code relationship. `--code-source` is repeatable (at most six unique files across arguments and the brief); exact pinned files are read before heuristic READMEs and share the HTTP budget. Use `--max-repositories 0` for files/full text only. MCP `investigate` exposes the same `repositories` and `code_sources` inputs; `repositories=[]` disables README discovery. Invalid pins or an explicit selection larger than its budget fail rather than silently dropping requests.
 
+Code-only investigation needs no paper seed:
+
+```bash
+researchctl --defer-snapshot investigate --question 'Inspect this exact code path' \
+  --deep-count 0 --max-http-calls 1 --max-repositories 0 \
+  --code-source '{"repo":"owner/engine","ref":"EXACT_40_HEX_COMMIT","path":"relative/kernel.py"}'
+```
+
+Replace the placeholder with a real 40-hex commit. `--deep-count 0` disables stored-source selection/full-text reads; explicit pinned files, `--repository` READMEs and a brief's `code_sources` still run. MCP accepts `source_ids=[]` with `code_sources` or `repositories`. Selection validation happens before `run` refresh or deep-read network calls. `--offline` permits cache hits and prevents HTTP misses; it does not fetch an uncached file. No selected sources and no explicit requests returns `no_selected_sources`. Attempted reads that yield no nonblank source body return `no_usable_sources`, retain failures/empty-file receipts and disable optional reasoning. Nonblank text is only a minimal input guard, not a relevance, correctness or implementation qualification.
+
 For full-text reads without citation expansion, add `--citations-per-paper 0` to `investigate` or `run`; MCP accepts `citations_per_paper=0`. The default remains 3, with valid values 0..5 checked before provider calls. This controls citation links per selected paper, not an HTTP request count: citation providers share the existing cache-miss budget and may require multiple requests. Zero skips citation work but still fetches selected full text; it does not disable `run`'s feed refresh or repository discovery. Use `investigate --max-repositories 0 --citations-per-paper 0` when only selected paper text is wanted. The dossier records the configured citation limit; skipped expansion establishes no citation coverage.
 
 `investigate` selects original text, open full text and pinned implementation evidence within budget. `--offline` uses retained/cached evidence. Mark abstracts, full text and actual code separately. `run` also refreshes configured feeds; use `investigate` to avoid that broader refresh. `--reason --brief FILE` optionally invokes model stages; no model calls occur by default. A source's author-reported speedup remains attached to its original conditions.

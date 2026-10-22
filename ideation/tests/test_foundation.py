@@ -177,6 +177,57 @@ class FoundationTests(unittest.TestCase):
                 investigate.assert_not_called()
                 request.assert_not_called()
 
+    def test_code_only_actual_cli_online_then_cached_offline_and_brief_run(self):
+        self.init()
+        pin = {"repo": "owner/project", "ref": "a" * 40, "path": "kernel.py"}
+        with mock.patch("ideation.sources.Sources._request", return_value=(b"def kernel(): pass", "text/plain")) as http:
+            first = self.call("investigate", "--question", "Inspect kernel", "--deep-count", "0",
+                               "--code-source", json.dumps(pin), "--max-http-calls", "1")
+        self.assertEqual(http.call_count, 1)
+        self.assertEqual(first["selected_sources"], [])
+        self.assertEqual(first["dossier"]["status"], "dossier_ready")
+        brief = self.root / "brief.json"
+        brief.write_text(json.dumps({"code_sources": [pin]}))
+        with mock.patch("ideation.sources.Sources._request") as http, mock.patch("ideation.discovery.refresh") as refresh:
+            for command, selection in (("investigate", ["--code-source", json.dumps(pin)]),
+                                       ("run", ["--brief", str(brief)])):
+                cached = self.call(command, "--question", "Inspect kernel", "--deep-count", "0", "--offline", *selection)
+                self.assertEqual(cached["dossier"]["http_cache_misses"], 0)
+                self.assertEqual(cached["dossier"]["status"], "dossier_ready")
+        http.assert_not_called()
+        refresh.assert_not_called()
+        store = Store(self.state / "research/corpus.sqlite")
+        self.assertEqual(store.db.execute("SELECT count(*) FROM edges").fetchone()[0], 0)
+        self.assertEqual(store.db.execute("SELECT count(*) FROM documents WHERE kind='paper'").fetchone()[0], 0)
+        store.db.close()
+
+    def test_code_only_failed_read_blocks_model_and_retention_and_empty_selection_is_honest(self):
+        self.init()
+        pin = {"repo": "owner/project", "ref": "a" * 40, "path": "kernel.py"}
+        brief = self.root / "brief.json"
+        brief.write_text(json.dumps({"objective": "inspect"}))
+        with mock.patch("ideation.sources.Sources._request", side_effect=RuntimeError("failed")), \
+             mock.patch("ideation.deep_dive.ResearchTools") as model, \
+             mock.patch("ideation.research_flow.retain_reasoned_packet") as retain:
+            result = self.call("investigate", "--question", "Inspect", "--deep-count", "0", "--reason",
+                               "--brief", str(brief), "--code-source", json.dumps(pin))
+        self.assertEqual(result["dossier"]["status"], "no_usable_sources")
+        model.assert_not_called()
+        retain.assert_not_called()
+        self.assertEqual(self.call("investigate", "--question", "Inspect", "--deep-count", "0", "--offline")["status"],
+                         "no_selected_sources")
+
+    def test_invalid_code_selection_prevents_even_run_refresh(self):
+        self.init()
+        for command in ("run", "investigate"):
+            with self.subTest(command=command), mock.patch("ideation.discovery.refresh") as refresh, \
+                 mock.patch("ideation.sources.Sources._request") as http:
+                result = self.call(command, "--question", "Inspect", "--deep-count", "0", "--code-source",
+                                   json.dumps({"repo": "owner/project", "ref": "main", "path": "x.py"}), expected=1)
+            self.assertEqual(result["error_type"], "ValueError")
+            refresh.assert_not_called()
+            http.assert_not_called()
+
     def test_provider_file_allowlist_no_interpolation_or_snapshot_leak(self):
         env_file = self.root / "providers.env"
         env_file.write_text("GITHUB_TOKEN=${SHOULD_NOT_EXPAND}\nUNRELATED_SECRET=NEVER_EXPORT\n")

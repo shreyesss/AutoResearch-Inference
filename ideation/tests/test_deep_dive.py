@@ -26,9 +26,61 @@ class DeepDiveTests(unittest.TestCase):
         self.store.db.commit()
         return identifier
 
-    def run_dive(self, ids, **kwargs):
+    def run_dive(self, ids, *, output_name="run", **kwargs):
         return investigate(self.store, "What mechanism can help our deployment?", ids,
-                           str(Path(self.tmp.name) / "run"), **kwargs)
+                           str(Path(self.tmp.name) / output_name), **kwargs)
+
+    def test_code_only_and_brief_only_keep_exact_pin_without_paper_edges(self):
+        pin = {"repo": "owner/project", "ref": "a" * 40, "path": "kernel.py"}
+        with patch.object(Sources, "_request", return_value=(b"def kernel(): pass", "text/plain")) as http:
+            first = self.run_dive([], code_sources=[pin], max_http_calls=1)
+        self.assertEqual(http.call_count, 1)
+        self.assertEqual(first["http_cache_misses"], 1)
+        self.assertEqual(first["status"], "dossier_ready")
+        self.assertEqual(first["reasoning_source_ids"], ["code:owner/project:" + "a" * 40 + ":kernel.py"])
+        with patch.object(Sources, "_request") as http:
+            cached = self.run_dive([], brief={"code_sources": [pin]}, max_http_calls=0, output_name="cached")
+        http.assert_not_called()
+        self.assertEqual(cached["http_cache_misses"], 0)
+        self.assertEqual(cached["reads"][0]["requested_by"], ["brief"])
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM edges").fetchone()[0], 0)
+
+    def test_explicit_repository_only_reads_without_inventing_paper_relationship(self):
+        replies = iter([({"default_branch": "main"}, {}), ({"sha": "a" * 40}, {}),
+                        ([{"name": "README.md", "path": "README.md"}], {})])
+        with patch.object(GitHub, "_get", side_effect=lambda *a, **k: next(replies)), \
+             patch.object(Sources, "_request", return_value=(b"Implementation details", "text/plain")):
+            result = self.run_dive([], repositories=["owner/project"], max_http_calls=4)
+        self.assertEqual(result["http_cache_misses"], 4)
+        self.assertEqual(result["status"], "dossier_ready")
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM edges").fetchone()[0], 0)
+
+    def test_failed_or_empty_code_read_never_enables_reasoning(self):
+        for index, response in enumerate((RuntimeError("fetch failed"), (b"   ", "text/plain"))):
+            pin = {"repo": "owner/project", "ref": "a" * 40, "path": f"kernel{index}.py"}
+            with self.subTest(response=index), patch.object(Sources, "_request", side_effect=
+                    response if isinstance(response, Exception) else lambda *a, **k: response), \
+                 patch("ideation.deep_dive.ResearchTools") as reasoning:
+                result = self.run_dive([], code_sources=[pin], reason=True, brief={"objective": "test"}, output_name=f"failed{index}")
+            reasoning.assert_not_called()
+            self.assertEqual(result["status"], "no_usable_sources")
+            self.assertFalse(result["model_calls_enabled"])
+            self.assertTrue(result["reasoning_requested"])
+            self.assertEqual(result["reasoning_source_ids"], [])
+            self.assertEqual(result["claim_status"], "no_usable_evidence")
+        with patch.object(Sources, "_request") as http:
+            result = self.run_dive([], code_sources=[{**pin, "path": "uncached.py"}], max_http_calls=0, output_name="uncached")
+        http.assert_not_called()
+        self.assertEqual(result["http_cache_misses"], 0)
+        self.assertEqual(result["status"], "no_usable_sources")
+
+    def test_no_inputs_and_bad_pin_rejected_before_http(self):
+        with patch.object(Sources, "_request") as http:
+            with self.assertRaises(ValueError):
+                self.run_dive([])
+            with self.assertRaises(ValueError):
+                self.run_dive([], code_sources=[{"repo": "owner/project", "ref": "main", "path": "x.py"}])
+        http.assert_not_called()
 
     def test_explicit_version_dates_and_fulltext_reasoning_priority(self):
         ids = [self.paper("arxiv:2610." + str(10000 + i)) for i in range(20)]

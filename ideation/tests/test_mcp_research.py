@@ -224,3 +224,35 @@ def test_mcp_missing_source_is_local_absence(tmp_path):
             assert 'source_not_retained' in str(result.content)
             assert 'Local absence does not prove upstream absence' in str(result.content)
     asyncio.run(check())
+
+
+def test_mcp_code_only_uses_real_handler_and_offline_cache(tmp_path):
+    from unittest.mock import patch
+    invoke(['--state-dir', str(tmp_path), 'init'])
+    pin = {'repo': 'owner/project', 'ref': 'a' * 40, 'path': 'kernel.py'}
+    async def check():
+        async with Client(create_server(tmp_path, allow_network=True, defer_snapshot=True)) as client:
+            args = {'source_ids': [], 'question': 'Inspect kernel', 'code_sources': [pin]}
+            with patch('ideation.sources.Sources._request', return_value=(b'def kernel(): pass', 'text/plain')) as http:
+                first = await client.call_tool('investigate', {**args, 'offline': False, 'max_http_calls': 1})
+                assert not first.is_error
+                assert first.structured_content['dossier']['status'] == 'dossier_ready'
+                assert first.structured_content['selected_sources'] == []
+                assert http.call_count == 1
+            with patch('ideation.sources.Sources._request') as http:
+                cached = await client.call_tool('investigate', args)
+                assert not cached.is_error
+                assert cached.structured_content['dossier']['http_cache_misses'] == 0
+                bad = await client.call_tool('investigate', {**args, 'code_sources': [{**pin, 'ref': 'main'}]})
+                assert bad.is_error
+                empty = await client.call_tool('investigate', {'source_ids': [], 'question': 'Inspect'})
+                assert not empty.is_error
+                assert empty.structured_content['status'] == 'no_selected_sources'
+                http.assert_not_called()
+    asyncio.run(check())
+    store = Store(tmp_path / 'research/corpus.sqlite')
+    try:
+        assert store.db.execute('SELECT count(*) FROM edges').fetchone()[0] == 0
+        assert store.db.execute("SELECT count(*) FROM documents WHERE kind='paper'").fetchone()[0] == 0
+    finally:
+        store.db.close()

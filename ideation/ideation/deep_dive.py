@@ -71,23 +71,9 @@ def _round_robin_repositories(groups, limit):
     return result
 
 
-def investigate(store, question, source_ids, output, *, max_http_calls=12,
-                max_fulltexts=3, max_repositories=2, citations_per_paper=3,
-                code_sources=None, max_code_files=6, repositories=None,
-                reason=False, brief=None, model=None, timeout=300):
-    """Fetch original text/code under a shared cache-miss budget; never run GPUs.
-
-    A source dossier is not a verified scientific conclusion. Optional reasoning
-    uses the existing quote validator and task-derived hypothesis rubric.
-    """
-    if not question.strip() or not source_ids:
-        raise ValueError("Provide a question and at least one stored source ID")
-    if type(citations_per_paper) is not int or not 0 <= citations_per_paper <= 5:
-        raise ValueError("citations_per_paper must be an integer in 0..5")
-    if len(source_ids) > 20 or any(int(n) < 0 for n in (max_http_calls, max_fulltexts, max_repositories, citations_per_paper, max_code_files)):
-        raise ValueError("At most 20 sources; budgets must be nonnegative")
-    if reason and not brief:
-        raise ValueError("Reasoning requires an explicit task brief with baseline and objective")
+def validate_selection(*, brief=None, repositories=None, code_sources=None,
+                       max_repositories=2, max_code_files=6):
+    """Validate explicit selection before refresh or reads, without network access."""
     brief_data = brief if isinstance(brief, dict) else json.loads(Path(brief).read_text()) if brief else {}
     if not isinstance(brief_data, dict):
         raise ValueError("Task brief must be a JSON object")
@@ -116,6 +102,31 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
             pinned_requests.setdefault(key, []).append(requested_by)
     if len(pinned_requests) > max_code_files:
         raise ValueError("Requested pinned code files exceed max_code_files; narrow selection or explicitly raise the limit")
+    return brief_data, repositories, pinned_requests
+
+
+def investigate(store, question, source_ids, output, *, max_http_calls=12,
+                max_fulltexts=3, max_repositories=2, citations_per_paper=3,
+                code_sources=None, max_code_files=6, repositories=None,
+                reason=False, brief=None, model=None, timeout=300):
+    """Fetch original text/code under a shared cache-miss budget; never run GPUs.
+
+    A source dossier is not a verified scientific conclusion. Optional reasoning
+    uses the existing quote validator and task-derived hypothesis rubric.
+    """
+    if not question.strip():
+        raise ValueError("Provide a question")
+    if type(citations_per_paper) is not int or not 0 <= citations_per_paper <= 5:
+        raise ValueError("citations_per_paper must be an integer in 0..5")
+    if len(source_ids) > 20 or any(int(n) < 0 for n in (max_http_calls, max_fulltexts, max_repositories, citations_per_paper, max_code_files)):
+        raise ValueError("At most 20 sources; budgets must be nonnegative")
+    if reason and not brief:
+        raise ValueError("Reasoning requires an explicit task brief with baseline and objective")
+    brief_data, repositories, pinned_requests = validate_selection(
+        brief=brief, repositories=repositories, code_sources=code_sources,
+        max_repositories=max_repositories, max_code_files=max_code_files)
+    if not source_ids and not repositories and not pinned_requests:
+        raise ValueError("Provide stored source IDs, explicit repositories or pinned code files")
     selected = [store.get(identity) for identity in dict.fromkeys(source_ids)]
     if any(doc is None for doc in selected):
         raise ValueError("Selected source is not in the corpus")
@@ -255,9 +266,11 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
     store.db.commit()
     documents = [store.get(identity) for identity in evidence_ids]
     priorities = {"fulltext": 0, "code": 1, "diff": 2, "review": 3, "pr": 4, "issue": 4}
-    reasoning_ids = [d["id"] for d in sorted(documents, key=lambda d: priorities.get(d["kind"], 5))][:20]
+    # Empty files/metadata receipts are retained, but cannot seed model reasoning.
+    usable_documents = [d for d in documents if d.get("body", "").strip()]
+    reasoning_ids = [d["id"] for d in sorted(usable_documents, key=lambda d: priorities.get(d["kind"], 5))][:20]
     write_json(out / "sources.json", documents)
-    manifest = {"version": 1, "question": question, "created_at": now(), "status": "dossier_ready",
+    manifest = {"version": 1, "question": question, "created_at": now(), "status": "dossier_ready" if reasoning_ids else "no_usable_sources",
                 "http_cache_misses": used, "http_limit": max_http_calls,
                 "citations_per_paper": citations_per_paper,
                 "network_note": "Logical cache misses; GitHub transient retries can add HTTP attempts.",
@@ -272,9 +285,11 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
                 "pinned_files_requested": len(pinned_requests),
                 "sources": [{"id": d["id"], "sha256": hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest(),
                              "read_depth": d["metadata"].get("read_depth", d["kind"])} for d in documents],
-                "claim_status": "source_dossier_only", "GPU_experiments": 0, "model_calls_enabled": reason}
+                "claim_status": "source_dossier_only" if reasoning_ids else "no_usable_evidence",
+                "GPU_experiments": 0, "reasoning_requested": reason,
+                "model_calls_enabled": bool(reason and reasoning_ids)}
     write_json(out / "manifest.json", manifest)
-    lines = ["# Research dossier", "", question, "", "## Sources", ""]
+    lines = ["# Research dossier", "", question, "", "Status: " + manifest["status"], "", "## Sources", ""]
     lines += [f"- [{d['title']}]({d['url']}) — `{d['id']}`; {d['metadata'].get('read_depth', d['kind'])}" for d in documents]
     lines += ["", "## Questions the evidence review must answer", "",
               "- What is the exact mechanism, comparator and ablation?",
@@ -284,7 +299,7 @@ def investigate(store, question, source_ids, output, *, max_http_calls=12,
               "- What is the cheapest falsifying pilot and its engineering/GPU cost?",
               "", "Discovery and fetched full text do not establish any of these conclusions."]
     (out / "REPORT.md").write_text("\n".join(lines) + "\n")
-    if reason:
+    if reason and reasoning_ids:
         try:
             analyst = ResearchTools(store)
             packet = analyst.evidence(question, reasoning_ids, str(out / "evidence"), model=model, timeout=timeout)

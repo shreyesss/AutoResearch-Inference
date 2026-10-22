@@ -367,6 +367,11 @@ def _run_research(root, args):
         raise ValueError("--offline cannot enable model reasoning; use a separate online --reason run")
     if args.reason and not args.brief:
         raise ValueError("--reason requires --brief with explicit baseline and objective")
+    from .deep_dive import validate_selection
+    brief = str(Path(args.brief).expanduser().resolve()) if args.brief else None
+    _, repositories, pinned_requests = validate_selection(
+        brief=brief, repositories=args.repository, code_sources=args.code_source,
+        max_repositories=args.max_repositories)
     store = Store(root / "research/corpus.sqlite")
     run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
     out = root / "research/records" / run_id
@@ -383,16 +388,15 @@ def _run_research(root, args):
         query_hits = store.search(args.question, limit=max(1, args.deep_count))
         chosen = list(dict.fromkeys(args.source_id or ([doc["id"] for doc in query_hits] + [item["id"] for item in candidates])))[:args.deep_count]
         result["selected_sources"] = chosen
-        if chosen:
+        if chosen or repositories or pinned_requests:
             from .deep_dive import investigate
-            brief = str(Path(args.brief).expanduser().resolve()) if args.brief else None
             result["dossier"] = investigate(store, args.question, chosen, out / "dossier",
                 max_http_calls=0 if args.offline else args.max_http_calls,
                 max_fulltexts=args.deep_count, max_repositories=args.max_repositories,
                 citations_per_paper=args.citations_per_paper,
                 repositories=args.repository, code_sources=args.code_source,
                 reason=args.reason, brief=brief, model=args.model, timeout=args.timeout)
-            if args.reason:
+            if result["dossier"]["status"] == "reasoned":
                 from .research_flow import retain_reasoned_packet
                 result["typed_evidence"] = retain_reasoned_packet(root, result["dossier"]["evidence"]["packet"], out / "dossier/hypotheses")
         else:

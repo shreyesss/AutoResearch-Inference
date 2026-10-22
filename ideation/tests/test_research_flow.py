@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -6,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from ideation.research_flow import ResearchFlow
-from ideation.store import Store
+from ideation.store import Store, content_fingerprint
 from ideation.foundation import invoke
 from ideation.discovery import _paper_key
 
@@ -163,6 +164,88 @@ def test_updated_source_triggers_review_without_rewriting_claim(flow):
     changes = flow.changes()
     assert hypothesis in changes['changes'][-1]['hypotheses_to_review']
     assert not flow.changes(changes['next_cursor'])['changes']
+
+
+def test_explicit_legacy_revision_keeps_resolvable_identity_and_semantic_alerts(flow):
+    store = Store(flow.root / 'research/corpus.sqlite')
+    historical = dict(store.db.execute('SELECT * FROM documents WHERE id=?',
+                                      (FIXTURE['source']['id'],)).fetchone())
+    historical['body'] += '\nHistorical-only payload for identity regression.'
+    metadata = json.loads(historical['metadata'])
+    metadata['retrieval_query'] = 'historical query'
+    historical['metadata'] = json.dumps(metadata)
+    # The earlier fingerprint included retrieval metadata. Preserve its real
+    # historical key, rather than inventing a malformed current revision.
+    material = {k: historical.get(k) for k in ('source', 'kind', 'url', 'title', 'body',
+                                              'created_at', 'updated_at', 'state', 'merged_at', 'parent')}
+    material['metadata'] = metadata
+    legacy = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False,
+                                      separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+    historical['content_hash'] = legacy
+    raw = json.dumps(historical)
+    normalized = content_fingerprint(historical)
+    assert legacy != normalized
+    store.db.execute('INSERT INTO document_revisions VALUES(?,?,?,?)',
+                     (historical['id'], legacy, historical['fetched_at'], raw))
+    store.db.commit()
+    assert store.db.execute('SELECT 1 FROM document_revisions WHERE id=? AND content_hash=?',
+                            (historical['id'], normalized)).fetchone() is None
+
+    claim = flow.claim({**FIXTURE['claim'], 'revision_hash': legacy})
+    assert claim['revision_hash'] == legacy
+    assert flow.claim({**FIXTURE['claim'], 'revision_hash': legacy})['id'] == claim['id']
+    assert store.db.execute('SELECT document FROM document_revisions WHERE id=? AND content_hash=?',
+                            (historical['id'], claim['revision_hash'])).fetchone()[0] == raw
+    assert store.db.execute('SELECT 1 FROM document_revisions WHERE id=? AND content_hash=?',
+                            (historical['id'], normalized)).fetchone() is None
+
+    # Emulate an older installation whose latest row also has this old key.
+    # Default selection must resolve it, without silently migrating the source.
+    store.db.execute('UPDATE documents SET body=?,metadata=?,content_hash=? WHERE id=?',
+                     (historical['body'], historical['metadata'], legacy, historical['id']))
+    store.db.commit()
+    assert flow.claim(FIXTURE['claim'])['id'] == claim['id']
+    assert store.db.execute('SELECT content_hash FROM documents WHERE id=?',
+                            (historical['id'],)).fetchone()[0] == legacy
+    store.put(FIXTURE['source']); store.db.commit()
+
+    record = copy.deepcopy(FIXTURE['proposal'])
+    record['claim_links'] = [{'claim_id': claim['id'], 'relation': 'supports',
+                             'rationale': 'Historical source mechanism, not measured target benefit'}]
+    hypothesis = flow.propose(record)['id']
+    assert flow.dossier(hypothesis)['claims'][0]['newer_source_revision']
+    # A normal refresh can create the modern identity for equivalent content.
+    # It must not rewrite the old claim or imply a substantive source change.
+    store.put(Store.decode(historical)); store.db.commit()
+    assert not flow.dossier(hypothesis)['claims'][0]['newer_source_revision']
+    assert claim['id'] not in flow.dossier(hypothesis)['review_alerts']
+    assert flow.node(claim['id'])['revision_hash'] == legacy
+    assert store.db.execute('SELECT document FROM document_revisions WHERE id=? AND content_hash=?',
+                            (historical['id'], legacy)).fetchone()[0] == raw
+
+    changed = Store.decode(historical)
+    changed['body'] = 'A later source retracts the historical claim.'
+    store.put(changed); store.db.commit()
+    assert claim['id'] in flow.dossier(hypothesis)['review_alerts']
+    assert flow.claim({**FIXTURE['claim'], 'revision_hash': legacy})['id'] == claim['id']
+    store.db.close()
+
+
+@pytest.mark.parametrize('explicit', [False, True])
+def test_claim_requires_an_available_immutable_revision(flow, explicit):
+    missing = 'f' * 64
+    record = {**FIXTURE['claim']}
+    if explicit:
+        record['revision_hash'] = missing
+    else:
+        store = Store(flow.root / 'research/corpus.sqlite')
+        store.db.execute('UPDATE documents SET content_hash=? WHERE id=?',
+                         (missing, FIXTURE['source']['id']))
+        store.db.commit(); store.db.close()
+    before = flow.db.total_changes
+    with pytest.raises(ValueError, match='Source revision unavailable'):
+        flow.claim(record)
+    assert flow.db.total_changes == before
 
 
 def test_invalid_quote_or_promoted_author_result_rejected(flow):

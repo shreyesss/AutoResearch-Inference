@@ -104,13 +104,15 @@ class ResearchFlow:
         corpus = Store(self.root / 'research/corpus.sqlite')
         try:
             source = corpus.get(record['source_id'])
-            revision = record.get('revision_hash')
+            revision = record.get('revision_hash') or (source or {}).get('content_hash')
             if revision:
                 row = corpus.db.execute('SELECT document FROM document_revisions WHERE id=? AND content_hash=?', (record['source_id'], revision)).fetchone()
                 source = corpus.decode(json.loads(row[0])) if row else None
-            if not source:
+            if not source or not revision:
                 raise ValueError('Source revision unavailable')
-            revision = content_fingerprint(source)
+            # Selected immutable revisions, including the latest stored one,
+            # may use an older hash formula. Keep their actual table key:
+            # recomputing can create a claim pointing to an unstored identity.
         finally:
             corpus.db.close()
         quote = record['quote']
@@ -321,7 +323,12 @@ class ResearchFlow:
             for link in links:
                 claim = self.node(link['claim_id'], 'claim')
                 source = corpus.get(claim['source_id'])
-                link.update(claim=claim, newer_source_revision=bool(source and content_fingerprint(source) != claim['revision_hash']))
+                pinned = corpus.db.execute(
+                    'SELECT document FROM document_revisions WHERE id=? AND content_hash=?',
+                    (claim['source_id'], claim['revision_hash'])).fetchone()
+                # A hash-formula upgrade alone is not a source-content change.
+                comparison = content_fingerprint(json.loads(pinned[0])) if pinned else claim['revision_hash']
+                link.update(claim=claim, newer_source_revision=bool(source and content_fingerprint(source) != comparison))
         finally:
             corpus.db.close()
         from .experiments import ExperimentRegistry

@@ -180,9 +180,12 @@ def create_server(state_dir, *, allow_network=False, publish=False, defer_snapsh
         return record(['hypothesis', 'propose'], proposal)
 
     @server.tool(structured_output=True)
-    def hypothesis_show(hypothesis_id: str) -> dict[str, object]:
-        """Cold-start dossier: source revisions, support/refutation, screens, plans, decisions and scoped experiments."""
-        return call(['hypothesis', 'show', hypothesis_id])
+    def hypothesis_show(hypothesis_id: str, include_artifacts: bool = False) -> dict[str, object]:
+        """Cold-start dossier: linked investigation conclusions/limits, source revisions, refutations, screens, decisions and scoped experiments. Linked artifact lists show four pointers and explicit omitted counts by default; include_artifacts returns all references. Historical acceptance is not service qualification."""
+        args = ['hypothesis', 'show', hypothesis_id]
+        if include_artifacts:
+            args.append('--include-artifacts')
+        return call(args)
 
     @server.tool(structured_output=True)
     def recall_hypotheses(query: str | None = None, limit: int = 20, offset: int = 0,

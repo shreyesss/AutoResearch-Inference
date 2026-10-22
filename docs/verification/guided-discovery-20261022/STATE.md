@@ -1,3 +1,7 @@
+# Latest checkpoint — 10
+
+[Checkpoint10](CHECKPOINT_10.md) is current. Guided yield34cards remains unchanged, zero implementation/service qualifications. S01 finiteCPU phase complete; M01 missingphysicalhist evidence; both parked for furtheroptimization pending namedexposure. Dossier now exposes linked refinements. S3 lineage532cb45 covers15–18; later48retentions and19/20/22 canonical import completed but not yetpublished.21/23/24/25 finalreceipt awaits reviewed concurrency-count retry. Earlier sections are historical.
+
 # Latest checkpoint — 9
 
 [Checkpoint9](CHECKPOINT_9.md) is the current summary. 34 reviewed cards:2 accepted bounded CPU investigations,24 deferred,7 rejected,1 duplicate; no implementation/service qualification. Rounds15–18 independent canonical readback passed. Historical local restore verified302/304 references; S3 publication3b131343 covers round15 and historical retention, not later imports. Canonical19/20/22 import and additional15–18 raw-reference retention are queued. Later sections below are historical checkpoints.

@@ -1,0 +1,26 @@
+{
+  "existing_hypothesis_id": "hypothesis:36794075a7034c3f1ff100e73c1d8436a4606397c8e07766ed5388ef64b16646",
+  "immutable_baseline_id": "baseline:80ba6154b79544d9d3c2e657ac363fb6e9aef12047e66f73d2b91d7d0caa0c88",
+  "status_before": "deferred",
+  "status_after": "deferred",
+  "new_hypotheses": 0,
+  "refinement": "Shared prefetch FIFO can place late WKV1 behind lookup14; alternative ordering shifts contention/later-lookup delay, requiring explicit stream/scratch lifetimes.",
+  "cpu_artifact": "schedule_probe.json",
+  "cpu_result": "inconclusive",
+  "cpu_scope": "Symbolic schedule/interval model, no actual source CUDA execution",
+  "source_claims": [
+    {
+      "source": "sources/vllm__models__deepseek_v41__common__engram.py",
+      "quote": "Layers sharing one stream serialize their offloaded lookups"
+    },
+    {
+      "source": "sources/vllm__models__deepseek_v41__common__engram.py",
+      "quote": "kv = self.wkv(self.embed(hash_ids).flatten(-2))"
+    },
+    {
+      "source": "sources/vllm__v1__worker__workspace.py",
+      "quote": "include the CUDA stream in the key when"
+    }
+  ],
+  "no_new_online_queries": "Source queue/lifetime questions determine next step; no paper search quota."
+}

@@ -22,6 +22,10 @@ reopening conditions, with exact source matches first. Open `hypothesis show`
 for decisive records. A shared source can support a different useful component;
 it does not automatically make the new proposal a duplicate.
 
+In the dossier, read `linked_research` for later refinements and priority limits
+before treating an old accepted investigation as active implementation work.
+Use `--include-artifacts` only when the omitted evidence pointers are needed.
+
 Translate the objective into mechanism-level questions. For each selected query state what uncertainty it resolves, which provider fits, what facts/constraints must remain, and which constraints can be relaxed. Useful alternatives include exact implementation symbols, the work or waiting removed, different vocabulary in another serving engine, foundational methods and contrary evidence. Choose alternatives that change evidence coverage rather than producing synonyms to fill a list.
 
 Use `expand --question TEXT --plan PLAN.json` to retain an agent-authored plan with observations from previous searches. The tool validates bounds/dates and warns about repeated identities. Without a plan it returns lexical suggestions only. A taxonomy is a source of vocabulary, not the relevance boundary. See the plan example in the workflow doc.

@@ -89,6 +89,34 @@ def test_compact_recall_includes_later_evidence_and_typed_reopening_condition(fl
     assert flow.db.total_changes == before
 
 
+def test_dossier_exposes_linked_refinement_without_hiding_artifact_omissions(flow):
+    _, identity = proposal(flow)
+    artifacts = [{'path': f'research/records/test/{i}.json', 'sha256': str(i) * 64,
+                  'bytes': 1} for i in range(6)]
+    with flow.memory._transaction():
+        investigation = flow.memory._node('investigation', {
+            'hypothesis_id': identity, 'refinement': 'Native parity scoped; service exposure unknown',
+            'service_qualified': False, 'evidence': artifacts, 'claims': ['claim:existing']})
+        bundle = flow.memory._node('evidence_bundle', {'artifacts': artifacts,
+            'artifact_map_path': 'research/records/test/artifact-map.json'})
+        flow.memory._edge(identity, 'has_investigation', investigation)
+        flow.memory._edge(identity, 'has_evidence_bundle', bundle)
+    original = flow.node(investigation)
+    before = flow.db.total_changes
+    dossier = flow.dossier(identity)
+    linked = {r['id']: r for r in dossier['linked_research']}
+    assert linked[investigation]['record']['refinement'] == original['refinement']
+    assert linked[investigation]['record']['service_qualified'] is False
+    assert linked[investigation]['record']['claims'] == ['claim:existing']
+    assert linked[investigation]['artifact_lists']['evidence'] == {
+        'total': 6, 'references': artifacts[:4], 'omitted': 2}
+    assert linked[bundle]['record']['artifact_map_path'].endswith('artifact-map.json')
+    full = {r['id']: r for r in flow.dossier(identity, include_artifacts=True)['linked_research']}
+    assert full[bundle]['artifact_lists']['artifacts'] == {'total': 6, 'references': artifacts, 'omitted': 0}
+    assert flow.node(investigation) == original and flow.db.total_changes == before
+    assert dossier['hypothesis']['status'] == 'proposed'
+
+
 def test_updated_source_triggers_review_without_rewriting_claim(flow):
     claim, hypothesis = proposal(flow)
     store = Store(flow.root / 'research/corpus.sqlite')

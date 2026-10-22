@@ -237,3 +237,12 @@ mode does not support source filtering or pagination. This change addresses
 an observed failure where a known rejection was outside a manually printed
 prefix of a 101,072-character recall file. It does not certify novelty or
 scientific relevance.
+
+`hypothesis show ID` / MCP `hypothesis_show` also exposes linked investigation
+conclusions and evidence bundles before the historical dossier. This matters
+when a later compatibility result or limitation was appended without changing
+the original selection. Each linked artifact list includes four pointers and
+explicit total/omitted counts. Use CLI `--include-artifacts` or MCP
+`include_artifacts=true` for all references. Projection does not alter original
+nodes, decisions, evidence bytes or qualification; artifact lists are retained
+pointers and do not imply that source scripts have been rerun after restoration.

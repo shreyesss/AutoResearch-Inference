@@ -289,7 +289,31 @@ class ResearchFlow:
                            {'origin': record['actor'], 'rationale': record['rationale'], 'reopen_when': record['reopen_when'], 'meaning': 'Attributed selection, not experimental validation'})
         return decision
 
-    def dossier(self, hypothesis_id):
+    def linked_research(self, hypothesis_id, include_artifacts=False):
+        """Read-only projection of retained refinements, never new qualification.
+
+        Retention imports use both evidence/artifacts arrays. Keep their original
+        names and all other metadata, with explicit counts for shortened lists.
+        """
+        result = []
+        for row in self.db.execute("""SELECT n.id,n.kind,n.data,e.relation FROM edges e
+            JOIN nodes n ON n.id=e.dst WHERE e.src=?
+            AND e.relation IN ('has_investigation','has_evidence_bundle')
+            AND n.kind IN ('investigation','evidence_bundle') ORDER BY n.rowid""", (hypothesis_id,)):
+            value = json.loads(row['data'])
+            artifact_lists = {}
+            for key in list(value):
+                items = value[key]
+                if isinstance(items, list) and items and all(isinstance(x, dict) and 'sha256' in x and ('path' in x or 'archive' in x) for x in items):
+                    shown = items if include_artifacts else items[:4]
+                    artifact_lists[key] = {'total': len(items), 'references': shown,
+                                          'omitted': len(items) - len(shown)}
+                    del value[key]
+            result.append({'id': row['id'], 'kind': row['kind'], 'relation': row['relation'],
+                           'record': value, 'artifact_lists': artifact_lists})
+        return result
+
+    def dossier(self, hypothesis_id, include_artifacts=False):
         hypothesis = self.memory.get(hypothesis_id)
         links = [dict(r) for r in self.db.execute('SELECT * FROM hypothesis_claims WHERE hypothesis_id=?', (hypothesis_id,))]
         corpus = Store(self.root / 'research/corpus.sqlite')
@@ -306,7 +330,9 @@ class ResearchFlow:
             experiments = registry.list(hypothesis_id=hypothesis_id)
         finally:
             registry.close()
-        return {'hypothesis': hypothesis, 'claims': links, 'records': self.records(hypothesis_id), 'experiments': experiments,
+        return {'linked_research': self.linked_research(hypothesis_id, include_artifacts),
+                'linked_research_projection': 'Original linked conclusions and qualifications; first four references per artifact list unless include_artifacts=true. Selection is unchanged; these records do not independently validate scientific claims.',
+                'hypothesis': hypothesis, 'claims': links, 'records': self.records(hypothesis_id), 'experiments': experiments,
                 'review_alerts': [r['claim_id'] for r in links if r['newer_source_revision'] or r['relation'] == 'refutes'],
                 'meaning': 'Selection, external claims, conditional estimates and scoped experiment results remain separate'}
 

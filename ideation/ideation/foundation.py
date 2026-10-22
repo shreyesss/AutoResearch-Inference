@@ -420,7 +420,7 @@ def _execute(root, args):
             elif command == "link-evidence":
                 result = flow.link(args.id, args.claim_id, args.relation, args.rationale)
             elif flow_hypothesis:
-                result = flow.propose(record) if args.hypothesis_command == "propose" else flow.dossier(args.id)
+                result = flow.propose(record) if args.hypothesis_command == "propose" else flow.dossier(args.id, include_artifacts=args.include_artifacts)
             elif command == "screen":
                 result = flow.screen(args.id, record)
             elif command == "eval-plan":
@@ -731,7 +731,9 @@ def parser():
     hypothesis.add_parser("retain-artifacts", help="Retain explicitly reviewed hash-pinned text evidence; never execute sources").add_argument("--manifest", required=True)
     hypothesis.add_parser("record").add_argument("--record", required=True)
     hypothesis.add_parser("propose").add_argument("--record", required=True)
-    hypothesis.add_parser("show").add_argument("id")
+    show_hypothesis = hypothesis.add_parser("show")
+    show_hypothesis.add_argument("id")
+    show_hypothesis.add_argument("--include-artifacts", action="store_true", help="Include all linked investigation/bundle artifact references instead of the first four per list")
     recall = hypothesis.add_parser("recall")
     recall.add_argument("--query")
     recall.add_argument("--limit", type=int, default=20)

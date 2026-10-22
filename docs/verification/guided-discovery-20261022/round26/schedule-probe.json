@@ -1,0 +1,35 @@
+{
+  "scope": "CPU symbolic scheduling/interval checks only, no CUDA scheduler, GEMM, event or actual backend allocation test",
+  "duration_units": "arbitrary dimensionless units",
+  "cases": 1024,
+  "example": {
+    "baseline_gate1": 15,
+    "late_shared_stream_gate1": 21,
+    "separate_stream_gate1": 11,
+    "separate_stream_saving": 4,
+    "lookup14_original_ready": 12,
+    "lookup14_ready_if_WKV_inserted_before": 16
+  },
+  "contention_counterexample": {
+    "baseline_gate1": 15,
+    "late_shared_stream_gate1": 21,
+    "separate_stream_gate1": 17,
+    "separate_stream_saving": -2,
+    "lookup14_original_ready": 12,
+    "lookup14_ready_if_WKV_inserted_before": 16
+  },
+  "interval_checks": {
+    "projection_vs_attention_same_scratch_conflict": true,
+    "projection_output_overwrite_before_gate_done_conflict": true,
+    "same_storage_reuse_after_consumer_done_safe": true,
+    "staging_overwrite_while_projection_reads_conflict": true
+  },
+  "observations": [
+    "Appending WKV late to shared lookup stream can wait behind unrelated L14 lookup.",
+    "Dedicated projection stream removes that queue dependency but does not remove resource contention.",
+    "Moving WKV ahead of L14 lookup delays L14 readiness by its duration in this serial model.",
+    "Fence before MegaMoE is retained; no overlap with arbitrary persistent MoE claimed."
+  ],
+  "result": "inconclusive_for_runtime; necessary schedule and lifetime constraints only",
+  "gpu_calls": 0
+}

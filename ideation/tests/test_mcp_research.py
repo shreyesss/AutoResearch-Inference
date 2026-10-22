@@ -72,6 +72,9 @@ def test_mcp_compact_recall_reads_real_typed_decision_and_legacy_mode(tmp_path):
             assert len(value['inventory_hash']) == 64
             full = await client.call_tool('recall_hypotheses', {'compact': False})
             assert not full.is_error and full.structured_content['hypotheses'][0]['card']
+            detail = await client.call_tool('hypothesis_show', {'hypothesis_id': identity, 'include_artifacts': True})
+            assert not detail.is_error and detail.structured_content['linked_research'] == []
+            assert detail.structured_content['hypothesis']['status'] == 'rejected'
     asyncio.run(check())
 
 

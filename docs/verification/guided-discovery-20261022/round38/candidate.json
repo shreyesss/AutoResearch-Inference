@@ -1,0 +1,46 @@
+{
+  "local_id": "WP38-01",
+  "status": "deferred",
+  "statement": "Pack cooperating CTA-pair routed FP4 weights and their group32 scale words into adjacent per-expert packets on the pinned MegaMoE path; preserve trained values and routing.",
+  "mechanism": "Port only PR394 packet/TMA and optional small-row warpgroup/cache components to current dependency with a correct post-load owner/EPLB adapter.",
+  "target": {
+    "vllm": "c4557869393db4d75c483d92edd02a5125500883",
+    "deepgemm": "a7a927731b109fdfec770df7c2a5be5d7e2216b5",
+    "checkpoint": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+    "baseline_id": "baseline:d4640b183a115b67c1e0365e34d22349c5a72fa9df780ec71c41b16f7a543279",
+    "profile": "planned 8B200 twoTP1/DP4/EP4 groups; no runtime attestation"
+  },
+  "source": "github:deepseek-ai/DeepGEMM:394",
+  "source_head": "d1e73685349137b5019ec7b75fe640509e89fbd4",
+  "estimated_service_gain": null,
+  "implementation_qualified": false,
+  "service_qualified": false,
+  "gpu_calls": 0,
+  "relations": {
+    "compared_with": [
+      "RD01",
+      "M01",
+      "MF19"
+    ],
+    "not_method_ancestry_from_shared_citation": true
+  },
+  "gates": [
+    "Actual loaded row-major path and physical row shapes",
+    "Pack finalized target buffers without repeating interleave/UTCCP",
+    "Expert-leading arena exported once for EPLB; reload/capture lifecycle",
+    "Port narrowly without dropping current scheduler/API/shared path",
+    "Matched numerical/component and serving controls after separate execution authorization"
+  ],
+  "review": "review/round38-agent/REVIEW.md",
+  "future_eval_arms": [
+    "A original",
+    "B packet only same warpgroup/cache",
+    "C packet plus one epilogue warpgroup",
+    "D C plus routed EVICT_FIRST"
+  ],
+  "existing_evaluators": [
+    "agent-75",
+    "Mooncake"
+  ],
+  "additional_eval_reason": "Existing HTTP tests cannot isolate weight/scale mapping, expert migration, descriptor and captured pointer lifetime."
+}

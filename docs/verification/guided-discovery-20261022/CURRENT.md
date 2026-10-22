@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint29](CHECKPOINT_29.md) adds a source-supported FP8 expert-return experiment with explicit numerical gates, a deeper ReAnchor screen, and a tested historical-revision claim fix. [Checkpoint28](CHECKPOINT_28.md) covers proposal calibration, Engram request-map reuse and exact CPU falsifiers. No measured inference improvement or blanket S3 coverage is claimed. The discovery loop remains active.
+Latest update: [Checkpoint30](CHECKPOINT_30.md) refines context/sampling overlap, expert-return quality evaluation and sparse shared-prefix reuse. Start with the [current candidate map](CANDIDATE_MAP_30.md) for source-supported opportunities and their decisive unknowns. The synthesis skill now distinguishes draft numerical changes from target-law changes. No measured inference improvement or blanket S3 coverage is claimed. The discovery loop remains active.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 

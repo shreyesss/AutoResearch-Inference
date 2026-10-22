@@ -1,0 +1,7 @@
+# A narrow skill clarification: draft differences versus target correctness
+
+The independent candidate-map review exposed a possible false rejection: a changed draft GEMM can alter draft numerics without necessarily changing the target output law. The synthesis guidance now states that draft-output comparison is an attribution diagnostic, then requires the actual proposal law, verifier consistency and explicit task constraints. It preserves user-requested draft equality when that is a real requirement. Changes to target activations do not inherit this relaxation.
+
+This is eight lines of guidance in the existing synthesis reference, not another agent or workflow. Existing PC76 exact probability controls support the conditional distinction: consistent altered proposals can recover the target distribution in those scalar models, while mismatched acceptance/residual bookkeeping can bias it. Those controls were not rerun or represented as native DSpark validation. The actual source review of PJ01 and native q caching motivates the instruction; native correctness, confidence/AV effects and serving benefit remain unresolved.
+
+Independent review accepted the limited scope. Skill validation passed, the existing research suite passed385 tests plus29 subtests, bootstrap dry-run passed and diff whitespace checks passed. These check discoverability/integrity and regressions. They do not measure improved research behavior, prove general hypothesis quality, or establish a GPU speedup. No new mirroring test or unsupported quality score was added.

@@ -1,0 +1,215 @@
+{
+  "scope": "Source/stdlib only; no tensor allocations, imports, CUDA, native execution, or numerical tests",
+  "functions": [
+    {
+      "source": "sources/vllm__v1__worker__gpu__spec_decode__rejection_sampler_utils.py",
+      "class": null,
+      "method": "rejection_sample",
+      "line_start": 1030,
+      "line_end": 1343,
+      "direct_calls": [
+        "_compute_cumulative_log_p_kernel[num_reqs,]",
+        "_compute_local_logits_stats_kernel[num_logits, vocab_num_blocks]",
+        "_compute_local_residual_mass_kernel[num_logits, vocab_num_blocks]",
+        "_insert_resampled_kernel[num_reqs,]",
+        "_rejection_kernel[num_reqs,]",
+        "_resample_kernel[num_reqs, resample_num_blocks]",
+        "contexts.contiguous",
+        "contexts.stride",
+        "draft_local_max.stride",
+        "draft_local_sumexp.stride",
+        "draft_logits.size",
+        "draft_logits.stride",
+        "draft_sampled.new_empty",
+        "local_residual_mass.stride",
+        "min",
+        "resampled_local_argmax.stride",
+        "resampled_local_max.stride",
+        "sampled.new_empty",
+        "sampled.stride",
+        "target_local_argmax.stride",
+        "target_local_max.stride",
+        "target_local_sumexp.stride",
+        "target_logits.new_empty",
+        "target_logits.stride",
+        "triton.cdiv",
+        "triton.next_power_of_2",
+        "watermarking.view",
+        "watermarking_skip_mask.contiguous",
+        "watermarking_skip_mask.is_contiguous",
+        "watermarking_skip_mask.view"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    },
+    {
+      "source": "sources/vllm__v1__worker__gpu__sample__sampler.py",
+      "class": "Sampler",
+      "method": "apply_sampling_params",
+      "line_start": 226,
+      "line_end": 276,
+      "direct_calls": [
+        "LogitsContext",
+        "np.any",
+        "processor.apply",
+        "self.sampling_states.apply_min_p",
+        "self.sampling_states.apply_temperature",
+        "self.sampling_states.apply_top_k_top_p",
+        "self.thinking_budget_state.apply",
+        "torch.empty_like",
+        "torch.empty_like(logits, dtype=torch.float32).copy_"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    },
+    {
+      "source": "sources/vllm__v1__worker__gpu__async_utils.py",
+      "class": "AsyncOutput",
+      "method": "__init__",
+      "line_start": 116,
+      "line_end": 171,
+      "direct_calls": [
+        "async_copy_to_np",
+        "copy_stream.wait_stream",
+        "get_ep_all2all_manager",
+        "get_ep_all2all_manager().query_fault",
+        "has_fault.to",
+        "sampler_output.logprobs_tensors.to_cpu_nonblocking",
+        "sampler_output.sampling_mask_tensors.to_cpu_nonblocking",
+        "self.copy_event.record",
+        "self.model_runner_output.prompt_logprobs_dict.items",
+        "self.pending_aux_output.enqueue_cpu_copy",
+        "stream",
+        "token_id_logprobs.items",
+        "torch.cuda.Event",
+        "v.to",
+        "v.to_cpu_nonblocking"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    },
+    {
+      "source": "sources/vllm__models__deepseek_v41__nvidia__dspark.py",
+      "class": "DSparkDeepseekV4Model",
+      "method": "combine_hidden_states",
+      "line_start": 157,
+      "line_end": 162,
+      "direct_calls": [
+        "self.main_norm",
+        "self.main_proj"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    },
+    {
+      "source": "sources/vllm__models__deepseek_v41__nvidia__dspark.py",
+      "class": "DSparkDeepseekV4Model",
+      "method": "precompute_and_store_context_kv",
+      "line_start": 165,
+      "line_end": 195,
+      "direct_calls": [
+        "_insert_context_kv",
+        "attn.fused_wqa_wkv",
+        "attn.kv_norm",
+        "enumerate",
+        "torch.inference_mode"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    },
+    {
+      "source": "sources/vllm__model_executor__kernels__linear__mxfp8__flashinfer.py",
+      "class": "FlashInferCutlassMxfp8LinearKernel",
+      "method": "apply_weights",
+      "line_start": 88,
+      "line_end": 125,
+      "direct_calls": [
+        "as_quantized_activation",
+        "isinstance",
+        "mxfp8_e4m3_quantize",
+        "output.view",
+        "self.input_quant_key",
+        "vllm_flashinfer.mm_mxfp8",
+        "weight.contiguous",
+        "weight.is_contiguous",
+        "weight.t",
+        "x.view"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    },
+    {
+      "source": "sources/vllm__model_executor__kernels__linear__mxfp8__flashinfer.py",
+      "class": "FlashInferCutedslMxfp8LinearKernel",
+      "method": "apply_weights",
+      "line_start": 168,
+      "line_end": 202,
+      "direct_calls": [
+        "as_quantized_activation",
+        "isinstance",
+        "mxfp8_e4m3_quantize",
+        "output.view",
+        "self.input_quant_key",
+        "vllm_flashinfer.mm_mxfp8",
+        "x.view"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    },
+    {
+      "source": "sources/vllm__utils__flashinfer.py",
+      "class": null,
+      "method": "mm_mxfp8",
+      "line_start": 1054,
+      "line_end": 1074,
+      "direct_calls": [
+        "mm_mxfp8_",
+        "torch.library.custom_op"
+      ],
+      "scope": "AST inventory only; dynamic dispatch/transitive external allocation not resolved"
+    }
+  ],
+  "quotes": [
+    {
+      "path": "sources/vllm__v1__worker__gpu__sample__sampler.py",
+      "source_sha256": "7f9941f9d7d04a7481ec393925ed5d000d4d77ee6db2ca6a8d9547c211d00a09",
+      "quote": "if not np.any(self.needs_logits_processing[idx_mapping_np]):\n            return logits",
+      "first_line": 238
+    },
+    {
+      "path": "sources/vllm__v1__worker__gpu__spec_decode__rejection_sampler_utils.py",
+      "source_sha256": "44de886702efc8189efa3c90d4d1646bd1b6b002b39e74a89e1120bbad3ca141",
+      "quote": "target_local_max = target_logits.new_empty(",
+      "first_line": 1119
+    },
+    {
+      "path": "sources/vllm__utils__flashinfer.py",
+      "source_sha256": "b6f1661965115c2199423a50a5c7bf49a7dea2da4387051346c06d542c33700f",
+      "quote": "out=None,",
+      "first_line": 1070
+    },
+    {
+      "path": "sources/vllm__v1__worker__gpu__model_runner.py",
+      "source_sha256": "cc4683d0d033eecc956ab8489f5e7d2b5b6974c6bff8e1f4bfff2229b97ab45c",
+      "quote": "with use_workspace_lane(self._draft_workspace_lane):",
+      "first_line": 421
+    },
+    {
+      "path": "sources/vllm__v1__worker__gpu__async_utils.py",
+      "source_sha256": "1797a8abdb46bba9d30d0507d725796ec72ad836f6778a1ece4590fd74b911c9",
+      "quote": "self.sampler_output = sampler_output",
+      "first_line": 130
+    },
+    {
+      "path": "sources/vllm__models__deepseek_v41__nvidia__dspark.py",
+      "source_sha256": "5934ce7fb1df4d308c0e11f8c4235f07f083e6dc7dc4edea83bd885b30f05d02",
+      "quote": "return self.main_norm(self.main_proj(aux_hidden_states))",
+      "first_line": 162
+    },
+    {
+      "path": "sources/vllm__v1__worker__gpu__spec_decode__dflash__speculator.py",
+      "source_sha256": "28fb34eedddf62acbcb1018a2a31d5a2bd79937e43b7819e3025591fcd0128fe",
+      "quote": "out=self._aux_staging[:start],",
+      "first_line": 413
+    }
+  ],
+  "dependency_archive_scope": {
+    "path": "/Users/shreyas/.local/share/autoresearch-reviews/pinned-vllm-c455786/source.tar",
+    "members": 4146,
+    "dependency_manifest_members": [],
+    "interpretation": "Selected archive contains vllm/csrc only per pre-existing manifest; missing dependency files do not mean repository lacks them."
+  }
+}

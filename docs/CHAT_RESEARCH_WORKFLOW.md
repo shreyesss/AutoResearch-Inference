@@ -117,6 +117,12 @@ zero-based location such as `observations[0]`, plus required field names. Use
 `"observations": []` before any searches. This guidance never echoes the submitted
 row; other failures retain their existing sanitized error behavior.
 
+An invalid observation status returns `query_plan_observation_status_invalid`,
+the zero-based observation index and the allowed values above. CLI JSON also
+includes `allowed_values`; MCP includes them in its safe message. The submitted
+status, query and reason are not echoed. Correct the plan explicitly; the tool
+does not reinterpret statuses or execute a search to repair them.
+
 `paper-search` performs cached online retrieval with publication/submission dates: **after inclusive, before exclusive**. Limit is per provider. It returns abstracts alongside source IDs and retains metadata/abstracts, revisions and query receipts. Plain arXiv queries compile every content term/quoted phrase with AND (common stopwords are removed); there is no term-count truncation or automatic semantic fallback. Explicit arXiv field expressions are preserved. The receipt records the exact compiled query, status, result count and cache use; failed attempts retain the error type instead of pretending to have zero hits. A successful zero-result search remains zero, including on a cache hit.
 
 Choose the next action from those observations: inspect a provider failure, try a more discriminating query after irrelevant hits, or explicitly revise overconstrained wording after empty hits. Retain the mechanism anchors and record any permitted relaxation in the next `expand --plan` round. For example, dropping `kernel scheduling layout transformation` from `LLM inference fine grained kernel scheduling layout transformation` would remove the research question; a host-authored alternative might instead be `abs:GPU AND (abs:"layout transformation" OR abs:"kernel scheduling")`. That alternative is a new search, not equivalent coverage. `constraints.must_keep` records semantic constraints for agent review; it does not mechanically prove that query wording obeys them. CLI and MCP use the same retrieval path.

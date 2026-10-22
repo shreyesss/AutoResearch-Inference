@@ -1,0 +1,11 @@
+# Independent review — safe observation-status error
+
+Passed within the narrow error-surface scope. Read the actual working diff, full compiler validation, CLI/MCP catches and focused tests; verified all18 author artifact hashes and five current implementation/documentation hashes. Independently ran all29 focused tests, including real CLI subprocess and MCP client paths: passed. Author full382+29 and bootstrap receipts were inspected, not independently rerun.
+
+The accepted tuple is unchanged: useful, irrelevant, empty, error, redundant. Only the invalid-status branch now raises a dedicated compiler-owned exception. Its location is an actual enumeration index after the 50-row bound, with constructor rejection of negative, >=50, bool and noninteger locations. Submitted status/query/reason/question are not interpolated or stored in exception fields; emitted content is static guidance plus that bounded index. This describes exception output, not a promise to erase user-authored input from its original file or existing journals.
+
+CLI adds the specific code, field, index and allowed_values; MCP includes the same static guidance in ToolError. Other ValueError/provider failures remain under their prior generic sanitized handlers. The retained provider-secret tests pass; no broad exception-text exposure, enum alias, reinterpretation, query or retry behavior was added. Request-field validation can fail before status validation, intentionally retaining its existing generic behavior.
+
+The round73 replay still fails on the original plan, now with a usable location and enum. Independently compared input JSONs: the corrected copy changes only observation1 status off_topic→irrelevant. Choosing irrelevant is the author’s explicit judgment; the tool did not infer it. Success reports zero provider calls and does not demonstrate retrieval quality or hypothesis yield. Existing MCP descriptions already list statuses; no additional tool-surface expansion is required.
+
+Documentation accurately describes this boundary. No blocker found; no repository edits, GPU/backend operations or canonical mutations by this review. One guessed documentation filename was absent; the manifest-listed CHAT_RESEARCH_WORKFLOW.md diff was then read successfully.

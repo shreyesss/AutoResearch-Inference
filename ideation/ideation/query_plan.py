@@ -5,6 +5,9 @@ import json
 import re
 
 
+OBSERVATION_STATUSES = ('useful', 'irrelevant', 'empty', 'error', 'redundant')
+
+
 class QueryPlanRowError(ValueError):
     """Static, safe-to-display guidance for an invalid plan row shape."""
     error_code = 'query_plan_row_must_be_object'
@@ -20,6 +23,24 @@ class QueryPlanRowError(ValueError):
         self.safe_message = f'{field}[{index}] must be an object containing {required}.'
         if field == 'observations':
             self.safe_message += ' Use observations: [] when there are no prior searches to record.'
+        super().__init__(self.safe_message)
+
+
+class QueryPlanObservationStatusError(ValueError):
+    """Static enum guidance; submitted status and row text are never retained."""
+    error_code = 'query_plan_observation_status_invalid'
+    field = 'observations'
+    allowed_values = OBSERVATION_STATUSES
+
+    def __init__(self, index):
+        if type(index) is not int or not 0 <= index < 50:
+            raise ValueError('Invalid query plan error location')
+        self.index = index
+        self.safe_message = (
+            f'observations[{index}].status must be one of: '
+            + ', '.join(self.allowed_values)
+            + '. Choose the status that describes the search result; put the explanation in reason.'
+        )
         super().__init__(self.safe_message)
 
 
@@ -93,8 +114,8 @@ def compile_plan(question, plan, after=None, before=None):
     for index, row in enumerate(prior):
         request = _request(row, field='observations', index=index)
         status = row.get('status')
-        if status not in ('useful', 'irrelevant', 'empty', 'error', 'redundant'):
-            raise ValueError('Unknown search observation status')
+        if status not in OBSERVATION_STATUSES:
+            raise QueryPlanObservationStatusError(index)
         observation = {**request, 'status': status, 'reason': _text(row.get('reason'), 'observation.reason'),
                        'source_ids': _texts(row.get('source_ids', []), 'source_ids')}
         observations.append(observation)

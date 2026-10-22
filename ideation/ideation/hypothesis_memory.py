@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .store import now
+from .hypothesis_artifacts import artifact_reference, resolve_artifact, state_root
 
 
 def encoded(value):
@@ -190,16 +191,29 @@ class HypothesisMemory:
         if verdict not in ("validated", "invalidated", "inconclusive", "error"):
             raise ValueError("Verdict must be validated, invalidated, inconclusive, or error")
         artifact = Path(artifact).resolve()
-        if not artifact.is_file():
-            raise ValueError("A readable test artifact file is required")
-        artifact_record = {"path": str(artifact), "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "bytes": artifact.stat().st_size}
+        artifact_record = artifact_reference(state_root(self.path), artifact)
         with self._transaction():
             test = self._test(test_id)
             data = {"test_id": test_id, "verdict": verdict, "scope": test["scope"], "artifact": artifact_record,
                     "note": str(note), "meaning": "Evaluator-reported outcome within this test scope; artifact hash verified, scientific conclusion not independently verified."}
             results = self._results(test_id)
-            if results and any(r != data for r in results):
-                raise ValueError("Test already has a result; create a repeat test to record new evidence")
+            if results:
+                previous = results[-1]
+                same_report = {k: v for k, v in previous.items() if k != "artifact"} == {k: v for k, v in data.items() if k != "artifact"}
+                resolved = resolve_artifact(state_root(self.path), previous["artifact"])
+                same_artifact = previous["artifact"] == artifact_record or (
+                    resolved["resolution_status"] == "verified" and
+                    Path(resolved["resolved_local_file"]) == artifact and
+                    previous["artifact"]["sha256"] == artifact_record["sha256"])
+                if not same_report or not same_artifact:
+                    raise ValueError("Test already has a result; create a repeat test to record new evidence")
+                # A retry after restore returns the ORIGINAL event/actor/path.
+                # Never mutate old evidence or append a relocation-only outcome.
+                row = self.db.execute("SELECT * FROM events WHERE hypothesis_id=? AND type='test_result' AND data=? ORDER BY seq LIMIT 1",
+                                      (test["hypothesis_id"], encoded(previous))).fetchone()
+                event = dict(row)
+                event["data"] = json.loads(event["data"])
+                return event
             event = self._event(test["hypothesis_id"], "test_result", data, actor)
             self._edge(test_id, "result", event["id"])
             self._edge(test_id, "has_artifact", self._node("artifact", artifact_record))
@@ -225,6 +239,11 @@ class HypothesisMemory:
             running = any(e["type"] == "test_running" and e["data"]["test_id"] == test["id"] for e in events)
             test.update(status=("error" if results[-1]["verdict"] == "error" else "completed") if results else ("running" if running else "planned"), results=results)
             row["tests"].append(test)
+        # Read-time projection only: immutable events/results retain old paths.
+        row["resolved_artifacts"] = [
+            {"test_id": test["id"], **resolve_artifact(state_root(self.path), result["artifact"])}
+            for test in row["tests"] for result in test["results"]
+        ]
         # Never collapse outcomes across different baselines/workloads into a global truth label.
         scopes = {}
         for test in row["tests"]:

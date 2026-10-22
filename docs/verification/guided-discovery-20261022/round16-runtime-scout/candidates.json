@@ -1,0 +1,24 @@
+[
+  {
+    "id": "RT16-01",
+    "status": "rejected",
+    "statement": "Directly replace repeated native target tensor-parallel All-Reduce barriers with SiFAR speculative reduction to improve current TP1/DP4/EP4 decode latency.",
+    "mechanism": "Dual-buffer payload/validation, in-switch redundant pull and speculative readiness verification.",
+    "rejection_scope": "Direct transfer to the current planned TP1 serving path; not a claim the method never helps TP deployments.",
+    "source": "https://arxiv.org/html/2607.08973",
+    "source_observation": "Unversioned URL fetched; exact observed fulltext hash retained.",
+    "source_sha256": "9d0699c647a7bfcd5498563973ee7d15214208770ea87e89afd47741e2935ffb",
+    "grounding": [
+      "Paper explicitly focuses on TP and evaluates within a Megakernel, not vLLM runtime.",
+      "Target TP group world_size1 all_reduce returns input; native fused mHC allreduce requires TP4 and no EP.",
+      "Expert all-to-all and occasional embedding parallel-group reductions are different paths and do not establish repeated TP payload exposure.",
+      "Paper \u00a78.1 explicitly admits false-pass stale payload if relative progress reverses between data and validation reads."
+    ],
+    "partial_reuse": "Dual buffering with a rigorously proven lifetime/order contract may be reusable in a future real collective; speculative top-barrier removal is not accepted without stronger validation. No new positive card from this batch.",
+    "CPU_evidence": "flag_validation_counterexample.json symbolic source-described ordering, no hardware reproduction.",
+    "GPU_execution": false,
+    "service_qualified": false,
+    "baseline": "c455786 Flash1017 planned TP1/DP4/EP4, live equivalence unknown",
+    "reopen_when": "A separate target with actual repeated eligible allreduce, measured exposed cost, legal switch path and correctness protocol proven beyond monotonic-progress assumption."
+  }
+]

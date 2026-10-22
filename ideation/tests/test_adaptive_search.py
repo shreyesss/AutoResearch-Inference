@@ -1,5 +1,6 @@
 import copy
 import json
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
@@ -11,6 +12,31 @@ from ideation.foundation import invoke
 from ideation.paper_search import search_papers
 from ideation.sources import Sources, arxiv_query
 from ideation.store import Store
+
+
+@pytest.mark.parametrize('provider,code', [('arxiv', 429), ('arxiv', 400), ('hf', 503), ('openalex', 401)])
+def test_paper_http_failure_retains_status_without_secret_details(tmp_path, provider, code):
+    store = Store(tmp_path/'corpus.sqlite')
+    failure = HTTPError('https://provider.invalid/?api_key=PRIVATE_SENTINEL', code,
+                        'PRIVATE_SENTINEL', {'Authorization': 'PRIVATE_SENTINEL'}, None)
+    try:
+        if provider == 'openalex':
+            # OpenAlex errors can escape the provider directly.
+            with patch.object(ResearchTools, 'search', side_effect=failure) as request:
+                result = search_papers(store, 'GPU inference', [provider])
+        else:
+            with patch.object(Sources, '_request', side_effect=failure) as request:
+                result = search_papers(store, 'GPU inference', [provider])
+        assert request.call_count == 1  # no retry, broadened query or fallback
+        assert result['status'] == 'failed' and result['hits'] == []
+        entry = result['providers'][0]
+        assert entry['errors'] == [{'provider': provider, 'error_type': 'HTTPError', 'http_status': code}]
+        if provider == 'arxiv':
+            assert entry['attempts'][0]['http_status'] == code
+            assert entry['attempts'][0]['relaxed'] is False
+        assert 'PRIVATE_SENTINEL' not in json.dumps(result)
+    finally:
+        store.db.close()
 
 
 def semantic_plan():

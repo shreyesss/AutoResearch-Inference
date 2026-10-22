@@ -1,5 +1,7 @@
 # Current persistence summary
 
+Checkpoint6: round15 canonical import and selected-artifact retention are queued; round16 retention is being prepared. Snapshot omission audit found185/304 references restored,119 missing. Reviewed selection can retain117 text references; PNG and hidden `.gitignore` remain excluded. No repaired canonical/S3/VM state is claimed yet. See [checkpoint6](CHECKPOINT_6.md).
+
 | Cohort | Canonical memory | S3 publication | VM restore |
 |---|---|---|---|
 | Rounds1–4 | Imported; independent readback completed | Verified through manifest `3bf6db32a1a516433190ae8966cfb5ceda475539792b682b1128c40443f33489` | Not checked |

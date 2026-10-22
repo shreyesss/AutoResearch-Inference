@@ -15,6 +15,14 @@ from html.parser import HTMLParser
 from .store import now
 from .cache import Cache, policy
 
+def provider_error(error):
+    """Actionable failure metadata without authenticated URLs/messages/bodies."""
+    result = {'error_type': type(error).__name__}
+    code = getattr(error, 'code', None)
+    if type(code) is int and 100 <= code <= 599:
+        result['http_status'] = code
+    return result
+
 def arxiv_query(query):
     """Compile all supplied content terms; semantic relaxation belongs to the caller."""
     if re.search(r"\b(?:all|ti|au|abs|cat|id):", query):
@@ -114,7 +122,7 @@ class Sources:
                             'author it explicitly with the mechanism anchors retained and any permitted '
                             'relaxation recorded in the query plan. Absence is not novelty evidence.')
                 except Exception as e:
-                    attempt.update(status='failed', error_type=type(e).__name__)
+                    attempt.update(status='failed', **provider_error(e))
                     raise
                 for e in entries:
                     url = e.findtext("a:id", "", ns).replace("http://", "https://")
@@ -123,7 +131,7 @@ class Sources:
                     self.store.put(doc)
                     results.append(doc["id"])
             except Exception as e:
-                errors.append({"provider": "arxiv", "error_type": type(e).__name__})
+                errors.append({"provider": "arxiv", **provider_error(e)})
         if provider in ("hf", "both"):
             try:
                 raw, _ = self.request("https://huggingface.co/api/papers/search?" + urllib.parse.urlencode({"q": query, "limit": limit}))
@@ -138,7 +146,7 @@ class Sources:
                         self.store.edge(doc["id"], "implementation", e["githubRepo"], doc["id"], {})
                     results.append(doc["id"])
             except Exception as e:
-                errors.append({"provider": "hf", "error": str(e)})
+                errors.append({"provider": "hf", **provider_error(e)})
         self.store.db.commit()
         return {"query": query, "ids": results, "errors": errors, 'attempts': attempts}
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 
 from .evidence import ResearchTools
+from .sources import provider_error
 from .store import content_fingerprint, now
 
 
@@ -34,7 +35,13 @@ def search_papers(store, query, providers=None, after=None, before=None, limit=1
             ids = response.get('ids', [])
             # Provider exception messages may contain authenticated URLs. Keep
             # explicit failure status and types, never raw exception strings.
-            errors = [{'provider': provider, 'error_type': e.get('error_type', 'ProviderSearchError')} for e in response.get('errors', [])]
+            errors = []
+            for error in response.get('errors', []):
+                safe = {'provider': provider, 'error_type': error.get('error_type', 'ProviderSearchError')}
+                code = error.get('http_status')
+                if type(code) is int and 100 <= code <= 599:
+                    safe['http_status'] = code
+                errors.append(safe)
             results.append({'provider': provider, 'ids': ids, 'errors': errors, 'status': 'partial' if errors else 'completed',
                             'cache': response.get('cache') or getattr(getattr(client, 'sources', None), 'last_cache', None),
                             'attempts': response.get('attempts', [])})
@@ -57,7 +64,7 @@ def search_papers(store, query, providers=None, after=None, before=None, limit=1
                            'meaning': 'Returned by explicit provider query; not proof of relevance or independent discovery'})
             store.db.commit()
         except Exception as error:
-            results.append({'provider': provider, 'ids': [], 'errors': [{'provider': provider, 'error_type': type(error).__name__}], 'status': 'failed'})
+            results.append({'provider': provider, 'ids': [], 'errors': [{'provider': provider, **provider_error(error)}], 'status': 'failed'})
     groups = {}
     for hit in hits:
         groups.setdefault(hit['canonical_paper_id'], []).append(hit['id'])

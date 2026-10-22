@@ -1,0 +1,189 @@
+{
+  "query": "all:\"GPU\" AND (all:\"inference\" OR all:\"serving\") AND (all:\"CPU overhead\" OR all:\"metadata\" OR all:\"host overhead\")",
+  "providers": [
+    {
+      "provider": "arxiv",
+      "ids": [
+        "arxiv:2607.02391",
+        "arxiv:2606.28565",
+        "arxiv:2606.20537",
+        "arxiv:2607.26076",
+        "arxiv:2609.10790",
+        "arxiv:2609.38090",
+        "arxiv:2608.09291",
+        "arxiv:2610.29820"
+      ],
+      "errors": [],
+      "status": "completed",
+      "cache": {
+        "hit": false,
+        "key": "1bade2d0223ea261527fc02d31460fb62832a3fd3668110dd4c8b36ee5783309",
+        "fetched_at": "2026-10-22T02:09:47.073511+00:00",
+        "expires_at": "2026-10-23T02:09:47.073511+00:00"
+      },
+      "attempts": [
+        {
+          "query": "(all:\"GPU\" AND (all:\"inference\" OR all:\"serving\") AND (all:\"CPU overhead\" OR all:\"metadata\" OR all:\"host overhead\")) AND submittedDate:[202606010000 TO 202610222359]",
+          "relaxed": false,
+          "status": "completed",
+          "cache": {
+            "hit": false,
+            "key": "1bade2d0223ea261527fc02d31460fb62832a3fd3668110dd4c8b36ee5783309",
+            "fetched_at": "2026-10-22T02:09:47.073511+00:00",
+            "expires_at": "2026-10-23T02:09:47.073511+00:00"
+          },
+          "returned": 8
+        }
+      ]
+    }
+  ],
+  "after": "2026-06-01",
+  "before": "2026-10-23",
+  "limit_per_provider": 8,
+  "query_id": "paper-query:941144f841f2bc87a34b49e8ee4b7aeeedc8ba97e01a561a0c5009a4cf080846",
+  "searched_at": "2026-10-22T02:09:47Z",
+  "hits": [
+    {
+      "id": "arxiv:2607.02391",
+      "title": "WattGPU: Predicting Inference Power and Latency on Unseen GPUs and LLMs",
+      "url": "https://arxiv.org/abs/2607.02391v1",
+      "published_at": "2026-07-02T16:25:34Z",
+      "provider": "arxiv",
+      "provider_rank": 1,
+      "revision_hash": "6111db61fd4ed029d098c11a0a03999dc3c7d40d72b7d168db3be84f5b2619bf",
+      "abstract": "Large Language Model (LLM) inference workloads are a rapidly growing contributor to data center energy consumption. Optimizing these deployments requires matching specific LLMs to the most efficient GPUs, but operators currently lack the tools to do so without exhaustively profiling each combination. While some predictive models exist, they still require profiling data and struggle to generalize to hardware unseen during training. To address this, we introduce \\textit{WattGPU}, featuring two predictive models for mean GPU power draw and Inter-Token Latency (ITL). Our approach leverages only publicly available LLM metadata and GPU specifications, eliminating the need for hardware access or profiling while enabling generalization to unseen NVIDIA server-grade GPUs and LLMs. We evaluate our models using rigorous leave-one-GPU-out and leave-one-LLM-out cross-validation on a dataset of 42 open-source LLMs (0.1B--27B parameters) and 8 GPUs under both offline and server scenarios. The mean power draw model achieves a median absolute percentage error of $\\leq3.4\\%$ for offline and $\\leq13.5\\%$ for server scenarios on unseen GPUs, while the latency model achieves $\\leq8.5\\%$ in server mode, both maintaining strong GPU ranking correlations for server scenarios (Kendall $τ\\geq0.76$). Compared to standard physically grounded baselines -- Load-Scaled Thermal Design Power (TDP) for power draw and roofline for latency -- our models reduce median absolute percentage error by approximately 4$\\times$ on unseen LLM-GPU combinations for server scenarios or approximately 2$\\times$ for completely unseen GPUs. WattGPU's data and code are publicly available at https://github.com/maufadel/wattgpu.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2607.02391"
+    },
+    {
+      "id": "arxiv:2606.28565",
+      "title": "KernelSight-LM: A Kernel-Level LLM Inference Simulator",
+      "url": "https://arxiv.org/abs/2606.28565v2",
+      "published_at": "2026-06-26T19:43:38Z",
+      "provider": "arxiv",
+      "provider_rank": 2,
+      "revision_hash": "dd342b616121f74e57475b03d26a537bcb521f036effca118e56b28aaefc9577",
+      "abstract": "As large language models (LLMs) move into production serving, practitioners must rapidly evaluate inference performance across diverse hardware, models, and serving parameters to meet cost and latency targets. However, the end-to-end behavior of LLMs couples serving-layer policies with low-level GPU kernel execution and rapidly evolving architectures, forcing slow, deployment-specific benchmarking that is hard to generalize.\n  We present KernelSight-LM, a fine-grained inference simulator that models token-level execution and produces kernel-level latency breakdowns. It decomposes each serving step into a roofline kernel model with a learned efficiency term, a communication model, and a host-overhead model, composed through a discrete-event scheduler that also captures mechanisms like prefix caching and continuous batching.\n  KernelSight-LM offers two prediction tiers that trade target-GPU data for accuracy. The cross-generation tier uses no target-GPU measurements, only hardware specifications and kernel microbenchmarks from previously profiled GPUs, and predicts per-kernel latency on an unseen GPU generation to 12.1% error, a 1.8x improvement over the roofline baseline (22.0%).\n  A second target-measured tier adds one model-agnostic kernel-microbenchmark sweep on the target GPU, sharpening per-kernel error to 3.8%, a 7.3x improvement over a comparable baseline (27.7%). Both tiers require far less target-GPU data than the prior systems they extend.\n  In our simulator, these predictions yield end-to-end median (p50) errors across six model families of 15.4%, 12.8%, and 3.0% (TTFT, TPOT, throughput) in the cross-generation tier and 14.3%, 6.2%, and 2.7% in the target-measured tier, matching dedicated profiling tools while collecting far less on-device data. Beyond prediction, its kernel-level bottleneck breakdowns support hardware/software co-design and capacity planning.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2606.28565"
+    },
+    {
+      "id": "arxiv:2606.20537",
+      "title": "Execution-State Capsules: Graph-Bound Execution-State Checkpoint and Restore for Low-Latency, Small-Batch, On-Device Physical-AI Serving",
+      "url": "https://arxiv.org/abs/2606.20537v1",
+      "published_at": "2026-06-18T17:49:36Z",
+      "provider": "arxiv",
+      "provider_rank": 3,
+      "revision_hash": "c08fe337307cc2245eae9e7a898d38fbfaf434bce481b6c65788bc5a9daa5085",
+      "abstract": "Mainstream LLM serving systems reuse prefix work mainly through paged or radix key-value (KV) caches. This is highly effective for high-throughput, high-concurrency serving, but it manages only one positional fragment of execution state: the KV cache. We study the opposite regime: low-latency, small-batch, on-device physical-AI serving, where interactive LLM agents, speech systems, and robot policies repeatedly branch, reset, interrupt, and re-enter under tight responsiveness budgets. We introduce execution-state capsules, a graph-bound checkpoint and restore mechanism for the complete restorable state at a committed boundary. FlashRT is a white-box, backend-facing kernel runtime whose evaluated NVIDIA CUDA backend runs captured graph plans over contiguous static buffers with no block-table indirection. Because the live state is a closed set of named buffers, a capsule can snapshot, restore, fork, or roll back the whole execution boundary, including KV, recurrent state, convolution state, MTP state, and metadata. This moves reuse from token-addressed KV fragments to graph-bound execution-state boundaries. On an RTX 5090, capsule restore is byte-exact at the stored-state level and token-identical under greedy decode. A KV-only ablation diverges, showing that recurrent state is load-bearing. GPU-resident snapshot and restore are sub-millisecond, and TTFT speedup over cold prefill grows from 3.9x at 2k tokens to 27x at 16k tokens. On Jetson AGX Thor and DGX Spark, the same correctness and structural properties hold. Capsules are not a replacement for high-throughput KV-cache serving; they define a complementary latency-first serving point for explicit execution-state reuse.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2606.20537"
+    },
+    {
+      "id": "arxiv:2607.26076",
+      "title": "FinCacheServe: Dependency-Consistent Answer Reuse for Cost-Efficient RAG Serving over Mutable Enterprise Documents",
+      "url": "https://arxiv.org/abs/2607.26076v1",
+      "published_at": "2026-07-14T02:58:16Z",
+      "provider": "arxiv",
+      "provider_rank": 4,
+      "revision_hash": "7b4ac9f826d7f3e1aafff4e0f8a120a86e362e1cdd657388b597aad4bee1c482",
+      "abstract": "Retrieval-augmented generation services over mutable enterprise documents repeatedly execute semantically equivalent analysis requests. Answer reuse can remove GPU-bound generation work, yet response caches require dependency consistency when filings, evidence chunks, and tool outputs change. FinCacheServe treats each generated answer as a serving object indexed by enterprise intent and guarded by document versions, evidence fingerprints, tool fingerprints, model identity, and decoding configuration. A vLLM implementation evaluates SEC-derived financial-document workloads with Qwen2.5 models. On a 2,230-request hosted 7B trace, FinCacheServe skips 53.27% of LLM calls with zero observed dependency-stale outputs. Across three hosted 32B operator-suite seeds, it skips 53.31% of 544 requests, compared with 38.97% for versioned semantic caching and 22.43% for grounded-style reuse. Capacity, backend, and SLO replays show oracle-bounded cache management, 100k-entry transactional metadata behavior, and 44.30% lower estimated Wh per dependency-fresh 2s-SLO success than versioned semantic caching.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2607.26076"
+    },
+    {
+      "id": "arxiv:2609.10790",
+      "title": "Composable CXL Memory as a Kubernetes-Native Shared Memory for LLM Serving",
+      "url": "https://arxiv.org/abs/2609.10790v1",
+      "published_at": "2026-09-09T19:52:48Z",
+      "provider": "arxiv",
+      "provider_rank": 5,
+      "revision_hash": "ef1ba485540b4e7bc20b8f1cc7f5136d6886953a8a66a2337ba9924939cfe52c",
+      "abstract": "We present a Kubernetes Dynamic Resource Allocation (DRA) driver that makes composable CXL memory a schedulable cluster resource, and evaluate the resulting shared-memory tier for cross-node KV-cache reuse in LLM serving. The driver composes CXL regions on demand, materializes them as DAX devices on each participating host, and injects them into pods under a single Container Device Interface (CDI) name so that pods on different nodes access the same physical region. A shared-memory connector for vLLM/llm-d uses that region as a KV-cache tier with a slot directory embedded inside the shared medium, which eliminates the need for an external metadata service. On a two-node cluster with a 512\\,GiB CXL appliance and Qwen2.5-7B-Instruct, cross-node prefix reuse reduces TTFT by 5.5$\\times$--36.6$\\times$ at an external hit rate of 95.4--99.5\\,\\%, while node-local tiers (GPU prefix caching, CPU-DRAM offload) fall back to full recompute. The sharing gap, defined as the latency ratio between cross-node and same-node reuse, is 1--4\\%, indicating that cross-node reuse incurs little additional latency relative to same-node reuse on our testbed. Both replicas run full engines; the study demonstrates memory disaggregation rather than prefill/decode disaggregation. We report this as a feasibility study rather than a performance evaluation.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2609.10790"
+    },
+    {
+      "id": "arxiv:2609.38090",
+      "title": "Mira: Memory-Efficient MoE Inference Using Adaptive Caching and Predictive Expert Staging",
+      "url": "https://arxiv.org/abs/2609.38090v1",
+      "published_at": "2026-09-29T17:41:28Z",
+      "provider": "arxiv",
+      "provider_rank": 6,
+      "revision_hash": "d5c23bce989c906d80702c25f517c77c5a99c4cb4bcaed7ff916ccfa264f3773",
+      "abstract": "Mixture-of-Experts (MoE) models are a compelling architecture for scaling model capacity, making them especially attractive for deployment on resource-constrained, single-GPU systems. However, this benefit is difficult to realize because expert parameters dominate memory, and token-level routing is dynamic, unpredictable, and skewed. Prior work using offloading and caching remains fundamentally reactive, as systems wait for router outputs before moving experts, leading to inefficient cache utilization and an inability to overlap transfers with compute under tight VRAM budgets.\n  To address these challenges, we propose Mira, an algorithm-system co-design that enables high-capacity MoE inference on a single GPU. Mira shifts from a reactive to a proactive stance by coupling predictive expert management with a tailored quantization format. It introduces lightweight per-layer predictors that anticipate expert usage two layers ahead, enabling proactive prefetching. These predictions feed a two-tier HOT+STAGE GPU cache managed by token-level routing telemetry to retain frequently used experts while staging predicted ones. To minimize transfer overhead, Mira implements a custom compression for expert parameters, which reduces metadata and improves packing efficiency, while minimally degrading accuracy.\n  Mira is implemented as a fully integrated runtime that coordinates predictors, caching policies, and quantized transfers to maximize overlap between communication and compute. Our experiments show that Mira reduces expert-induced stalls. Compared against state-of-the-art baselines, Mira achieves a 5.71x speedup in average throughput on a memory-constrained GPU. It accelerates Time-to-First-Token by 11.71x and achieves a 3.84$x average speedup in beam search inference, demonstrating its effectiveness across diverse inference scenarios.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2609.38090"
+    },
+    {
+      "id": "arxiv:2608.09291",
+      "title": "UnionSparse: An Index-Efficient Sparsity Framework for Low-Bit Sparse LLM Inference on Edge",
+      "url": "https://arxiv.org/abs/2608.09291v1",
+      "published_at": "2026-08-10T08:43:19Z",
+      "provider": "arxiv",
+      "provider_rank": 7,
+      "revision_hash": "efae5f81defc254f9078505d3ce6bdb33e5e217cebab1ba3efd1e52c2a18d553",
+      "abstract": "Edge LLM inference combines sparsity and low-bit quantization to meet device memory, latency, and power limits. Yet quantization shrinks weight payloads without proportionally reducing sparse metadata, so index traffic and nonzero extraction become critical SpMM bottlenecks. We introduce the Payload-to-Metadata Ratio (PMR) and show that improving PMR raises effective compute intensity in decoding.\n  We present UnionSparse, an index-efficient framework that combines Index-Efficient Bitmap Encoding (IE-BME) with a SpMM kernel using Low-Bit Shared-Memory Parallel Decoding (LSPD). IE-BME amortizes metadata and aligns sparse traversal with fragment assembly, while LSPD improves small-batch execution. Under W4A4 quantization and 30%--70% sparsity, UnionSparse outperforms FlashLLM and SpInfer by 2.30x and 1.43x, and CUTLASS and cuBLAS Tensor Core by 1.56x and 3.46x, respectively. These results establish payload-extraction efficiency as a first-order concern for low-bit sparse inference on edge GPUs. Source code is available at: https://github.com/Victor-Alen/UnionSparse.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2608.09291"
+    },
+    {
+      "id": "arxiv:2610.29820",
+      "title": "UlaCache: Unified Logical Addressing for Sparse LLM Serving",
+      "url": "https://arxiv.org/abs/2610.29820v1",
+      "published_at": "2026-10-21T14:46:11Z",
+      "provider": "arxiv",
+      "provider_rank": 8,
+      "revision_hash": "6b71d687816f32cb6ab3080747d037ff7f911dd85da5ea7a9f23bd63988b6050",
+      "abstract": "Long contexts increase the memory cost of the key-value (KV) cache in large language model (LLM) inference. Sparse attention reduces attention computation and memory traffic by selecting historical tokens, but the retained KV cache must remain available for later decoding steps. We present UlaCache, a KV cache management system built around a unified logical address space spanning GPU KV pools and optional CPU memory. Stable logical references let the inference engine allocate and select KV independently of physical placement. Common allocation and sparse-access interfaces support data-parallel (DP) and tensor-parallel (TP) attention. For distributed storage, local GPU buffers retain selected KV across decoding steps, so only missing entries require transfers. When CPU storage is enabled, Parallel Bucketed LRU (PB-LRU) manages a GPU pool shared across requests. It updates recency metadata and selects eviction victims in parallel. UlaCache transfers KV and then updates the address mappings. With speculative decoding enabled under matched CPU and GPU memory budgets, UlaCache achieves peak decoding throughput speedups of 1.16 $\\times$ (DP) and 1.70 $\\times$ (TP) on H200, and 1.73 $\\times$ (DP) and 2.51 $\\times$ (TP) on B300, compared with the state-of-the-art baseline.",
+      "read_depth": "abstract",
+      "canonical_paper_id": "arxiv:2610.29820"
+    }
+  ],
+  "paper_groups": {
+    "arxiv:2607.02391": [
+      "arxiv:2607.02391"
+    ],
+    "arxiv:2606.28565": [
+      "arxiv:2606.28565"
+    ],
+    "arxiv:2606.20537": [
+      "arxiv:2606.20537"
+    ],
+    "arxiv:2607.26076": [
+      "arxiv:2607.26076"
+    ],
+    "arxiv:2609.10790": [
+      "arxiv:2609.10790"
+    ],
+    "arxiv:2609.38090": [
+      "arxiv:2609.38090"
+    ],
+    "arxiv:2608.09291": [
+      "arxiv:2608.09291"
+    ],
+    "arxiv:2610.29820": [
+      "arxiv:2610.29820"
+    ]
+  },
+  "unique_paper_identities": 8,
+  "interpretation": "Mirrors sharing an explicit identity are one paper, not independent supporting evidence; unresolved identities may still duplicate.",
+  "status": "completed",
+  "date_semantics": "publication/submission date; after inclusive, before exclusive",
+  "logical_provider_calls": 1,
+  "model_calls": 0,
+  "gpu_calls": 0,
+  "coverage": "Bounded relevance-ranked provider results, not exhaustive retrieval. Seed lookup is not independent discovery. Mirrors retain source IDs; no title-based deduplication.",
+  "output": "/Users/shreyas/.local/share/autoresearch-reviews/guided-discovery-20261022-001/paper-http-diagnostics/state/research/records/20261022T020945-paper-search-a0689677",
+  "snapshot": {
+    "namespace": "research",
+    "deferred": true,
+    "published": false,
+    "local_state_retained": true,
+    "snapshot_required": true,
+    "at": "2026-10-22T02:09:47.092601+00:00",
+    "command": "paper-search",
+    "next_action": "researchctl snapshot --namespace research",
+    "meaning": "Local source records, receipts and journal retained; no new recovery snapshot or S3 backup yet"
+  }
+}

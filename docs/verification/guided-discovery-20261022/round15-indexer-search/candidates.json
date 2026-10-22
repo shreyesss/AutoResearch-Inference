@@ -1,0 +1,105 @@
+[
+  {
+    "intervention_id": "AT02",
+    "record_type": "refinement_same_identity",
+    "statement": "Exact cross-query sparse KV reuse with SCSD/common-private segmentation, no private-tail pruning, considering prefill and native verification rows",
+    "mechanism": "Use same-request typed support intersection/union to reuse selected KV loads across query tokens while preserving each query support, multiplicity, causal mask and normalization",
+    "proposed_change": "Evaluate QUILT exact cascades or pinned FlashInfer union-mask preparation as implementation options under existing AT02. In native verification, share typed compressed-cache common entries first; keep SWA private. Never assume five target query rows.",
+    "support": [
+      {
+        "path": "sources/fulltext-2610.11134v1.txt",
+        "sha256": "d986ffd913410d6e2a3171d1b57eb3db5e9f59529e38ba26d9baf534fab6130d",
+        "quote": "This push-down is exact and trades a small amount of sharing for improved tile utilization.",
+        "url": "https://arxiv.org/html/2610.11134v1",
+        "relation": "supports",
+        "pin": "2610.11134v1"
+      },
+      {
+        "path": "sources/vllm__vllm__models__deepseek_v41__nvidia__flash_mla_mega_attn.py",
+        "sha256": "d737d96e8d7848b47e4181efb435807f793aca28fc8718afaa83365cc3945ed6",
+        "quote": "self._compressed_kv_cache().unsqueeze(-2), indices, lens",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/models/deepseek_v41/nvidia/flash_mla_mega_attn.py",
+        "relation": "background",
+        "pin": "c4557869393db4d75c483d92edd02a5125500883"
+      },
+      {
+        "path": "sources/flashmla__csrc__cuda_kernels__sm100__prefill__sparse__fused_norm_rope_attn_rope_cast_fwd__core_attn__kernel.cuh",
+        "sha256": "1b4507fe7d2edeb50e90145c368f2ea2c93da9522b1834d2691bdb7dc993f3c5",
+        "quote": "uint32_t s_q_idx = cta_x_idx / CLUSTER_SIZE;",
+        "url": "https://github.com/vllm-project/FlashMLA/blob/5dceadbd9eabc9acfc547ef18ec8f7b14b980682/csrc/cuda_kernels/sm100/prefill/sparse/fused_norm_rope_attn_rope_cast_fwd/core_attn/kernel.cuh",
+        "relation": "background",
+        "pin": "5dceadbd9eabc9acfc547ef18ec8f7b14b980682"
+      }
+    ],
+    "counterevidence": [
+      "Target prefill already gathers and dequantizes BF16 once; donor per-query dequantization savings cannot be claimed there.",
+      "Ascend NPU Top-2048 results do not predict B200 Top-512 performance.",
+      "Packing, masks, padded tiles, sorting and query/head layout costs remain unknown.",
+      "The existing fused core reuses KV across 64 heads of one token; L2 may already supply incidental cross-token reuse.",
+      "Per-row Q and Top-K are not guaranteed equal at compression ratio 2; short-context all-candidate filling is a separate exception."
+    ],
+    "pin_check": "Source baseline only; configured FlashMLA dependency pin is not live-binary attestation.",
+    "prior_comparison": "Same AT02 bounded query grouping and reuse mechanism. This adds concrete algorithm and donor options plus a native-verification exposure question; it is not a new identity.",
+    "status": "deferred",
+    "CPUcheck": [
+      "scsd_contract.json",
+      "../review/round15/softmax_contract.json"
+    ],
+    "evaluation_plan": "First inspect archived typed index traces for overlap and existing kernel shapes. Later, if authorized and eligible, compare token/logit correctness and per-round timing before unchanged agent-75 and Mooncake tests. Separate prefill TTFT and decode ITL arms.",
+    "ROI": "Unknown: no compatible target overlap or exposed-time measurements.",
+    "gpu_execution": false,
+    "implementation_ready": false
+  },
+  {
+    "intervention_id": "CMR01",
+    "record_type": "new_hypothesis",
+    "statement": "Capacity-preserving context-work-aware membership of already-enabled uniform-decode microbatches",
+    "mechanism": "Equal scheduled query-token counts can conceal unequal context-dependent producer-indexer work. Permute eligible complete request bundles into equal-capacity microbatches while preserving DP-agreed splits.",
+    "proposed_change": "After auditing actual DBO and adaptive-verification eligibility, evaluate a capacity-constrained context-work partition before request-derived metadata is built. Retain the original when the proxy worsens. Preserve request, cache, draft, logit and inverse-output mappings and class ordering. Never change rank-local split points independently.",
+    "support": [
+      {
+        "path": "sources/fulltext-2608.03555v1.txt",
+        "sha256": "f2ee3efe83dc026b37b034aa9558fa74e9813c94e099d0165ec818828cf6d16a",
+        "quote": "It moves no data between KARAT devices",
+        "url": "https://arxiv.org/html/2608.03555v1",
+        "relation": "supports",
+        "pin": "2608.03555v1"
+      },
+      {
+        "path": "sources/vllm__vllm__v1__worker__gpu__ubatch_utils.py",
+        "sha256": "995238da91dcb34ff7a0ad5ac5883f2bb4b5d6edddaa6bed8d0f1966166378c4",
+        "quote": "Splitting at the midpoint of the DP-padded token count",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/ubatch_utils.py",
+        "relation": "background",
+        "pin": "c4557869393db4d75c483d92edd02a5125500883"
+      },
+      {
+        "path": "sources/vllm__vllm__v1__worker__gpu__ubatch_utils.py",
+        "sha256": "995238da91dcb34ff7a0ad5ac5883f2bb4b5d6edddaa6bed8d0f1966166378c4",
+        "quote": "Microbatching pads every\n        DP rank alike",
+        "url": "https://github.com/callgideon/vllm/blob/c4557869393db4d75c483d92edd02a5125500883/vllm/v1/worker/gpu/ubatch_utils.py",
+        "relation": "refutes",
+        "pin": "c4557869393db4d75c483d92edd02a5125500883"
+      }
+    ],
+    "counterevidence": [
+      "DBO defaults to false; actual activation is unknown.",
+      "Adaptive verification reallocates draft budgets on GPU and can invalidate CPU bundle sizes.",
+      "Uniform query length with an odd request count can straddle the midpoint.",
+      "Per-microbatch DP token equality is a collective contract.",
+      "The greedy proxy worsened in 2 of 200 synthetic cases.",
+      "A local work-proxy reduction does not establish distributed critical-path improvement."
+    ],
+    "pin_check": "V2 slice helper and DP metadata verified at c455; actual launch is not live-attested.",
+    "prior_comparison": "Root searched 133 prior cards and found no exact context-weighted membership intervention. This differs from DP agreement RUNTIME-R2-02, SM quota N03 and route-histogram tile selection M01.",
+    "status": "deferred",
+    "CPUcheck": [
+      "cmr_contract.json",
+      "../review/round15-cmr/partition_falsifiers.json"
+    ],
+    "evaluation_plan": "Audit saved launch flags and complete uniform-bundle exposure. Replay actual CPU batch metadata and inverse mappings first. Later, unchanged agent-75 and Mooncake tests should stratify mixed-context traffic, retain the same DBO baseline, and report acceptance, ITL, TTFT tails and all-rank exposure. No GPU work now.",
+    "ROI": "Unknown. Scoped exposure is zero if DBO is off or no eligible batches occur.",
+    "gpu_execution": false,
+    "implementation_ready": false
+  }
+]

@@ -460,6 +460,24 @@ def _execute(root, args):
         _write(output / "result.json", value)
         return {"output": str(output), "result": value, "snapshot": _research_snapshot(root, args, publish=False)}
     if command == "hypothesis":
+        if args.hypothesis_command == "retain-artifacts":
+            from .hypothesis_artifacts import retain_artifacts
+            path = Path(args.manifest).expanduser()
+            if path.stat().st_size > 1024 * 1024:
+                raise ValueError("Artifact manifest exceeds 1MiB")
+            try:
+                result = retain_artifacts(root, json.loads(path.read_text()))
+            except BaseException as error:
+                try:
+                    _research_snapshot(root, args, publish=not args.local_only)
+                except Exception as checkpoint_error:
+                    checkpoint_error.mutation_error_type = type(error).__name__
+                    raise checkpoint_error from error
+                raise
+            output = root / "research/records" / ("artifact-retention-" + uuid.uuid4().hex)
+            _write(output / "result.json", result)
+            return {"retention": result, "output": str(output),
+                    "snapshot": _research_snapshot(root, args, publish=not args.local_only)}
         from .chat_memory import persist_card, recall_cards
         if args.hypothesis_command == "recall":
             return recall_cards(root, query=args.query, limit=args.limit)
@@ -709,6 +727,7 @@ def parser():
     prescreen = commands.add_parser("prescreen", help="Offline conditional ROI and cheapest diagnostic")
     prescreen.add_argument("--record", required=True)
     hypothesis = commands.add_parser("hypothesis").add_subparsers(dest="hypothesis_command", required=True)
+    hypothesis.add_parser("retain-artifacts", help="Retain explicitly reviewed hash-pinned text evidence; never execute sources").add_argument("--manifest", required=True)
     hypothesis.add_parser("record").add_argument("--record", required=True)
     hypothesis.add_parser("propose").add_argument("--record", required=True)
     hypothesis.add_parser("show").add_argument("id")

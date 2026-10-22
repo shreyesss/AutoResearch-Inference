@@ -1,6 +1,6 @@
 # Guided research: current delivery
 
-Latest update: [Checkpoint32](CHECKPOINT_32.md) adds deferred terminal-prefix residual-scan proposal FV86 and a reviewed fixed-block CPU round estimator exposed through CLI/MCP. Start with the [candidate map](CANDIDATE_MAP_30.md) plus [FV86](round86/REPORT.md) for source-supported opportunities and their decisive unknowns. Mathematical fixed-block evaluation is now available; native AV, probability acquisition and serving gains remain unqualified. Discovery continues without GPU execution or blanket S3 coverage claims.
+Latest update: [Checkpoint33](CHECKPOINT_33.md) adds independently reviewed communication/host-runtime screens and an FV86 metric audit. No new performance card survived these two paper lanes; a conditional readiness-reset dependency and a nonstreaming component remain searchable. [Checkpoint32](CHECKPOINT_32.md) delivered deferred terminal-prefix residual-scan proposal FV86 and a fixed-block CPU round estimator through CLI/MCP. Start with the [candidate map](CANDIDATE_MAP_30.md) plus [FV86](round86/REPORT.md) for opportunities and decisive unknowns. Native AV, probability acquisition and serving gains remain unqualified. Discovery continues without GPU execution or blanket S3 coverage claims.
 
 Read [Checkpoint16](CHECKPOINT_16.md) for the preceding science, tool changes, yield and durability limits. Earlier numbered checkpoints and the initial REPORT remain historical records.
 
